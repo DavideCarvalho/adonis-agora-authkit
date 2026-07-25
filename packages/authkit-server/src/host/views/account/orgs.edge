@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>{{ t('account.orgs.page_title') }}</title>
+  @include('authkit::partials/submit_lock')
 </head>
 <body>
   @if(!supported)

@@ -1,6 +1,6 @@
 {
   "name": "@adonis-agora/authkit-react",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "description": "Frontend ergonomics over AuthKit for AdonisJS + Inertia + React apps: a typed useAuth() hook, role-gating hooks and gating components.",
   "license": "MIT",
   "author": "dudousxd",
@@ -28,7 +28,10 @@
   "type": "module",
   "main": "./build/index.js",
   "types": "./build/index.d.ts",
-  "files": ["build", "styles.css"],
+  "files": [
+    "build",
+    "styles.css"
+  ],
   "exports": {
     ".": "./build/index.js",
     "./types": "./build/index.js",

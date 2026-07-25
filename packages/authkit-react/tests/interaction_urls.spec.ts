@@ -7,10 +7,11 @@
 
 import { test } from '@japa/runner';
 import { InteractionForm, type InteractionFormProps } from '../src/components/interaction_form.js';
-import { MagicLinkButton } from '../src/components/magic_link_button.js';
+import { MagicLinkButton, type MagicLinkButtonProps } from '../src/components/magic_link_button.js';
 import { OAuthButton } from '../src/components/oauth_button.js';
 import {
   type InteractionPostStep,
+  OTP_CODE_FIELD,
   interactionUrls,
   oauthRedirectUrl,
 } from '../src/interaction/urls.js';
@@ -26,6 +27,18 @@ test.group('interactionUrls (tier 3)', () => {
     assert.equal(u.switch, '/auth/interaction/abc/switch');
     assert.equal(u.passkeyOptions, '/auth/interaction/abc/passkey/options');
     assert.equal(u.passkeyVerify, '/auth/interaction/abc/passkey/verify');
+    assert.equal(u.otpVerify, '/auth/interaction/abc/otp-verify');
+  });
+
+  test('otpVerify follows the uid and custom base path', ({ assert }) => {
+    assert.equal(interactionUrls('uid-9').otpVerify, '/auth/interaction/uid-9/otp-verify');
+    assert.equal(interactionUrls('abc', '/session/flow').otpVerify, '/session/flow/abc/otp-verify');
+  });
+
+  test('OTP_CODE_FIELD is the field the server reads (code)', ({ assert }) => {
+    // Pino do contrato com o `otpVerify` do authkit-server
+    // (`ctx.request.input('code')`): mudou aqui, tem que mudar lá — e vice-versa.
+    assert.equal(OTP_CODE_FIELD, 'code');
   });
 
   test('honors a custom base path', ({ assert }) => {
@@ -76,5 +89,21 @@ test.group('InteractionForm / MagicLinkButton / OAuthButton — exports e types'
     assert.equal(props.step, 'magic');
     assert.equal(props.uid, 'u');
     assert.equal(props.csrfToken, 't');
+  });
+
+  test('InteractionPostStep accepts otpVerify (form POST step)', ({ assert }) => {
+    const step: InteractionPostStep = 'otpVerify';
+    const props: InteractionFormProps = { uid: 'u', step, csrfToken: 't' };
+    assert.equal(props.step, 'otpVerify');
+  });
+
+  test('MagicLinkButtonProps accepts the choose-first channel', ({ assert }) => {
+    const props: MagicLinkButtonProps = {
+      uid: 'u',
+      csrfToken: 't',
+      channel: 'code',
+      pendingChildren: 'Enviando…',
+    };
+    assert.equal(props.channel, 'code');
   });
 });

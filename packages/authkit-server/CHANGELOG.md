@@ -1,5 +1,15 @@
 # @adonis-agora/authkit-server
 
+## 0.53.0
+
+### Minor Changes
+
+- Anti-duplo-submit nas views built-in e tela amigável de throttle:
+
+  - Novo partial `authkit::partials/submit_lock` (trava anti-duplo-submit por delegação no `document`, agendada pós-dispatch) incluído em todas as views Edge com forms POST (login, signup, forgot, reset, mfa-challenge, consent, maintenance e `account/*`). Forms disparados via `form.submit()` (auto-submit de passkey) não disparam `submit` e seguem destravados de propósito.
+  - Os throttles de browser (`login`, `sudo`, `otpLogin`) agora renderizam a view themeável `throttled` (Edge built-in; allowlistável no `inertiaRenderer`) em vez do 429 cru do limiter — com header `Retry-After`, os segundos na tela e link de volta pro passo atual (raiz da interaction quando há `uid`). Os throttles de API (`introspection`, `adminIp`) seguem com o 429 cru, que é o contrato correto pra máquina.
+  - Novas chaves i18n `throttled.*` nos catálogos embutidos `en` e `pt-BR`.
+
 ## 0.52.1
 
 ### Patch Changes

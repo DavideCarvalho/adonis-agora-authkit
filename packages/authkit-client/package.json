@@ -29,7 +29,10 @@
   "type": "module",
   "main": "./build/index.js",
   "types": "./build/index.d.ts",
-  "files": ["build", "stubs"],
+  "files": [
+    "build",
+    "stubs"
+  ],
   "exports": {
     ".": "./build/index.js",
     "./types": "./build/index.js",
@@ -43,8 +46,12 @@
   },
   "adonisjs": {
     "types": "@adonis-agora/authkit-client",
-    "providers": ["@adonis-agora/authkit-client/authkit_client_provider"],
-    "commands": ["@adonis-agora/authkit-client/commands"]
+    "providers": [
+      "@adonis-agora/authkit-client/authkit_client_provider"
+    ],
+    "commands": [
+      "@adonis-agora/authkit-client/commands"
+    ]
   },
   "scripts": {
     "build": "tsc && node -e \"require('node:fs').cpSync('stubs','build/stubs',{recursive:true,filter:(s)=>!s.endsWith('.ts')})\"",

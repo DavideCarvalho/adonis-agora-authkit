@@ -1,0 +1,49 @@
+{{--
+  Trava anti-duplo-submit dos forms clássicos (`method="POST"` com navegação).
+
+  Por quê: os endpoints de interaction/conta disparam ações custosas (envio de
+  e-mail, cerimônia WebAuthn, verificação de código) e, sem feedback, o usuário
+  clica de novo — cada clique vira um POST duplicado e, nas rotas throttled,
+  derruba o usuário no 429 por mera impaciência.
+
+  Como:
+  - Listener DELEGADO no `document` — cobre todo form, inclusive os montados
+    depois (sem precisar marcar forms um a um).
+  - A trava é agendada com `setTimeout(0)`: roda DEPOIS do dispatch do `submit`,
+    quando o entry-list do form já foi construído (um botão de submit NOMEADO
+    preserva seu valor no POST) e handlers que chamam `preventDefault` já
+    rodaram (aí `defaultPrevented` evita travar à toa — sem navegação, sem
+    botão morto).
+  - Validação nativa que barra o submit nem dispara o evento — a trava nunca
+    liga num form inválido.
+  - `form.submit()` (JS puro, ex.: auto-submit de passkey) NÃO dispara `submit`
+    — esses forms seguem destravados de propósito.
+  - Não há "destravar": a resposta (redirect ou re-render de erro) chega como
+    documento NOVO e a página remonta.
+
+  Incluído view a view (não no partial de styles, que é GERADO por
+  scripts/build_host_css.mjs e sobrescreveria a linha).
+--}}
+<script>
+  document.addEventListener('submit', function (event) {
+    const form = event.target
+    if (!(form instanceof HTMLFormElement)) return
+    setTimeout(function () {
+      if (event.defaultPrevented) return
+      form
+        .querySelectorAll('button[type="submit"], button:not([type]), input[type="submit"]')
+        .forEach(function (el) {
+          el.disabled = true
+        })
+      form.setAttribute('aria-busy', 'true')
+    }, 0)
+  })
+</script>
+<style>
+  form[aria-busy] button[type='submit'],
+  form[aria-busy] button:not([type]),
+  form[aria-busy] input[type='submit'] {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+</style>

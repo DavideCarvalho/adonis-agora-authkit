@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="pt-br"><head><meta charset="utf-8"><title>{{ t('throttled.page_title') }} — {{ brand && brand.appName ? brand.appName : t('common.app_fallback') }}</title>
+@include('authkit::partials/styles')
+</head>
+<body class="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+  <div class="w-full max-w-sm bg-white p-8 rounded-2xl shadow-xl ring-1 ring-black/5 text-center">
+    <div class="mb-4 flex justify-center">
+      <span class="inline-flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      </span>
+    </div>
+    <h1 class="text-xl font-semibold text-gray-900">{{ t('throttled.title') }}</h1>
+    <p class="mt-3 text-sm text-gray-600">
+      @if(retryAfter)
+        {{ t('throttled.body_seconds', { seconds: retryAfter }) }}
+      @else
+        {{ t('throttled.body') }}
+      @end
+    </p>
+    <a href="{{ retryUrl ?? '/' }}"
+      class="mt-6 inline-block rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-700">
+      {{ t('throttled.retry_link') }}
+    </a>
+  </div>
+</body></html>

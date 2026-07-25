@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="pt-br"><head><meta charset="utf-8"><title>{{ t('consent.page_title') }} — {{ brand && brand.appName ? brand.appName : t('common.app_fallback') }}</title>
 @include('authkit::partials/styles')
+@include('authkit::partials/submit_lock')
 </head>
 <body class="min-h-screen flex items-center justify-center bg-gray-50">
   <div class="w-full max-w-sm bg-white p-8 rounded-2xl shadow-xl ring-1 ring-black/5">
