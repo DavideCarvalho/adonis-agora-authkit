@@ -628,7 +628,8 @@ export const DEFAULT_MESSAGES = {
   // Tela amigável de throttle (429) nas rotas de browser — ver `withFriendly429`.
   'throttled.page_title': 'Too many attempts',
   'throttled.title': 'Too many attempts',
-  'throttled.body_seconds': 'You have made too many attempts. Please wait {seconds} seconds and try again.',
+  'throttled.body_seconds':
+    'You have made too many attempts. Please wait {seconds} seconds and try again.',
   'throttled.body': 'You have made too many attempts. Please wait a moment and try again.',
   'throttled.retry_link': 'Back and try again',
 
@@ -1608,7 +1609,8 @@ export const PT_BR_MESSAGES = {
   // Tela amigável de throttle (429) nas rotas de browser — ver `withFriendly429`.
   'throttled.page_title': 'Muitas tentativas',
   'throttled.title': 'Muitas tentativas',
-  'throttled.body_seconds': 'Você fez tentativas demais. Aguarde {seconds} segundos e tente de novo.',
+  'throttled.body_seconds':
+    'Você fez tentativas demais. Aguarde {seconds} segundos e tente de novo.',
   'throttled.body': 'Você fez tentativas demais. Aguarde um instante e tente de novo.',
   'throttled.retry_link': 'Voltar e tentar de novo',
 

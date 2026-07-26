@@ -13,23 +13,14 @@
   "bugs": {
     "url": "https://github.com/DavideCarvalho/adonis-authkit/issues"
   },
-  "keywords": [
-    "adonisjs",
-    "authkit",
-    "sdk",
-    "admin-api",
-    "oidc",
-    "authentication"
-  ],
+  "keywords": ["adonisjs", "authkit", "sdk", "admin-api", "oidc", "authentication"],
   "publishConfig": {
     "access": "public"
   },
   "type": "module",
   "main": "./build/index.js",
   "types": "./build/index.d.ts",
-  "files": [
-    "build"
-  ],
+  "files": ["build"],
   "exports": {
     ".": "./build/index.js",
     "./types": "./build/index.js"

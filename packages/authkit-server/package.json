@@ -31,10 +31,7 @@
   "type": "module",
   "main": "./build/index.js",
   "types": "./build/index.d.ts",
-  "files": [
-    "build",
-    "stubs"
-  ],
+  "files": ["build", "stubs"],
   "exports": {
     ".": "./build/index.js",
     "./types": "./build/index.js",
@@ -47,12 +44,8 @@
   },
   "adonisjs": {
     "types": "@adonis-agora/authkit-server",
-    "providers": [
-      "@adonis-agora/authkit-server/authkit_server_provider"
-    ],
-    "commands": [
-      "@adonis-agora/authkit-server/commands"
-    ]
+    "providers": ["@adonis-agora/authkit-server/authkit_server_provider"],
+    "commands": ["@adonis-agora/authkit-server/commands"]
   },
   "scripts": {
     "build": "node scripts/build_host_css.mjs && node scripts/build_webauthn.mjs && node scripts/build_ui.mjs && node -e \"const fs=require('node:fs');for(const d of ['build/stubs','build/host/views'])fs.rmSync(d,{recursive:true,force:true})\" && tsc && node -e \"require('node:fs').cpSync('src/host/assets','build/src/host/assets',{recursive:true})\" && node -e \"require('node:fs').cpSync('stubs','build/stubs',{recursive:true,filter:(s)=>!s.endsWith('.ts')})\" && node -e \"const fs=require('node:fs');if(fs.existsSync('assets'))fs.cpSync('assets','build/assets',{recursive:true})\" && node -e \"require('node:fs').cpSync('src/host/views','build/host/views',{recursive:true})\" && node -e \"const fs=require('node:fs');fs.mkdirSync('build/host/ui',{recursive:true});fs.readdirSync('src/host/ui').filter(f=>f.endsWith('.html')).forEach(f=>fs.copyFileSync('src/host/ui/'+f,'build/host/ui/'+f))\" && node -e \"require('node:fs').copyFileSync('commands/commands.json','build/commands/commands.json')\" && node -e \"const fs=require('node:fs');fs.mkdirSync('build/password',{recursive:true});fs.copyFileSync('src/password/common_passwords.txt','build/password/common_passwords.txt')\"",

@@ -28,10 +28,7 @@
   "type": "module",
   "main": "./build/index.js",
   "types": "./build/index.d.ts",
-  "files": [
-    "build",
-    "styles.css"
-  ],
+  "files": ["build", "styles.css"],
   "exports": {
     ".": "./build/index.js",
     "./types": "./build/index.js",

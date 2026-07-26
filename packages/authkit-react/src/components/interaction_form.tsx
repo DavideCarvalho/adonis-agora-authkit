@@ -1,9 +1,4 @@
-import {
-  type FormHTMLAttributes,
-  type ReactNode,
-  type SubmitEvent,
-  createElement,
-} from 'react';
+import { type FormHTMLAttributes, type ReactNode, type SubmitEvent, createElement } from 'react';
 import { type InteractionPostStep, interactionUrls } from '../interaction/urls.js';
 
 export interface InteractionFormProps
@@ -49,13 +44,11 @@ function lockOnSubmit(
   const form = formEvent.currentTarget;
   setTimeout(() => {
     if (formEvent.defaultPrevented) return;
-    form
-      .querySelectorAll<HTMLButtonElement | HTMLInputElement>(
-        'button[type="submit"], input[type="submit"]',
-      )
-      .forEach((el) => {
-        el.disabled = true;
-      });
+    for (const el of form.querySelectorAll<HTMLButtonElement | HTMLInputElement>(
+      'button[type="submit"], input[type="submit"]',
+    )) {
+      el.disabled = true;
+    }
     form.setAttribute('aria-busy', 'true');
   }, 0);
 }
