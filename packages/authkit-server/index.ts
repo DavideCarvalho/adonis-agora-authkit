@@ -442,3 +442,10 @@ export type {
 // `adonisAuth: { guard: '...' }` in config/authkit.ts so the account console's
 // login/logout also sync ctx.auth. See src/host/adonis_auth_user_provider.ts.
 export { authkitUserProvider } from './src/host/adonis_auth_user_provider.js';
+
+// @adonisjs/auth integration (opt-in) — guard pra Relying Parties OIDC.
+// O RP não autentica ninguém (sem senha); a identidade vem da sessão gravada
+// pelo callback OIDC. Plugado em config/auth.ts, faz ctx.auth.user funcionar
+// nativamente em qualquer app que consome o issuer via Authorization Code + PKCE.
+export { OidcRpGuard, oidcRpGuard } from './src/host/oidc_rp_guard.js';
+export type { OidcRpGuardOptions, OidcRpGuardEvents } from './src/host/oidc_rp_guard.js';
