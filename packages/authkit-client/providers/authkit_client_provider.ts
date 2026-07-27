@@ -9,6 +9,14 @@ import type { ResolvedClientConfig } from '../src/define_config.js';
 import { exchangeToken, refreshTokens } from '../src/oidc_login.js';
 import type { TokenSet } from '../src/types.js';
 
+interface SessionLike {
+  get(key: string): unknown;
+  put(key: string, value: unknown): void;
+  forget(key: string): void;
+}
+
+type CtxWithSession = HttpContext & { session?: SessionLike };
+
 /** Margem (ms) antes do `expiresAt` em que o access token é renovado proativamente. */
 const REFRESH_SKEW_MS = 60_000;
 
@@ -44,7 +52,9 @@ export class AuthkitClientManager {
    * (RP-initiated) como `id_token_hint` ao redirecionar para `end_session_endpoint`.
    */
   getIdToken(ctx: HttpContext): string | undefined {
-    const tokenSet = (ctx as any).session?.get(this.config.sessionKey) as TokenSet | undefined;
+    const tokenSet = (ctx as CtxWithSession).session?.get(this.config.sessionKey) as
+      | TokenSet
+      | undefined;
     return tokenSet?.idToken || undefined;
   }
 
@@ -58,7 +68,7 @@ export class AuthkitClientManager {
    * lida com a sessão expirada no fluxo normal. Chamado pelo middleware por request.
    */
   async maybeRefresh(ctx: HttpContext, deps: RefreshDeps = {}): Promise<void> {
-    const session = (ctx as any).session;
+    const session = (ctx as CtxWithSession).session;
     if (!session) return;
     const tokenSet = session.get(this.config.sessionKey) as TokenSet | undefined;
     if (!tokenSet?.refreshToken) return;
@@ -142,8 +152,9 @@ export class AuthkitClientManager {
    * do chamador (ex.: Bouncer) ANTES de chamar este método.
    */
   async impersonate(ctx: HttpContext, requestedSubject: string): Promise<void> {
-    const session = (ctx as any).session;
-    const current = session?.get(this.config.sessionKey) as TokenSet | undefined;
+    const session = (ctx as CtxWithSession).session;
+    if (!session) throw new Error('Sem sessão ativa para impersonar a partir dela');
+    const current = session.get(this.config.sessionKey) as TokenSet | undefined;
     if (!current?.accessToken) {
       throw new Error('Sem sessão ativa para impersonar a partir dela');
     }
@@ -161,8 +172,9 @@ export class AuthkitClientManager {
 
   /** Encerra a impersonação restaurando o token set original. Retorna false se não havia impersonação. */
   async stopImpersonating(ctx: HttpContext): Promise<boolean> {
-    const session = (ctx as any).session;
-    const original = session?.get(this.#impersonatorKey) as TokenSet | undefined;
+    const session = (ctx as CtxWithSession).session;
+    if (!session) return false;
+    const original = session.get(this.#impersonatorKey) as TokenSet | undefined;
     if (!original) return false;
     session.put(this.config.sessionKey, original);
     session.forget(this.#impersonatorKey);
@@ -171,7 +183,7 @@ export class AuthkitClientManager {
 
   /** Indica se a request corrente está impersonando (p/ exibir banner na UI). */
   isImpersonating(ctx: HttpContext): boolean {
-    return Boolean((ctx as any).session?.get(this.#impersonatorKey));
+    return Boolean((ctx as CtxWithSession).session?.get(this.#impersonatorKey));
   }
 
   async createAuthenticator(ctx: HttpContext): Promise<Authenticator> {
@@ -181,7 +193,7 @@ export class AuthkitClientManager {
       resolver,
       resolveUser: this.config.resolveUser,
       getAccessToken: () => {
-        const tokenSet = (ctx as any).session?.get(sessionKey) as TokenSet | undefined;
+        const tokenSet = (ctx as CtxWithSession).session?.get(sessionKey) as TokenSet | undefined;
         return tokenSet?.accessToken;
       },
     });
