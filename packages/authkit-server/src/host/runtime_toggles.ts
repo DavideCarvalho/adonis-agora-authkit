@@ -1279,6 +1279,12 @@ export async function resolveEffectiveTokenTtl(
  *
  * Controla se o painel de impersonation (RFC 8693 token exchange) é exibido no
  * console admin. FALLBACK: campo ausente cai em `config.admin.impersonation`.
+ *
+ * ESCOPO — governa o PAINEL, não o GRANT. Registrar o grant RFC 8693 no provider
+ * OIDC é decisão de boot de `config.admin.impersonation`; uma setting de runtime
+ * não desregistra rota que nunca foi registrada. Consumida por
+ * `host/admin_console/console_impersonation_controller.ts`, que checa o gate de
+ * config ANTES desta setting — logo o runtime só APERTA, nunca AFROUXA.
  */
 export interface AdminImpersonationSetting {
   enabled?: boolean;
@@ -1294,6 +1300,10 @@ export interface ResolvedAdminImpersonationSetting {
  *
  * Precedência: setting BD → configDefault → lib default (false).
  * FAIL-SAFE: qualquer erro → configDefault.
+ *
+ * Quando `admin.impersonation` foi declarado no `defineConfig`, a key fica
+ * travada e `settings.getSetting` devolve null (ver `host/config_locks.ts`) —
+ * então este resolver cai no `configDefault` sozinho. Config > runtime.
  */
 export async function resolveEffectiveAdminImpersonation(
   settings: SettingsCapability,

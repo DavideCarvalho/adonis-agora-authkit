@@ -22,6 +22,7 @@ import {
   resolveAdmin,
 } from '../src/define_config.js';
 import ConsoleImpersonationController from '../src/host/admin_console/console_impersonation_controller.js';
+import { resetLockedSettingKeys, setLockedSettingKeys } from '../src/host/config_locks.js';
 import { SETTING_KEYS } from '../src/host/runtime_toggles.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { fakeAccountStore } from './bootstrap.js';
@@ -78,8 +79,53 @@ function grantIsRegistered(service: OidcService): boolean {
   return inHandlers;
 }
 
-/** Contexto HTTP falso mínimo para o controller do console. */
-function fakeCtx(service: any, userId: string) {
+/**
+ * `lucid.db` mínimo para o READ path do {@link RuntimeSettings}: o probe da
+ * tabela (`from(...).select('key').limit(1)`) e a leitura global
+ * (`from(...).where('key', k).whereNull('organization_id').first()`).
+ *
+ * `null` = tabela `auth_settings` ausente: o probe lança, `hasTable()` vira
+ * false e toda leitura devolve null — que é como os resolvers caem no config.
+ */
+function fakeSettingsDb(rows: Record<string, unknown> | null) {
+  if (!rows) return {};
+  return {
+    from(_table: string) {
+      let key: string | null = null;
+      const chain: any = {
+        select: () => ({ limit: async () => [] }),
+        where(col: string, val: string) {
+          if (col === 'key') key = val;
+          return chain;
+        },
+        whereNull: () => chain,
+        first: async () =>
+          key !== null && key in rows
+            ? {
+                key,
+                organization_id: null,
+                value: JSON.stringify(rows[key]),
+                updated_at: new Date(),
+                updated_by: null,
+              }
+            : null,
+      };
+      return chain;
+    },
+  };
+}
+
+/**
+ * Contexto HTTP falso mínimo para o controller do console.
+ *
+ * `settingsRows` popula a tabela `auth_settings` do fake `lucid.db`; omitir
+ * significa "tabela ausente" (o caminho que os testes de config exercitam).
+ */
+function fakeCtx(
+  service: any,
+  userId: string,
+  settingsRows: Record<string, unknown> | null = null,
+) {
   let status = 200;
   let body: any;
   const set = (b: any) => {
@@ -100,7 +146,10 @@ function fakeCtx(service: any, userId: string) {
       send: set,
     },
     session: { get: () => 'admin-1' },
-    containerResolver: { make: async () => service },
+    containerResolver: {
+      make: async (binding: string) =>
+        binding === 'lucid.db' ? fakeSettingsDb(settingsRows) : service,
+    },
   } as any;
   return { ctx, status: () => status, body: () => body };
 }
@@ -195,5 +244,104 @@ test.group('admin.impersonation — config lock', () => {
   test('admin sem impersonation NÃO trava a setting (a UI segue mandando)', async ({ assert }) => {
     const cfg = await resolvedConfig({ admin: { enabled: true } });
     assert.notInclude(cfg.lockedSettingKeys, SETTING_KEYS.ADMIN_IMPERSONATION);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Plano 017 / Parte B — a setting de runtime `admin_impersonation` governa o
+// PAINEL do console (e só ele). O grant RFC 8693 é decisão de boot do config:
+// uma setting de runtime não desregistra rota que nunca foi registrada.
+//
+// A regra de precedência: runtime só APERTA, nunca AFROUXA. Duas barreiras
+// independentes garantem isso — (1) o kill switch de config é checado ANTES da
+// setting; (2) declarar `admin.impersonation` TRAVA a key, e `getSetting`
+// devolve null para key travada, então o resolver cai no valor do config.
+// ───────────────────────────────────────────────────────────────────────────
+
+test.group('admin.impersonation — setting de runtime governa o painel', (group) => {
+  group.each.teardown(() => resetLockedSettingKeys());
+
+  test('config permite (não declarado) + setting false → painel 404', async ({ assert }) => {
+    const cfg = await resolvedConfig({ admin: { enabled: true } });
+    assert.isTrue(cfg.admin.impersonation, 'pré-condição: o config default permite');
+    assert.notInclude(
+      cfg.lockedSettingKeys,
+      SETTING_KEYS.ADMIN_IMPERSONATION,
+      'pré-condição: sem declarar, a key NÃO está travada — a setting manda',
+    );
+    setLockedSettingKeys(cfg.lockedSettingKeys);
+
+    const { ctx, status, body } = fakeCtx({ config: cfg }, 'target-1', {
+      [SETTING_KEYS.ADMIN_IMPERSONATION]: { enabled: false },
+    });
+
+    await new ConsoleImpersonationController().handle(ctx);
+
+    assert.equal(status(), 404);
+    assert.equal(body().error.code, 'capability_unsupported');
+  });
+
+  test('config permite (não declarado) + setting true → painel abre', async ({ assert }) => {
+    const cfg = await resolvedConfig({ admin: { enabled: true } });
+    setLockedSettingKeys(cfg.lockedSettingKeys);
+
+    const { ctx, status } = fakeCtx({ config: cfg }, 'target-1', {
+      [SETTING_KEYS.ADMIN_IMPERSONATION]: { enabled: true },
+    });
+
+    const result: any = await new ConsoleImpersonationController().handle(ctx);
+
+    assert.equal(status(), 200);
+    assert.equal(result.grantType, TOKEN_EXCHANGE);
+  });
+
+  test('config TRAVA a key (impersonation: true) → setting false é ignorada', async ({
+    assert,
+  }) => {
+    const cfg = await resolvedConfig({ admin: { enabled: true, impersonation: true } });
+    assert.include(
+      cfg.lockedSettingKeys,
+      SETTING_KEYS.ADMIN_IMPERSONATION,
+      'pré-condição: declarar no defineConfig trava a key',
+    );
+    setLockedSettingKeys(cfg.lockedSettingKeys);
+
+    const { ctx, status } = fakeCtx({ config: cfg }, 'target-1', {
+      [SETTING_KEYS.ADMIN_IMPERSONATION]: { enabled: false },
+    });
+
+    const result: any = await new ConsoleImpersonationController().handle(ctx);
+
+    assert.equal(status(), 200, 'config travado vence a setting de runtime');
+    assert.equal(result.grantType, TOKEN_EXCHANGE);
+  });
+
+  test('a setting NÃO pode AFROUXAR o kill switch do config', async ({ assert }) => {
+    // Config desligou impersonation: o grant token-exchange nem foi registrado.
+    // Uma setting `enabled: true` não pode reabrir o painel — seria um painel que
+    // devolve parâmetros RFC 8693 para um grant que não existe.
+    const cfg = await resolvedConfig({ admin: { enabled: true, impersonation: false } });
+    setLockedSettingKeys(cfg.lockedSettingKeys);
+
+    const { ctx, status, body } = fakeCtx({ config: cfg }, 'target-1', {
+      [SETTING_KEYS.ADMIN_IMPERSONATION]: { enabled: true },
+    });
+
+    await new ConsoleImpersonationController().handle(ctx);
+
+    assert.equal(status(), 404);
+    assert.equal(body().error.code, 'capability_unsupported');
+  });
+
+  test('sem a tabela auth_settings o painel segue o config (fail-safe)', async ({ assert }) => {
+    const cfg = await resolvedConfig({ admin: { enabled: true } });
+    setLockedSettingKeys(cfg.lockedSettingKeys);
+
+    const { ctx, status } = fakeCtx({ config: cfg }, 'target-1', null);
+
+    const result: any = await new ConsoleImpersonationController().handle(ctx);
+
+    assert.equal(status(), 200);
+    assert.equal(result.grantType, TOKEN_EXCHANGE);
   });
 });
