@@ -4,6 +4,7 @@ import type { AllyDriverContract } from '@adonisjs/ally/types';
 import type { HttpContext } from '@adonisjs/core/http';
 import { supportsProviderIdentity } from '../../accounts/account_store.js';
 import { assertLoginAllowed } from '../login_attempt.js';
+import { resolveRuntimeSettingsOrNoop } from '../runtime_settings.js';
 
 const UID_SESSION_KEY = 'authkit_social_uid';
 
@@ -96,14 +97,35 @@ export default class AuthSocialController {
       user = created;
     }
 
-    // Status da conta (disabled/expired): mesmo gate de `attemptPasswordLogin`,
-    // agora aplicado ao login social (o callback já voltou do provider OAuth —
-    // não há um passo de formulário para re-renderizar um erro, então seguimos a
-    // convenção existente deste controller e redirecionamos de volta ao login).
-    // Emite o MESMO evento de auditoria que os outros fluxos.
+    // Status da conta: mesmo gate compartilhado dos demais fluxos de login. O
+    // callback já voltou do provider OAuth — não há passo de formulário para
+    // re-renderizar um erro, então seguimos a convenção deste controller e
+    // redirecionamos de volta ao login.
+    //
+    // O QUE ESTE CAMINHO APLICA:
+    //  - `disabled` → recusa (evento `login.failure` com `reason: 'disabled'`).
+    //  - `account_expiration` (inatividade) → recusa (evento
+    //    `account.expired_login_blocked`). Isto exige `settings`: sem eles,
+    //    `assertAccountNotExpired` deixa AMBAS as checagens de expiração como
+    //    no-op, e era exatamente esse o bug — uma política de controle de acesso
+    //    valendo em todo lugar menos no "Continue with Google".
+    //
+    // O QUE ESTE CAMINHO **NÃO** FAZ:
+    //  - Não tem um passo de troca de senha. `password_expiration` vem junto no
+    //    gate combinado (`assertLoginAllowed` = disabled → password_expired →
+    //    account_expired) e portanto passa a ser alcançável aqui, mas só quando
+    //    o operador LIGOU essa política (o default é `enabled: false`) E a conta
+    //    tem senha vencida. Nesse caso o login social é recusado e o usuário
+    //    volta ao `/auth/interaction/:uid`, onde o fluxo de senha o leva à troca
+    //    obrigatória — este controller não renderiza essa etapa.
+    //
+    // `resolveRuntimeSettingsOrNoop` degrada para um RuntimeSettings no-op quando
+    // não há tabela de settings — host sem a migração continua logando por social.
+    const settings = await resolveRuntimeSettingsOrNoop(ctx);
     const statusGate = await assertLoginAllowed(cfg, user.id, {
       email: user.email,
       ip: ctx.request.ip?.() ?? null,
+      settings,
     });
     if (!statusGate.allowed) {
       ctx.session.forget(UID_SESSION_KEY);

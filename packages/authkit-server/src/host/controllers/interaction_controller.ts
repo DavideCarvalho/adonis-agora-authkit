@@ -27,7 +27,7 @@ import {
   rawToDbOtpUnlockToken,
   resolveEffectiveOtpLockout,
 } from '../otp_lockout.js';
-import { RuntimeSettings, resolveRuntimeSettings } from '../runtime_settings.js';
+import { type RuntimeSettings, resolveRuntimeSettingsOrNoop } from '../runtime_settings.js';
 import {
   resolveEffectiveAuthMethods,
   resolveEffectiveMaintenanceMode,
@@ -39,25 +39,6 @@ import {
   buildTrustedDevicePayload,
   isTrustedDeviceValid,
 } from '../trusted_device.js';
-
-/**
- * Best-effort: returns a RuntimeSettings backed by the container DB, or a no-op
- * fallback. Contrato NON-NULL preservado — é chamado 6× passando direto p/
- * funções que exigem `SettingsCapability` non-null. Reusa a fábrica canônica
- * `resolveRuntimeSettings` e degrada para o RuntimeSettings no-op (probe via
- * SELECT lança → tabela ausente → config fallback) quando a resolução falha.
- */
-async function getRuntimeSettings(ctx: HttpContext): Promise<RuntimeSettings> {
-  const rs = await resolveRuntimeSettings(ctx);
-  return (
-    rs ??
-    new RuntimeSettings({
-      table: () => {
-        throw new Error('no-op');
-      },
-    })
-  );
-}
 
 /**
  * Chave i18n do erro de status de conta (disabled/expired) compartilhada pelos
@@ -104,7 +85,7 @@ export default class AuthInteractionController {
     cfg: ResolvedServerConfig,
     runtimeSettings?: RuntimeSettings,
   ) {
-    const settings = runtimeSettings ?? (await getRuntimeSettings(ctx));
+    const settings = runtimeSettings ?? (await resolveRuntimeSettingsOrNoop(ctx));
     const magicLinkCapableConfig =
       cfg.passwordless.magicLink && supportsMagicLink(cfg.accountStore);
     const authMethods = await resolveEffectiveAuthMethods(settings, {
@@ -135,7 +116,7 @@ export default class AuthInteractionController {
     // Maintenance mode: verifica se é uma conta admin antes de bloquear.
     // Contas admin continuam podendo logar para que o operador possa desligar a
     // manutenção via console. Contas comuns veem a tela de manutenção.
-    const runtimeSettingsForMaintenance = await getRuntimeSettings(ctx);
+    const runtimeSettingsForMaintenance = await resolveRuntimeSettingsOrNoop(ctx);
     const maintenance = await resolveEffectiveMaintenanceMode(runtimeSettingsForMaintenance);
     if (maintenance.enabled) {
       // Verifica se já há uma conta admin na sessão (já autenticado) OU
@@ -221,7 +202,7 @@ export default class AuthInteractionController {
     // Effective bot protection: may be overridden at runtime via auth_settings.
     const effectiveBot = await resolveEffectiveBotProtection(
       cfg.botProtection,
-      await getRuntimeSettings(ctx),
+      await resolveRuntimeSettingsOrNoop(ctx),
     );
 
     // Session policy: resolve para exibir o checkbox "manter conectado".
@@ -281,7 +262,7 @@ export default class AuthInteractionController {
     const clientId = (details.params.client_id as string | undefined) ?? null;
 
     // Resolve runtime settings (reutilizado por bot + maintenance + verifiedEmail + session_policy).
-    const runtimeSettings = await getRuntimeSettings(ctx);
+    const runtimeSettings = await resolveRuntimeSettingsOrNoop(ctx);
 
     // Maintenance mode: verifica se a conta que tenta logar é admin.
     // Admins CONTINUAM podendo logar (senão o operador se tranca fora).
@@ -535,7 +516,7 @@ export default class AuthInteractionController {
     const { code, recoveryCode } = ctx.request.only(['code', 'recoveryCode']);
 
     // Resolve OTP lockout settings (fail-safe).
-    const runtimeForOtp = await getRuntimeSettings(ctx);
+    const runtimeForOtp = await resolveRuntimeSettingsOrNoop(ctx);
     const otpLockoutCfg = await resolveEffectiveOtpLockout(runtimeForOtp);
     const otpLockout = createOtpLockout(otpLockoutCfg, ctx.logger);
 
@@ -865,7 +846,7 @@ export default class AuthInteractionController {
     }
     // E-mail não verificado (LGPD/compliance): mesmo com o link válido, não
     // materializa a sessão se a política exige verificação. Volta ao login com erro.
-    const magicLinkRuntimeSettings = await getRuntimeSettings(ctx);
+    const magicLinkRuntimeSettings = await resolveRuntimeSettingsOrNoop(ctx);
     if (await isEmailUnverifiedBlock(cfg, acc.id, magicLinkRuntimeSettings)) {
       await cfg.audit?.record({
         type: 'login.failure',
@@ -981,7 +962,7 @@ export default class AuthInteractionController {
     if (result.status === 'ok') {
       // E-mail não verificado (LGPD): mesmo com código válido, não materializa a
       // sessão se a política exige verificação. Espelha o magicLinkConsume.
-      const runtimeSettings = await getRuntimeSettings(ctx);
+      const runtimeSettings = await resolveRuntimeSettingsOrNoop(ctx);
       if (await isEmailUnverifiedBlock(cfg, result.account.id, runtimeSettings)) {
         await cfg.audit?.record({
           type: 'login.failure',
@@ -1215,7 +1196,7 @@ export default class AuthInteractionController {
     // E-mail não verificado (LGPD/compliance): bloqueia mesmo com a passkey válida.
     // Relevante sobretudo no passkey-first (a etapa de senha — que também checa —
     // não rodou). Volta à tela de desafio com o erro.
-    const passkeyRuntimeSettings = await getRuntimeSettings(ctx);
+    const passkeyRuntimeSettings = await resolveRuntimeSettingsOrNoop(ctx);
     if (await isEmailUnverifiedBlock(cfg, accountId, passkeyRuntimeSettings)) {
       await cfg.audit?.record({
         type: 'login.failure',
@@ -1454,7 +1435,7 @@ export default class AuthInteractionController {
       }
 
       // Token válido: zera o lock OTP + limpa o token do DB.
-      const runtimeForOtp = await getRuntimeSettings(ctx);
+      const runtimeForOtp = await resolveRuntimeSettingsOrNoop(ctx);
       const otpLockoutCfg = await resolveEffectiveOtpLockout(runtimeForOtp);
       const otpLockout = createOtpLockout(otpLockoutCfg, ctx.logger);
       await otpLockout.unlock(row.id);

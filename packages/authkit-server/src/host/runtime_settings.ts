@@ -365,3 +365,30 @@ export async function resolveRuntimeSettings(ctx: HttpContext): Promise<RuntimeS
     return null;
   }
 }
+
+/**
+ * Variante NON-NULL de {@link resolveRuntimeSettings}: quando a resolução falha
+ * (DB ausente, serviço não registrado), devolve um {@link RuntimeSettings} no-op
+ * cujo probe de tabela lança — logo `hasTable()` vira false e TODA leitura
+ * retorna null, fazendo os resolvers caírem no config estático.
+ *
+ * Use esta quando o chamador precisa passar um `SettingsCapability` non-null
+ * adiante (é o caso dos gates de login, que só rodam as checagens de expiração
+ * quando recebem `settings`). Use {@link resolveRuntimeSettings} quando o `null`
+ * carrega semântica própria (ex.: responder `capability_unsupported`).
+ *
+ * Vive AQUI, e não em um controller, porque é sobre runtime settings — o
+ * `interaction_controller` e o `social_controller` a compartilham; uma segunda
+ * cópia da degradação no-op é como as duas divergem.
+ */
+export async function resolveRuntimeSettingsOrNoop(ctx: HttpContext): Promise<RuntimeSettings> {
+  const rs = await resolveRuntimeSettings(ctx);
+  return (
+    rs ??
+    new RuntimeSettings({
+      table: () => {
+        throw new Error('no-op');
+      },
+    })
+  );
+}
