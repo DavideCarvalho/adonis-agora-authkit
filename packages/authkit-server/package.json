@@ -128,6 +128,8 @@
     "@japa/assert": "catalog:",
     "@japa/runner": "catalog:",
     "@poppinss/ts-exec": "catalog:",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/ioredis-mock": "^8.2.7",
     "@types/koa": "^2.15.2",
     "@types/koa-mount": "^4.0.5",
     "@types/luxon": "catalog:adonis",

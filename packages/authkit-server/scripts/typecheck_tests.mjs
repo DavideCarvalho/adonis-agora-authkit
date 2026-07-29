@@ -24,11 +24,23 @@
  * This is a regression gate, not a suppression: nothing is hidden, `tsc`'s full
  * output is printed on any failure.
  *
- * NOT WIRED INTO `pnpm typecheck` / CI yet — deliberately. The count depends on
- * the installed `@types/*` set (40 of the errors are missing declaration files
- * for `ioredis-mock` and `better-sqlite3`), so a CI image with a different
- * install state would move the number for reasons unrelated to the code. Wire
- * it in once the baseline reaches 0.
+ * THE COUNT USED TO DEPEND ON INSTALL STATE. It no longer does. 41 of the
+ * original errors were `TS7016` — missing declaration files for `ioredis-mock`
+ * and `better-sqlite3`. Those declarations were installed all along, but only as
+ * peers inside pnpm's store, which is never on TypeScript's `node_modules/@types`
+ * upward walk. Declaring `@types/ioredis-mock` and `@types/better-sqlite3` as
+ * direct devDependencies of this package puts them on that walk and removed the
+ * class outright (333 → 292), unmasking nothing.
+ *
+ * That matters because `TS7016` and `TS2307` are the only codes whose presence
+ * turns on *resolution* rather than on the code. Both are now 0, and every
+ * remaining code (`TS18046`, `TS2345`, `TS2722`, …) is a code-shape error over
+ * lockfile-pinned dependencies. The count is a function of the lockfile, not of
+ * the machine: verified by deleting `node_modules/` for this package and
+ * relinking with `--frozen-lockfile`, which reproduced 292 exactly.
+ *
+ * So the number moves only when something reviewable moves — a dependency
+ * version, the pinned `typescript`, or the tests themselves.
  *
  * Usage: `pnpm --filter @adonis-agora/authkit-server typecheck:tests`
  */
@@ -43,7 +55,7 @@ import { fileURLToPath } from 'node:url';
  * Only ever lower this. Raising it means you are re-accruing the debt this
  * script exists to stop.
  */
-const BASELINE = 332;
+const BASELINE = 292;
 
 const pkgDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const tsc = resolve(pkgDir, 'node_modules/.bin/tsc');
