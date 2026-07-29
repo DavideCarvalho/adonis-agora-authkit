@@ -1,4 +1,4 @@
-import type { AuthAccount } from '../accounts/account_store.js';
+import type { AccountStore, AuthAccount } from '../accounts/account_store.js';
 import {
   supportsAccountStatus,
   supportsEmailVerificationStatus,
@@ -84,7 +84,7 @@ export async function isEmailUnverifiedBlock(
  * @returns true se a senha expirou e deve ser trocada antes de completar o login.
  */
 export async function isPasswordExpired(
-  cfg: ResolvedServerConfig,
+  cfg: Pick<ResolvedServerConfig, 'accountStore'>,
   accountId: string,
   settings: SettingsCapability,
 ): Promise<boolean> {
@@ -162,6 +162,139 @@ export async function isAccountExpired(
 /** Logger mínimo (subconjunto do logger do AdonisJS) para o caminho fail-safe. */
 export interface LoginAttemptLogger {
   warn(obj: unknown, msg?: string): void;
+}
+
+/**
+ * Motivo pelo qual um login foi recusado no gate de status de conta,
+ * compartilhado por TODOS os fluxos de login (senha, magic link, OTP,
+ * passkey, social, token-exchange/impersonation) — não só o de senha.
+ */
+export type AccountStatusReason = 'disabled' | 'password_expired' | 'account_expired';
+
+/** Resultado do gate de status de conta. Discriminado por `allowed`. */
+export type LoginAllowedResult =
+  | { allowed: true }
+  | { allowed: false; reason: AccountStatusReason };
+
+/**
+ * Subconjunto de {@link ResolvedServerConfig} que o gate de status precisa: o
+ * accountStore (para as capacidades opcionais) e o audit sink (para os
+ * `login.failure`/`password.expired_change_forced`/`account.expired_login_blocked`
+ * emitidos). Estrutural — qualquer `ResolvedServerConfig` serve aqui sem cast;
+ * chamadores fora do host (ex.: `token_exchange.ts`, que não tem o
+ * `ResolvedServerConfig` inteiro em mãos) podem montar só este pedaço.
+ */
+export interface LoginAllowedConfig {
+  accountStore: AccountStore;
+  audit?: AuditSink;
+}
+
+/** Entrada comum aos dois gates de status (`assertAccountEnabled`/`assertAccountNotExpired`). */
+export interface LoginAllowedInput {
+  email: string;
+  ip: string | null;
+  /** `clientId` só entra no evento de auditoria quando o fluxo o fornece (mesma regra do resto do arquivo). */
+  clientId?: string | null;
+  /** Ausente → password-expiry/account-expiry ficam no-op (precisam da runtime setting). */
+  settings?: SettingsCapability;
+  logger?: LoginAttemptLogger;
+}
+
+/**
+ * Gate 1/2: conta desabilitada. Extraído de {@link attemptPasswordLogin}
+ * (bloco `isDisabled` original) para ser reutilizável por TODO fluxo que
+ * finaliza um login (`completeLogin`), não só o de senha.
+ *
+ * Capability-probed via `supportsAccountStatus` — store sem a capacidade
+ * degrada para "allowed" (comportamento preservado exatamente).
+ */
+export async function assertAccountEnabled(
+  cfg: LoginAllowedConfig,
+  accountId: string,
+  input: LoginAllowedInput,
+): Promise<LoginAllowedResult> {
+  const { email, ip, clientId } = input;
+  if (supportsAccountStatus(cfg.accountStore) && (await cfg.accountStore.isDisabled(accountId))) {
+    await cfg.audit?.record(
+      clientId !== undefined
+        ? {
+            type: 'login.failure',
+            email,
+            ip,
+            clientId,
+            metadata: { reason: 'disabled' },
+          }
+        : { type: 'login.failure', email, ip, metadata: { reason: 'disabled' } },
+    );
+    return { allowed: false, reason: 'disabled' };
+  }
+  return { allowed: true };
+}
+
+/**
+ * Gate 2/2: senha vencida (password_expiration) e conta expirada por
+ * inatividade (account_expiration). Extraído dos blocos originais de
+ * {@link attemptPasswordLogin} que seguiam o gate de e-mail não verificado.
+ *
+ * Capability/setting-probed: sem `input.settings`, ambas as checagens são
+ * no-op (mesma guarda `if (input.settings)` do código original).
+ */
+export async function assertAccountNotExpired(
+  cfg: LoginAllowedConfig,
+  accountId: string,
+  input: LoginAllowedInput,
+): Promise<LoginAllowedResult> {
+  const { email, ip, clientId, settings, logger } = input;
+
+  if (settings) {
+    const expired = await isPasswordExpired(cfg, accountId, settings);
+    if (expired) {
+      await cfg.audit?.record(
+        clientId !== undefined
+          ? { type: 'password.expired_change_forced', accountId, email, ip, clientId }
+          : { type: 'password.expired_change_forced', accountId, email, ip },
+      );
+      return { allowed: false, reason: 'password_expired' };
+    }
+  }
+
+  if (settings) {
+    const expired = await isAccountExpired(cfg.audit, accountId, settings, logger);
+    if (expired) {
+      await cfg.audit?.record(
+        clientId !== undefined
+          ? { type: 'account.expired_login_blocked', accountId, email, ip, clientId }
+          : { type: 'account.expired_login_blocked', accountId, email, ip },
+      );
+      return { allowed: false, reason: 'account_expired' };
+    }
+  }
+
+  return { allowed: true };
+}
+
+/**
+ * Gate combinado (disabled → password_expired → account_expired), na ordem
+ * canônica. É o que os fluxos passwordless (magic link, OTP, passkey, social)
+ * e o token-exchange (impersonation) chamam UMA VEZ, imediatamente antes de
+ * `completeLogin` — eles não têm o gate de e-mail-não-verificado intercalado
+ * entre o disabled-check e os expiry-checks como `attemptPasswordLogin` tem,
+ * então uma chamada única e sequencial é observacionalmente idêntica a chamar
+ * os dois gates separados nessa ordem.
+ *
+ * `attemptPasswordLogin` NÃO usa este combinado — chama `assertAccountEnabled`
+ * e `assertAccountNotExpired` separadamente, com o gate de e-mail não
+ * verificado (`isEmailUnverifiedBlock`) intercalado entre os dois, para
+ * preservar a ordem de checagens original byte-a-byte.
+ */
+export async function assertLoginAllowed(
+  cfg: LoginAllowedConfig,
+  accountId: string,
+  input: LoginAllowedInput,
+): Promise<LoginAllowedResult> {
+  const enabled = await assertAccountEnabled(cfg, accountId, input);
+  if (!enabled.allowed) return enabled;
+  return assertAccountNotExpired(cfg, accountId, input);
 }
 
 /** Entrada de uma tentativa de login por senha (keyed por email). */
@@ -251,19 +384,14 @@ export async function attemptPasswordLogin(
   // Conta desabilitada: rejeita o login (mesmo com senha correta). A capacidade é
   // opcional — só checada quando o store a implementa. Emite `login.failure` (com
   // motivo `disabled` no metadata) e NÃO registra falha no lockout (não é tentativa
-  // de adivinhar senha).
-  if (supportsAccountStatus(cfg.accountStore) && (await cfg.accountStore.isDisabled(account.id))) {
-    await cfg.audit?.record(
-      input.clientId !== undefined
-        ? {
-            type: 'login.failure',
-            email,
-            ip,
-            clientId: input.clientId,
-            metadata: { reason: 'disabled' },
-          }
-        : { type: 'login.failure', email, ip, metadata: { reason: 'disabled' } },
-    );
+  // de adivinhar senha). Extraído em `assertAccountEnabled` — reutilizado por TODO
+  // fluxo de login (magic link, OTP, passkey, social, token-exchange), não só este.
+  const enabledCheck = await assertAccountEnabled(cfg, account.id, {
+    email,
+    ip,
+    clientId: input.clientId,
+  });
+  if (!enabledCheck.allowed) {
     return { ok: false, locked: false, disabled: true };
   }
 
@@ -286,50 +414,24 @@ export async function attemptPasswordLogin(
     return { ok: false, locked: false, unverified: true };
   }
 
-  // Senha expirada (password expiration): se a senha está vencida, sinaliza ao
-  // controller para forçar a troca ANTES de completar o login.
-  // Capability-probed: sem `getPasswordChangedAt` ou sem a setting → no-op.
-  if (input.settings) {
-    const expired = await isPasswordExpired(cfg, account.id, input.settings);
-    if (expired) {
-      // Não é uma falha de credenciais — limpa o contador.
-      await lockout.clearFailures(email);
-      await cfg.audit?.record(
-        input.clientId !== undefined
-          ? {
-              type: 'password.expired_change_forced',
-              accountId: account.id,
-              email,
-              ip,
-              clientId: input.clientId,
-            }
-          : { type: 'password.expired_change_forced', accountId: account.id, email, ip },
-      );
+  // Senha expirada (password expiration) e conta expirada por inatividade
+  // (account_expiration): extraído em `assertAccountNotExpired`, na mesma ordem
+  // e com os mesmos eventos de auditoria do código original. Capability/setting
+  // -probed internamente (sem `input.settings` → no-op, como antes).
+  const expiryCheck = await assertAccountNotExpired(cfg, account.id, {
+    email,
+    ip,
+    clientId: input.clientId,
+    settings: input.settings,
+    logger: input.logger,
+  });
+  if (!expiryCheck.allowed) {
+    // Nenhuma das duas é falha de credenciais — limpa o contador.
+    await lockout.clearFailures(email);
+    if (expiryCheck.reason === 'password_expired') {
       return { ok: false, locked: false, passwordExpired: true, account: account as any };
     }
-  }
-
-  // Conta expirada por inatividade (account_expiration setting): bloqueia o login
-  // se a conta não teve login.success há mais de `inactiveDays` dias (via audit).
-  // Capability-probed: sem audit.list ou sem setting → no-op.
-  // Reativação: fluxo de reset de senha (link exibido pelo controller na mensagem).
-  if (input.settings) {
-    const expired = await isAccountExpired(cfg.audit, account.id, input.settings, input.logger);
-    if (expired) {
-      await lockout.clearFailures(email);
-      await cfg.audit?.record(
-        input.clientId !== undefined
-          ? {
-              type: 'account.expired_login_blocked',
-              accountId: account.id,
-              email,
-              ip,
-              clientId: input.clientId,
-            }
-          : { type: 'account.expired_login_blocked', accountId: account.id, email, ip },
-      );
-      return { ok: false, locked: false, accountExpired: true };
-    }
+    return { ok: false, locked: false, accountExpired: true };
   }
 
   // Senha correta: limpa o contador de falhas (o lockout protege a etapa de senha).
