@@ -194,8 +194,11 @@ export function buildCore(
       if (!row) return null;
       // Token `ml:<random>` nas colunas de reset (sem migração); o prefixo o
       // distingue de um token de reset de senha. Curta duração (15 min).
-      const token = `${MAGIC_LINK_PREFIX}${randomBytes(32).toString('hex')}`;
-      row.passwordResetToken = token;
+      // O prefixo fica em CLARO no valor persistido — só a parte aleatória é
+      // hasheada — porque os guards de discriminação de fluxo leem esse prefixo
+      // direto do valor armazenado (ver consumePasswordResetToken/consumeMagicLinkToken).
+      const { raw: token, dbValue } = generateHashedToken(MAGIC_LINK_PREFIX);
+      row.passwordResetToken = dbValue;
       row.passwordResetExpiresAt = DateTime.now().plus({ minutes: 15 });
       await row.save();
       return { token, account: toAccount(row) };
@@ -223,7 +226,9 @@ export function buildCore(
       }
 
       if (!token.startsWith(MAGIC_LINK_PREFIX)) return null;
-      const row = await Model.query().where('passwordResetToken', token).first();
+      const row = await Model.query()
+        .where('passwordResetToken', rawToDbToken(MAGIC_LINK_PREFIX, token))
+        .first();
       if (!row) return null;
       if (!row.passwordResetExpiresAt || row.passwordResetExpiresAt < DateTime.now()) return null;
       // Single-use: limpa o token (NÃO altera a senha).
