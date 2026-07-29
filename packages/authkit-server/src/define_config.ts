@@ -184,6 +184,20 @@ export interface MailHooks {
    * etc.): nesses o host monta o próprio `from`.
    */
   from?: string | { address: string; name?: string };
+  /**
+   * Escape hatch: origem (`scheme://host[:port]`) usada para montar os links
+   * EMAILADOS (reset de senha, magic link, desbloqueio OTP, convites de
+   * organização, verificação/troca de e-mail, avisos de segurança), no lugar
+   * do `issuer` resolvido.
+   *
+   * Por default (campo ausente) os links usam `new URL(issuer).origin` — NUNCA
+   * `request.host()` / `X-Forwarded-Host`, que são client-supplied e abrem
+   * "password-reset poisoning" (ver `host/origin.ts`). Use este campo apenas
+   * quando o mesmo issuer é servido legitimamente sob MÚLTIPLOS hostnames
+   * públicos e os links devem seguir um hostname fixo diferente do issuer —
+   * o comportamento normal (issuer único) não precisa disto.
+   */
+  origin?: string;
 }
 
 /** Bucket de rate-limit: pontos (requests) permitidos por janela de duração. */
