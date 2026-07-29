@@ -536,16 +536,26 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
     return undefined;
   };
 
-  const adminEnabled = isLocked('admin', enableFrom(opts.admin) !== undefined)
+  // `{ prefix: '/painel' }` mexe SÓ no eixo estrutural: só há divergência a
+  // reportar quando a intenção de liga/desliga do argumento CONTRADIZ o config.
+  const contradicts = (
+    arg: boolean | { prefix?: string } | undefined,
+    configEnabled: boolean | undefined,
+  ): boolean => {
+    const intent = enableFrom(arg);
+    return intent !== undefined && intent !== (configEnabled ?? false);
+  };
+
+  const adminEnabled = isLocked('admin', contradicts(opts.admin, hostCfg?.adminEnabled))
     ? (hostCfg?.adminEnabled ?? false)
-    : (enableFrom(opts.admin) ??
-      enableFrom(routesCfg?.admin) ??
-      hostCfg?.adminEnabled ??
-      false);
+    : (enableFrom(opts.admin) ?? enableFrom(routesCfg?.admin) ?? hostCfg?.adminEnabled ?? false);
   const adminPrefixOpt = prefixFrom(opts.admin, routesCfg?.admin);
   const adminOpt = adminEnabled ? ({ prefix: adminPrefixOpt } as { prefix?: string }) : undefined;
 
-  const adminApiEnabled = isLocked('adminApi', enableFrom(opts.adminApi) !== undefined)
+  const adminApiEnabled = isLocked(
+    'adminApi',
+    contradicts(opts.adminApi, hostCfg?.adminApiEnabled),
+  )
     ? (hostCfg?.adminApiEnabled ?? false)
     : (enableFrom(opts.adminApi) ??
       enableFrom(routesCfg?.adminApi) ??
