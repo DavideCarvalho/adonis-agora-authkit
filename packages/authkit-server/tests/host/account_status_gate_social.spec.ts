@@ -12,16 +12,23 @@ const PROVIDER = 'google';
 const ACCOUNT_ID = 'acc-1';
 const EMAIL = 'user@example.com';
 
-function makeStore(opts: { disabled?: boolean } = {}) {
+function makeStore(opts: { disabled?: boolean; passwordChangedAt?: Date | null } = {}) {
   const account = { id: ACCOUNT_ID, email: EMAIL, name: 'Test User', globalRoles: ['USER'] };
-  return {
+  const store: any = {
     findById: async (id: string) => (id === account.id ? account : null),
     findByProviderIdentity: async () => account,
     linkProviderIdentity: async () => {},
     disableAccount: async () => {},
     enableAccount: async () => {},
     isDisabled: async () => opts.disabled === true,
-  } as any;
+  };
+  // `supportsPasswordExpiration` é probed por `typeof store.getPasswordChangedAt`
+  // — só declara a capacidade quando o caso de teste pede (senão a checagem de
+  // senha vencida degrada para no-op e o teste não mede nada).
+  if ('passwordChangedAt' in opts) {
+    store.getPasswordChangedAt = async () => opts.passwordChangedAt ?? null;
+  }
+  return store;
 }
 
 /**
@@ -199,6 +206,53 @@ test.group('account status gate — social login callback', () => {
     assert.isTrue(
       recorded.some((e) => e.type === 'account.expired_login_blocked'),
       `esperava account.expired_login_blocked; eventos: ${JSON.stringify(recorded)}`,
+    );
+  });
+
+  /**
+   * Plan 012 — regressão introduzida pelo plan 011. Passar `settings` ao gate
+   * combinado ligou as DUAS checagens de expiração (elas dividem o mesmo
+   * `if (settings)`), e `isPasswordExpired` trata `password_changed_at` NULL
+   * como "vencida" — correto no fluxo de senha, que tem o step de troca
+   * obrigatória para onde mandar o usuário; sem sentido aqui, onde o callback
+   * só sabe redirecionar de volta ao login.
+   *
+   * Uma conta criada por login social NUNCA definiu senha, logo a coluna é
+   * NULL. Com `password_expiration` ligada, todo usuário social-only ficava
+   * permanentemente trancado fora do "Continue with Google" — devolvido a uma
+   * tela de login sem senha nenhuma que pudesse trocar.
+   *
+   * A setting entra pelo caminho de produção (`lucid.db` → `resolveRuntimeSettings`),
+   * igual ao caso de expiração por inatividade acima.
+   */
+  test('conta social-only (sem senha) com password_expiration ligada: COMPLETA o login', async ({
+    assert,
+  }) => {
+    // `passwordChangedAt: null` = o que o store Lucid devolve para uma conta cuja
+    // coluna `password_changed_at` é NULL (`src/accounts/lucid_store/password_hygiene.ts`).
+    const store = makeStore({ disabled: false, passwordChangedAt: null });
+    const recorded: any[] = [];
+    const audit = {
+      record: async (e: any) => {
+        recorded.push(e);
+      },
+      list: async () => ({ data: [], total: 0 }),
+    };
+    const { service, completeLoginCalls } = buildService(store, { audit });
+    const db = fakeSettingsDb({ password_expiration: { enabled: true, maxAgeDays: 90 } });
+    const ctx = fakeCtx(service, { authkit_social_uid: 'test-uid' }, db);
+
+    await new AuthSocialController().callback(ctx);
+
+    assert.lengthOf(
+      completeLoginCalls,
+      1,
+      'conta sem senha não pode ser bloqueada por senha vencida no login social',
+    );
+    assert.deepEqual(ctx.__redirects, []);
+    assert.isFalse(
+      recorded.some((e) => e.type === 'password.expired_change_forced'),
+      `login social não pode forçar troca de senha; eventos: ${JSON.stringify(recorded)}`,
     );
   });
 });

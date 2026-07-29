@@ -37,10 +37,61 @@ function noTableDb() {
   };
 }
 
+/**
+ * `lucid.db` mínimo servindo a tabela `auth_settings` — mesmo shape de
+ * `tests/host/account_status_gate_social.spec.ts`. Usado para ligar uma runtime
+ * setting pelo caminho REAL (`resolveRuntimeSettings`), sem injetar no gate.
+ */
+function fakeSettingsDb(rows: Record<string, any> = {}) {
+  const store = new Map<string, string>(
+    Object.entries(rows).map(([k, v]) => [k, JSON.stringify(v)]),
+  );
+  function makeChain(filters: Array<{ col: string; val: string | null }>) {
+    return {
+      where(col: string, val: string) {
+        return makeChain([...filters, { col, val }]);
+      },
+      whereNull(col: string) {
+        return makeChain([...filters, { col, val: null }]);
+      },
+      async first() {
+        const keyFilter = filters.find((f) => f.col === 'key');
+        if (!keyFilter?.val) return null;
+        const value = store.get(keyFilter.val);
+        return value === undefined ? null : { key: keyFilter.val, value };
+      },
+    };
+  }
+  return {
+    from(...args: any[]) {
+      return (this as any).table(...args);
+    },
+    table(_n: string) {
+      return {
+        select(_cols?: string) {
+          return { limit: (_n2: number) => Promise.resolve([]) };
+        },
+        where(col: string, val: string) {
+          return makeChain([{ col, val }]);
+        },
+        whereNull(col: string) {
+          return makeChain([{ col, val: null }]);
+        },
+      };
+    },
+  };
+}
+
 type StoreOpts = {
   /** `disableAccount` presente = supportsAccountStatus() true. Omitir → sem a capacidade (degrada p/ "allowed"). */
   statusCapability?: boolean;
   disabled?: boolean;
+  /**
+   * Presente → o store declara `getPasswordChangedAt` (supportsPasswordExpiration).
+   * `null` = a coluna `password_changed_at` é NULL, que é o que uma conta que
+   * nunca definiu senha produz.
+   */
+  passwordChangedAt?: Date | null;
 };
 
 function makeStore(opts: StoreOpts = {}) {
@@ -72,6 +123,9 @@ function makeStore(opts: StoreOpts = {}) {
     store.disableAccount = async () => {};
     store.enableAccount = async () => {};
     store.isDisabled = async () => opts.disabled === true;
+  }
+  if ('passwordChangedAt' in opts) {
+    store.getPasswordChangedAt = async () => opts.passwordChangedAt ?? null;
   }
   return store;
 }
@@ -119,13 +173,18 @@ function buildService(store: any) {
 function fakeCtx(
   service: any,
   session: Record<string, unknown>,
-  opts: { input?: (k: string, def?: any) => any; qs?: () => Record<string, any> } = {},
+  opts: {
+    input?: (k: string, def?: any) => any;
+    qs?: () => Record<string, any>;
+    /** Sem `db`, cai no `noTableDb()` (settings degradam para os defaults do config). */
+    db?: any;
+  } = {},
 ) {
   return {
     containerResolver: {
       make: async (key: string) => {
         if (key === 'authkit.server') return service;
-        if (key === 'lucid.db') return noTableDb();
+        if (key === 'lucid.db') return opts.db ?? noTableDb();
         throw new Error(`unknown: ${key}`);
       },
     },
@@ -185,6 +244,46 @@ test.group('account status gate — magic link (magicLinkConsume)', () => {
     await new InteractionController().magicLinkConsume(ctx);
 
     assert.lengthOf(completeLoginCalls, 1, 'sem supportsAccountStatus, o login deve prosseguir');
+  });
+
+  /**
+   * Plan 012, Step 4 — o mesmo defeito do callback social vale aqui. O magic
+   * link é um fluxo SEM senha: a conta pode nunca ter definido uma (conta
+   * importada via `importAccount`, que não escreve `password_changed_at`; conta
+   * anterior à migração da coluna; provisionamento próprio do host), e
+   * `isPasswordExpired` trata a coluna NULL como "vencida".
+   *
+   * O re-render de `login` com `step: 'password'` NÃO é uma saída para essa
+   * conta: o único caminho até a troca obrigatória (`step: 'password_expired'`)
+   * passa por `attemptPasswordLogin`, que exige a senha CORRETA antes de
+   * classificar a expiração. Sem senha, o usuário só pode pedir outro magic
+   * link — e cai no mesmo bloqueio. Loop permanente, igual ao social.
+   */
+  test('conta sem senha + password_expiration ligada: COMPLETA o login (fluxo passwordless)', async ({
+    assert,
+  }) => {
+    const store = makeStore({ statusCapability: true, disabled: false, passwordChangedAt: null });
+    const { service, completeLoginCalls, auditEvents } = buildService(store);
+    const ctx = fakeCtx(
+      service,
+      {},
+      {
+        qs: () => ({ token: 'good-token' }),
+        db: fakeSettingsDb({ password_expiration: { enabled: true, maxAgeDays: 90 } }),
+      },
+    );
+
+    await new InteractionController().magicLinkConsume(ctx);
+
+    assert.lengthOf(
+      completeLoginCalls,
+      1,
+      'conta sem senha não pode ser bloqueada por senha vencida no magic link',
+    );
+    assert.isFalse(
+      auditEvents.some((e) => e.type === 'password.expired_change_forced'),
+      `magic link não pode forçar troca de senha; eventos: ${JSON.stringify(auditEvents)}`,
+    );
   });
 });
 
