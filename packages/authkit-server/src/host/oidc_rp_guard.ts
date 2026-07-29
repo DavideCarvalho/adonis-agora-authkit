@@ -220,12 +220,20 @@ export class OidcRpGuard<UserProvider extends SessionUserProviderContract<unknow
     return this.user;
   }
 
+  /**
+   * `authenticate()` sem lançar — mas SÓ para falha de autenticação. Igual ao
+   * `SessionGuard` nativo: engole apenas `E_UNAUTHORIZED_ACCESS` e relança o
+   * resto. Um `catch` cego aqui transformava uma queda do banco dentro de
+   * `provider.findById` em "não logado" para todo mundo, sem nada nos logs.
+   */
   async check(): Promise<boolean> {
     try {
       await this.authenticate();
       return true;
-    } catch {
-      return false;
+    } catch (error) {
+      const Unauthorized = this.#unauthorized ?? cachedUnauthorizedAccess;
+      if (Unauthorized && error instanceof Unauthorized) return false;
+      throw error;
     }
   }
 

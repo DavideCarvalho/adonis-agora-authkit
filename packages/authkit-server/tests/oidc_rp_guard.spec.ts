@@ -276,6 +276,21 @@ test.group('OidcRpGuard — semântica de erro', () => {
 
     assert.isFalse(await guard.check());
   });
+
+  /**
+   * O segundo `check()` cai no atalho de `authenticationAttempted` e sai por
+   * `getUserOrFail()`. Se esse caminho lançasse um `RuntimeException`, o
+   * `check()` estreitado o relançaria — um 500 numa rota pública com
+   * `middleware.silent()`. Por isso `getUserOrFail()` também lança o erro do
+   * framework depois de uma tentativa.
+   */
+  test('check() repetido depois de uma falha continua false', async ({ assert }) => {
+    const users = new Map<string, FakeUser>();
+    const { guard } = makeGuard(users, {});
+
+    assert.isFalse(await guard.check());
+    assert.isFalse(await guard.check());
+  });
 });
 
 test.group('OidcRpGuard — authenticateAsClient', () => {
