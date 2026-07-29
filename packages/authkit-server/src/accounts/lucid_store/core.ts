@@ -20,9 +20,29 @@ import type {
 } from '../account_store.js';
 import type { LucidStoreContext } from './shared.js';
 import { hasColumn } from './status_profile.js';
-import { generateHashedToken, rawToDbToken, sha256Hex } from './token_hash.js';
+import {
+  generateExpiringHashedToken,
+  generateHashedToken,
+  parseExpiringTokenExp,
+  rawToDbToken,
+  rawToExpiringDbToken,
+  sha256Hex,
+} from './token_hash.js';
 
-/** Prefixo do token de troca de e-mail (reaproveita a coluna emailVerificationToken). */
+/**
+ * Prefixo do token de troca de e-mail (reaproveita a coluna emailVerificationToken).
+ *
+ * Formato ARMAZENADO (plan 009): `ec:<b64email>:<exp>:sha256(<random>)` — o
+ * e-mail continua em base64url (inalterado, plan 007 não mexeu nisso), mas
+ * agora carrega uma deadline (`exp`, epoch ms) e o `random` vai HASHEADO em
+ * repouso (antes ia em claro). Ver a análise de segurança do `exp` embutido
+ * em `token_hash.ts` (`rawToExpiringDbToken`/`parseExpiringTokenExp`).
+ *
+ * Limite prático: com um e-mail codificado em base64url, o valor cabe em
+ * VARCHAR(255) para e-mails de até ~129 bytes (`3 + b64(129) + 1 + 13 + 1 +
+ * 64 = 254`); acima disso o valor gravado excederia a coluna. Nenhum e-mail
+ * real chega perto disso — é uma folga generosa, não um limite apertado.
+ */
 const EMAIL_CHANGE_PREFIX = 'ec:';
 
 /** Prefixo do magic link (reaproveita as colunas de reset de senha). */
@@ -331,8 +351,15 @@ export function buildCore(
     async issueEmailVerificationToken(email) {
       const row = await Model.query().where('email', email).first();
       if (!row) return null;
-      const token = randomBytes(32).toString('hex');
-      row.emailVerificationToken = token;
+      // Token `<exp>:<random>` (sem prefixo — mesma coluna de sempre); só o
+      // HASH da parte aleatória é persistido, e o `exp` (deadline, epoch ms)
+      // vai em CLARO dentro do valor gravado. Ver a análise de segurança em
+      // `token_hash.ts` (generateExpiringHashedToken): o `exp` só é confiável
+      // DEPOIS que a igualdade de hash bater — é essa igualdade que prova que
+      // ele não foi adulterado pelo cliente.
+      const expiresAt = DateTime.now().plus({ hours: ctx.emailVerificationTtlHours ?? 24 });
+      const { raw: token, dbValue } = generateExpiringHashedToken('', expiresAt);
+      row.emailVerificationToken = dbValue;
       await row.save();
       return { token, account: toAccount(row) };
     },
@@ -342,8 +369,18 @@ export function buildCore(
       // Tokens de troca de e-mail (`ec:`) NÃO são verificações de cadastro — só o
       // fluxo de confirmEmailChange pode consumi-los.
       if (token.startsWith(EMAIL_CHANGE_PREFIX)) return false;
-      const row = await Model.query().where('emailVerificationToken', token).first();
+      const dbValue = rawToExpiringDbToken('', token);
+      const row = await Model.query().where('emailVerificationToken', dbValue).first();
       if (!row) return false;
+      // O `exp` só é lido AGORA, depois que a busca por `dbValue` já achou uma
+      // linha — esse match prova que este `exp` é o mesmo gravado no issue,
+      // não um valor que o cliente escreveu na hora. `null` (ausente/não-
+      // parseável — inclusive tokens gravados por uma versão anterior desta
+      // lib, sem `exp` nenhum) conta como EXPIRADO (fail-closed), mirando o
+      // mesmo formato de `!row.passwordResetExpiresAt || ... < DateTime.now()`
+      // usado no reset de senha.
+      const exp = parseExpiringTokenExp('', token);
+      if (exp === null || exp < DateTime.now().toMillis()) return false;
       row.emailVerifiedAt = DateTime.now();
       row.emailVerificationToken = null;
       await row.save();
@@ -410,13 +447,22 @@ export function buildCore(
       // Não permite tomar um e-mail já usado por OUTRA conta.
       const taken = await Model.query().where('email', newEmail).first();
       if (taken && taken.id !== row.id) return null;
-      // Token = `ec:<base64url(newEmail)>:<random>`. Reaproveita a coluna
+      // Token = `ec:<base64url(newEmail)>:<exp>:<random>`. Reaproveita a coluna
       // emailVerificationToken (sem migração nova); o prefixo `ec:` distingue do
       // token de verificação de cadastro. O e-mail viaja codificado no próprio
-      // token, então não precisamos de coluna extra para o "pending email".
+      // token (sem coluna extra para o "pending email"); o `exp` (deadline,
+      // epoch ms) também viaja em CLARO no token — ver a análise de segurança
+      // em `token_hash.ts` (generateExpiringHashedToken/rawToExpiringDbToken):
+      // só a parte `random` é hasheada, e é a igualdade sobre a string INTEIRA
+      // (prefixo + e-mail + exp + hash) que impede o cliente de adulterar o
+      // `exp` sem invalidar o próprio token.
       const encodedEmail = Buffer.from(newEmail, 'utf8').toString('base64url');
-      const token = `${EMAIL_CHANGE_PREFIX}${encodedEmail}:${randomBytes(24).toString('hex')}`;
-      row.emailVerificationToken = token;
+      const expiresAt = DateTime.now().plus({ hours: ctx.emailChangeTtlHours ?? 1 });
+      const { raw: token, dbValue } = generateExpiringHashedToken(
+        `${EMAIL_CHANGE_PREFIX}${encodedEmail}:`,
+        expiresAt,
+      );
+      row.emailVerificationToken = dbValue;
       await row.save();
       return { token, account: toAccount(row), newEmail };
     },
@@ -424,8 +470,9 @@ export function buildCore(
     async confirmEmailChange(token) {
       if (!token || !token.startsWith(EMAIL_CHANGE_PREFIX)) return { ok: false as const };
       const parts = token.split(':');
-      // Forma esperada: ['ec', '<b64email>', '<random>']
-      if (parts.length !== 3) return { ok: false as const };
+      // Forma esperada (plan 009): ['ec', '<b64email>', '<exp>', '<random>'] —
+      // 4 partes (era 3 antes de embutir o `exp`).
+      if (parts.length !== 4) return { ok: false as const };
       let newEmail: string;
       try {
         newEmail = Buffer.from(parts[1], 'base64url').toString('utf8');
@@ -433,8 +480,15 @@ export function buildCore(
         return { ok: false as const };
       }
       if (!newEmail) return { ok: false as const };
-      const row = await Model.query().where('emailVerificationToken', token).first();
+      const prefix = `${EMAIL_CHANGE_PREFIX}${parts[1]}:`;
+      const dbValue = rawToExpiringDbToken(prefix, token);
+      const row = await Model.query().where('emailVerificationToken', dbValue).first();
       if (!row) return { ok: false as const };
+      // O `exp` só é lido DEPOIS do match acima (mesmo raciocínio de
+      // consumeEmailVerificationToken) — `null` (ausente/não-parseável) conta
+      // como EXPIRADO, fail-closed.
+      const exp = parseExpiringTokenExp(prefix, token);
+      if (exp === null || exp < DateTime.now().toMillis()) return { ok: false as const };
       // Defesa contra corrida: o e-mail pode ter sido tomado entre o pedido e a
       // confirmação por outra conta.
       const taken = await Model.query().where('email', newEmail).first();
