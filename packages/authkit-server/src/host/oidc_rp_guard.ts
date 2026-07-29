@@ -1,4 +1,11 @@
-import { symbols } from '@adonisjs/auth';
+// `import type` para TUDO que vem de `@adonisjs/auth` — apagado no build.
+// `@adonisjs/auth` é um peer OPCIONAL do @adonis-agora/authkit-server, e este
+// módulo é reexportado pelo `index.ts` do pacote: um import ESTÁTICO aqui
+// quebraria o `import '@adonis-agora/authkit-server'` de qualquer host que não
+// instalou o pacote. O único acesso de runtime é o `await import('@adonisjs/auth')`
+// de {@link loadUnauthorizedAccess}, que só roda quando o host resolve o
+// `config/auth.ts` — ou seja, quando ele já escolheu usar `@adonisjs/auth`.
+import type { symbols } from '@adonisjs/auth';
 import type { AuthClientResponse, GuardConfigProvider, GuardContract } from '@adonisjs/auth/types';
 import type { SessionUserProviderContract } from '@adonisjs/auth/types/session';
 import { RuntimeException } from '@adonisjs/core/exceptions';
@@ -8,6 +15,44 @@ import type { EmitterLike } from '@adonisjs/core/types/events';
 import { ACCOUNT_SESSION_KEY } from './middleware/account_auth.js';
 
 type RealUser<UserProvider> = UserProvider extends SessionUserProviderContract<infer U> ? U : never;
+
+/**
+ * Construtor do `E_UNAUTHORIZED_ACCESS` do `@adonisjs/auth` — a MESMA classe que
+ * os guards nativos lançam (`static status = 401`, `redirectTo`, renderers
+ * html/json/jsonapi). Tipado à mão porque o pacote não pode ser importado
+ * estaticamente daqui (peer opcional).
+ */
+export type UnauthorizedAccessConstructor = new (
+  message: string,
+  options: { guardDriverName: string; redirectTo?: string },
+) => Error;
+
+/** Memo do construtor entre instâncias — o `import()` só paga o custo uma vez. */
+let cachedUnauthorizedAccess: UnauthorizedAccessConstructor | undefined;
+
+/**
+ * Captura o `E_UNAUTHORIZED_ACCESS` real do `@adonisjs/auth` sem import
+ * estático. Chamado no boot pelo {@link oidcRpGuard} (falha cedo e com uma
+ * mensagem útil se o peer não estiver instalado) e, como rede de segurança, na
+ * primeira `authenticate()` de um guard construído à mão.
+ */
+export async function loadUnauthorizedAccess(): Promise<UnauthorizedAccessConstructor> {
+  if (cachedUnauthorizedAccess) return cachedUnauthorizedAccess;
+  try {
+    const auth = (await import('@adonisjs/auth')) as {
+      errors: { E_UNAUTHORIZED_ACCESS: UnauthorizedAccessConstructor };
+    };
+    cachedUnauthorizedAccess = auth.errors.E_UNAUTHORIZED_ACCESS;
+    return cachedUnauthorizedAccess;
+  } catch (error) {
+    throw new RuntimeException(
+      'oidcRpGuard() precisa de "@adonisjs/auth" instalado (é um peer opcional do ' +
+        '@adonis-agora/authkit-server, só necessário se você plugar este guard em config/auth.ts). ' +
+        'Rode `npm i @adonisjs/auth` (ou pnpm/yarn).',
+      { cause: error },
+    );
+  }
+}
 
 export type OidcRpGuardOptions<UserProvider extends SessionUserProviderContract<unknown>> = {
   provider: UserProvider | ConfigProvider<UserProvider>;
@@ -54,8 +99,11 @@ export class OidcRpGuard<UserProvider extends SessionUserProviderContract<unknow
   #sessionKey: string;
   #emitter: EmitterLike<OidcRpGuardEvents<RealUser<UserProvider>>>;
   #userProvider: UserProvider;
+  #unauthorized?: UnauthorizedAccessConstructor;
 
-  [symbols.GUARD_KNOWN_EVENTS]: OidcRpGuardEvents<RealUser<UserProvider>> = {} as any;
+  // `declare`: marcador só de tipo do contrato de guard — sem atribuição em
+  // runtime, é o que permite que `symbols` seja um `import type`.
+  declare [symbols.GUARD_KNOWN_EVENTS]: OidcRpGuardEvents<RealUser<UserProvider>>;
 
   driverName = 'oidc_rp' as const;
   authenticationAttempted = false;
@@ -69,17 +117,32 @@ export class OidcRpGuard<UserProvider extends SessionUserProviderContract<unknow
     sessionKey: string,
     emitter: EmitterLike<OidcRpGuardEvents<RealUser<UserProvider>>>,
     userProvider: UserProvider,
+    unauthorized?: UnauthorizedAccessConstructor,
   ) {
     this.#name = name;
     this.#ctx = ctx;
     this.#sessionKey = sessionKey;
     this.#emitter = emitter;
     this.#userProvider = userProvider;
+    this.#unauthorized = unauthorized ?? cachedUnauthorizedAccess;
+  }
+
+  /**
+   * O `E_UNAUTHORIZED_ACCESS` do framework — `status` 401 e os renderers
+   * html/json, então o handler de exceção do host trata igual ao dos guards
+   * nativos. Se o construtor ainda não foi resolvido (guard instanciado à mão,
+   * antes de qualquer `authenticate()`), cai num `RuntimeException` em vez de
+   * mentir sobre o tipo.
+   */
+  #unauthorizedError(message: string): Error {
+    const Unauthorized = this.#unauthorized ?? cachedUnauthorizedAccess;
+    if (!Unauthorized) return new RuntimeException(message);
+    return new Unauthorized(message, { guardDriverName: this.driverName });
   }
 
   getUserOrFail(): RealUser<UserProvider> {
     if (!this.user) {
-      throw new RuntimeException(
+      throw this.#unauthorizedError(
         'Cannot access user. Authentication has not been attempted or failed.',
       );
     }
@@ -126,6 +189,7 @@ export class OidcRpGuard<UserProvider extends SessionUserProviderContract<unknow
       return this.getUserOrFail();
     }
     this.authenticationAttempted = true;
+    this.#unauthorized ??= await loadUnauthorizedAccess();
 
     const userId = this.#ctx.session.get(this.#sessionKey) as string | undefined;
     if (!userId) {
@@ -133,7 +197,7 @@ export class OidcRpGuard<UserProvider extends SessionUserProviderContract<unknow
         ctx: this.#ctx,
         guardName: this.#name,
       });
-      throw new RuntimeException('Unauthorized', { cause: 'E_UNAUTHORIZED_ACCESS' });
+      throw this.#unauthorizedError('Unauthorized');
     }
 
     const guardUser = await this.#userProvider.findById(userId);
@@ -143,7 +207,7 @@ export class OidcRpGuard<UserProvider extends SessionUserProviderContract<unknow
         ctx: this.#ctx,
         guardName: this.#name,
       });
-      throw new RuntimeException('Unauthorized', { cause: 'E_UNAUTHORIZED_ACCESS' });
+      throw this.#unauthorizedError('Unauthorized');
     }
 
     this.user = guardUser.getOriginal() as RealUser<UserProvider>;
@@ -183,6 +247,7 @@ export function oidcRpGuard<UserProvider extends SessionUserProviderContract<unk
     async resolver(name: string, app: ApplicationService) {
       const emitter = await app.container.make('emitter');
       const sessionKey = config.sessionKey ?? ACCOUNT_SESSION_KEY;
+      const unauthorized = await loadUnauthorizedAccess();
 
       let userProvider: UserProvider;
       if (typeof (config.provider as ConfigProvider<UserProvider>).resolver === 'function') {
@@ -198,6 +263,7 @@ export function oidcRpGuard<UserProvider extends SessionUserProviderContract<unk
           sessionKey,
           emitter as EmitterLike<OidcRpGuardEvents<RealUser<UserProvider>>>,
           userProvider,
+          unauthorized,
         );
       };
     },
