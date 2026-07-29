@@ -166,6 +166,11 @@ export class OidcService {
         config.accessTokens.audience,
         ...Object.keys(config.accessTokens.resources),
       ],
+      // LOAD-BEARING: sem isto o gate de status do alvo dentro de
+      // `token_exchange.ts` degrada para "allowed" (o campo é opcional, para não
+      // quebrar hosts com stores mínimos) e um admin consegue impersonar uma
+      // conta que acabou de desabilitar, recebendo tokens plenamente funcionais.
+      accountStore: config.accountStore,
       audit: config.audit,
     });
 
