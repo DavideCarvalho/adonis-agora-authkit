@@ -552,10 +552,7 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
   const adminPrefixOpt = prefixFrom(opts.admin, routesCfg?.admin);
   const adminOpt = adminEnabled ? ({ prefix: adminPrefixOpt } as { prefix?: string }) : undefined;
 
-  const adminApiEnabled = isLocked(
-    'adminApi',
-    contradicts(opts.adminApi, hostCfg?.adminApiEnabled),
-  )
+  const adminApiEnabled = isLocked('adminApi', contradicts(opts.adminApi, hostCfg?.adminApiEnabled))
     ? (hostCfg?.adminApiEnabled ?? false)
     : (enableFrom(opts.adminApi) ??
       enableFrom(routesCfg?.adminApi) ??

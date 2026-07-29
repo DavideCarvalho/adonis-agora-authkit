@@ -193,10 +193,7 @@ test.group('R1 — auto-mount chama a função exportada', (group) => {
     setAuthHostConfig({ ...baseStash });
     autoMountAuthHost(fakeRouter());
 
-    assert.throws(
-      () => registerAuthHost(fakeRouter()),
-      /já ter montado as rotas automaticamente/,
-    );
+    assert.throws(() => registerAuthHost(fakeRouter()), /já ter montado as rotas automaticamente/);
   });
 
   test('sem auto-mount, chamadas manuais seguem livres (back-compat)', ({ assert }) => {
@@ -226,7 +223,9 @@ test.group('R3 — política trava no config, estrutural vence pela função', (
     );
   });
 
-  test('POLÍTICA: rateLimit do config vence — um routes.ts não desliga o throttle', ({ assert }) => {
+  test('POLÍTICA: rateLimit do config vence — um routes.ts não desliga o throttle', ({
+    assert,
+  }) => {
     setAuthHostConfig({
       ...baseStash,
       rateLimit: resolveRateLimit({ enabled: true }),

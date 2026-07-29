@@ -25,7 +25,6 @@ import {
   deriveLockedRouteOptions,
   deriveLockedSettingKeys,
 } from './host/config_locks.js';
-import type { AuthHostOptions } from './host/register_auth_host.js';
 import type { ResolveGeo } from './host/geo.js';
 import { type AuthMessages, type I18nConfig, resolveMessages } from './host/i18n.js';
 import {
@@ -33,6 +32,7 @@ import {
   type ResolvedOtpLoginConfig,
   resolveOtpLoginConfig,
 } from './host/otp_login.js';
+import type { AuthHostOptions } from './host/register_auth_host.js';
 import { edgeRenderer } from './host/renderers/edge_renderer.js';
 import type { SudoMethod } from './host/sudo/types.js';
 import {
