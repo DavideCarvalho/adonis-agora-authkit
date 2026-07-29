@@ -26,12 +26,14 @@ compartilhado pelos dois controllers, em vez de copiado.
 conseguiam. O evento de auditoria `account.expired_login_blocked` passa a ser
 emitido também por este caminho.
 
-**`password_expiration` continua sem um passo de troca de senha aqui.** Nenhuma
-senha é usada no login social e este controller não renderiza a etapa de troca
-obrigatória. A checagem vem junto no gate combinado, então ela é alcançável
-quando o operador LIGOU `password_expiration` (o default é `enabled: false`) e a
-conta tem senha vencida; nesse caso o login social é recusado e o usuário volta
-ao passo de login, onde o fluxo de senha o leva à troca.
+**`password_expiration` não passa a valer aqui — de propósito.** Nenhuma senha é
+usada no login social e este controller não renderiza a etapa de troca
+obrigatória (`step: 'password_expired'`): o único caminho até ela passa por
+`attemptPasswordLogin`, que só classifica a expiração DEPOIS de a senha correta
+ser verificada. Recusar por senha vencida num fluxo sem senha não teria para
+onde mandar o usuário, então o callback passa `passwordless: true` ao gate e
+apenas essa checagem é pulada. O que este caminho aplica é `disabled` e a
+expiração de conta por inatividade.
 
 **Hosts sem a tabela `auth_settings` não são afetados:** a resolução degrada
 para um `RuntimeSettings` no-op, toda leitura vira null e o comportamento é
