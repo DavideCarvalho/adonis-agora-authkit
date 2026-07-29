@@ -45,6 +45,52 @@ export function deriveLockedSettingKeys(config: Record<string, any>): string[] {
   return locked;
 }
 
+/**
+ * Opções de rota que são POLÍTICA (decidem o que é PERMITIDO), e não estrutura
+ * (onde as rotas moram). Ver `AuthHostOptions` e o docblock de
+ * `registerAuthHost`.
+ */
+export const POLICY_ROUTE_OPTIONS = [
+  'social',
+  'rateLimit',
+  'sudoMethods',
+  'admin',
+  'adminApi',
+] as const;
+
+/** Uma opção de política de `AuthHostOptions`. */
+export type PolicyRouteOption = (typeof POLICY_ROUTE_OPTIONS)[number];
+
+/**
+ * Deriva as opções de rota TRAVADAS a partir dos campos EXPLICITAMENTE presentes
+ * no input do `defineConfig` — a MESMA regra de {@link deriveLockedSettingKeys}
+ * ("declarou no arquivo → o arquivo manda"), aplicada ao outro eixo: config vs.
+ * argumento de `registerAuthHost` (em vez de config vs. runtime setting).
+ *
+ * Travada significa: `registerAuthHost(router, { <key>: ... })` NÃO altera o
+ * comportamento; o valor do config vence e a divergência é reportada
+ * (`AuthHostRouteMap.overriddenByConfig` + `console.warn` no boot).
+ *
+ * O motivo de existir: sem isso, `start/routes.ts` pode AFROUXAR o que o config
+ * declarou — desligar o rate-limit, montar login social que o config não
+ * declara, trocar a lista de métodos de sudo — e o `config/authkit.ts` deixa de
+ * ser auditável (seria preciso ler o routes.ts de cada app para saber o que
+ * está valendo).
+ *
+ * Só trava o que o config DECLARA. Um campo ausente do config nunca trava: o
+ * argumento continua livre (back-compat com quem só configura pelo routes.ts) —
+ * exatamente como `authMethods` só trava os métodos que ele lista.
+ */
+export function deriveLockedRouteOptions(config: Record<string, any>): PolicyRouteOption[] {
+  const locked: PolicyRouteOption[] = [];
+  if (config.social !== undefined) locked.push('social');
+  if (config.rateLimit !== undefined) locked.push('rateLimit');
+  if (config.sudo?.methods !== undefined) locked.push('sudoMethods');
+  if (config.admin !== undefined) locked.push('admin');
+  if (config.adminApi !== undefined) locked.push('adminApi');
+  return locked;
+}
+
 /** Erro lançado ao tentar gravar/remover uma setting travada via `defineConfig`. */
 export class SettingLockedError extends Error {
   readonly code = 'E_SETTING_LOCKED';

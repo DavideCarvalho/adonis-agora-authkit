@@ -4,8 +4,11 @@ import { resolveRateLimit } from '../define_config.js';
 import { accountHome } from './account_home.js';
 import { getAccountLoginUrl, setAccountLoginUrl } from './account_login_url.js';
 import {
+  type AccountPathKey,
   type AccountPathsOptions,
   accountPath,
+  accountPathsMap,
+  accountPrefix,
   joinAccountPath,
   setAccountPaths,
 } from './account_paths.js';
@@ -17,7 +20,12 @@ import {
   setAdminApiPrefix,
   setAdminPrefix,
 } from './admin_prefix.js';
-import { getAuthHostConfig } from './auth_host_config.js';
+import {
+  getAuthHostConfig,
+  markAuthHostAutoMounted,
+  wasAuthHostAutoMounted,
+} from './auth_host_config.js';
+import type { PolicyRouteOption } from './config_locks.js';
 import { ACCOUNT_SESSION_KEY } from './middleware/account_auth.js';
 import { createAuthThrottles } from './rate_limit.js';
 import { resolveRuntimeSettings } from './runtime_settings.js';
@@ -360,6 +368,52 @@ export interface AccountScreensOptions {
   apps?: boolean;
 }
 
+/**
+ * Mapa RESOLVIDO das rotas montadas, devolvido por `registerAuthHost`.
+ *
+ * Existe porque os overrides de path (`accountRoutes`) chegavam ao servidor
+ * (via `accountPath()`) mas NÃO ao frontend: o layout React e os formulários do
+ * host tinham de repetir os mesmos paths à mão, e um override era meio-recurso —
+ * certo no servidor, errado na UI. Entregue este mapa ao frontend (uma shared
+ * prop do Inertia, um `<script type="application/json">`, um endpoint) em vez de
+ * hardcodar `href`s.
+ *
+ * @example
+ * const authkitRoutes = registerAuthHost(router)
+ * router.get('/', ({ inertia }) => inertia.render('home', { authkitRoutes }))
+ */
+export interface AuthHostRouteMap {
+  /** Onde o provider OIDC foi montado (o wildcard é `${mountPath}/*`). */
+  mountPath: string;
+  /** Console de conta: prefixo, base da JSON API e o path de CADA tela. */
+  account: {
+    /** Prefixo base resolvido (default `/account`). */
+    prefix: string;
+    /** Base da JSON API do console de conta (default `/account/api`). */
+    api: string;
+    /** Path completo de cada tela navegável (`security` → `/account/security`). */
+    paths: Record<AccountPathKey, string>;
+    /** Destino do redirect de "faça login" em vigor. */
+    loginUrl: string;
+    /** Quais telas foram efetivamente montadas. */
+    screens: Record<keyof AccountScreensOptions, boolean>;
+  };
+  /** Console admin: prefixo resolvido, ou `null` quando não foi montado. */
+  admin: { prefix: string } | null;
+  /** Admin REST API: prefixo resolvido, ou `null` quando não foi montada. */
+  adminApi: { prefix: string } | null;
+  /** Nomes das rotas nomeadas (as demais herdam o auto-naming do AdonisJS). */
+  names: Record<string, string>;
+  /** Ids dos métodos de sudo cujas rotas foram montadas, na ordem de montagem. */
+  sudoMethods: string[];
+  /**
+   * Opções de POLÍTICA passadas como argumento que foram IGNORADAS porque o
+   * `defineConfig` as declarou (config vence). Vazio no caso normal. Cada uma
+   * também sai como `console.warn` no boot — ver a regra de precedência abaixo.
+   */
+  overriddenByConfig: PolicyRouteOption[];
+}
+
 const C = {
   oidc: () => import('../controllers/oidc_callback_controller.js'),
   interaction: () => import('./controllers/interaction_controller.js'),
@@ -399,20 +453,108 @@ const C = {
 /**
  * Monta todas as rotas do host-kit do Authorization Server numa chamada.
  * Substitui registerOidcRoutes + o hand-wiring do start/routes.ts do host.
+ *
+ * ── A REGRA DE PRECEDÊNCIA (config × argumento) ─────────────────────────────
+ *
+ * 1. **Argumento omitido HERDA do config.** `registerAuthHost(router)` é
+ *    totalmente config-driven; `registerAuthHost(router, { mountPath: '/sso' })`
+ *    troca o mountPath e herda TODO o resto. Omitir uma chave significa "usa o
+ *    config", nunca "usa nada" — é o que dispensa repetir `sudo.methods` no
+ *    `start/routes.ts`.
+ *
+ * 2. **Chaves ESTRUTURAIS: o argumento vence.** `mountPath`, os prefixos
+ *    (`admin.prefix`, `adminApi.prefix`, `accountRoutes.prefix`), os segmentos
+ *    de tela, `account` (quais telas montar) e `accountLoginUrl`. São decisões
+ *    do ponto de chamada por natureza, e a forma de função é estritamente mais
+ *    expressiva (dá para montar duas vezes sob dois prefixos — nenhum config
+ *    expressa isso).
+ *
+ * 3. **Chaves de POLÍTICA: o config vence, e trava.** `social`, `rateLimit`,
+ *    `sudoMethods` e o liga/desliga de `admin`/`adminApi` decidem o que é
+ *    PERMITIDO. Quando o `defineConfig` as declara, o argumento NÃO as altera —
+ *    senão o `config/authkit.ts` deixa de ser auditável e seria preciso ler o
+ *    `start/routes.ts` de cada app para saber o que está valendo. Mesma regra
+ *    (e mesma derivação) de `defineConfig({ authMethods })`, que já fixa os
+ *    métodos de login contra o runtime. Ver `deriveLockedRouteOptions`.
+ *    A divergência NÃO é silenciosa: sai um `console.warn` nomeando a chave e
+ *    a chave aparece em `AuthHostRouteMap.overriddenByConfig`.
+ *
+ * Devolve o {@link AuthHostRouteMap} resolvido — entregue-o ao frontend em vez
+ * de hardcodar `href`s.
  */
-export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): void {
+export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): AuthHostRouteMap {
   // Config resolvido (stashado no boot do provider) — fonte única; `opts` só faz
-  // OVERRIDE. Elimina o drift: o consumidor pode chamar `registerAuthHost(router)`
-  // e mountPath/social/rateLimit/admin/adminApi vêm do config/authkit.ts.
+  // OVERRIDE das chaves ESTRUTURAIS. Elimina o drift: o consumidor pode chamar
+  // `registerAuthHost(router)` e tudo vem do config/authkit.ts.
   // Fallback p/ defaults quando o stash não está disponível (ex.: testes sem boot).
   const hostCfg = getAuthHostConfig();
 
-  const mount = opts.mountPath ?? hostCfg?.mountPath ?? '/oidc';
+  // `config.routes` já montou tudo no boot do provider. Registrar de novo
+  // duplicaria CADA rota — e duas rotas com o mesmo nome derrubam o boot do
+  // AdonisJS com um `RuntimeException` que não diz de onde veio. Falha aqui,
+  // alto e com a saída explícita.
+  if (wasAuthHostAutoMounted()) {
+    throw new Error(
+      'authkit: registerAuthHost() foi chamado depois de `routes` no config/authkit.ts já ter montado as rotas automaticamente — o duplo registro derruba o boot ("route name already exists"). Escolha UM dos dois: remova a chamada do start/routes.ts, ou ponha `routes: false` no defineConfig e configure tudo pela chamada.',
+    );
+  }
 
-  // social: opt explícito > config. admin/adminApi: opt explícito > (config.enabled → monta).
-  const social = opts.social ?? hostCfg?.social;
-  const adminOpt = opts.admin ?? (hostCfg?.adminEnabled ? true : undefined);
-  const adminApiOpt = opts.adminApi ?? (hostCfg?.adminApiEnabled ? true : undefined);
+  // Defaults ESTRUTURAIS declarados em `config.routes` — o argumento ainda vence.
+  const routesCfg = hostCfg?.routes;
+  // Chaves de POLÍTICA travadas pelo defineConfig (ver o item 3 acima).
+  const locked = new Set<PolicyRouteOption>(hostCfg?.lockedRouteOptions ?? []);
+  const overriddenByConfig: PolicyRouteOption[] = [];
+  /**
+   * Uma chave de política travada IGNORA o argumento e reporta. Não silencia:
+   * um argumento sem efeito que ninguém percebe é como o drift começa.
+   */
+  const isLocked = (key: PolicyRouteOption, passed: boolean): boolean => {
+    if (!locked.has(key)) return false;
+    if (passed) {
+      overriddenByConfig.push(key);
+      console.warn(
+        `authkit: registerAuthHost(router, { ${key} }) foi IGNORADO — "${key}" é uma opção de política e está definida no defineConfig(), que vence (o config precisa ser auditável sem ler o start/routes.ts). Remova-a da chamada, ou remova-a do config para controlá-la aqui.`,
+      );
+    }
+    return true;
+  };
+
+  const mount = opts.mountPath ?? routesCfg?.mountPath ?? hostCfg?.mountPath ?? '/oidc';
+
+  // social — POLÍTICA: decide se existe um caminho de autenticação a mais.
+  const social = isLocked('social', opts.social !== undefined)
+    ? hostCfg?.social
+    : (opts.social ?? routesCfg?.social ?? hostCfg?.social);
+
+  // admin/adminApi — o LIGA/DESLIGA é política (config vence); o PREFIXO é
+  // estrutural (o argumento vence). Por isso os dois eixos são resolvidos
+  // separadamente em vez de a opção inteira ser um bloco só.
+  const enableFrom = (v: boolean | { prefix?: string } | undefined): boolean | undefined =>
+    v === undefined ? undefined : v !== false;
+  const prefixFrom = (...vs: (boolean | { prefix?: string } | undefined)[]): string | undefined => {
+    for (const v of vs) if (typeof v === 'object' && v?.prefix) return v.prefix;
+    return undefined;
+  };
+
+  const adminEnabled = isLocked('admin', enableFrom(opts.admin) !== undefined)
+    ? (hostCfg?.adminEnabled ?? false)
+    : (enableFrom(opts.admin) ??
+      enableFrom(routesCfg?.admin) ??
+      hostCfg?.adminEnabled ??
+      false);
+  const adminPrefixOpt = prefixFrom(opts.admin, routesCfg?.admin);
+  const adminOpt = adminEnabled ? ({ prefix: adminPrefixOpt } as { prefix?: string }) : undefined;
+
+  const adminApiEnabled = isLocked('adminApi', enableFrom(opts.adminApi) !== undefined)
+    ? (hostCfg?.adminApiEnabled ?? false)
+    : (enableFrom(opts.adminApi) ??
+      enableFrom(routesCfg?.adminApi) ??
+      hostCfg?.adminApiEnabled ??
+      false);
+  const adminApiPrefixOpt = prefixFrom(opts.adminApi, routesCfg?.adminApi);
+  const adminApiOpt = adminApiEnabled
+    ? ({ prefix: adminApiPrefixOpt } as { prefix?: string })
+    : undefined;
 
   // Prefixo/segmentos configuráveis do console de conta — persiste no singleton
   // de processo ANTES de qualquer construção de rota/closure, para que o registro
@@ -420,21 +562,23 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): vo
   // valor. Top-level de propósito (vale mesmo com `account: false`): as rotas de
   // sudo e a JSON API respeitam o prefixo. Ausente → default `/account/*`
   // (back-compat). Ver `account_paths.ts`.
-  if (opts.accountRoutes !== undefined) {
-    setAccountPaths(opts.accountRoutes);
+  const accountRoutesOpt = opts.accountRoutes ?? routesCfg?.accountRoutes;
+  if (accountRoutesOpt !== undefined) {
+    setAccountPaths(accountRoutesOpt);
   }
 
   // Destino do redirect de "faça login" — persiste no singleton de processo para
   // que os guards (closures de tempo de registro), o middleware, os controllers e
   // as views leiam o mesmo valor. Só quando a opção foi passada (senão deriva de
   // `accountPath('login')` — back-compat).
-  if (opts.accountLoginUrl !== undefined) {
-    setAccountLoginUrl(opts.accountLoginUrl);
+  const accountLoginUrlOpt = opts.accountLoginUrl ?? routesCfg?.accountLoginUrl;
+  if (accountLoginUrlOpt !== undefined) {
+    setAccountLoginUrl(accountLoginUrlOpt);
   }
 
   // Montagem por tela do console de conta. `undefined` → tudo montado;
   // `false` → nada; objeto → cada flag ausente default `true`.
-  const accountOpt = opts.account;
+  const accountOpt = opts.account ?? routesCfg?.account;
   const mountScreen = (key: keyof AccountScreensOptions): boolean => {
     if (accountOpt === false) return false;
     if (accountOpt && typeof accountOpt === 'object') return accountOpt[key] !== false;
@@ -447,10 +591,21 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): vo
   const mountMfa = mountScreen('mfa');
   const mountApps = mountScreen('apps');
 
+  // Ids dos métodos de sudo efetivamente montados — preenchido dentro do grupo
+  // do console de conta (a callback do `.group()` roda de forma síncrona) e
+  // devolvido no `AuthHostRouteMap`.
+  let mountedSudoIds: string[] = [];
+
   // Throttles opt-in (anti-brute-force). `undefined` quando rate-limit desligado.
-  const resolvedRateLimit =
-    opts.rateLimit !== undefined
-      ? resolveRateLimit(opts.rateLimit)
+  // POLÍTICA: `rateLimit: { enabled: false }` num routes.ts desligaria a proteção
+  // anti-brute-force que o config ligou — e o config.rateLimit JÁ trava a setting
+  // de runtime homônima (`deriveLockedSettingKeys`). Travar aqui só fecha o
+  // terceiro caminho para o mesmo valor.
+  const rateLimitOpt = opts.rateLimit ?? routesCfg?.rateLimit;
+  const resolvedRateLimit = isLocked('rateLimit', opts.rateLimit !== undefined)
+    ? (hostCfg?.rateLimit ?? resolveRateLimit(undefined))
+    : rateLimitOpt !== undefined
+      ? resolveRateLimit(rateLimitOpt)
       : (hostCfg?.rateLimit ?? resolveRateLimit(undefined));
   const throttles = createAuthThrottles(resolvedRateLimit);
   // Helpers: aplicam o middleware de throttle quando presente; senão no-op.
@@ -643,7 +798,18 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): vo
         completeSudo,
         fail,
       };
-      const sudoMethodsToMount = opts?.sudoMethods ?? SUDO_METHOD_DEFAULTS;
+      // POLÍTICA. `config.sudo.methods` já decide o que a tela OFERECE e o que
+      // os handlers ACEITAM (`isSudoMethodEnabled`); agora decide também o que é
+      // MONTADO. Era a única das três decisões que ficava fora do config, e era
+      // exatamente por isso que o host tinha de manter a lista em DOIS lugares —
+      // divergiram, a tela oferecia um método sem endpoint (404) e escondia um
+      // que funcionava.
+      const sudoMethodsToMount = isLocked('sudoMethods', opts.sudoMethods !== undefined)
+        ? (hostCfg?.sudoMethods ?? SUDO_METHOD_DEFAULTS)
+        : (opts.sudoMethods ??
+          routesCfg?.sudoMethods ??
+          hostCfg?.sudoMethods ??
+          SUDO_METHOD_DEFAULTS);
       for (const method of sudoMethodsToMount) {
         // `guardSudoRoutes` embrulha os handlers que o método registrar, para
         // que `config.sudo.methods` os desabilite de fato mesmo que o método
@@ -665,6 +831,7 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): vo
       // configura `config.sudo.methods`: a tela oferece exatamente isto, e os
       // handlers aceitam exatamente isto.
       setMountedSudoMethods(sudoMethodsToMount);
+      mountedSudoIds = sudoMethodsToMount.map((m) => m.id);
 
       // Organizations (multi-tenancy) — tela `orgs`. Montadas por default;
       // controller retorna 404/403 sem tabelas (capability-probed).
@@ -722,11 +889,17 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): vo
     })
     .use([accountGuard]);
 
+  // Prefixos resolvidos dos consoles — `null` quando o grupo não foi montado.
+  // Compõem o `AuthHostRouteMap` devolvido no fim.
+  let resolvedAdminPrefix: string | null = null;
+  let resolvedAdminApiPrefix: string | null = null;
+
   // Console admin (do config.admin.enabled ou opts). Protegido pelo adminGuard (sessão + role global).
   if (adminOpt) {
     // Resolve o prefixo: `true` → '/admin' (default); objeto → usa prefix fornecido.
     const rawPrefix = typeof adminOpt === 'object' && adminOpt.prefix ? adminOpt.prefix : '/admin';
     const ap = normalizeAdminPrefix(rawPrefix);
+    resolvedAdminPrefix = ap;
     // Persiste no singleton de processo para que controllers e views usem o mesmo prefixo.
     setAdminPrefix(ap);
 
@@ -826,6 +999,7 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): vo
         ? adminApiOpt.prefix
         : '/api/authkit/v1';
     const aap = normalizeAdminApiPrefix(rawApiPrefix);
+    resolvedAdminApiPrefix = aap;
     // Persiste no singleton de processo para que o SDK remoto e outros consumidores
     // usem o mesmo prefixo sem precisar receber a opção.
     setAdminApiPrefix(aap);
@@ -898,4 +1072,66 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): vo
       // O `withApiThrottle` (introspection, por token) continua como camada adicional.
       .use(throttles ? [throttles.adminIp, adminApiGuard] : [adminApiGuard]);
   }
+
+  // ─── Mapa resolvido (R4) ───────────────────────────────────────────────────
+  // Lido DEPOIS de todo o registro: `accountPath()`/`accountPrefix()` já
+  // refletem o `accountRoutes` aplicado no topo, e os prefixos de console já
+  // foram normalizados. É este objeto que o host entrega ao frontend em vez de
+  // hardcodar `href`s — o que faltava para um override de path ser um recurso
+  // inteiro, e não só metade (certo no servidor, errado na UI).
+  return {
+    mountPath: mount,
+    account: {
+      prefix: accountPrefix(),
+      api: apiBase,
+      paths: accountPathsMap(),
+      loginUrl: getAccountLoginUrl(),
+      screens: {
+        login: mountLogin,
+        tokens: mountTokens,
+        orgs: mountOrgs,
+        security: mountSecurity,
+        mfa: mountMfa,
+        apps: mountApps,
+      },
+    },
+    admin: resolvedAdminPrefix ? { prefix: resolvedAdminPrefix } : null,
+    adminApi: resolvedAdminApiPrefix ? { prefix: resolvedAdminApiPrefix } : null,
+    names: {
+      webauthnAsset: 'authkit.assets.webauthn',
+      oidcWildcard: 'authkit.oidc.wildcard',
+      oidcRoot: 'authkit.oidc.root',
+      ...(resolvedAdminPrefix
+        ? {
+            consoleAssets: 'authkit_console_assets',
+            consoleRoot: 'authkit_console_root',
+            consoleShell: 'authkit_console_shell',
+          }
+        : {}),
+    },
+    sudoMethods: mountedSudoIds,
+    overriddenByConfig,
+  };
+}
+
+/**
+ * Auto-montagem a partir de `config.routes` (R1). Chamada UMA vez pelo
+ * `boot()` do provider.
+ *
+ * O CAMINHO AUTOMÁTICO É O CAMINHO MANUAL: chama literalmente
+ * `registerAuthHost`, sem nenhuma segunda implementação. Toda a resolução
+ * (herança do config, precedência política × estrutural, mapa de retorno) é a
+ * mesma — duas implementações de um comportamento sempre divergem.
+ *
+ * Não recebe opções: os defaults ESTRUTURAIS vêm de `config.routes` pelo stash
+ * (`AuthHostRuntimeConfig.routes`), pelo mesmo caminho que uma chamada manual
+ * os leria.
+ *
+ * @internal
+ */
+export function autoMountAuthHost(router: Router): AuthHostRouteMap {
+  const map = registerAuthHost(router);
+  // Depois, nunca antes: `registerAuthHost` LANÇA quando já houve auto-mount.
+  markAuthHostAutoMounted();
+  return map;
 }

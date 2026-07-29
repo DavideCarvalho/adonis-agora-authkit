@@ -50,6 +50,7 @@ export default class AuthkitServerProvider {
     // Config locks: trava as settings definidas explicitamente no defineConfig
     // (config vence em runtime; a UI/Admin API não pode alterá-las). Fail-safe:
     // qualquer erro → sem locks (comportamento legado).
+    let resolvedConfig: ResolvedServerConfig | null = null;
     try {
       const value = this.app.config.get('authkit');
       if (value) {
@@ -58,6 +59,7 @@ export default class AuthkitServerProvider {
           value,
         )) as ResolvedServerConfig | null;
         if (config) {
+          resolvedConfig = config;
           if (config.lockedSettingKeys?.length) {
             const { setLockedSettingKeys } = await import('../src/host/config_locks.js');
             setLockedSettingKeys(config.lockedSettingKeys);
@@ -71,11 +73,28 @@ export default class AuthkitServerProvider {
             rateLimit: config.rateLimit,
             adminEnabled: config.admin.enabled,
             adminApiEnabled: config.adminApi.enabled,
+            // `config.sudo.methods` passa a decidir também o que é MONTADO — sem
+            // isto o host teria de repetir a lista no `registerAuthHost`, e as
+            // duas divergiriam (tela oferecendo endpoint que dá 404).
+            sudoMethods: config.sudo?.methods,
+            // Defaults estruturais de `config.routes` (o argumento ainda vence).
+            routes: typeof config.routes === 'object' ? config.routes : undefined,
+            lockedRouteOptions: config.lockedRouteOptions,
           });
         }
       }
     } catch {
       /* sem locks / sem stash → registerAuthHost cai em opts/defaults */
+    }
+
+    // Auto-montagem das rotas (`config.routes`). FORA do try/catch fail-safe
+    // acima de propósito: "as rotas não subiram" não pode degradar em silêncio —
+    // seria um app inteiro em 404 sem nenhuma pista. Chama a MESMA função
+    // exportada que o `start/routes.ts` chamaria; não há segunda implementação.
+    if (resolvedConfig?.routes) {
+      const router = await this.app.container.make('router');
+      const { autoMountAuthHost } = await import('../src/host/register_auth_host.js');
+      autoMountAuthHost(router);
     }
 
     // Registra o disco "authkit" no edge.js para que os templates sejam referenciados

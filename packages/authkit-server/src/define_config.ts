@@ -20,7 +20,12 @@ import {
   resolveBotProtection,
 } from './host/bot_protection.js';
 import type { BrandingConfig } from './host/branding.js';
-import { deriveLockedSettingKeys } from './host/config_locks.js';
+import {
+  type PolicyRouteOption,
+  deriveLockedRouteOptions,
+  deriveLockedSettingKeys,
+} from './host/config_locks.js';
+import type { AuthHostOptions } from './host/register_auth_host.js';
 import type { ResolveGeo } from './host/geo.js';
 import { type AuthMessages, type I18nConfig, resolveMessages } from './host/i18n.js';
 import {
@@ -963,6 +968,33 @@ export interface AuthServerConfigInput {
   /** Caminho base onde o host-kit monta as rotas OIDC. Default: '/oidc'. */
   mountPath?: string;
   /**
+   * Montagem AUTOMÁTICA das rotas do host-kit, sem `registerAuthHost` no
+   * `start/routes.ts`.
+   *
+   * - ausente (default) → NÃO auto-monta. O app chama `registerAuthHost(router)`
+   *   no `start/routes.ts`, como sempre (back-compat).
+   * - `true` → o provider monta as rotas no boot chamando `registerAuthHost` —
+   *   literalmente a mesma função, não uma segunda implementação.
+   * - objeto → auto-monta usando estes valores como DEFAULTS estruturais.
+   * - `false` → não auto-monta, explicitamente (o kill switch documentado).
+   *
+   * ⚠️ Auto-montar E chamar `registerAuthHost` no `start/routes.ts` é duplo
+   * registro: a chamada manual LANÇA com a instrução de qual dos dois remover
+   * (duas rotas com o mesmo nome derrubam o boot do AdonisJS).
+   *
+   * ⚠️ A auto-montagem roda no `boot()` do provider, ANTES do `start/routes.ts`
+   * — as rotas do authkit ficam registradas primeiro, e os wildcards
+   * (`${mountPath}/*`, `${adminPrefix}/*`) casam antes de rotas do app com
+   * padrão sobreposto. Quem precisa da ordem inversa continua chamando
+   * `registerAuthHost` na posição que quiser.
+   *
+   * As chaves de POLÍTICA aqui dentro (`social`, `rateLimit`, `sudoMethods`,
+   * `admin`, `adminApi`) são redundantes: elas já vêm dos campos de topo do
+   * config e são travadas por eles. Use este objeto para o ESTRUTURAL —
+   * `accountRoutes`, `account`, `accountLoginUrl`, `mountPath`.
+   */
+  routes?: boolean | AuthHostOptions;
+  /**
    * Destino default da área da conta: pós-login do console (sem `return_to`),
    * confirmações de e-mail e fallback de redirects. Default: '/account/security'.
    * Hosts que preferem mandar o usuário direto pro app podem apontar pra rota deles.
@@ -1262,6 +1294,13 @@ export interface ResolvedServerConfig {
   accountLifecycle: { durable: boolean };
   /** Keys de `auth_settings` travadas por terem sido definidas no defineConfig. */
   lockedSettingKeys: string[];
+  /** Auto-montagem das rotas do host-kit. Ver {@link AuthServerConfigInput.routes}. */
+  routes?: boolean | AuthHostOptions;
+  /**
+   * Opções de POLÍTICA de `registerAuthHost` travadas por terem sido definidas
+   * no defineConfig (config vence sobre o argumento). Ver `deriveLockedRouteOptions`.
+   */
+  lockedRouteOptions: PolicyRouteOption[];
   /** Integração opt-in com `@adonisjs/auth` (ausente = não integrado; comportamento de sempre). */
   adonisAuth?: { guard: string };
 }
@@ -1464,6 +1503,10 @@ export function defineConfig(config: AuthServerConfigInput) {
       // Keys de auth_settings travadas porque foram definidas no defineConfig:
       // config vence e a UI/Admin API não pode alterá-las (ver host/config_locks.ts).
       lockedSettingKeys: deriveLockedSettingKeys(config as Record<string, any>),
+      routes: config.routes,
+      // Mesma regra do `lockedSettingKeys`, outro eixo: config × argumento de
+      // `registerAuthHost` (ver host/config_locks.ts).
+      lockedRouteOptions: deriveLockedRouteOptions(config as Record<string, any>),
       // Opt-in: ausente = authkit nunca toca `ctx.auth` (comportamento de sempre).
       adonisAuth: config.adonisAuth,
     };

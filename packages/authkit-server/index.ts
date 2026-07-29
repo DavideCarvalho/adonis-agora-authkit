@@ -215,7 +215,13 @@ export {
 export type { I18nConfig, AuthMessages } from './src/host/i18n.js';
 export type { AuthHostRenderer, AuthSocialConfig } from './src/define_config.js';
 export { registerAuthHost } from './src/host/register_auth_host.js';
-export type { AuthHostOptions } from './src/host/register_auth_host.js';
+export type {
+  AuthHostOptions,
+  AuthHostRouteMap,
+  AccountScreensOptions,
+} from './src/host/register_auth_host.js';
+export type { PolicyRouteOption } from './src/host/config_locks.js';
+export { POLICY_ROUTE_OPTIONS } from './src/host/config_locks.js';
 export {
   getAdminPrefix,
   setAdminPrefix,
