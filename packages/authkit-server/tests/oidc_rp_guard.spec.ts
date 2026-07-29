@@ -1,3 +1,4 @@
+import { errors } from '@adonisjs/auth';
 import { test } from '@japa/runner';
 import { ACCOUNT_SESSION_KEY } from '../src/host/middleware/account_auth.js';
 import { OidcRpGuard } from '../src/host/oidc_rp_guard.js';
@@ -202,6 +203,78 @@ test.group('OidcRpGuard — getUserOrFail', () => {
     const { guard } = makeGuard(users, {});
 
     assert.throws(() => guard.getUserOrFail(), 'Cannot access user');
+  });
+});
+
+test.group('OidcRpGuard — semântica de erro', () => {
+  /**
+   * Defeito 1 (regressão de 0.54.0): o guard lançava um `RuntimeException`
+   * genérico com a STRING 'E_UNAUTHORIZED_ACCESS' em `cause`. Nada no framework
+   * casa com essa string, então uma visita não autenticada por trás de
+   * `middleware.auth()` virava 500 em vez de 401/redirect.
+   *
+   * A asserção é sobre a CLASSE e o `status`, nunca sobre a mensagem: a mensagem
+   * já era 'Unauthorized' antes do fix e passaria de qualquer jeito.
+   */
+  test('sem user id na sessão lança o E_UNAUTHORIZED_ACCESS do framework (401)', async ({
+    assert,
+  }) => {
+    const users = new Map<string, FakeUser>();
+    const { guard } = makeGuard(users, {});
+
+    const error = await guard.authenticate().then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    assert.instanceOf(error, errors.E_UNAUTHORIZED_ACCESS);
+    assert.equal((error as { status?: number }).status, 401);
+    assert.equal((error as { code?: string }).code, 'E_UNAUTHORIZED_ACCESS');
+  });
+
+  test('user ausente no provider lança o E_UNAUTHORIZED_ACCESS do framework (401)', async ({
+    assert,
+  }) => {
+    const users = new Map<string, FakeUser>();
+    const { guard } = makeGuard(users, { [ACCOUNT_SESSION_KEY]: 'ghost' });
+
+    const error = await guard.authenticate().then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    assert.instanceOf(error, errors.E_UNAUTHORIZED_ACCESS);
+    assert.equal((error as { status?: number }).status, 401);
+  });
+
+  /**
+   * Defeito 2 (regressão de 0.54.0): `check()` era `catch { return false }`, ou
+   * seja, uma queda do Postgres dentro de `provider.findById` reportava "não
+   * logado" para todo mundo, sem nada nos logs. O `SessionGuard` nativo engole
+   * só `E_UNAUTHORIZED_ACCESS` e relança o resto.
+   */
+  test('check() relança erro de infraestrutura em vez de reportar "não logado"', async ({
+    assert,
+  }) => {
+    const { ctx, emitter } = makeCtx({ [ACCOUNT_SESSION_KEY]: 'u1' });
+    const provider = {
+      async createUserForGuard(user: FakeUser) {
+        return { getId: () => user.id, getOriginal: () => user };
+      },
+      async findById() {
+        throw new Error('db down');
+      },
+    } as any;
+    const guard = new OidcRpGuard('web', ctx, ACCOUNT_SESSION_KEY, emitter, provider);
+
+    await assert.rejects(() => guard.check(), 'db down');
+  });
+
+  test('check() continua retornando false quando é só falta de sessão', async ({ assert }) => {
+    const users = new Map<string, FakeUser>();
+    const { guard } = makeGuard(users, {});
+
+    assert.isFalse(await guard.check());
   });
 });
 
