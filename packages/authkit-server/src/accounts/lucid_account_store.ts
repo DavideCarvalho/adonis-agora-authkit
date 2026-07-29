@@ -31,6 +31,43 @@ import { buildWebauthn } from './lucid_store/webauthn.js';
 export type { AccountSecretEncrypter, WebauthnCeremonies };
 
 /**
+ * TTLs dos tokens de verificação de e-mail / troca de e-mail (plan 009).
+ *
+ * Segue o mesmo padrão input/resolved/`resolveX` usado em `define_config.ts`
+ * (ex.: `resolveOrganizations`) — mas vive AQUI, não lá: `defineConfig` não
+ * constrói o `accountStore` (o host já o entrega pronto, via
+ * `config.accountStore`, tipicamente construído por `lucidAccountStore`/
+ * `lucidStores` ANTES de chamar `defineConfig`), então não há caminho para um
+ * valor resolvido em `define_config.ts` alcançar `buildCore` sem alterar a
+ * assinatura dos métodos do `AccountStore` e todos os controllers que os
+ * chamam (como acontece com `invitationTtlHours`/`createOrgInvitation`, que
+ * recebe o TTL por parâmetro em cada chamada) — fora do escopo desta mudança.
+ * O ponto real de wiring é aqui, na construção do store.
+ */
+export interface EmailTokensConfigInput {
+  /** TTL do token de verificação de e-mail (cadastro). Default: 24h. */
+  verificationTtlHours?: number;
+  /**
+   * TTL do token de troca de e-mail (self-service). Default: 1h — mesma
+   * janela do reset de senha, porque reescreve o identificador de recovery
+   * da conta.
+   */
+  changeTtlHours?: number;
+}
+
+export interface ResolvedEmailTokensConfig {
+  verificationTtlHours: number;
+  changeTtlHours: number;
+}
+
+export function resolveEmailTokens(input?: EmailTokensConfigInput): ResolvedEmailTokensConfig {
+  return {
+    verificationTtlHours: input?.verificationTtlHours ?? 24,
+    changeTtlHours: input?.changeTtlHours ?? 1,
+  };
+}
+
+/**
  * Serviço de encryption do app (APP_KEY), carregado LAZY via import dinâmico.
  *
  * Não importamos `@adonisjs/core/services/encryption` no topo do módulo de
@@ -214,6 +251,12 @@ export interface LucidAccountStoreOptions {
     MemberModel: any;
     InvitationModel: any;
   };
+  /**
+   * TTLs dos tokens de verificação de e-mail / troca de e-mail. Ver
+   * {@link EmailTokensConfigInput}. Ausente → 24h / 1h (defaults de
+   * `resolveEmailTokens`).
+   */
+  emailTokens?: EmailTokensConfigInput;
 }
 
 /**
@@ -239,6 +282,7 @@ export function lucidAccountStore(
 ): AccountStore {
   const mfaIssuer = options.mfaIssuer ?? 'AuthKit';
   const recoveryCodeCount = options.recoveryCodeCount ?? 8;
+  const emailTokens = resolveEmailTokens(options.emailTokens);
   // Default seguro: encripta o TOTP com APP_KEY. `false` desliga (plaintext).
   const encrypter =
     options.encrypter === false ? undefined : (options.encrypter ?? appKeyEncrypter());
@@ -271,6 +315,8 @@ export function lucidAccountStore(
     recoveryCodeCount,
     passwords,
     audit: options.audit,
+    emailVerificationTtlHours: emailTokens.verificationTtlHours,
+    emailChangeTtlHours: emailTokens.changeTtlHours,
     // Encripta o segredo antes de persistir (no-op sem encrypter).
     sealSecret: (secret: string) => (encrypter ? encrypter.encrypt(secret) : secret),
     // Decripta o segredo armazenado; retorna null em falha/adulteração (no-op sem encrypter).

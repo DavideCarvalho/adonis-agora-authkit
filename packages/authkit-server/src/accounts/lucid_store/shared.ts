@@ -68,6 +68,20 @@ export interface LucidStoreContext {
    * pela verificação de histórico de senhas.
    */
   nativeVerifyHash?: (hash: string, plain: string) => Promise<boolean>;
+  /**
+   * TTL (em horas) do token de verificação de e-mail (cadastro). Default: 24h
+   * (aplicado em `buildCore` quando ausente). Ver `resolveEmailTokens` em
+   * `lucid_account_store.ts` — não vem de `define_config.ts` porque o
+   * `defineConfig` não constrói o `accountStore` (o host já o entrega pronto
+   * via `config.accountStore`); o valor precisa chegar aqui na construção.
+   */
+  emailVerificationTtlHours?: number;
+  /**
+   * TTL (em horas) do token de troca de e-mail (self-service). Default: 1h —
+   * mesma janela do reset de senha, porque reescreve o identificador de
+   * recovery da conta. Ver nota de `emailVerificationTtlHours`.
+   */
+  emailChangeTtlHours?: number;
 }
 
 export const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex');
