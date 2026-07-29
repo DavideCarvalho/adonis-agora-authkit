@@ -96,6 +96,9 @@ function cfgWith(
   extra: Partial<ResolvedServerConfig> = {},
 ): ResolvedServerConfig {
   return {
+    // Casa com `fakeCtx().request.host()` ('idp.test') — o origin do e-mail agora
+    // vem do issuer (plan 004), não de `request.host()`.
+    issuer: 'https://idp.test',
     notifications: { newLoginEmail, newDeviceEmail },
     audit,
     accountStore: {

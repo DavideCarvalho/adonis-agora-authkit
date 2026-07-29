@@ -187,6 +187,9 @@ function buildMemoryStore(): AccountStore {
 
 function buildCfg() {
   return {
+    // Origem dos links emailados (convite de org) — plan 004: vem do issuer, não
+    // de `request.host()`.
+    issuer: 'http://localhost',
     accountStore: buildMemoryStore(),
     organizations: {
       roles: ['owner', 'admin', 'member'],

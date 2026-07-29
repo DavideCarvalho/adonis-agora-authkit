@@ -388,6 +388,9 @@ test.group('e-mail com accountRoutes', (group) => {
       logger: { info: () => {}, error: () => {} },
       request: { protocol: () => 'https', host: () => 'app.example.com' },
     } as any;
+    // Origin agora vem do issuer resolvido (plan 004), não de request.host() — o
+    // issuer casa com o host de antes para preservar a asserção deste teste.
+    const cfg = { issuer: 'https://app.example.com' } as any;
     // Intercepta o mailer: sem @adonisjs/mail o fallback loga; injetamos um stub
     // que captura o HTML renderizado.
     const { __setMailLoaderForTests } = await import('../../src/host/default_mailer.js');
@@ -409,7 +412,7 @@ test.group('e-mail com accountRoutes', (group) => {
       }),
     );
     try {
-      await sendNewLoginEmail(ctx, { email: 'u@e.com', ip: '203.0.113.1', when: 'hoje' });
+      await sendNewLoginEmail(ctx, cfg, { email: 'u@e.com', ip: '203.0.113.1', when: 'hoje' });
     } finally {
       __setMailLoaderForTests(undefined);
     }

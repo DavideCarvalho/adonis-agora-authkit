@@ -187,6 +187,9 @@ function buildCfg(extra: Partial<any> = {}) {
   const mailInvitations: any[] = [];
   return {
     cfg: {
+      // Origem dos links emailados (convite de org) — plan 004: vem do issuer, não
+      // de `request.host()`.
+      issuer: 'http://localhost',
       accountStore: buildMemoryStoreWithOrgs(),
       organizations: {
         roles: ['owner', 'admin', 'member'],

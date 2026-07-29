@@ -30,6 +30,13 @@ import { dispatchSecurityNotice } from '../../src/host/security_notice_service.j
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Config mínima usada só para `authkitOrigin(cfg)` dentro dos mailer helpers —
+ * o issuer casa com o `host()` de `fakeCtx` (`acme.example.com`) para preservar
+ * o comportamento (e as asserções) de antes da conversão issuer-based (plan 004).
+ */
+const FAKE_CFG = { issuer: 'https://acme.example.com' } as any;
+
 function fakeRuntimeSettings(value: Record<string, unknown> | null) {
   return {
     async isTablePresent() {
@@ -319,6 +326,7 @@ test.group('dispatchSecurityNotice', (group) => {
       },
       undefined,
       undefined,
+      FAKE_CFG,
     );
 
     assert.equal(sent.length, 0);
@@ -343,6 +351,7 @@ test.group('dispatchSecurityNotice', (group) => {
       },
       undefined,
       undefined,
+      FAKE_CFG,
     );
 
     assert.equal(sent.length, 0);
@@ -374,6 +383,7 @@ test.group('dispatchSecurityNotice', (group) => {
       },
       mailHooks,
       undefined,
+      FAKE_CFG,
     );
 
     assert.equal(hookCalls.length, 1);
@@ -405,6 +415,7 @@ test.group('dispatchSecurityNotice', (group) => {
         },
         mailHooks,
         undefined,
+        FAKE_CFG,
       ),
     );
   });
@@ -454,6 +465,7 @@ test.group('dispatchSecurityNotice', (group) => {
       },
       undefined,
       audit as any,
+      FAKE_CFG,
     );
 
     const noticeEvent = auditEvents.find((e) => e.type === 'security_notice.sent');
@@ -494,6 +506,7 @@ test.group('dispatchSecurityNotice', (group) => {
         { account: { id: 'u1', email: 'u@x.com' }, kind, timestamp: '2026-06-06T00:00:00Z' },
         mailHooks,
         undefined,
+        FAKE_CFG,
       );
     }
 
@@ -549,7 +562,7 @@ test.group('email_change mailer functions', (group) => {
     const logger = fakeLogger();
     const ctx = fakeCtx(logger);
 
-    await sendEmailChangeNoticeEmail(ctx, {
+    await sendEmailChangeNoticeEmail(ctx, FAKE_CFG, {
       email: 'old@acme.example.com',
       newEmail: 'new@acme.example.com',
     });
@@ -572,7 +585,7 @@ test.group('email_change mailer functions', (group) => {
     const logger = fakeLogger();
     const ctx = fakeCtx(logger);
 
-    await sendEmailChangeNoticeEmail(ctx, {
+    await sendEmailChangeNoticeEmail(ctx, FAKE_CFG, {
       email: 'old@acme.example.com',
       newEmail: 'new@acme.example.com',
     });
@@ -589,7 +602,7 @@ test.group('email_change mailer functions', (group) => {
     const logger = fakeLogger();
     const ctx = fakeCtx(logger);
 
-    await sendEmailChangedCompletedEmail(ctx, {
+    await sendEmailChangedCompletedEmail(ctx, FAKE_CFG, {
       oldEmail: 'old@acme.example.com',
       newEmail: 'new@acme.example.com',
     });
@@ -613,7 +626,7 @@ test.group('email_change mailer functions', (group) => {
     const ctx = fakeCtx(logger);
 
     await assert.doesNotReject(() =>
-      sendEmailChangedCompletedEmail(ctx, {
+      sendEmailChangedCompletedEmail(ctx, FAKE_CFG, {
         oldEmail: 'old@acme.example.com',
         newEmail: 'new@acme.example.com',
       }),
@@ -628,7 +641,7 @@ test.group('email_change mailer functions', (group) => {
     const logger = fakeLogger();
     const ctx = fakeCtx(logger);
 
-    await sendSecurityNoticeEmail(ctx, {
+    await sendSecurityNoticeEmail(ctx, FAKE_CFG, {
       email: 'user@acme.example.com',
       kind: 'password_changed',
       timestamp: '2026-06-06T00:00:00Z',
@@ -651,7 +664,7 @@ test.group('email_change mailer functions', (group) => {
     const ctx = fakeCtx(logger);
 
     await assert.doesNotReject(() =>
-      sendSecurityNoticeEmail(ctx, {
+      sendSecurityNoticeEmail(ctx, FAKE_CFG, {
         email: 'user@acme.example.com',
         kind: 'mfa_disabled',
         timestamp: '2026-06-06T00:00:00Z',
@@ -666,7 +679,7 @@ test.group('email_change mailer functions', (group) => {
     const logger = fakeLogger();
     const ctx = fakeCtx(logger);
 
-    await sendSecurityNoticeEmail(ctx, {
+    await sendSecurityNoticeEmail(ctx, FAKE_CFG, {
       email: 'user@acme.example.com',
       kind: 'passkey_added',
       timestamp: '2026-06-06T00:00:00Z',
