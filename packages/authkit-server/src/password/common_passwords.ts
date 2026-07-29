@@ -12,7 +12,7 @@
  * Licença do arquivo de dados: CC0 / Public Domain.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -26,16 +26,36 @@ let _commonPasswordsSet: Set<string> | null = null;
 /**
  * Carrega o arquivo de senhas comuns uma única vez (lazy).
  *
- * FAIL-SAFE: se o arquivo não existir ou não puder ser lido (ex.: bundle sem
- * assets), retorna um Set vazio — a checagem vira no-op sem quebrar o fluxo.
+ * Onde o arquivo é esperado: o build script copia `common_passwords.txt`
+ * para o mesmo diretório do módulo compilado (`build/src/password/`, já que
+ * `tsc` com `rootDir: "./"` preserva o subcaminho `src/`). Em dev via
+ * ts-exec (sem build), o módulo roda direto de `src/password/`, onde o
+ * `.txt` já mora ao lado do `.ts` no repo.
+ *
+ * Checamos mais de um candidato — não só o caminho-irmão — para sobreviver
+ * a uma mudança futura em `rootDir`/`outDir` ou a uma regressão no script de
+ * cópia do build: o caminho-irmão cobre o layout atual (build e dev); os
+ * demais são fallbacks para o layout antigo (`build/password/`) e para ler
+ * direto de `src/` a partir de um build.
+ *
+ * FAIL-SAFE: se o arquivo não existir em nenhum candidato, ou não puder ser
+ * lido (ex.: bundle sem assets), retorna um Set vazio — a checagem vira
+ * no-op sem quebrar o fluxo. Uma senha comum indevidamente aceita é sempre
+ * preferível a um login/signup quebrado por um asset ausente.
  */
 function loadCommonPasswords(): Set<string> {
   if (_commonPasswordsSet !== null) return _commonPasswordsSet;
 
   try {
-    const __filename = fileURLToPath(import.meta.url);
-    const __dir = dirname(__filename);
-    const filePath = join(__dir, 'common_passwords.txt');
+    const __dir = dirname(fileURLToPath(import.meta.url));
+    const candidates = [
+      join(__dir, 'common_passwords.txt'), // caminho-irmão: build/src/password/ (prod) ou src/password/ (dev via ts-exec)
+      join(__dir, '..', '..', 'password', 'common_passwords.txt'), // layout antigo: build/password/
+      join(__dir, '..', '..', '..', 'src', 'password', 'common_passwords.txt'), // fallback: src/ a partir de um build
+    ];
+    const filePath = candidates.find((p) => existsSync(p));
+    if (!filePath) throw new Error('common_passwords.txt not found in any candidate path');
+
     const content = readFileSync(filePath, 'utf-8');
     const entries = content
       .split('\n')
@@ -43,7 +63,7 @@ function loadCommonPasswords(): Set<string> {
       .filter((l) => l.length > 0 && !l.startsWith('#'));
     _commonPasswordsSet = new Set(entries);
   } catch {
-    // Fail-safe: arquivo ausente → Set vazio (no-op check).
+    // Fail-safe: arquivo ausente em todos os candidatos → Set vazio (no-op check).
     _commonPasswordsSet = new Set();
   }
 
