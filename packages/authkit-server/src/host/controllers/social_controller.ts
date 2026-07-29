@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { AllyDriverContract } from '@adonisjs/ally/types';
 import type { HttpContext } from '@adonisjs/core/http';
 import { supportsProviderIdentity } from '../../accounts/account_store.js';
+import { assertLoginAllowed } from '../login_attempt.js';
 
 const UID_SESSION_KEY = 'authkit_social_uid';
 
@@ -93,6 +94,20 @@ export default class AuthSocialController {
         email,
       });
       user = created;
+    }
+
+    // Status da conta (disabled/expired): mesmo gate de `attemptPasswordLogin`,
+    // agora aplicado ao login social (o callback já voltou do provider OAuth —
+    // não há um passo de formulário para re-renderizar um erro, então seguimos a
+    // convenção existente deste controller e redirecionamos de volta ao login).
+    // Emite o MESMO evento de auditoria que os outros fluxos.
+    const statusGate = await assertLoginAllowed(cfg, user.id, {
+      email: user.email,
+      ip: ctx.request.ip?.() ?? null,
+    });
+    if (!statusGate.allowed) {
+      ctx.session.forget(UID_SESSION_KEY);
+      return ctx.response.redirect(backToLogin);
     }
 
     ctx.session.forget(UID_SESSION_KEY);
