@@ -1,5 +1,63 @@
 # @adonis-agora/authkit-server
 
+## 0.54.0
+
+### Minor Changes
+
+- 678b1bb: Add `oidcRpGuard` — an `@adonisjs/auth` guard for OIDC Relying Parties. RPs that consume the issuer via Authorization Code + PKCE can plug this guard in `config/auth.ts` to get native `ctx.auth.user` / `auth.check()` / `middleware.auth()` support without a custom guard implementation.
+
+  ```ts
+  import { oidcRpGuard } from "@adonis-agora/authkit-server";
+  import { sessionUserProvider } from "@adonisjs/auth/session";
+
+  export default defineConfig({
+    default: "web",
+    guards: {
+      web: oidcRpGuard({
+        provider: sessionUserProvider({ model: () => import("#models/user") }),
+      }),
+    },
+  });
+  ```
+
+## 0.53.0
+
+### Minor Changes
+
+- Anti-duplo-submit nas views built-in e tela amigável de throttle:
+
+  - Novo partial `authkit::partials/submit_lock` (trava anti-duplo-submit por delegação no `document`, agendada pós-dispatch) incluído em todas as views Edge com forms POST (login, signup, forgot, reset, mfa-challenge, consent, maintenance e `account/*`). Forms disparados via `form.submit()` (auto-submit de passkey) não disparam `submit` e seguem destravados de propósito.
+  - Os throttles de browser (`login`, `sudo`, `otpLogin`) agora renderizam a view themeável `throttled` (Edge built-in; allowlistável no `inertiaRenderer`) em vez do 429 cru do limiter — com header `Retry-After`, os segundos na tela e link de volta pro passo atual (raiz da interaction quando há `uid`). Os throttles de API (`introspection`, `adminIp`) seguem com o 429 cru, que é o contrato correto pra máquina.
+  - Novas chaves i18n `throttled.*` nos catálogos embutidos `en` e `pt-BR`.
+
+## 0.52.1
+
+### Patch Changes
+
+- c4f6d4a: Corrige a tela `session-expired` respondendo 400 com corpo vazio (recuperação de interaction perdida no modo `screen`)
+
+  A recuperação graciosa da sessão de interaction perdida introduzida na 0.52.0
+  estava QUEBRADA out-of-the-box no modo `screen` (default): renderizava um 400
+  com **corpo vazio** em qualquer host, sem uma ponte manual no
+  `app/exceptions/handler.ts`.
+
+  Causa: no modo `screen`, `recoverLostInteraction` fazia `return render(...)`, e
+  tanto o renderer Edge (`view.render`) quanto o Inertia (`inertia.render`)
+  RETORNAM o HTML/payload em vez de escrever no response. No caminho de exception
+  handler do AdonisJS, o valor retornado do `handle()` da exceção é DESCARTADO
+  (apenas o dispatch normal de rota escreve o retorno via `useReturnValue`/
+  `canWriteResponseBody`), então o corpo nunca era enviado — contradizendo o
+  próprio contrato da feature ("roda de forma centralizada, sem depender de o host
+  customizar o `app/exceptions/handler.ts`").
+
+  Correção: no modo `screen`, a lib agora ESCREVE o body ela mesma, replicando
+  fielmente o contrato `canWriteResponseBody` do http-server — após
+  `ctx.response.status(400)`, `const body = await render(...)` e, se
+  `body !== undefined && !ctx.response.hasLazyBody && body !== ctx.response`,
+  `ctx.response.send(body)`. O guard `hasLazyBody` evita double-write e cobre os
+  DOIS renderers built-in (Edge e Inertia). O modo `redirect` e o fluxo normal
+  (sessão válida) permanecem inalterados.
+
 ## 0.52.0
 
 ### Minor Changes

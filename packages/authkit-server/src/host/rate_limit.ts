@@ -1,5 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http';
 import type { ResolvedRateLimitConfig } from '../define_config.js';
+import { brandFor } from './branding.js';
 
 /**
  * Assinatura mínima de um middleware do AdonisJS. Evita acoplar o tipo concreto
@@ -122,7 +123,9 @@ export function createAuthThrottles(config: ResolvedRateLimitConfig): AuthThrott
 
   return {
     // Login/signup/forgot/reset: keyed por IP (default do HttpLimiter).
-    login: buildThrottle('authkit_login', config.login, config.store),
+    // `friendly`: rota de BROWSER — 429 vira a tela themeável `throttled`
+    // em vez do erro cru do limiter (ver `withFriendly429`).
+    login: withFriendly429(buildThrottle('authkit_login', config.login, config.store)),
     // Introspecção de PAT: keyed pelo bearer secret quando presente, senão por IP.
     introspection: buildThrottle(
       'authkit_pat_introspection',
@@ -148,9 +151,77 @@ export function createAuthThrottles(config: ResolvedRateLimitConfig): AuthThrott
     // contagem por nome, então `authkit_login` e `authkit_sudo` nunca somam,
     // mesmo vindo do mesmo IP. Sem `usingKey` próprio de propósito: inventar uma
     // key aqui seria mudar o EIXO da contagem, e o eixo certo continua sendo o IP.
-    sudo: buildThrottle('authkit_sudo', config.sudo, config.store),
+    sudo: withFriendly429(buildThrottle('authkit_sudo', config.sudo, config.store)),
     // Verificação de código OTP: keyed por IP (default), bucket próprio e mais
     // apertado que o login. O namespace do nome mantém a contagem separada.
-    otpLogin: buildThrottle('authkit_otp_login', config.otpLogin, config.store),
+    otpLogin: withFriendly429(buildThrottle('authkit_otp_login', config.otpLogin, config.store)),
+  };
+}
+
+/**
+ * Discriminador de "estourou o throttle" por DUCK-TYPING — o `@adonisjs/limiter`
+ * é peer opcional, então a classe `ThrottleException` não é importável aqui. O
+ * `code` é o identificador estável; o `status` é o fallback.
+ */
+function isThrottleExceeded(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { code?: unknown; status?: unknown };
+  return e.code === 'E_TOO_MANY_REQUESTS' || e.status === 429;
+}
+
+/** `response.availableIn` (segundos) da `LimiterResponse` embutida na exceção. */
+function retryAfterSeconds(err: unknown): number | null {
+  const availableIn = (err as { response?: { availableIn?: unknown } })?.response?.availableIn;
+  return typeof availableIn === 'number' && availableIn > 0 ? Math.ceil(availableIn) : null;
+}
+
+/**
+ * Embrulha um throttle de rota de BROWSER para trocar o 429 cru do limiter pela
+ * tela themeável `throttled` (Edge built-in, ou a página React do host quando
+ * listada no allowlist do `inertiaRenderer`).
+ *
+ * Antes deste wrapper, estourar o throttle no meio do login (ex.: cliques
+ * repetidos no "Receber link mágico") cuspia um "Too many requests" sem marca,
+ * sem marca de tempo e sem caminho de volta — o usuário ficava preso numa página
+ * de erro morta. A tela mostra o `Retry-After` e linka de volta pro passo atual
+ * (raiz da interaction quando há `uid`; a própria URL nas demais).
+ *
+ * Aplicado SÓ nos throttles de browser (`login`, `sudo`, `otpLogin`) —
+ * `introspection`/`adminIp` servem APIs, onde o 429 cru (JSON/headers) é o
+ * contrato correto.
+ *
+ * O `send` explícito com o guard `hasLazyBody` espelha o contrato de
+ * `interaction_recovery.ts`: funciona tanto se o http-server usar o valor de
+ * retorno quanto se o renderer já tiver escrito o body.
+ */
+export function withFriendly429(throttle: ThrottleMiddleware): ThrottleMiddleware {
+  return async (ctx, next) => {
+    try {
+      await throttle(ctx, next);
+    } catch (err) {
+      if (!isThrottleExceeded(err)) throw err;
+      const service = await (ctx as any).containerResolver.make('authkit.server');
+      const cfg = service.config;
+      const render = cfg.render as
+        | ((ctx: HttpContext, view: string, props: Record<string, unknown>) => unknown)
+        | undefined;
+      if (!render) throw err; // Sem renderer configurado — mantém o 429 cru.
+
+      const retryAfter = retryAfterSeconds(err);
+      const uid = ctx.request.param('uid');
+      const retryUrl = uid ? `/auth/interaction/${uid}` : ctx.request.url();
+      const brand = cfg.branding ? brandFor(cfg.branding, undefined, undefined) : undefined;
+
+      ctx.response.status(429);
+      if (retryAfter) ctx.response.header('Retry-After', String(retryAfter));
+      const body = await render(ctx, 'throttled', { brand, retryAfter, retryUrl });
+      const res = ctx.response as any;
+      if (body !== undefined && !res.hasLazyBody && body !== ctx.response) {
+        res.send(body);
+      }
+      // Não retorna o body: a `ThrottleMiddleware` é `Promise<void>` e o `send`
+      // explícito (com o guard `hasLazyBody` contra double-write) já entregou
+      // a resposta — mesmo contrato de `interaction_recovery.ts`.
+    }
   };
 }

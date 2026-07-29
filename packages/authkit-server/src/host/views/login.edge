@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="pt-br"><head><meta charset="utf-8"><title>{{ t('login.page_title') }} — {{ brand && brand.appName ? brand.appName : t('common.app_fallback') }}</title>
 @include('authkit::partials/styles')
+@include('authkit::partials/submit_lock')
 @if(botProtection && botProtection.scriptUrl)
   <script src="{{ botProtection.scriptUrl }}" async defer></script>
 @end

@@ -21,6 +21,13 @@ export interface InteractionUrls {
   passkeyOptions: string;
   /** POST — verificação (página inteira) da cerimônia de passkey. */
   passkeyVerify: string;
+  /**
+   * POST — verificação do código OTP de 6 dígitos (`login.otp`, rota montada
+   * pelo authkit-server 0.50+ em `/auth/interaction/:uid/otp-verify`). Ficou
+   * fora do helper até a 0.18 — hosts que usavam OTP montavam a string à mão
+   * (exatamente o acoplamento que este builder existe pra evitar).
+   */
+  otpVerify: string;
 }
 
 /**
@@ -38,11 +45,21 @@ export function interactionUrls(uid: string, basePath = '/auth/interaction'): In
     switch: `${base}/switch`,
     passkeyOptions: `${base}/passkey/options`,
     passkeyVerify: `${base}/passkey/verify`,
+    otpVerify: `${base}/otp-verify`,
   };
 }
 
 /** Passos de interaction que são POST de formulário (consumidos por `InteractionForm`). */
-export type InteractionPostStep = 'identifier' | 'login' | 'magic';
+export type InteractionPostStep = 'identifier' | 'login' | 'magic' | 'otpVerify';
+
+/**
+ * Nome do campo do form clássico do código OTP de 6 dígitos
+ * (`<input name="code">`) — o `otpVerify` do authkit-server lê
+ * `ctx.request.input('code')`. Exportado para que a TELA e o teste E2E do host
+ * importem da MESMA fonte: um typo no nome do campo quebra os dois juntos em
+ * vez de o teste divergir silenciosamente do que a tela envia.
+ */
+export const OTP_CODE_FIELD = 'code';
 
 /**
  * URL de redirect de um provedor OAuth (ex.: `oauthRedirectUrl('google', uid)` →

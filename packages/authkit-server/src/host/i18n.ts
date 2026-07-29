@@ -625,6 +625,14 @@ export const DEFAULT_MESSAGES = {
     'Your login session expired or could not be found. This can happen if you left the page open too long. Please start again.',
   'session_expired.login_link': 'Back to login',
 
+  // Tela amigável de throttle (429) nas rotas de browser — ver `withFriendly429`.
+  'throttled.page_title': 'Too many attempts',
+  'throttled.title': 'Too many attempts',
+  'throttled.body_seconds':
+    'You have made too many attempts. Please wait {seconds} seconds and try again.',
+  'throttled.body': 'You have made too many attempts. Please wait a moment and try again.',
+  'throttled.retry_link': 'Back and try again',
+
   // Política de senha (validação ao definir uma senha nova) + vazamento (HIBP) + histórico + expiração.
   'password.policy.min_length': 'Password must be at least {min} characters long.',
   'password.policy.uppercase': 'Password must contain at least one uppercase letter.',
@@ -1597,6 +1605,14 @@ export const PT_BR_MESSAGES = {
   'session_expired.body':
     'Sua sessão de login expirou ou não foi encontrada. Isso pode acontecer se a página ficou aberta por muito tempo. Recomece o login.',
   'session_expired.login_link': 'Voltar ao login',
+
+  // Tela amigável de throttle (429) nas rotas de browser — ver `withFriendly429`.
+  'throttled.page_title': 'Muitas tentativas',
+  'throttled.title': 'Muitas tentativas',
+  'throttled.body_seconds':
+    'Você fez tentativas demais. Aguarde {seconds} segundos e tente de novo.',
+  'throttled.body': 'Você fez tentativas demais. Aguarde um instante e tente de novo.',
+  'throttled.retry_link': 'Voltar e tentar de novo',
 
   // Política de senha (validação ao definir uma senha nova) + vazamento (HIBP) + histórico + expiração.
   'password.policy.min_length': 'A senha deve ter no mínimo {min} caracteres.',

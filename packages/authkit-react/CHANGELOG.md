@@ -1,5 +1,15 @@
 # @adonis-agora/authkit-react
 
+## 0.18.0
+
+### Minor Changes
+
+- Login OTP e anti-duplo-submit nos formulários de interaction:
+
+  - `interactionUrls` cobre `otpVerify` (e `InteractionPostStep` aceita `'otpVerify'`) + novo export `OTP_CODE_FIELD` (`'code'`). A rota existe no server desde a 0.50 e o helper ficou pra trás — hosts montavam a URL à mão e hardcodavam o nome do campo.
+  - `MagicLinkButton` aceita `channel` (`'code'` | `'link'` — o choose-first do server 0.51) e mostra `pendingChildren` durante o voo do POST.
+  - `InteractionForm` ganha trava anti-duplo-submit a nível de DOM: desabilita os botões de submit depois do dispatch do evento (botão nomeado preserva o valor; `preventDefault` não trava à toa). Cobre qualquer `children` sem mudança de API — clique repetido não vira mais POST duplicado (no `/magic`, N cliques impacientes derrubavam o usuário no throttle 429).
+
 ## 0.17.0
 
 ### Minor Changes

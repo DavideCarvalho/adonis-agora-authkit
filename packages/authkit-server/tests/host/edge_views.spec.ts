@@ -53,6 +53,56 @@ test.group('edge views (lib-owned)', () => {
     }
   });
 
+  test('submit-lock incluído nas views com formulários POST', ({ assert }) => {
+    for (const v of [
+      'login.edge',
+      'consent.edge',
+      'signup.edge',
+      'forgot.edge',
+      'reset.edge',
+      'mfa-challenge.edge',
+      'maintenance.edge',
+      'account/apps.edge',
+      'account/confirm.edge',
+      'account/login.edge',
+      'account/mfa.edge',
+      'account/orgs.edge',
+      'account/security.edge',
+      'account/tokens.edge',
+    ]) {
+      assert.include(
+        read(v),
+        "@include('authkit::partials/submit_lock')",
+        `falta o partial submit_lock em ${v}`,
+      );
+    }
+    // O partial existe e carrega o listener delegado + a marca aria-busy.
+    const partial = read('partials/submit_lock.edge');
+    assert.include(partial, "document.addEventListener('submit'");
+    assert.include(partial, 'aria-busy');
+    assert.include(partial, 'defaultPrevented');
+  });
+
+  test('throttled.edge renderiza com e sem retryAfter', async ({ assert }) => {
+    const edge = makeEdge();
+    const withRetry = await edge.render('authkit::throttled', {
+      brand: undefined,
+      retryAfter: 42,
+      retryUrl: '/auth/interaction/uid-1',
+    });
+    assert.include(withRetry, 'Too many attempts');
+    assert.include(withRetry, '42 seconds');
+    assert.include(withRetry, 'href="/auth/interaction/uid-1"');
+
+    const noRetry = await edge.render('authkit::throttled', {
+      brand: undefined,
+      retryAfter: null,
+      retryUrl: '/conta/confirmar',
+    });
+    assert.include(noRetry, 'wait a moment');
+    assert.include(noRetry, 'href="/conta/confirmar"');
+  });
+
   test('actions de formulário corretas', ({ assert }) => {
     assert.include(read('login.edge'), '/auth/interaction/');
     assert.include(read('signup.edge'), '/auth/interaction/');

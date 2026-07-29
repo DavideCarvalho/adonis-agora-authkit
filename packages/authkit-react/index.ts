@@ -122,7 +122,7 @@ export type {
 export { deriveInitials, currentUrl, buttonClass } from './src/utils.js';
 
 // URLs de interaction (builders tipados)
-export { interactionUrls, oauthRedirectUrl } from './src/interaction/urls.js';
+export { interactionUrls, oauthRedirectUrl, OTP_CODE_FIELD } from './src/interaction/urls.js';
 export type {
   InteractionUrls,
   InteractionPostStep,
