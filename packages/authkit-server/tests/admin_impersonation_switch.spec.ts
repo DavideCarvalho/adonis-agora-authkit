@@ -50,7 +50,9 @@ async function resolvedConfig(extra: Partial<AuthServerConfigInput> = {}) {
       ],
       accountStore: fakeAccountStore({
         findById: async (id: string) =>
-          id === 'target-1' ? { id, email: 't@x.com', globalRoles: ['USER'], name: 'Target' } : null,
+          id === 'target-1'
+            ? { id, email: 't@x.com', globalRoles: ['USER'], name: 'Target' }
+            : null,
       }),
       ...extra,
     }),
