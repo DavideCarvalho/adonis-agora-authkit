@@ -27,7 +27,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.tests.json",
     "test": "node --import=@poppinss/ts-exec bin/test.ts"
   },
   "peerDependencies": {
