@@ -10,8 +10,10 @@
  * R4 — devolve o mapa de rotas resolvido.
  */
 
+import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
-import { resolveRateLimit } from '../../src/define_config.js';
+import RedisMock from 'ioredis-mock';
+import { adapters, defineConfig, resolveRateLimit } from '../../src/define_config.js';
 import { resetAccountLoginUrl } from '../../src/host/account_login_url.js';
 import { resetAccountPaths } from '../../src/host/account_paths.js';
 import { resetAuthHostConfig, setAuthHostConfig } from '../../src/host/auth_host_config.js';
@@ -20,6 +22,7 @@ import { autoMountAuthHost, registerAuthHost } from '../../src/host/register_aut
 import { magicLink } from '../../src/host/sudo/methods/magic_link.js';
 import { passkey } from '../../src/host/sudo/methods/passkey.js';
 import { password } from '../../src/host/sudo/methods/password.js';
+import { fakeAccountStore } from '../bootstrap.js';
 
 /**
  * Router falso mínimo. Espelha o de `register_auth_host.spec.ts`; os métodos de
@@ -396,5 +399,74 @@ test.group('R4 — registerAuthHost devolve o mapa de rotas resolvido', (group) 
         `rota nomeada "${name}" deve existir`,
       );
     }
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// R3b — a COSTURA entre o produtor e o consumidor da lista de travas
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * As duas metades da precedência de política estão testadas em ISOLAMENTO:
+ * `deriveLockedRouteOptions` (o produtor) tem teste unitário, e os quatro testes
+ * `POLÍTICA:` acima injetam `lockedRouteOptions` direto no stash, exercitando só
+ * o consumidor. Nenhum dos dois falha se o fio entre eles arrebentar — apagar
+ * `lockedRouteOptions: deriveLockedRouteOptions(config)` do `defineConfig`
+ * deixava a suíte inteira verde e toda trava de política inerte.
+ *
+ * Esta é a MESMA forma do bug do `accountStore?` opcional (plano 010): dois
+ * lados corretos e o call site de produção que nunca ligava um no outro. Este
+ * teste prega a costura: input do `defineConfig` → config resolvida → stash que
+ * o `registerAuthHost` lê → override efetivamente aplicado.
+ */
+test.group('R3b — a costura config → travas → registerAuthHost', (group) => {
+  group.each.teardown(resetProcessState);
+
+  test('declarar `admin` no defineConfig faz o registerAuthHost IGNORAR o argumento', async ({
+    assert,
+  }) => {
+    const fakeApp = {
+      container: { make: async () => ({ connection: () => new RedisMock() }) },
+    } as any;
+    const config = (await configProvider.resolve(
+      fakeApp,
+      defineConfig({
+        issuer: 'https://seam.test',
+        adapter: adapters.redis({ connection: 'main' }),
+        jwks: { source: 'managed', algorithm: 'RS256' },
+        clients: [{ clientId: 'app1', clientSecret: 's', redirectUris: ['https://seam.test/cb'] }],
+        accountStore: fakeAccountStore(),
+        // A ÚNICA chave de POLÍTICA declarada no arquivo — e declarada como
+        // DESLIGADA, o oposto do que o argumento vai pedir.
+        admin: { enabled: false },
+      }),
+    )) as any;
+
+    // Elo 1 — o produtor roda de fato DENTRO do `defineConfig`.
+    assert.deepEqual(
+      config.lockedRouteOptions,
+      ['admin'],
+      'a saída de deriveLockedRouteOptions tem de chegar na config resolvida',
+    );
+
+    // Elo 2 — o stash que o provider monta no boot é alimentado por essa lista
+    // (mesmos campos de `providers/authkit_server_provider.ts`).
+    setAuthHostConfig({
+      mountPath: config.mountPath,
+      social: config.social,
+      rateLimit: config.rateLimit,
+      adminEnabled: config.admin.enabled,
+      adminApiEnabled: config.adminApi.enabled,
+      lockedRouteOptions: config.lockedRouteOptions,
+    });
+
+    // Elo 3 — e o consumidor honra a trava: `admin: true` no routes.ts não liga
+    // um console que o config declarou desligado.
+    const router = fakeRouter();
+    const map = registerAuthHost(router, { admin: true });
+
+    assert.deepEqual(map.overriddenByConfig, ['admin']);
+    assert.isNull(map.admin, 'console admin NÃO montado — o config declarou enabled: false');
+    assert.isFalse(has(router, '/admin/*', 'GET'));
   });
 });
