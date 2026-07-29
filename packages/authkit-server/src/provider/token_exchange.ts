@@ -1,6 +1,7 @@
 import { errors } from 'oidc-provider';
-import type { AuthAccount } from '../accounts/account_store.js';
+import type { AccountStore, AuthAccount } from '../accounts/account_store.js';
 import type { AuditSink } from '../audit/audit_sink.js';
+import { assertAccountEnabled } from '../host/login_attempt.js';
 
 const TOKEN_EXCHANGE = 'urn:ietf:params:oauth:grant-type:token-exchange';
 const ACCESS_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:access_token';
@@ -37,6 +38,17 @@ export interface TokenExchangeDeps {
   supportedResources?: string[];
   /** Sink de auditoria (best-effort). Quando presente, registra `impersonation`. */
   audit?: AuditSink;
+  /**
+   * AccountStore do host, usado para checar se o alvo da impersonação está
+   * desabilitado/expirado (mesmo gate de `attemptPasswordLogin`, via
+   * `assertAccountEnabled`). Impersonar uma conta desabilitada mintaria tokens
+   * funcionais para uma identidade que deveria estar sem acesso algum.
+   *
+   * OPCIONAL e capability-probed (via `supportsAccountStatus`, dentro do
+   * helper): ausente ou sem a capacidade → degrada para "permitido" (mesma
+   * regra de todo o resto da lib — nunca quebra hosts com um store mínimo).
+   */
+  accountStore?: AccountStore;
 }
 
 /**
@@ -89,6 +101,22 @@ export function registerTokenExchange(provider: any, deps: TokenExchangeDeps): v
     const target = await deps.findAccount(targetId);
     if (!target) {
       throw new errors.InvalidGrant('requested_subject not found');
+    }
+
+    // Status do alvo (disabled/expirado): mesmo gate de `attemptPasswordLogin`.
+    // Sem isso, impersonar um alvo desabilitado mintava tokens funcionais para
+    // uma identidade que o admin acreditava ter revogado. `accountStore` é
+    // opcional/capability-probed — sem ele (ou sem a capacidade), permanece
+    // "permitido" como antes.
+    if (deps.accountStore) {
+      const statusGate = await assertAccountEnabled(
+        { accountStore: deps.accountStore, audit: deps.audit },
+        target.id,
+        { email: target.email ?? '', ip: ctx.req?.socket?.remoteAddress ?? null },
+      );
+      if (!statusGate.allowed) {
+        throw new errors.InvalidGrant('requested_subject is disabled');
+      }
     }
 
     // audience/resource: se o pedido vier com um alvo, ele PRECISA estar entre os
