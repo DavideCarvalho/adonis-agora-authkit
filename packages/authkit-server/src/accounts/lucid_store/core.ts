@@ -20,7 +20,7 @@ import type {
 } from '../account_store.js';
 import type { LucidStoreContext } from './shared.js';
 import { hasColumn } from './status_profile.js';
-import { generateHashedToken, rawToDbToken } from './token_hash.js';
+import { generateHashedToken, rawToDbToken, sha256Hex } from './token_hash.js';
 
 /** Prefixo do token de troca de e-mail (reaproveita a coluna emailVerificationToken). */
 const EMAIL_CHANGE_PREFIX = 'ec:';
@@ -214,8 +214,13 @@ export function buildCore(
       if (token.startsWith(OTP_LOGIN_PREFIX)) {
         const linkToken = linkTokenFromOtpUrl(token);
         if (!linkToken) return null;
+        // O slot armazena o HASH do link-token (não o valor bruto da URL); o
+        // padrão do LIKE precisa ser construído sobre o hash. `sha256Hex` sempre
+        // devolve hex minúsculo — sem metacaractere de LIKE, então isso não
+        // reabre a guarda de LIKE-injection que `linkTokenFromOtpUrl` já fecha.
+        const linkTokenHash = sha256Hex(linkToken);
         const row = await Model.query()
-          .where('passwordResetToken', 'like', `${OTP_LOGIN_PREFIX}${linkToken}:%`)
+          .where('passwordResetToken', 'like', `${OTP_LOGIN_PREFIX}${linkTokenHash}:%`)
           .first();
         if (!row) return null;
         if (!row.passwordResetExpiresAt || row.passwordResetExpiresAt < DateTime.now()) return null;
@@ -243,12 +248,20 @@ export function buildCore(
     async issueMagicLinkWithCode(email, uid, opts) {
       const row = await Model.query().where('email', email).first();
       if (!row) return null;
+      // `linkToken` BRUTO vai só na URL; o slot armazena o HASH dele (NÃO o
+      // valor bruto) — `codeHash` já é sha256(uid:code) e NÃO é re-hasheado aqui.
       const linkToken = randomBytes(32).toString('hex');
+      const linkTokenHash = sha256Hex(linkToken);
       const code = generateOtpCode(opts.digits);
       const codeHash = hashLoginOtp(uid, code);
       const codeExpMs = DateTime.now().plus({ minutes: opts.ttlMinutes }).toMillis();
       // Slot `ml2:` — código + link juntos, contador em 0. Ver host/otp_login.ts.
-      row.passwordResetToken = encodeOtpToken({ linkToken, codeHash, codeExpMs, attempts: 0 });
+      row.passwordResetToken = encodeOtpToken({
+        linkToken: linkTokenHash,
+        codeHash,
+        codeExpMs,
+        attempts: 0,
+      });
       // O LINK herda a validade padrão do magic link (15 min); o CÓDIGO carrega o
       // próprio `codeExpMs` (mais curto) embutido no slot.
       row.passwordResetExpiresAt = DateTime.now().plus({ minutes: 15 });
