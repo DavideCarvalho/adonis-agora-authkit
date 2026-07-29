@@ -22,6 +22,7 @@ import {
 } from '../default_mailer.js';
 import { translate } from '../i18n.js';
 import { ACCOUNT_SESSION_KEY } from '../middleware/account_auth.js';
+import { authkitOrigin } from '../origin.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import {
   resolveEffectiveEmailChange,
@@ -431,6 +432,7 @@ export default class AccountSecurityController {
         },
         cfg.mail,
         cfg.audit,
+        cfg,
       );
     }
     ctx.session.flash(
@@ -496,7 +498,7 @@ export default class AccountSecurityController {
       ip: ctx.request.ip?.() ?? null,
     });
 
-    const origin = `${ctx.request.protocol()}://${ctx.request.host()}`;
+    const origin = authkitOrigin(cfg);
     const confirmUrl = `${origin}${accountPath('emailConfirm')}?token=${encodeURIComponent(issued.token)}`;
 
     // 1. Link de confirmação → NOVO e-mail (hook onEmailChangeConfirm > onEmailVerification > default).
@@ -526,7 +528,7 @@ export default class AccountSecurityController {
       if (cfg.mail?.onEmailChangeNotice) {
         await cfg.mail.onEmailChangeNotice({ email: account.email, newEmail });
       } else {
-        await sendEmailChangeNoticeEmail(ctx, {
+        await sendEmailChangeNoticeEmail(ctx, cfg, {
           email: account.email,
           newEmail,
         });
@@ -625,7 +627,7 @@ export default class AccountSecurityController {
           })
           .catch(() => {});
       } else {
-        await sendEmailChangedCompletedEmail(ctx, {
+        await sendEmailChangedCompletedEmail(ctx, cfg, {
           oldEmail: result.oldEmail,
           newEmail: result.newEmail,
         });
@@ -643,6 +645,7 @@ export default class AccountSecurityController {
         },
         cfg.mail,
         cfg.audit,
+        cfg,
       );
     }
     return render(ctx, 'account/email-confirmed', { ok: result.ok } satisfies Omit<

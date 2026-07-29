@@ -20,6 +20,7 @@ import {
 } from '../login_attempt.js';
 import { magicChannelProp, normalizeLoginChannel } from '../login_channel.js';
 import { notifyLoginSuccess } from '../login_notify.js';
+import { authkitOrigin } from '../origin.js';
 import {
   createOtpLockout,
   generateOtpUnlockToken,
@@ -720,7 +721,7 @@ export default class AuthInteractionController {
         await row.save();
       }
 
-      const origin = `${ctx.request.protocol()}://${ctx.request.host()}`;
+      const origin = authkitOrigin(cfg);
       const unlockUrl = `${origin}/auth/otp-unlock/${encodeURIComponent(raw)}`;
 
       if (cfg.mail?.onOtpUnlock) {
@@ -805,7 +806,7 @@ export default class AuthInteractionController {
             clientId,
           });
         }
-        const origin = `${ctx.request.protocol()}://${ctx.request.host()}`;
+        const origin = authkitOrigin(cfg);
         const magicUrl = `${origin}/auth/interaction/${uid}/magic?token=${encodeURIComponent(issued.token)}`;
         if (cfg.mail?.onMagicLink) {
           await cfg.mail.onMagicLink({ email, magicUrl, token: issued.token, code, channel });

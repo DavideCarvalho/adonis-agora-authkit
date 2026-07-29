@@ -132,7 +132,7 @@ async function notifyNewDevice(
     });
     return;
   }
-  await sendNewDeviceLoginEmail(ctx, {
+  await sendNewDeviceLoginEmail(ctx, cfg, {
     email: data.email,
     ip: data.ip,
     userAgent: data.userAgent,
@@ -170,7 +170,7 @@ async function maybeNotifyNewLogin(
   if (sameIpCount > 1) return;
 
   const when = new Date().toISOString();
-  await sendNewLoginEmail(ctx, { email, ip, when });
+  await sendNewLoginEmail(ctx, cfg, { email, ip, when });
   await cfg.audit?.record({
     type: 'login.new_ip_notified',
     accountId,

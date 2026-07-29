@@ -130,6 +130,7 @@ export default class AccountMfaController {
         },
         cfg.mail,
         cfg.audit,
+        cfg,
       );
       await dispatchSecurityNotice(
         ctx,
@@ -141,6 +142,7 @@ export default class AccountMfaController {
         },
         cfg.mail,
         cfg.audit,
+        cfg,
       );
     }
     // Resposta DUAL. A cerimônia WebAuthn da tela built-in (`mfa.edge`) chama
@@ -188,6 +190,7 @@ export default class AccountMfaController {
         },
         cfg.mail,
         cfg.audit,
+        cfg,
       );
     }
     return ctx.response.redirect(accountPath('mfa'));
@@ -271,6 +274,7 @@ export default class AccountMfaController {
         },
         cfg.mail,
         cfg.audit,
+        cfg,
       );
     }
     // Mostra os recovery codes UMA vez (flash) e volta pro estado "ativado".
@@ -309,6 +313,7 @@ export default class AccountMfaController {
         },
         cfg.mail,
         cfg.audit,
+        cfg,
       );
     }
     return ctx.response.redirect(accountPath('mfa'));

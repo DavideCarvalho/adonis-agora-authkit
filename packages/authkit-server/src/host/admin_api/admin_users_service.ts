@@ -12,6 +12,7 @@ import { PasswordPolicyError } from '../../password/password_manager.js';
 import type { OidcService } from '../../provider/oidc_service.js';
 import { AccountDeletionService, type DeletionResult } from '../account_deletion_service.js';
 import { sendPasswordResetEmail } from '../default_mailer.js';
+import { authkitOrigin } from '../origin.js';
 import type { SettingsCapability } from '../runtime_settings.js';
 import { resolveEffectiveRolesCatalog } from '../runtime_toggles.js';
 
@@ -386,7 +387,7 @@ export class AdminUsersService {
   private async sendResetEmail(ctx: HttpContext, email: string): Promise<void> {
     const issued = await this.cfg.accountStore.issuePasswordResetToken(email);
     if (!issued) return;
-    const origin = `${ctx.request.protocol()}://${ctx.request.host()}`;
+    const origin = authkitOrigin(this.cfg);
     const resetUrl = `${origin}/auth/reset-password?token=${encodeURIComponent(issued.token)}`;
     if (this.cfg.mail?.onPasswordReset) {
       await this.cfg.mail.onPasswordReset({

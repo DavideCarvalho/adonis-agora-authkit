@@ -9,7 +9,7 @@
 
 import type { HttpContext } from '@adonisjs/core/http';
 import type { AuditSink } from '../audit/audit_sink.js';
-import type { MailHooks } from '../define_config.js';
+import type { MailHooks, ResolvedServerConfig } from '../define_config.js';
 import { sendSecurityNoticeEmail } from './default_mailer.js';
 import { resolveRuntimeSettings } from './runtime_settings.js';
 import type { SecurityNotificationKind } from './runtime_toggles.js';
@@ -35,12 +35,15 @@ export interface SecurityNoticeContext {
  * @param notice      Contexto da notificação
  * @param mailHooks   Hooks de mail do config (opcional)
  * @param audit       Sink de auditoria (opcional)
+ * @param cfg         Config resolvido — só usado para derivar o origin do link
+ *                    do e-mail default (`authkitOrigin`); nunca do `request.host()`.
  */
 export async function dispatchSecurityNotice(
   ctx: HttpContext,
   notice: SecurityNoticeContext,
   mailHooks: Pick<MailHooks, 'onSecurityNotice'> | undefined,
   audit: AuditSink | undefined,
+  cfg: ResolvedServerConfig,
 ): Promise<void> {
   try {
     // Resolve settings em runtime (fail-safe: sem tabela → defaults habilitados).
@@ -82,7 +85,7 @@ export async function dispatchSecurityNotice(
     if (mailHooks?.onSecurityNotice) {
       await mailHooks.onSecurityNotice(noticeData);
     } else {
-      await sendSecurityNoticeEmail(ctx, {
+      await sendSecurityNoticeEmail(ctx, cfg, {
         email: notice.account.email,
         kind: notice.kind,
         timestamp,

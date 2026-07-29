@@ -7,6 +7,7 @@ import {
   orgMemberRoleValidator,
   orgUpdateValidator,
 } from '../admin_validators.js';
+import { authkitOrigin } from '../origin.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { AdminOrgsService } from './admin_orgs_service.js';
 import { apiError, orgDetailDto, orgDto, orgInvitationDto } from './dto.js';
@@ -220,7 +221,7 @@ export default class ApiOrgsController {
 
     const { email, role } = await ctx.request.validateUsing(orgInvitationValidator);
 
-    const origin = `${ctx.request.protocol()}://${ctx.request.host()}`;
+    const origin = authkitOrigin(cfg);
     const result = await svc.createInvitation(
       orgId,
       { email, role: role ?? 'member' },

@@ -10,6 +10,7 @@ import {
   orgUpdateValidator,
 } from '../admin_validators.js';
 import { ACCOUNT_SESSION_KEY } from '../middleware/account_auth.js';
+import { authkitOrigin } from '../origin.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import type { SettingsCapability } from '../runtime_settings.js';
 
@@ -319,7 +320,8 @@ export default class ConsoleOrgsController {
     const orgId = ctx.request.param('id') as string;
     const { email, role } = await ctx.request.validateUsing(orgInvitationValidator);
 
-    const origin = `${ctx.request.protocol()}://${ctx.request.host()}`;
+    const service = await ctx.containerResolver.make('authkit.server');
+    const origin = authkitOrigin(service.config);
     const result = await svc.createInvitation(
       orgId,
       { email, role: role ?? 'member' },

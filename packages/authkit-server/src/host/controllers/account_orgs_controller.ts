@@ -9,6 +9,7 @@ import {
   encodeActiveOrgCookie,
 } from '../active_org_cookie.js';
 import { ACCOUNT_SESSION_KEY } from '../middleware/account_auth.js';
+import { authkitOrigin } from '../origin.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { isRoleInCatalog } from '../runtime_toggles.js';
 
@@ -227,7 +228,7 @@ export default class AccountOrgsController {
     // Dispara e-mail via mail hook (best-effort)
     if (cfg.mail?.onOrgInvitation) {
       const org = await store.findOrgById!(params.id);
-      const acceptUrl = `${ctx.request.protocol()}://${ctx.request.host()}${accountPath('orgs')}/invitations/${token}/accept`;
+      const acceptUrl = `${authkitOrigin(cfg)}${accountPath('orgs')}/invitations/${token}/accept`;
       try {
         await cfg.mail.onOrgInvitation({
           email,

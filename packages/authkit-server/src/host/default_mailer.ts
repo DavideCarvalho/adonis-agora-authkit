@@ -1,8 +1,10 @@
 import type { HttpContext } from '@adonisjs/core/http';
+import type { ResolvedServerConfig } from '../define_config.js';
 import { accountPath } from './account_paths.js';
 import type { BrandingConfig } from './branding.js';
 import { type EmailContent, renderTransactionalEmail } from './email_templates.js';
 import { type AuthMessages, type I18nConfig, resolveMessages, translate } from './i18n.js';
+import { authkitOrigin } from './origin.js';
 
 /**
  * Envio de e-mail default do host-kit, usando o mailer `default` do host via
@@ -221,12 +223,13 @@ export async function sendEmailChangeConfirmationEmail(
  */
 export async function sendNewLoginEmail(
   ctx: HttpContext,
+  cfg: ResolvedServerConfig,
   data: { email: string; ip: string; when: string },
 ): Promise<void> {
   try {
     const brand = resolveBrand(ctx);
     const { messages: t, locale } = resolveMailMessages(ctx);
-    const origin = `${ctx.request.protocol()}://${ctx.request.host()}`;
+    const origin = authkitOrigin(cfg);
     const intro = [
       translate(t, 'mail.new_login.intro'),
       translate(t, 'mail.new_login.when', { date: data.when }),
@@ -264,12 +267,13 @@ export async function sendNewLoginEmail(
  */
 export async function sendNewDeviceLoginEmail(
   ctx: HttpContext,
+  cfg: ResolvedServerConfig,
   data: { email: string; ip?: string | null; userAgent?: string | null; when: string },
 ): Promise<void> {
   try {
     const brand = resolveBrand(ctx);
     const { messages: t, locale } = resolveMailMessages(ctx);
-    const origin = `${ctx.request.protocol()}://${ctx.request.host()}`;
+    const origin = authkitOrigin(cfg);
     const lines = [
       translate(t, 'mail.new_login.intro'),
       translate(t, 'mail.new_login.when', { date: data.when }),
@@ -371,12 +375,13 @@ export async function sendMagicLinkEmail(
  */
 export async function sendEmailChangeNoticeEmail(
   ctx: HttpContext,
+  cfg: ResolvedServerConfig,
   data: { email: string; newEmail: string },
 ): Promise<void> {
   try {
     const brand = resolveBrand(ctx);
     const { messages: t, locale } = resolveMailMessages(ctx);
-    const origin = `${ctx.request.protocol()}://${ctx.request.host()}`;
+    const origin = authkitOrigin(cfg);
     const content = renderTransactionalEmail({
       brand,
       locale,
@@ -410,12 +415,13 @@ export async function sendEmailChangeNoticeEmail(
  */
 export async function sendEmailChangedCompletedEmail(
   ctx: HttpContext,
+  cfg: ResolvedServerConfig,
   data: { oldEmail: string; newEmail: string },
 ): Promise<void> {
   try {
     const brand = resolveBrand(ctx);
     const { messages: t, locale } = resolveMailMessages(ctx);
-    const origin = `${ctx.request.protocol()}://${ctx.request.host()}`;
+    const origin = authkitOrigin(cfg);
     const content = renderTransactionalEmail({
       brand,
       locale,
@@ -452,6 +458,7 @@ export async function sendEmailChangedCompletedEmail(
  */
 export async function sendSecurityNoticeEmail(
   ctx: HttpContext,
+  cfg: ResolvedServerConfig,
   data: {
     email: string;
     kind:
@@ -469,7 +476,7 @@ export async function sendSecurityNoticeEmail(
   try {
     const brand = resolveBrand(ctx);
     const { messages: t, locale } = resolveMailMessages(ctx);
-    const origin = `${ctx.request.protocol()}://${ctx.request.host()}`;
+    const origin = authkitOrigin(cfg);
     const kindKey = `mail.security_notice.kind_${data.kind}`;
     const kindLabel = translate(t, kindKey);
     const intro = [

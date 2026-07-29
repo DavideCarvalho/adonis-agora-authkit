@@ -11,6 +11,7 @@ import {
   sendPasswordResetEmail,
 } from '../default_mailer.js';
 import { translate } from '../i18n.js';
+import { authkitOrigin } from '../origin.js';
 import { RuntimeSettings, resolveRuntimeSettings } from '../runtime_settings.js';
 import {
   resolveEffectiveAuthMethods,
@@ -232,7 +233,7 @@ export default class AuthRegistrationController {
           email: data.email,
           ip: ctx.request.ip?.() ?? null,
         });
-        const origin = `${ctx.request.protocol()}://${ctx.request.host()}`;
+        const origin = authkitOrigin(cfg);
         const verifyUrl = `${origin}/auth/verify-email?token=${issued.token}`;
         // Hook do config tem prioridade (override); senão usa o mailer default do host.
         if (cfg.mail?.onEmailVerification) {
@@ -283,7 +284,7 @@ export default class AuthRegistrationController {
     // Emite + envia o magic link (mesma construção do login por magic link).
     const issued = await accountStore.issueMagicLinkToken(data.email);
     if (issued) {
-      const origin = `${ctx.request.protocol()}://${ctx.request.host()}`;
+      const origin = authkitOrigin(cfg);
       const magicUrl = `${origin}/auth/interaction/${uid}/magic?token=${encodeURIComponent(issued.token)}`;
       if (cfg.mail?.onMagicLink) {
         await cfg.mail.onMagicLink({ email: data.email, magicUrl, token: issued.token });
@@ -393,7 +394,7 @@ export default class AuthRegistrationController {
         email,
         ip: ctx.request.ip?.() ?? null,
       });
-      const origin = `${ctx.request.protocol()}://${ctx.request.host()}`;
+      const origin = authkitOrigin(cfg);
       const url = `${origin}/auth/reset-password?token=${result.token}`;
       // Hook do config tem prioridade (override); senão usa o mailer default do host.
       if (cfg.mail?.onPasswordReset) {
@@ -500,6 +501,7 @@ export default class AuthRegistrationController {
         },
         cfg.mail,
         cfg.audit,
+        cfg,
       );
     }
     return render(ctx, 'reset', {

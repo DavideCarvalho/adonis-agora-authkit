@@ -47,6 +47,7 @@ import { AvatarUploadError, isAvatarUploadSupported, storeAvatar } from '../avat
 import { sendEmailChangeConfirmationEmail, sendEmailChangeNoticeEmail } from '../default_mailer.js';
 import { translate } from '../i18n.js';
 import { ACCOUNT_SESSION_KEY } from '../middleware/account_auth.js';
+import { authkitOrigin } from '../origin.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import {
   resolveEffectiveEmailChange,
@@ -401,6 +402,7 @@ export default class AccountApiController {
         },
         cfg.mail,
         cfg.audit,
+        cfg,
       );
     }
 
@@ -481,7 +483,7 @@ export default class AccountApiController {
       ip: ctx.request.ip?.() ?? null,
     });
 
-    const origin = `${ctx.request.protocol()}://${ctx.request.host()}`;
+    const origin = authkitOrigin(cfg);
     const confirmUrl = `${origin}${accountPath('emailConfirm')}?token=${encodeURIComponent(issued.token)}`;
 
     if (cfg.mail?.onEmailChangeConfirm) {
@@ -505,7 +507,7 @@ export default class AccountApiController {
       if (cfg.mail?.onEmailChangeNotice) {
         await cfg.mail.onEmailChangeNotice({ email: account.email, newEmail });
       } else {
-        await sendEmailChangeNoticeEmail(ctx, { email: account.email, newEmail });
+        await sendEmailChangeNoticeEmail(ctx, cfg, { email: account.email, newEmail });
       }
     }
 
@@ -872,6 +874,7 @@ export default class AccountApiController {
         },
         cfg.mail,
         cfg.audit,
+        cfg,
       );
     }
 
