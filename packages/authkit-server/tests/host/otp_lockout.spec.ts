@@ -2,7 +2,6 @@ import { test } from '@japa/runner';
 import {
   OTP_LOCKOUT_DEFAULTS,
   OTP_UNLOCK_TOKEN_PREFIX,
-  OtpLockout,
   __setOtpLockoutLimiterLoaderForTests,
   createOtpLockout,
   generateOtpUnlockToken,

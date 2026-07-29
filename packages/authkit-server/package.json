@@ -54,6 +54,7 @@
     "build:webauthn": "node scripts/build_webauthn.mjs",
     "check:webauthn-bundle": "node scripts/check_webauthn_bundle.mjs",
     "typecheck": "tsc --noEmit && node scripts/typecheck_ui.mjs",
+    "typecheck:tests": "node scripts/typecheck_tests.mjs",
     "test": "node --import=@poppinss/ts-exec bin/test.ts",
     "build:host-css": "node scripts/build_host_css.mjs"
   },

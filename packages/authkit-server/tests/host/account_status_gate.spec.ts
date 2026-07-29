@@ -21,7 +21,6 @@ import InteractionController from '../../src/host/controllers/interaction_contro
 
 const EMAIL = 'user@example.com';
 const ACCOUNT_ID = 'acc-1';
-const MFA_PENDING_KEY = 'authkit_mfa_pending';
 const SESSION_KEY = 'authkit_login_email';
 const PASSKEY_AUTH_CHALLENGE_KEY = 'authkit_passkey_auth_challenge';
 

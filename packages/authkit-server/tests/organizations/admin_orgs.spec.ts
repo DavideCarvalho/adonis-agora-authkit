@@ -6,7 +6,6 @@ import { test } from '@japa/runner';
 import type { AccountStore } from '../../src/accounts/account_store.js';
 import { AdminOrgsService } from '../../src/host/admin_api/admin_orgs_service.js';
 import ApiOrgsController from '../../src/host/admin_api/api_orgs_controller.js';
-import { apiError } from '../../src/host/admin_api/dto.js';
 
 // ─── Store em memória com capability de Organizations ─────────────────────
 function buildMemoryStoreWithOrgs(): AccountStore {

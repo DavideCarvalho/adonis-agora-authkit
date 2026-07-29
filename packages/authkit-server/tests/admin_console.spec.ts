@@ -28,7 +28,6 @@ import { lucidPatStore } from '../src/pat/lucid_pat_store.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { createTestDatabase } from './bootstrap.js';
 
-import AdminShellController from '../src/host/admin_console/admin_shell_controller.js';
 import ConsoleAuditController from '../src/host/admin_console/console_audit_controller.js';
 import ConsoleClientsController from '../src/host/admin_console/console_clients_controller.js';
 import ConsoleImpersonationController from '../src/host/admin_console/console_impersonation_controller.js';

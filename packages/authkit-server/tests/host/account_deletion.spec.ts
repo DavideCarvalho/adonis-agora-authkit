@@ -4,7 +4,6 @@ import { configProvider } from '@adonisjs/core';
 import { compose } from '@adonisjs/core/helpers';
 import { BaseModel, beforeCreate, column } from '@adonisjs/lucid/orm';
 import { test } from '@japa/runner';
-import { DateTime } from 'luxon';
 import { lucidAccountStore } from '../../src/accounts/lucid_account_store.js';
 import type { WebauthnCeremonies } from '../../src/accounts/lucid_account_store.js';
 import { DatabaseAdapter } from '../../src/adapters/database_adapter.js';
