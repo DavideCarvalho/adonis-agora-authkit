@@ -42,7 +42,20 @@
  * So the number moves only when something reviewable moves — a dependency
  * version, the pinned `typescript`, or the tests themselves.
  *
- * Usage: `pnpm --filter @adonis-agora/authkit-server typecheck:tests`
+ * WHICH IS WHY IT IS NOW WIRED into this package's `typecheck` script, and so
+ * into `pnpm typecheck`. The earlier note here said "wire it in once the baseline
+ * reaches 0" — that was the wrong bar. A ratchet's whole purpose is to gate while
+ * the count is still non-zero; waiting for 0 leaves it unwired for exactly the
+ * period it is most needed. It stayed unwired for one plan, that plan added a spec
+ * that pushed the count to 333, and nothing failed. An unwired gate's first
+ * failure is silent and its second is normal.
+ *
+ * If the count legitimately moves (a reviewed dependency or `typescript` bump),
+ * lower or re-derive `BASELINE` in the same commit as the bump. Never raise it to
+ * absorb a new error in `tests/`.
+ *
+ * Usage: `pnpm --filter @adonis-agora/authkit-server typecheck:tests`, or just
+ * `pnpm typecheck`.
  */
 
 import { spawnSync } from 'node:child_process';
