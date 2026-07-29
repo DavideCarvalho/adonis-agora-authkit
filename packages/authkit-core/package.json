@@ -27,11 +27,15 @@
   },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import=@poppinss/ts-exec bin/test.ts"
   },
   "devDependencies": {
     "@adonisjs/core": "catalog:adonis",
     "@adonisjs/tsconfig": "catalog:adonis",
+    "@japa/assert": "catalog:",
+    "@japa/runner": "catalog:",
+    "@poppinss/ts-exec": "catalog:",
     "@types/node": "catalog:adonis",
     "typescript": "catalog:frontend"
   }
