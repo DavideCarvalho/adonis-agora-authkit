@@ -283,4 +283,31 @@ test.group('otp login (lucid store)', (group) => {
       'no_code',
     );
   });
+
+  test('slot ml2: o link-token ARMAZENADO é um hash (não contém o token bruto da URL)', async ({
+    assert,
+  }) => {
+    // Segurança (plan 007): a parte "link" do slot ml2 é a mais fácil de
+    // implementar "parecendo hasheada" mas não estar — o slot é um composto que
+    // o código PARSEIA (linkToken:codeHash:codeExpMs:attempts), e a busca é um
+    // LIKE por prefixo, não uma igualdade.
+    const store = lucidAccountStore(TestAccount);
+    await store.create({ email: 'hash-ml2@l.com', password: 'pw12345678' });
+    const issued = await store.issueMagicLinkWithCode!('hash-ml2@l.com', 'uid-hash', OPTS);
+    const row = await TestAccount.findBy('email', 'hash-ml2@l.com');
+    const rawLinkToken = issued!.token.slice('ml2:'.length);
+    assert.notInclude(row!.passwordResetToken!, rawLinkToken);
+    // O round-trip com o token BRUTO da URL ainda funciona (consome o link).
+    const acc = await store.consumeMagicLinkToken!(issued!.token);
+    assert.isNotNull(acc);
+  });
+
+  test('consumeMagicLinkToken (ml2) com link-token ERRADO (mas hex de 64 válido) falha', async ({
+    assert,
+  }) => {
+    const store = lucidAccountStore(TestAccount);
+    await store.create({ email: 'wrong-ml2@l.com', password: 'pw12345678' });
+    await store.issueMagicLinkWithCode!('wrong-ml2@l.com', 'uid-wrong', OPTS);
+    assert.isNull(await store.consumeMagicLinkToken!(`ml2:${'a'.repeat(64)}`));
+  });
 });

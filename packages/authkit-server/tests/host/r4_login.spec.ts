@@ -209,6 +209,32 @@ test.group('magic link (lucid store)', (group) => {
     // A senha original continua válida.
     assert.isNotNull(await store.verifyCredentials('x@l.com', 'pw12345678'));
   });
+
+  test('valor ARMAZENADO do magic link é um hash, não o token bruto devolvido', async ({
+    assert,
+  }) => {
+    // Segurança (plan 007): um dump/leitura da tabela `users` não pode devolver
+    // um magic link diretamente usável. O prefixo `ml:` continua em CLARO (a
+    // discriminação de fluxo depende de lê-lo direto do valor armazenado).
+    const store = lucidAccountStore(TestAccount);
+    await store.create({ email: 'hash-ml@l.com', password: 'pw12345678' });
+    const issued = await store.issueMagicLinkToken!('hash-ml@l.com');
+    const row = await TestAccount.findBy('email', 'hash-ml@l.com');
+    assert.notEqual(row!.passwordResetToken, issued!.token);
+    assert.isTrue(row!.passwordResetToken!.startsWith('ml:'));
+    // O round-trip com o token BRUTO ainda funciona.
+    const acc = await store.consumeMagicLinkToken!(issued!.token);
+    assert.isNotNull(acc);
+  });
+
+  test('consumeMagicLinkToken com token ERRADO (mas com prefixo ml: válido) falha', async ({
+    assert,
+  }) => {
+    const store = lucidAccountStore(TestAccount);
+    await store.create({ email: 'wrong-ml@l.com', password: 'pw12345678' });
+    await store.issueMagicLinkToken!('wrong-ml@l.com');
+    assert.isNull(await store.consumeMagicLinkToken!(`ml:${'a'.repeat(64)}`));
+  });
 });
 
 // --------------------------------------------------------------------------

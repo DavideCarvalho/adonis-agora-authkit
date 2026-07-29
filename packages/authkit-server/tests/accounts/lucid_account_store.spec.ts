@@ -261,6 +261,29 @@ test.group('lucidAccountStore', (group) => {
     assert.isFalse(await store.consumePasswordResetToken(issued!.token, 'newpass123'));
   });
 
+  test('reset de senha: valor ARMAZENADO é um hash, não o token bruto devolvido', async ({
+    assert,
+  }) => {
+    // Segurança (plan 007): um dump/leitura da tabela `users` não pode devolver
+    // um token de reset diretamente usável.
+    const store = lucidAccountStore(TestAccount);
+    await store.create({ email: 'hash-reset@h.com', password: 'oldpass123' });
+    const issued = await store.issuePasswordResetToken('hash-reset@h.com');
+    const row = await TestAccount.findBy('email', 'hash-reset@h.com');
+    assert.notEqual(row!.passwordResetToken, issued!.token);
+    // O round-trip com o token BRUTO ainda funciona (consumo hasheia antes do where).
+    const ok = await store.consumePasswordResetToken(issued!.token, 'newpass1234');
+    assert.isTrue(ok);
+  });
+
+  test('consumePasswordResetToken com token ERRADO (mas bem-formado) falha', async ({ assert }) => {
+    const store = lucidAccountStore(TestAccount);
+    await store.create({ email: 'wrong-reset@h.com', password: 'oldpass123' });
+    await store.issuePasswordResetToken('wrong-reset@h.com');
+    const wrongToken = 'a'.repeat(64); // hex válido, mas não é o token emitido
+    assert.isFalse(await store.consumePasswordResetToken(wrongToken, 'newpass1234'));
+  });
+
   test('verificação de e-mail: issue → consume válido marca verificado; reuso falha', async ({
     assert,
   }) => {
