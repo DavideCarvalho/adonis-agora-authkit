@@ -752,6 +752,30 @@ export interface AdminConfigInput {
   enabled: boolean;
   /** Roles globais que dão acesso ao /admin. Default: ['ADMIN']. */
   roles?: string[];
+  /**
+   * Interruptor de impersonation. Governa as DUAS superfícies:
+   *
+   *   1. o grant RFC 8693 `urn:ietf:params:oauth:grant-type:token-exchange`
+   *      registrado no provider OIDC (`src/provider/oidc_service.ts`) — é por
+   *      ele que um admin troca o próprio access token pelo de outra conta;
+   *   2. o painel de impersonation do console admin
+   *      (`GET {prefix}/api/impersonation/:userId`).
+   *
+   * `false` desliga as duas: o grant deixa de existir no provider (o token
+   * endpoint passa a responder `unsupported_grant_type`) e o painel responde
+   * 404. É um kill switch de verdade, não só um esconde-UI.
+   *
+   * Default: **`true`** — back-compat. O grant sempre foi registrado
+   * incondicionalmente e há hosts que o consomem a partir do PRÓPRIO /admin,
+   * sem montar o console desta lib; um default `false` os quebraria em runtime,
+   * em silêncio. Virar o default para `false` (secure-by-default) é decisão de
+   * major.
+   *
+   * Declarar esta chave também TRAVA a setting de runtime `admin_impersonation`
+   * (ver `src/host/config_locks.ts`): o arquivo passa a mandar e a UI/Admin API
+   * não altera mais o valor.
+   */
+  impersonation?: boolean;
 }
 
 export interface ResolvedAdminConfig {
@@ -764,7 +788,9 @@ export function resolveAdmin(input?: AdminConfigInput): ResolvedAdminConfig {
   return {
     enabled: input?.enabled ?? false,
     roles: input?.roles && input.roles.length > 0 ? input.roles : ['ADMIN'],
-    impersonation: false,
+    // Default `true`: preserva o comportamento histórico (grant sempre
+    // registrado). Ver o docblock de `AdminConfigInput.impersonation`.
+    impersonation: input?.impersonation !== false,
   };
 }
 

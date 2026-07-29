@@ -717,11 +717,16 @@ test.group('Console JSON API — controller unit tests', (group) => {
 
   // ─── Impersonation ─────────────────────────────────────────────────────────
 
-  test('GET /api/impersonation/:userId — impersonation desabilitado → 404', async ({ assert }) => {
+  test('GET /api/impersonation/:userId — alvo inexistente → 404', async ({ assert }) => {
     const ctrl = new ConsoleImpersonationController();
     const { ctx, captured } = fakeCtx({ service, params: { userId: 'u1' } });
     await ctrl.handle(ctx);
-    // cfg.admin.impersonation é false no service padrão.
+    // `admin.impersonation` é `true` por default (plano 016), então este 404 NÃO
+    // é o kill switch — o gate da flag passa e o pedido morre no alvo, que não
+    // existe no store deste service. O gate em si (false → capability_unsupported,
+    // true → painel) está coberto em `admin_impersonation_switch.spec.ts`.
+    assert.isTrue(service.config.admin.impersonation, 'a flag tem de estar LIGADA aqui');
     assert.equal(captured.status(), 404);
+    assert.equal(captured.body().error.code, 'not_found');
   });
 });

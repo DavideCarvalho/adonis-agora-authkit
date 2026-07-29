@@ -129,20 +129,29 @@ test.group('buildImpersonationPanel (RFC 8693 token exchange)', () => {
   });
 });
 
-test.group('impersonation gate (sempre OFF no config — política via runtime setting)', () => {
-  test('resolveAdmin → impersonation sempre false (gerido via admin_impersonation setting)', async ({
+/**
+ * ATÉ O PLANO 016 este grupo fixava o oposto: `impersonation` era hardcoded
+ * `false` no `resolveAdmin` e nem sequer existia no `AdminConfigInput`. Isso não
+ * era um "gate conservador" — o grant token-exchange era registrado de qualquer
+ * jeito e o único efeito da flag era deixar o painel do console inalcançável.
+ * Agora a flag é declarável, tem default `true` (back-compat) e governa as duas
+ * superfícies. Cobertura de comportamento: `admin_impersonation_switch.spec.ts`.
+ */
+test.group('impersonation gate (admin.impersonation, default true)', () => {
+  test('resolveAdmin → impersonation default true (back-compat: o grant sempre existiu)', async ({
     assert,
   }) => {
     const { resolveAdmin } = await import('../src/define_config.js');
-    const resolved = resolveAdmin({ enabled: true });
-    assert.isFalse(resolved.impersonation);
+    assert.isTrue(resolveAdmin({ enabled: true }).impersonation);
   });
 
-  test('resolveAdmin sem config → impersonation false (default conservador)', async ({
-    assert,
-  }) => {
+  test('resolveAdmin sem config → impersonation true', async ({ assert }) => {
     const { resolveAdmin } = await import('../src/define_config.js');
-    const resolved = resolveAdmin(undefined);
-    assert.isFalse(resolved.impersonation);
+    assert.isTrue(resolveAdmin(undefined).impersonation);
+  });
+
+  test('resolveAdmin com impersonation: false → desligado', async ({ assert }) => {
+    const { resolveAdmin } = await import('../src/define_config.js');
+    assert.isFalse(resolveAdmin({ enabled: true, impersonation: false }).impersonation);
   });
 });

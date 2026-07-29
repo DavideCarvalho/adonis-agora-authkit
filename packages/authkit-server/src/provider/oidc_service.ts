@@ -155,24 +155,31 @@ export class OidcService {
     );
     wireProviderEvents(provider, this.recorder);
 
-    registerTokenExchange(provider, {
-      findAccount: config.findAccount,
-      globalRolesClaim: config.globalRolesClaim,
-      resolveTokenRoles: config.resolveTokenRoles,
-      // Resource indicators (RFC 8707) suportados: o `audience` default + cada
-      // resource declarado. Usado para validar `audience`/`resource` no pedido de
-      // token-exchange — alvos fora desta lista são rejeitados (invalid_target).
-      supportedResources: [
-        config.accessTokens.audience,
-        ...Object.keys(config.accessTokens.resources),
-      ],
-      // LOAD-BEARING: sem isto o gate de status do alvo dentro de
-      // `token_exchange.ts` degrada para "allowed" (o campo é opcional, para não
-      // quebrar hosts com stores mínimos) e um admin consegue impersonar uma
-      // conta que acabou de desabilitar, recebendo tokens plenamente funcionais.
-      accountStore: config.accountStore,
-      audit: config.audit,
-    });
+    // KILL SWITCH de impersonation (`admin.impersonation`, default `true`).
+    // Com a flag em `false` o grant simplesmente NÃO EXISTE no provider — o
+    // token endpoint responde `unsupported_grant_type` — em vez de existir e
+    // recusar caso a caso. É a mesma flag que fecha o painel do console
+    // (`console_impersonation_controller.ts`): uma declaração, duas superfícies.
+    if (config.admin.impersonation) {
+      registerTokenExchange(provider, {
+        findAccount: config.findAccount,
+        globalRolesClaim: config.globalRolesClaim,
+        resolveTokenRoles: config.resolveTokenRoles,
+        // Resource indicators (RFC 8707) suportados: o `audience` default + cada
+        // resource declarado. Usado para validar `audience`/`resource` no pedido de
+        // token-exchange — alvos fora desta lista são rejeitados (invalid_target).
+        supportedResources: [
+          config.accessTokens.audience,
+          ...Object.keys(config.accessTokens.resources),
+        ],
+        // LOAD-BEARING: sem isto o gate de status do alvo dentro de
+        // `token_exchange.ts` degrada para "allowed" (o campo é opcional, para não
+        // quebrar hosts com stores mínimos) e um admin consegue impersonar uma
+        // conta que acabou de desabilitar, recebendo tokens plenamente funcionais.
+        accountStore: config.accountStore,
+        audit: config.audit,
+      });
+    }
 
     // Quando o issuer tem um path (ex.: http://host/oidc), o provider precisa ser
     // MONTADO sob esse path via koa-mount. Isso faz o oidc-provider gerar URLs de
