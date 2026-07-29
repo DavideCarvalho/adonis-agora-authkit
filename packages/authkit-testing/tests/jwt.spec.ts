@@ -1,6 +1,20 @@
+import type { Identity } from '@adonis-agora/authkit-client';
 import { resolvers } from '@adonis-agora/authkit-client';
 import { test } from '@japa/runner';
 import { generateTestKeyPair, mintTestIdToken, serveJwks } from '../index.js';
+
+/**
+ * `resolvers.jwt().resolver()` é declarado como `SessionResolver`, que só expõe
+ * `resolve(ctx: HttpContext)`. Quem valida o token cru é o `JwtResolver`
+ * concreto, via `resolveToken(token)` — método público, mas a classe não é
+ * exportada no entry do authkit-client, então o teste tem que alcançá-lo
+ * estruturalmente. O cast é duplo porque as duas formas não se sobrepõem.
+ *
+ * A assinatura aqui é a real do `JwtResolver.resolveToken`, com `Identity` em
+ * vez de `any`, para as asserções de `userId`/`email`/`globalRoles` abaixo
+ * serem de fato checadas.
+ */
+type TokenResolver = { resolveToken(token: string): Promise<Identity | null> };
 
 test.group('mintTestIdToken + JwtResolver', () => {
   test('um token emitido valida pelo JwtResolver real via JWKS local', async ({ assert }) => {
@@ -25,9 +39,7 @@ test.group('mintTestIdToken + JwtResolver', () => {
         globalRolesClaim: 'roles',
       });
 
-      const identity = await (resolver as { resolveToken(t: string): Promise<any> }).resolveToken(
-        token,
-      );
+      const identity = await (resolver as unknown as TokenResolver).resolveToken(token);
       assert.isNotNull(identity);
       assert.equal(identity!.userId, 'user-42');
       assert.equal(identity!.email, 'jane@test.dev');
@@ -54,9 +66,7 @@ test.group('mintTestIdToken + JwtResolver', () => {
         sessionKey: 'authkit',
         globalRolesClaim: 'roles',
       });
-      const identity = await (resolver as { resolveToken(t: string): Promise<any> }).resolveToken(
-        token,
-      );
+      const identity = await (resolver as unknown as TokenResolver).resolveToken(token);
       assert.isNull(identity);
     } finally {
       await served.close();
