@@ -197,6 +197,21 @@ export interface LoginAllowedInput {
   clientId?: string | null;
   /** Ausente → password-expiry/account-expiry ficam no-op (precisam da runtime setting). */
   settings?: SettingsCapability;
+  /**
+   * `true` → o chamador declara ser um fluxo SEM senha, e a checagem de senha
+   * vencida (`password_expiration`) é pulada. A de conta expirada por
+   * inatividade (`account_expiration`) continua valendo normalmente.
+   *
+   * Existe porque a expiração de senha pressupõe duas coisas: que a conta TEM
+   * senha, e que o fluxo tem um passo de troca obrigatória para onde mandar o
+   * usuário. `isPasswordExpired` trata `password_changed_at` NULL como vencida
+   * (seguro no fluxo de senha, que força a troca na 1ª vez) — num fluxo que não
+   * tem nenhuma das duas, isso recusa contas que nunca tiveram senha e não lhes
+   * oferece saída alguma.
+   *
+   * Default (ausente/`false`) = a checagem se aplica.
+   */
+  passwordless?: boolean;
   logger?: LoginAttemptLogger;
 }
 
@@ -238,6 +253,9 @@ export async function assertAccountEnabled(
  *
  * Capability/setting-probed: sem `input.settings`, ambas as checagens são
  * no-op (mesma guarda `if (input.settings)` do código original).
+ *
+ * `input.passwordless === true` pula APENAS a checagem de senha vencida — ver
+ * {@link LoginAllowedInput.passwordless}. A expiração por inatividade continua.
  */
 export async function assertAccountNotExpired(
   cfg: LoginAllowedConfig,
@@ -246,7 +264,7 @@ export async function assertAccountNotExpired(
 ): Promise<LoginAllowedResult> {
   const { email, ip, clientId, settings, logger } = input;
 
-  if (settings) {
+  if (settings && input.passwordless !== true) {
     const expired = await isPasswordExpired(cfg, accountId, settings);
     if (expired) {
       await cfg.audit?.record(

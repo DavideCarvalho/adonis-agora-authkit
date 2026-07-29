@@ -110,14 +110,14 @@ export default class AuthSocialController {
     //    no-op, e era exatamente esse o bug — uma política de controle de acesso
     //    valendo em todo lugar menos no "Continue with Google".
     //
-    // O QUE ESTE CAMINHO **NÃO** FAZ:
-    //  - Não tem um passo de troca de senha. `password_expiration` vem junto no
-    //    gate combinado (`assertLoginAllowed` = disabled → password_expired →
-    //    account_expired) e portanto passa a ser alcançável aqui, mas só quando
-    //    o operador LIGOU essa política (o default é `enabled: false`) E a conta
-    //    tem senha vencida. Nesse caso o login social é recusado e o usuário
-    //    volta ao `/auth/interaction/:uid`, onde o fluxo de senha o leva à troca
-    //    obrigatória — este controller não renderiza essa etapa.
+    // O QUE ESTE CAMINHO **NÃO** APLICA (`passwordless: true`):
+    //  - `password_expiration`. Este é um fluxo SEM senha: a conta pode nunca ter
+    //    definido uma (login social puro → `password_changed_at` NULL, que
+    //    `isPasswordExpired` trata como "vencida"), e este controller não tem um
+    //    passo de troca obrigatória para onde mandar o usuário — só sabe
+    //    redirecionar de volta ao login. Aplicar a checagem aqui trancaria
+    //    permanentemente todo usuário social-only assim que o operador ligasse a
+    //    política, devolvendo-o a uma tela sem senha nenhuma que pudesse trocar.
     //
     // `resolveRuntimeSettingsOrNoop` degrada para um RuntimeSettings no-op quando
     // não há tabela de settings — host sem a migração continua logando por social.
@@ -126,6 +126,7 @@ export default class AuthSocialController {
       email: user.email,
       ip: ctx.request.ip?.() ?? null,
       settings,
+      passwordless: true,
     });
     if (!statusGate.allowed) {
       ctx.session.forget(UID_SESSION_KEY);

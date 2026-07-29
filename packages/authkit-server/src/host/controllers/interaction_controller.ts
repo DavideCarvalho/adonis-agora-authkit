@@ -42,10 +42,15 @@ import {
 
 /**
  * Chave i18n do erro de status de conta (disabled/expired) compartilhada pelos
- * fluxos passwordless (magic link, OTP, passkey). `password_expired` reaproveita
- * o texto do passo de troca obrigatória (`login.password_expired_intro`) — estes
- * fluxos não têm essa etapa, então falham fechado com uma mensagem ainda coerente
- * em vez de inventar uma nova chave de tradução.
+ * fluxos passwordless (magic link, OTP, passkey).
+ *
+ * O braço `password_expired` é HOJE inalcançável por estes três: eles passam
+ * `passwordless: true` ao gate, que pula a checagem de senha vencida (plan 012 —
+ * uma conta sem senha ficava trancada, porque estes fluxos não têm o passo de
+ * troca obrigatória para onde mandá-la). Ele permanece aqui porque
+ * {@link AccountStatusReason} é exaustivo e um chamador futuro pode não passar a
+ * flag; reaproveita o texto do passo de troca (`login.password_expired_intro`)
+ * em vez de inventar uma chave nova.
  */
 function accountStatusErrorKey(reason: AccountStatusReason): string {
   switch (reason) {
@@ -872,13 +877,22 @@ export default class AuthInteractionController {
     // Status da conta (disabled/expired): mesmo gate de `attemptPasswordLogin`,
     // agora aplicado ao magic link (o botão "desabilitar" no admin console não
     // tinha efeito nenhum aqui antes desta checagem). Emite o MESMO evento
-    // `login.failure`/`password.expired_change_forced`/`account.expired_login_blocked`
-    // que o fluxo de senha (auditoria uniforme entre fluxos).
+    // `login.failure`/`account.expired_login_blocked` que o fluxo de senha
+    // (auditoria uniforme entre fluxos).
+    //
+    // `passwordless: true` — este fluxo não usa senha e não tem como levar o
+    // usuário à troca obrigatória: o único caminho até `step: 'password_expired'`
+    // passa por `attemptPasswordLogin`, que exige a senha CORRETA antes de
+    // classificar a expiração. Uma conta que nunca definiu senha
+    // (`password_changed_at` NULL, que `isPasswordExpired` trata como vencida)
+    // só poderia pedir outro magic link e cair no mesmo bloqueio. Ver
+    // `LoginAllowedInput.passwordless`.
     const magicLinkStatusGate = await assertLoginAllowed(cfg, acc.id, {
       email: acc.email,
       ip,
       clientId,
       settings: magicLinkRuntimeSettings,
+      passwordless: true,
     });
     if (!magicLinkStatusGate.allowed) {
       const render = cfg.render!;
@@ -987,11 +1001,16 @@ export default class AuthInteractionController {
       // Status da conta (disabled/expired): mesmo gate de `attemptPasswordLogin`,
       // agora aplicado ao login por OTP. Emite o MESMO evento de auditoria que o
       // fluxo de senha (uniforme entre fluxos).
+      //
+      // `passwordless: true` — mesmo raciocínio do magic link (o OTP é o outro
+      // metade do mesmo e-mail): fluxo sem senha e sem passo de troca
+      // obrigatória alcançável. Ver `LoginAllowedInput.passwordless`.
       const otpStatusGate = await assertLoginAllowed(cfg, result.account.id, {
         email: result.account.email,
         ip,
         clientId,
         settings: runtimeSettings,
+        passwordless: true,
       });
       if (!otpStatusGate.allowed) {
         return render(ctx, 'login', {
@@ -1219,12 +1238,21 @@ export default class AuthInteractionController {
     // Status da conta (disabled/expired): mesmo gate de `attemptPasswordLogin`,
     // agora aplicado ao passkey (cobre sobretudo o passkey-first, que nunca passa
     // pelo fluxo de senha). Emite o MESMO evento de auditoria que os outros fluxos.
+    //
+    // `passwordless: true` — no passkey-first é o dead-end mais duro dos três:
+    // a view de erro é a `mfa-challenge`, que só oferece o desafio da passkey
+    // (nem campo de senha nem os outros métodos de login), então uma conta sem
+    // senha ficaria trancada sem NENHUMA ação possível. No modo MFA (pós-senha)
+    // a flag é inócua: `attemptPasswordLogin` já rodou a checagem de senha
+    // vencida e desviou para `step: 'password_expired'` antes de chegar aqui.
+    // Ver `LoginAllowedInput.passwordless`.
     const passkeyAccount = await cfg.accountStore.findById(accountId);
     const passkeyStatusGate = await assertLoginAllowed(cfg, accountId, {
       email: passkeyAccount?.email ?? '',
       ip,
       clientId,
       settings: passkeyRuntimeSettings,
+      passwordless: true,
     });
     if (!passkeyStatusGate.allowed) {
       return render(ctx, 'mfa-challenge', {
