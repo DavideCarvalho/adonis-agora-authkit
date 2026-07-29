@@ -35,7 +35,9 @@
     "./types": "./build/index.js",
     "./services/main": "./build/services/main.js",
     "./authkit_client_provider": "./build/providers/authkit_client_provider.js",
+    "./auth": "./build/src/host/authkit_client_guard.js",
     "./authkit_middleware": "./build/src/middleware/authkit_middleware.js",
+    "./authkit_context_middleware": "./build/src/middleware/authkit_context_middleware.js",
     "./backchannel_revocation_middleware": "./build/src/middleware/backchannel_revocation_middleware.js",
     "./auth_middleware": "./build/src/middleware/auth_middleware.js",
     "./silent_auth_middleware": "./build/src/middleware/silent_auth_middleware.js",
@@ -52,12 +54,16 @@
     "test": "node --import=@poppinss/ts-exec bin/test.ts"
   },
   "peerDependencies": {
+    "@adonisjs/auth": "catalog:adonisPeers",
     "@adonisjs/core": "catalog:adonisPeers",
     "@adonisjs/session": "catalog:adonisPeers",
     "@adonisjs/lucid": "catalog:adonisPeers",
     "@adonis-agora/resilience": "^0.1.0"
   },
   "peerDependenciesMeta": {
+    "@adonisjs/auth": {
+      "optional": true
+    },
     "@adonisjs/lucid": {
       "optional": true
     },
@@ -70,6 +76,7 @@
     "jose": "^5.9.0"
   },
   "devDependencies": {
+    "@adonisjs/auth": "catalog:adonis",
     "@adonisjs/core": "catalog:adonis",
     "@adonis-agora/authkit-server": "workspace:*",
     "@adonis-agora/resilience": "^0.1.0",

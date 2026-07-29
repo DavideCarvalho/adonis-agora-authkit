@@ -38,6 +38,10 @@ export type {
   LucidRevocationStoreOptions,
 } from './src/revocation/revocation_store.js';
 export { default as BackchannelRevocationMiddleware } from './src/middleware/backchannel_revocation_middleware.js';
+export { authkitClientGuard, AuthkitClientGuard } from './src/host/authkit_client_guard.js';
+export type { UnauthorizedAccessConstructor } from './src/host/authkit_client_guard.js';
+export { getAuthkit } from './src/host/request_authenticator.js';
+export { default as AuthkitContextMiddleware } from './src/middleware/authkit_context_middleware.js';
 export { lucidMirror } from './src/lucid_mirror.js';
 export type { LucidMirrorOptions } from './src/lucid_mirror.js';
 export { registerOidcClient } from './src/register_oidc_client.js';
