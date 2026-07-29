@@ -34,6 +34,7 @@ import {
 } from './host/otp_login.js';
 import type { AuthHostOptions } from './host/register_auth_host.js';
 import { edgeRenderer } from './host/renderers/edge_renderer.js';
+import { warnUnsatisfiableSudoConfig } from './host/sudo/satisfiability.js';
 import type { SudoMethod } from './host/sudo/types.js';
 import {
   type ResolvedTrustedDevicesConfig,
@@ -99,7 +100,13 @@ export interface MailHooks {
   /**
    * Envia o link de CONFIRMAÇÃO DE IDENTIDADE (sudo). Distinto de
    * `onMagicLink`: aquele autentica, este só concede sudo a quem já está
-   * logado. Sem este hook, `sudoMethods.magicLink()` fica indisponível.
+   * logado.
+   *
+   * OPCIONAL, como todo hook de e-mail daqui: sem ele o próprio host-kit envia
+   * pelo mailer default (`@adonisjs/mail`), com branding e i18n. Antes a
+   * ausência deste hook tornava `sudoMethods.magicLink()` INDISPONÍVEL, e num
+   * host passwordless isso fechava o deadlock de sudo — o único método sem
+   * credencial prévia dependia de alguém ter escrito um hook.
    */
   onSudoLink?: (data: { email: string; sudoUrl: string }) => Promise<void>;
   /**
@@ -1060,16 +1067,21 @@ export interface AuthServerConfigInput {
    * Métodos de confirmação de identidade (sudo mode). A ordem do array é a
    * ordem de exibição; o último método usado com sucesso é promovido ao topo.
    *
-   * Ausente → a lista que `registerAuthHost` MONTOU (que por sua vez cai em
-   * `[password(), passkey()]` sem `AuthHostOptions.sudoMethods`, o
-   * comportamento histórico). É a mesma resposta que os handlers dão nesse
-   * caso — "vale o que tem rota" —, e é o que impede a tela de oferecer um
-   * método sem endpoint ou de esconder um que funciona.
+   * Ausente → a lista que `registerAuthHost` MONTOU, DERIVADA contra este
+   * config: `[password, passkey]` num host com senha (o comportamento
+   * histórico) e `[passkey, magicLink]` num host que declarou
+   * `authMethods: { password: false }` — que de outra forma não teria um único
+   * método satisfazível. É a mesma resposta que os handlers dão nesse caso —
+   * "vale o que tem rota, menos o que este host não consegue satisfazer" —, e é
+   * o que impede a tela de oferecer um método sem endpoint ou de esconder um que
+   * funciona. Ver `derivedSudoMethods` em `host/sudo/runtime.ts`.
    *
-   * Host passwordless (autentica por OIDC/magic link) DEVE incluir ao menos um
+   * DECLARAR esta lista DESLIGA a derivação: ela SUBSTITUI os defaults e vale ao
+   * pé da letra. Um host passwordless que a declare PRECISA incluir ao menos um
    * método que não exija credencial previamente cadastrada — `oidcStepUp()` ou
    * `magicLink()` — senão o usuário fica sem caminho para exportar/excluir os
-   * próprios dados.
+   * próprios dados, e é isso que o aviso de boot de
+   * `host/sudo/satisfiability.ts` denuncia.
    */
   sudo?: { methods?: SudoMethod[] };
   /**
@@ -1427,6 +1439,26 @@ export function defineConfig(config: AuthServerConfigInput) {
     } else {
       jwks = { keys: jwksConfig.keys ?? [] };
     }
+
+    // BACKSTOP DE SUDO. Um host cujo `sudo.methods` não tem um único método
+    // satisfazível por conta sem senha fica bricado para TODA operação sob
+    // `requireSudo` — e hoje isso só se descobre quando um usuário não consegue
+    // excluir a própria conta. Aqui é o único ponto do pacote onde `sudo.methods`,
+    // `authMethods` e `passwordless` estão os três resolvidos e juntos, e este
+    // callback roda no boot (`configProvider.resolve` no `boot()` do provider),
+    // antes de qualquer request. Ver `host/sudo/satisfiability.ts` para as quatro
+    // condições e para o porquê de ser WARN e não THROW.
+    //
+    // LIMITE CONHECIDO: só vê a lista que passou pelo CONFIG. Um host que declare
+    // a lista APENAS no argumento `registerAuthHost(router, { sudoMethods })` não
+    // é coberto — o registro de rotas acontece fora daqui e o `authMethods` não
+    // chega lá. É o caso do ator informado (quem escreveu a lista à mão), não o
+    // do host que herdou os defaults, que é quem o aviso existe para pegar.
+    warnUnsatisfiableSudoConfig({
+      methods: config.sudo?.methods,
+      passwordPinnedOff: config.authMethods?.password === false,
+      passwordlessSignup: config.passwordless?.signup === true,
+    });
 
     // #9: mfaIssuer efetivo — top-level do defineConfig vence; senão o do lucidAccountStore; senão default.
     const effectiveMfaIssuer =

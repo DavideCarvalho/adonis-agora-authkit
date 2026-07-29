@@ -50,12 +50,31 @@ export async function sudoContextFrom(ctx: HttpContext): Promise<SudoContext> {
 const mountedSudoMethods: SudoMethod[] = [];
 
 /**
+ * A lista montada é a de DEFAULTS da lib (e não uma escrita pelo host)?
+ *
+ * Só a lista de defaults é derivada do config (`derivedSudoMethods`). Uma lista
+ * que o host escreveu vale ao pé da letra — ver o docblock de `setMountedSudoMethods`.
+ */
+let mountedFromDefaults = false;
+
+/**
  * Registra a lista montada. Chamado UMA vez por `registerAuthHost`, e
  * SUBSTITUI (não acumula): registrar o host de novo é redefinir o que existe,
  * não somar ao que existia.
+ *
+ * `fromDefaults` distingue "esta é a lista de defaults da LIB" de "esta é a
+ * lista que o HOST escreveu" (argumento de `registerAuthHost` ou
+ * `config.sudo.methods`). A distinção existe porque a derivação do deadlock
+ * (`derivedSudoMethods`) só pode mexer na primeira: mexer na segunda seria
+ * mudar, sem pedir, o que um host declarou explicitamente — e a promessa de
+ * `sudoMethods` é que ele SUBSTITUI os defaults.
  */
-export function setMountedSudoMethods(methods: SudoMethod[]): void {
+export function setMountedSudoMethods(
+  methods: SudoMethod[],
+  opts: { fromDefaults?: boolean } = {},
+): void {
   mountedSudoMethods.splice(0, mountedSudoMethods.length, ...methods);
+  mountedFromDefaults = opts.fromDefaults === true;
 }
 
 /** Um método com este id teve rotas montadas? Usado só para avisar de drift. */
@@ -79,6 +98,69 @@ export function explicitSudoMethods(cfg: ResolvedServerConfig): SudoMethod[] | n
 }
 
 /**
+ * O host declarou, PELO CONFIG, que este deployment não tem senha usável?
+ *
+ * `authMethods: { password: false }` é pin de config e é autoritativo — tem
+ * prioridade sobre o runtime setting e o console admin mostra o toggle travado.
+ * Quem declara isso está dizendo que ninguém entra por senha; contas criadas
+ * pelo signup passwordless nem têm senha (a coluna leva um hash aleatório
+ * inutilizável, indistinguível de um hash real de dentro do pacote).
+ *
+ * NÃO usa `passwordless.*`: aquelas flags LIGAM vias alternativas de login sem
+ * desligar a senha, então um host com `passwordless.magicLink: true` pode
+ * perfeitamente ter usuários que conhecem a própria senha. Só o pin em `false`
+ * é uma afirmação sobre o deployment inteiro.
+ */
+function isPasswordlessHost(cfg: ResolvedServerConfig): boolean {
+  return cfg?.authMethods?.password === false;
+}
+
+/**
+ * O DEFAULT da lib, resolvido contra o config — o conserto do deadlock.
+ *
+ * `registerAuthHost` monta `[password, passkey, magicLink]` sem saber nada do
+ * config (a montagem acontece antes de o config lazy resolver). Aqui o config
+ * está resolvido, e é aqui que se decide qual metade vale:
+ *
+ * - host COM senha → `[password, passkey]`, o histórico byte a byte. O endpoint
+ *   do magic link fica montado e inerte: quem quiser oferecê-lo declara
+ *   `config.sudo.methods` — e agora isso FUNCIONA, porque a rota existe (era
+ *   metade da promessa de 0.46 que ficava faltando).
+ * - host que declarou `authMethods: { password: false }` → `[passkey, magicLink]`.
+ *   Sai o campo de senha, que nesse deployment é uma opção que não pode dar
+ *   certo, e entra o único método que uma conta sem credencial prévia consegue
+ *   satisfazer (ver `CREDENTIAL_FREE_SUDO_METHOD_IDS` em `sudo/satisfiability.ts`).
+ *
+ * SÓ MEXE NA LISTA DE DEFAULTS (`mountedFromDefaults`). Lista escrita pelo host
+ * passa intacta — inclusive quando isso o deixa em deadlock, caso em que o aviso
+ * de boot (`define_config.ts`) é quem fala. Adivinhar a intenção de uma lista
+ * explícita seria pior: é a lista dele, e a promessa documentada é que ela
+ * SUBSTITUI os defaults.
+ */
+export function derivedSudoMethods(cfg: ResolvedServerConfig): SudoMethod[] {
+  return mountedSudoMethods.filter((m) => !isDefaultSudoMethodDerivedOut(cfg, m?.id));
+}
+
+/**
+ * Este id foi DERIVADO PARA FORA da lista de defaults neste host?
+ *
+ * Ponto único da regra, consultado pelos DOIS lados (a tela, via
+ * `configuredSudoMethods`, e os handlers, via `isSudoMethodEnabled`) — é o que
+ * torna o drift entre eles estruturalmente impossível também no caso derivado.
+ *
+ * Nunca responde `true` para uma lista de host, nem para um id que não seja um
+ * dos dois built-in do default. Ou seja: só REMOVE, e só remove o que a própria
+ * lib pôs lá.
+ */
+function isDefaultSudoMethodDerivedOut(cfg: ResolvedServerConfig, methodId?: string): boolean {
+  if (!mountedFromDefaults) return false;
+  // Host passwordless: cai a senha (não há senha usável neste deployment).
+  // Host com senha: cai o magic link (posture histórica preservada — o default
+  // não passa a oferecer um step-up por e-mail a quem nunca pediu).
+  return isPasswordlessHost(cfg) ? methodId === 'password' : methodId === 'magic-link';
+}
+
+/**
  * O método `methodId` está habilitado para ESTE host?
  *
  * Toda rota registrada por um `SudoMethod` DEVE começar por aqui. Sem essa
@@ -86,13 +168,15 @@ export function explicitSudoMethods(cfg: ResolvedServerConfig): SudoMethod[] | n
  * continuaria vivo e concedendo sudo — uma config que aparenta restringir e não
  * restringe é pior que nenhuma config.
  *
- * Sem configuração explícita nada foi restringido: vale o que tem rota montada.
- * Isso é deliberado — a lista de defaults não é a fonte de verdade do que está
- * montado, e tratá-la como tal derrubaria um método customizado do host.
+ * Sem configuração explícita nada foi restringido: vale o que tem rota montada,
+ * MENOS o que a derivação do default tirou (ver `isDefaultSudoMethodDerivedOut`).
+ * Continua não sendo a lista de defaults a fonte de verdade do que está montado —
+ * tratá-la como tal derrubaria um método customizado do host —, e a derivação só
+ * remove ids que a própria lib pôs na lista.
  */
 export function isSudoMethodEnabled(cfg: ResolvedServerConfig, methodId: string): boolean {
   const explicit = explicitSudoMethods(cfg);
-  if (explicit === null) return true;
+  if (explicit === null) return !isDefaultSudoMethodDerivedOut(cfg, methodId);
   return explicit.some((m) => m?.id === methodId);
 }
 
@@ -114,9 +198,15 @@ export function isSudoMethodEnabled(cfg: ResolvedServerConfig, methodId: string)
  * fica estruturalmente impossível no caso sem config: é literalmente a mesma
  * lista. O aviso de flag-drift do controller passa a valer só para o caso que
  * sobra — config explícita divergindo do que foi montado.
+ *
+ * "A lista montada" é a lista montada DERIVADA (`derivedSudoMethods`), e os
+ * handlers aplicam a MESMA derivação pela mesma função — o drift continua
+ * impossível. A derivação existe porque a montagem não conhece o config: ela é
+ * quem tira o campo de senha de um host que declarou não ter senha, e quem
+ * mantém o default histórico intacto para quem tem.
  */
 export function configuredSudoMethods(cfg: ResolvedServerConfig): SudoMethod[] {
-  return explicitSudoMethods(cfg) ?? mountedSudoMethods;
+  return explicitSudoMethods(cfg) ?? derivedSudoMethods(cfg);
 }
 
 /**

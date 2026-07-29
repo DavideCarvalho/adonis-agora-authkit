@@ -32,7 +32,7 @@ import { DEFAULT_MESSAGES, translate } from '../../src/host/i18n.js';
 import { ACCOUNT_SESSION_KEY } from '../../src/host/middleware/account_auth.js';
 import { registerAuthHost } from '../../src/host/register_auth_host.js';
 import { magicLink } from '../../src/host/sudo/methods/magic_link.js';
-import { completeSudo, fail } from '../../src/host/sudo/runtime.js';
+import { completeSudo, fail, setMountedSudoMethods } from '../../src/host/sudo/runtime.js';
 import { SUDO_SESSION_KEY, requireSudo } from '../../src/host/sudo_mode.js';
 
 // ─── helpers ──────────────────────────────────────────────────────────────
@@ -236,6 +236,12 @@ test.group('registerAuthHost + accountRoutes (pt-BR)', (group) => {
 
 test.group('sudo com accountRoutes', (group) => {
   group.each.teardown(() => resetAccountPaths());
+  // Este grupo registra `magicLink()` DIRETO (ver `magicHandlers`), ou seja
+  // modela um host que montou esse método. Fixar a lista montada torna o grupo
+  // independente da ordem dos arquivos: herdar a lista de DEFAULTS de outro spec
+  // faria a derivação de `derivedSudoMethods` tirar o magic link (host com senha
+  // não passa a oferecer step-up por e-mail) e todo handler responderia `fail`.
+  group.each.setup(() => setMountedSudoMethods([magicLink()], { fromDefaults: false }));
 
   function fakeSettings(val: unknown) {
     return {

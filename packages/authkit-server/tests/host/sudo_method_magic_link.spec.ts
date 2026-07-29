@@ -20,7 +20,7 @@ import {
   verifySudoLinkToken,
 } from '../../src/host/sudo/methods/magic_link.js';
 import { password } from '../../src/host/sudo/methods/password.js';
-import { completeSudo, fail } from '../../src/host/sudo/runtime.js';
+import { completeSudo, fail, setMountedSudoMethods } from '../../src/host/sudo/runtime.js';
 import { SUDO_SESSION_KEY } from '../../src/host/sudo_mode.js';
 
 function ctxWith(
@@ -55,13 +55,36 @@ function ctxWith(
 
 const hash = (t: string) => createHash('sha256').update(t).digest('hex');
 
+/**
+ * Fixa o estado de processo de "o que foi montado" para o que estes testes de
+ * fato modelam: um host que MONTOU o magic link (é o que `captureHandlers()`
+ * faz, registrando o método direto). A lista é do HOST, não a de defaults da
+ * lib — e por isso a derivação de `derivedSudoMethods` não a toca.
+ *
+ * Sem isto, o teste herda o `mountedSudoMethods` que outro spec deixou no
+ * processo: se o vizinho montou os DEFAULTS, o magic link é derivado para fora
+ * (host com senha não passa a oferecer step-up por e-mail) e todo handler aqui
+ * responde `fail`. Fixar torna o grupo independente da ordem dos arquivos.
+ */
+function mountHostMagicLink() {
+  setMountedSudoMethods([magicLink()], { fromDefaults: false });
+}
+
 test.group('sudoMethods.magicLink — disponibilidade', () => {
   test('disponível quando há e-mail e hook de envio', async ({ assert }) => {
     assert.isTrue(await magicLink().isAvailable(ctxWith({ onSudoLink: async () => {} })));
   });
 
-  test('indisponível sem hook de envio', async ({ assert }) => {
-    assert.isFalse(await magicLink().isAvailable(ctxWith()));
+  /**
+   * MUDOU, e é o coração do conserto do deadlock passwordless: antes, sem o hook
+   * `mail.onSudoLink` o método se declarava INDISPONÍVEL. Num host sem senha e
+   * sem passkey isso deixava a tela `/account/confirm` sem um único método —
+   * ou seja, o único método sem credencial prévia que a lib tem só funcionava se
+   * alguém tivesse escrito um hook à mão. A entrega agora cai no mailer default
+   * do host-kit, igual a todo outro e-mail da lib.
+   */
+  test('disponível SEM hook de envio — a entrega cai no mailer default', async ({ assert }) => {
+    assert.isTrue(await magicLink().isAvailable(ctxWith()));
   });
 
   test('indisponível sem e-mail na conta', async ({ assert }) => {
@@ -318,7 +341,9 @@ function fakeCtx(
 const tokenFrom = (sudoUrl: string) =>
   sudoUrl.split('/account/confirm/magic-link/')[1]!.split('?')[0]!;
 
-test.group('sudoMethods.magicLink — handler de emissão (POST)', () => {
+test.group('sudoMethods.magicLink — handler de emissão (POST)', (group) => {
+  group.each.setup(mountHostMagicLink);
+
   test('emite o link e guarda só o hash na sessão', async ({ assert }) => {
     const h = fakeCtx();
     await captureHandlers().get('POST /account/confirm/magic-link')!(h.ctx);
@@ -384,7 +409,9 @@ test.group('sudoMethods.magicLink — handler de emissão (POST)', () => {
   });
 });
 
-test.group('sudoMethods.magicLink — handler de consumo (GET)', () => {
+test.group('sudoMethods.magicLink — handler de consumo (GET)', (group) => {
+  group.each.setup(mountHostMagicLink);
+
   /** Roda o POST e devolve o token que o hook recebeu, para o GET consumir. */
   async function issueVia(h: ReturnType<typeof fakeCtx>) {
     await captureHandlers().get('POST /account/confirm/magic-link')!(h.ctx);
@@ -517,7 +544,9 @@ test.group('sudoMethods.magicLink — handler de consumo (GET)', () => {
   });
 });
 
-test.group('sudoMethods.magicLink — o token de sudo não é o de login', () => {
+test.group('sudoMethods.magicLink — o token de sudo não é o de login', (group) => {
+  group.each.setup(mountHostMagicLink);
+
   test('não toca em issueMagicLinkToken/consumeMagicLinkToken do AccountStore', async ({
     assert,
   }) => {

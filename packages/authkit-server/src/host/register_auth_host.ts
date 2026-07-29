@@ -30,6 +30,7 @@ import { ACCOUNT_SESSION_KEY } from './middleware/account_auth.js';
 import { createAuthThrottles } from './rate_limit.js';
 import { resolveRuntimeSettings } from './runtime_settings.js';
 import { resolveEffectiveSessionPolicy } from './runtime_toggles.js';
+import { magicLink as sudoMagicLink } from './sudo/methods/magic_link.js';
 import { passkey as sudoPasskey } from './sudo/methods/passkey.js';
 import { password as sudoPassword } from './sudo/methods/password.js';
 import {
@@ -42,15 +43,29 @@ import {
 import type { SudoMethod, SudoRouteHelpers } from './sudo/types.js';
 
 /**
- * Métodos de sudo montados quando o host não passa `sudoMethods` —
- * comportamento histórico (senha + passkey).
+ * Métodos de sudo cujas ROTAS são montadas quando o host não passa
+ * `sudoMethods`.
  *
- * PONTO ÚNICO. A tela não tem mais uma cópia desta lista: sem
- * `config.sudo.methods`, `configuredSudoMethods` cai no que FOI MONTADO, ou
- * seja, no resultado do `??` abaixo. Duas listas de default é como os dois
- * lados divergiam.
+ * `magicLink()` entra aqui, e a lista deixou de ser o histórico
+ * `[password, passkey]`, porque os dois históricos exigem uma credencial
+ * PREVIAMENTE CADASTRADA. Num host passwordless não existe nenhuma: o usuário
+ * não tem senha, não tem passkey — e cadastrar passkey exige sudo. Deadlock
+ * fechado, e era o DEFAULT. O `oidcStepUp` não pode entrar (exige uma URL do
+ * host), então o magic link de sudo é o único método sem credencial prévia que
+ * a lib consegue montar sozinha.
+ *
+ * MONTAR NÃO É OFERECER. Esta lista decide apenas quais ENDPOINTS existem; o
+ * que a tela oferece e o que os handlers aceitam é derivado do config resolvido,
+ * em `sudo/runtime.ts` (`derivedSudoMethods`) — um host COM senha continua
+ * recebendo exatamente `[password, passkey]`, e o endpoint do magic link fica
+ * montado mas inerte. Não é possível decidir a oferta aqui: a montagem acontece
+ * antes de o config (lazy) resolver, e `authMethods` vive no config.
+ *
+ * PONTO ÚNICO. A tela não tem uma cópia desta lista: sem `config.sudo.methods`,
+ * `configuredSudoMethods` cai no que FOI MONTADO (derivado). Duas listas de
+ * default é como os dois lados divergiam.
  */
-const SUDO_METHOD_DEFAULTS: SudoMethod[] = [sudoPassword(), sudoPasskey()];
+const SUDO_METHOD_DEFAULTS: SudoMethod[] = [sudoPassword(), sudoPasskey(), sudoMagicLink()];
 
 /** Chave da sessão Adonis que registra o timestamp da última atividade (idle timeout). */
 export const ACCOUNT_LAST_SEEN_KEY = 'authkit_last_seen';
@@ -271,7 +286,14 @@ export interface AuthHostOptions {
    * fechada, mas é a promessa do SPI pela metade; `magicLink()` em particular
    * não teria como ser alcançado em runtime.
    *
-   * Ausente → `[password(), passkey()]`.
+   * Ausente → `[password(), passkey(), magicLink()]`, e o config resolvido
+   * decide quais deles a tela OFERECE: host com senha recebe
+   * `[password, passkey]` (o histórico, byte a byte) e host que declarou
+   * `authMethods: { password: false }` recebe `[passkey, magicLink]` — sem isso
+   * ele não teria um único método satisfazível. Ver `derivedSudoMethods` em
+   * `sudo/runtime.ts`.
+   *
+   * Passar a opção desliga essa derivação: a lista é do host, ao pé da letra.
    */
   sudoMethods?: SudoMethod[];
   /**
@@ -811,12 +833,10 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
       // exatamente por isso que o host tinha de manter a lista em DOIS lugares —
       // divergiram, a tela oferecia um método sem endpoint (404) e escondia um
       // que funcionava.
-      const sudoMethodsToMount = isLocked('sudoMethods', opts.sudoMethods !== undefined)
-        ? (hostCfg?.sudoMethods ?? SUDO_METHOD_DEFAULTS)
-        : (opts.sudoMethods ??
-          routesCfg?.sudoMethods ??
-          hostCfg?.sudoMethods ??
-          SUDO_METHOD_DEFAULTS);
+      const sudoMethodsDeclared = isLocked('sudoMethods', opts.sudoMethods !== undefined)
+        ? hostCfg?.sudoMethods
+        : (opts.sudoMethods ?? routesCfg?.sudoMethods ?? hostCfg?.sudoMethods);
+      const sudoMethodsToMount = sudoMethodsDeclared ?? SUDO_METHOD_DEFAULTS;
       for (const method of sudoMethodsToMount) {
         // `guardSudoRoutes` embrulha os handlers que o método registrar, para
         // que `config.sudo.methods` os desabilite de fato mesmo que o método
@@ -837,7 +857,15 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
       // A lista montada é a fonte de verdade dos DOIS lados quando o host não
       // configura `config.sudo.methods`: a tela oferece exatamente isto, e os
       // handlers aceitam exatamente isto.
-      setMountedSudoMethods(sudoMethodsToMount);
+      //
+      // O segundo argumento diz se a lista é a da LIB ou a do HOST, e a
+      // distinção é o que mantém o conserto do deadlock inofensivo: só a lista
+      // de defaults é derivada do config (`derivedSudoMethods`). Uma lista que o
+      // host escreveu — no argumento ou no `config.sudo.methods` — vale ao pé da
+      // letra, em qualquer direção, porque foi ele quem a escreveu.
+      setMountedSudoMethods(sudoMethodsToMount, {
+        fromDefaults: sudoMethodsDeclared === undefined,
+      });
       mountedSudoIds = sudoMethodsToMount.map((m) => m.id);
 
       // Organizations (multi-tenancy) — tela `orgs`. Montadas por default;

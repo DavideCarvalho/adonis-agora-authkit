@@ -701,6 +701,19 @@ export const DEFAULT_MESSAGES = {
     'Use the code below to sign in. It expires shortly and can be used once.',
   'mail.magic_link.code_only_label': 'Enter this code to sign in:',
 
+  // Link de CONFIRMAÇÃO DE IDENTIDADE (sudo). Copy DISTINTA da do magic link de
+  // login de propósito: este link não autentica ninguém — quem o abre já está
+  // logado e só reprova que é quem diz ser. Prometer "entre na sua conta" num
+  // e-mail que não faz login é o tipo de erro que ensina o usuário a clicar em
+  // qualquer link de "acesso" que chegue.
+  'mail.sudo_link.subject': 'Confirm it is you',
+  'mail.sudo_link.heading': 'Confirm your identity',
+  'mail.sudo_link.intro':
+    'You asked to confirm your identity before a sensitive account action. Click the button below to continue. The link expires in 5 minutes, can be used once and only works in the browser that requested it.',
+  'mail.sudo_link.cta': 'Confirm identity',
+  'mail.sudo_link.fallback':
+    'If you did not request this, you can ignore this email — nothing was changed.',
+
   'mail.new_login.subject': 'New login to your account',
   'mail.new_login.heading': 'New login detected',
   'mail.new_login.intro': 'We detected a new login to your account.',
@@ -1679,6 +1692,14 @@ export const PT_BR_MESSAGES = {
   'mail.magic_link.code_intro':
     'Use o código abaixo para entrar. Ele expira em instantes e serve para um único acesso.',
   'mail.magic_link.code_only_label': 'Digite este código para entrar:',
+
+  // Link de CONFIRMAÇÃO DE IDENTIDADE (sudo) — ver o comentário no catálogo `en`.
+  'mail.sudo_link.subject': 'Confirme que é você',
+  'mail.sudo_link.heading': 'Confirme sua identidade',
+  'mail.sudo_link.intro':
+    'Você pediu para confirmar sua identidade antes de uma ação sensível da conta. Clique no botão abaixo para continuar. O link expira em 5 minutos, serve uma única vez e só funciona no navegador que o pediu.',
+  'mail.sudo_link.cta': 'Confirmar identidade',
+  'mail.sudo_link.fallback': 'Se você não solicitou isso, pode ignorar este e-mail — nada mudou.',
 
   'mail.new_login.subject': 'Novo login na sua conta',
   'mail.new_login.heading': 'Novo login detectado',

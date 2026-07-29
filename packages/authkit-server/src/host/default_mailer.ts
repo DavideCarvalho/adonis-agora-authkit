@@ -369,6 +369,67 @@ export async function sendMagicLinkEmail(
 }
 
 /**
+ * Envia o link de CONFIRMAÇÃO DE IDENTIDADE (sudo) pelo mailer default do host.
+ *
+ * POR QUE EXISTE. `sudoMethods.magicLink()` dependia EXCLUSIVAMENTE do hook
+ * `mail.onSudoLink`, e sem ele o método se declarava indisponível. Num host
+ * passwordless isso fechava o deadlock: sem senha, sem passkey e sem hook, a
+ * tela `/account/confirm` não tinha um único método satisfazível — e o usuário
+ * ficava trancado fora de exportar/excluir os próprios dados, do MFA, dos PATs
+ * e da troca de e-mail, inclusive do cadastro de passkey que destravaria tudo.
+ *
+ * A postura aqui é a MESMA de todos os outros e-mails da lib (reset de senha,
+ * verificação, magic link de login, avisos de segurança): o hook do host, quando
+ * existe, tem prioridade; sem hook, o próprio host-kit envia pelo mailer default
+ * (`@adonisjs/mail`) com branding e i18n; sem mailer, loga o link (dev).
+ *
+ * O TOKEN continua sendo o de sudo — emitido e verificado em
+ * `sudo/methods/magic_link.ts`, hasheado na sessão que pediu, de uso único,
+ * 5 min, vinculado ao `accountId` emissor. Isto aqui é só ENTREGA; nada é
+ * compartilhado com o token de login.
+ *
+ * @returns `true` quando o e-mail foi entregue ao mailer (ou logado no fallback
+ * de dev) e `false` quando o envio falhou de verdade. O chamador PRECISA disso:
+ * ao contrário dos outros e-mails da lib, um link de sudo que não saiu tem de
+ * apagar o pendente da sessão e recusar — flashar "link enviado" deixaria o
+ * usuário esperando um e-mail que nunca vem, na tela que já é o gargalo dele.
+ */
+export async function sendSudoLinkEmail(
+  ctx: HttpContext,
+  data: { email: string; sudoUrl: string },
+): Promise<boolean> {
+  try {
+    const brand = resolveBrand(ctx);
+    const { messages: t, locale } = resolveMailMessages(ctx);
+    const content = renderTransactionalEmail({
+      brand,
+      locale,
+      linkFallback: translate(t, 'mail.common.link_fallback'),
+      subject: translate(t, 'mail.sudo_link.subject'),
+      heading: translate(t, 'mail.sudo_link.heading'),
+      intro: translate(t, 'mail.sudo_link.intro'),
+      ctaLabel: translate(t, 'mail.sudo_link.cta'),
+      ctaUrl: data.sudoUrl,
+      footnote: translate(t, 'mail.sudo_link.fallback'),
+    });
+    const sent = await sendEmail(ctx, data.email, content);
+    if (!sent) {
+      ctx.logger?.info(
+        { sudoUrl: data.sudoUrl, email: data.email },
+        'authkit: link de confirmação de identidade (dev — @adonisjs/mail ausente)',
+      );
+    }
+    return true;
+  } catch (error) {
+    ctx.logger?.error(
+      { err: error, email: data.email },
+      'authkit: falha ao enviar link de confirmação de identidade',
+    );
+    return false;
+  }
+}
+
+/**
  * Envia o e-mail de aviso de segurança ao e-mail ATUAL quando uma troca de
  * e-mail é solicitada ("Alguém pediu troca para X — se não foi você...").
  * Best-effort: no fallback (sem mail) loga o evento; nunca lança.

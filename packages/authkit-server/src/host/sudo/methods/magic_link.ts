@@ -1,6 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Router } from '@adonisjs/core/http';
 import { accountPath } from '../../account_paths.js';
+import { sendSudoLinkEmail } from '../../default_mailer.js';
 import { translate } from '../../i18n.js';
 import { isSudoMethodEnabled } from '../runtime.js';
 import type { SudoContext, SudoMethod, SudoRouteHelpers } from '../types.js';
@@ -121,17 +122,30 @@ function requestOrigin(ctx: any): string | null {
 /**
  * Confirmação por link enviado ao e-mail da conta.
  *
- * Depende do hook `mail.onSudoLink`, DISTINTO de `mail.onMagicLink` justamente
- * para que o host não confunda um link que autentica com um que só concede
- * sudo a quem já está logado. Sem o hook, o método fica indisponível.
+ * O hook `mail.onSudoLink` é DISTINTO de `mail.onMagicLink` justamente para que
+ * o host não confunda um link que autentica com um que só concede sudo a quem já
+ * está logado — e continua tendo PRIORIDADE quando declarado.
+ *
+ * SEM O HOOK O MÉTODO SEGUE DISPONÍVEL: o próprio host-kit envia o e-mail pelo
+ * mailer default (`sendSudoLinkEmail`), exatamente como já faz com reset de
+ * senha, verificação de e-mail e o magic link de login. Antes o método se
+ * declarava indisponível sem hook, e num host passwordless isso FECHAVA o
+ * deadlock — sem senha, sem passkey e sem hook não sobrava nenhum método
+ * satisfazível na tela `/account/confirm`, e o usuário ficava trancado fora de
+ * exportar/excluir os próprios dados, do MFA, dos PATs e da troca de e-mail,
+ * inclusive fora do cadastro de passkey que destravaria o resto. Exigir um hook
+ * escrito à mão para que o único método sem credencial prévia funcione é
+ * transformar uma saída de emergência em opt-in.
+ *
+ * A única exigência que resta é a que não tem substituto: a conta precisa ter
+ * e-mail.
  */
 export function magicLink(): SudoMethod {
   return {
     id: 'magic-link',
 
     async isAvailable(c: SudoContext) {
-      if (!c.account?.email) return false;
-      return typeof c.cfg?.mail?.onSudoLink === 'function';
+      return Boolean(c.account?.email);
     },
 
     async describe() {
@@ -156,20 +170,31 @@ export function magicLink(): SudoMethod {
         // e sem e-mail não há para onde mandar o link.
         if (!c.account?.email) return h.fail(c, 'account.confirm.error');
 
-        // Checado ANTES de emitir: um token emitido sem ninguém para entregá-lo
-        // é lixo na sessão, e a `isAvailable` já prometeu que sem hook o método
-        // não existe.
-        const onSudoLink = c.cfg?.mail?.onSudoLink;
-        if (typeof onSudoLink !== 'function') return h.fail(c, 'account.confirm.error');
-
         const qs = c.returnTo ? `?return_to=${encodeURIComponent(c.returnTo)}` : '';
         const token = issueSudoLinkToken(c);
         const path = `${accountPath('confirm')}/magic-link/${token}${qs}`;
         const origin = requestOrigin(ctx);
+        const sudoUrl = origin ? `${origin}${path}` : path;
 
+        // ENTREGA. Hook do host quando declarado; senão o mailer default do
+        // host-kit (mesma precedência de todo e-mail da lib). O que NÃO é
+        // opcional é haver uma entrega: um método de sudo que só funciona se o
+        // host escrever um hook não serve de saída de emergência para o host
+        // passwordless, que é justamente quem depende dele.
+        const onSudoLink = c.cfg?.mail?.onSudoLink;
+        let delivered = false;
         try {
-          await onSudoLink({ email: c.account.email, sudoUrl: origin ? `${origin}${path}` : path });
+          if (typeof onSudoLink === 'function') {
+            await onSudoLink({ email: c.account.email, sudoUrl });
+            delivered = true;
+          } else {
+            delivered = await sendSudoLinkEmail(ctx, { email: c.account.email, sudoUrl });
+          }
         } catch {
+          delivered = false;
+        }
+
+        if (!delivered) {
           // O envio falhou: apaga o pendente. Não é risco de segurança (o
           // segredo não chegou a lugar nenhum), mas deixá-lo lá invalidaria
           // silenciosamente um token anterior ainda válido do usuário.

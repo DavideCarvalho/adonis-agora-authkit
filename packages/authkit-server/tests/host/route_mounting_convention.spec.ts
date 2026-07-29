@@ -118,12 +118,23 @@ test.group('R2 — argumento omitido herda do config', (group) => {
     assert.isFalse(has(router, '/conta/confirm/passkey/options', 'POST'));
   });
 
-  test('sem config.sudo.methods e sem argumento: defaults históricos (password + passkey)', ({
+  /**
+   * MONTAR NÃO É OFERECER. Sem config e sem argumento, os ENDPOINTS montados são
+   * três: `magicLink` entrou nos defaults porque `password`/`passkey` exigem uma
+   * credencial previamente cadastrada, e num host passwordless não existe
+   * nenhuma — nem dá para cadastrar passkey, que também exige sudo.
+   *
+   * O que a tela OFERECE continua sendo o histórico `[password, passkey]` num
+   * host com senha: a decisão é derivada do config resolvido, em
+   * `derivedSudoMethods`, e está travada em `sudo_passwordless_default.spec.ts`.
+   * Aqui só se afirma o que tem rota.
+   */
+  test('sem config.sudo.methods e sem argumento: monta password + passkey + magic-link', ({
     assert,
   }) => {
     const router = fakeRouter();
     const map = registerAuthHost(router);
-    assert.deepEqual(map.sudoMethods, ['password', 'passkey']);
+    assert.deepEqual(map.sudoMethods, ['password', 'passkey', 'magic-link']);
   });
 
   test('estruturais (account/accountRoutes/accountLoginUrl) herdam de config.routes', ({

@@ -20,6 +20,14 @@ import { password } from './methods/password.js';
  * SEM `config.sudo.methods` não há como divergir: a tela cai na própria lista
  * montada por `registerAuthHost`, a mesma que os handlers aceitam.
  *
+ * E é essa mesma separação que define o que é DEFAULT. `registerAuthHost` monta
+ * `[password, passkey, magicLink]` sem conhecer o config; o config resolvido
+ * decide quais deles valem (`derivedSudoMethods`, em `runtime.ts`): host com
+ * senha fica com `[password, passkey]` (o histórico), host que declarou
+ * `authMethods: { password: false }` fica com `[passkey, magicLink]`. A regra é
+ * UMA função, consultada pelos dois lados — montar não é oferecer, e continuar
+ * não havendo como divergir.
+ *
  * ```ts
  * defineConfig({
  *   sudo: {

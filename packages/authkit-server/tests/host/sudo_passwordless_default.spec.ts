@@ -23,7 +23,10 @@
  * regressão que o conserto NÃO pode quebrar (grupo 2).
  */
 
+import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
+import RedisMock from 'ioredis-mock';
+import { adapters, defineConfig } from '../../src/define_config.js';
 import { resetAuthHostConfig } from '../../src/host/auth_host_config.js';
 import AccountConfirmController from '../../src/host/controllers/account_confirm_controller.js';
 import { __setMailLoaderForTests } from '../../src/host/default_mailer.js';
@@ -31,10 +34,13 @@ import { DEFAULT_MESSAGES } from '../../src/host/i18n.js';
 import { ACCOUNT_SESSION_KEY } from '../../src/host/middleware/account_auth.js';
 import { registerAuthHost } from '../../src/host/register_auth_host.js';
 import { magicLink } from '../../src/host/sudo/methods/magic_link.js';
+import { oidcStepUp } from '../../src/host/sudo/methods/oidc_step_up.js';
 import { passkey } from '../../src/host/sudo/methods/passkey.js';
 import { password } from '../../src/host/sudo/methods/password.js';
 import { configuredSudoMethods, isSudoMethodEnabled } from '../../src/host/sudo/runtime.js';
+import { warnUnsatisfiableSudoConfig } from '../../src/host/sudo/satisfiability.js';
 import { SUDO_SESSION_KEY } from '../../src/host/sudo_mode.js';
+import { fakeAccountStore } from '../bootstrap.js';
 
 const ACCOUNT = { id: 'acc-1', email: 'aluno@example.com' };
 
@@ -376,6 +382,27 @@ test.group('sudo — o que o conserto NÃO pode mudar', (group) => {
     assert.isFalse(isSudoMethodEnabled(h.cfg, 'magic-link'));
   });
 
+  test('host passwordless com lista explícita ainda recebe a lista dele — e o aviso de boot', async ({
+    assert,
+  }) => {
+    // A derivação NÃO conserta uma lista explícita; quem fala é o backstop.
+    const h = passwordlessCtx({ sudo: { methods: [password(), passkey()] } });
+    assert.deepEqual(
+      configuredSudoMethods(h.cfg).map((m) => m.id),
+      ['password', 'passkey'],
+    );
+
+    const warns: string[] = [];
+    const msg = warnUnsatisfiableSudoConfig({
+      methods: [password(), passkey()],
+      passwordPinnedOff: true,
+      passwordlessSignup: true,
+      warn: (m) => warns.push(m),
+    });
+    assert.isString(msg);
+    assert.lengthOf(warns, 1);
+  });
+
   test('host que montou só magicLink continua oferecendo só magic-link', async ({ assert }) => {
     const router = capturingRouter();
     registerAuthHost(router, { mountPath: '/oidc', sudoMethods: [magicLink()] });
@@ -388,5 +415,188 @@ test.group('sudo — o que o conserto NÃO pode mudar', (group) => {
     });
 
     assert.deepEqual(await offeredIds(h), ['magic-link']);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 4 — O backstop: uma config de sudo sem saída tem de ser ALTA no boot
+// ───────────────────────────────────────────────────────────────────────────
+
+test.group('sudo — aviso de boot para config sem método satisfazível', () => {
+  /** Roda o backstop capturando o que ele avisaria. */
+  function run(input: Parameters<typeof warnUnsatisfiableSudoConfig>[0]) {
+    const warns: string[] = [];
+    const msg = warnUnsatisfiableSudoConfig({ ...input, warn: (m) => warns.push(m) });
+    return { msg, warns };
+  }
+
+  test('dispara: host passwordless que declarou só password + passkey', ({ assert }) => {
+    const { msg, warns } = run({
+      methods: [password(), passkey()],
+      passwordPinnedOff: true,
+      passwordlessSignup: false,
+    });
+
+    assert.lengthOf(warns, 1);
+    // A mensagem tem de dar as três coisas: o gatilho (para o host se
+    // reconhecer), a consequência e a saída.
+    assert.include(msg!, 'authMethods: { password: false }');
+    assert.include(msg!, 'requireSudo');
+    assert.include(msg!, 'oidcStepUp');
+    assert.include(msg!, 'magicLink');
+  });
+
+  test('dispara também por passwordless.signup — o cadastro cria conta sem senha usável', ({
+    assert,
+  }) => {
+    const { msg, warns } = run({
+      methods: [password(), passkey()],
+      passwordPinnedOff: false,
+      passwordlessSignup: true,
+    });
+
+    assert.lengthOf(warns, 1);
+    assert.include(msg!, 'passwordless: { signup: true }');
+  });
+
+  test('cala: a lista tem um método credential-free (oidcStepUp)', ({ assert }) => {
+    const { warns } = run({
+      methods: [password(), oidcStepUp({ url: '/auth/step-up' })],
+      passwordPinnedOff: true,
+      passwordlessSignup: true,
+    });
+
+    assert.lengthOf(warns, 0);
+  });
+
+  test('cala: a lista tem magicLink', ({ assert }) => {
+    const { warns } = run({
+      methods: [passkey(), magicLink()],
+      passwordPinnedOff: true,
+      passwordlessSignup: true,
+    });
+
+    assert.lengthOf(warns, 0);
+  });
+
+  test('cala: host com senha (não é passwordless, password + passkey serve)', ({ assert }) => {
+    const { warns } = run({
+      methods: [password(), passkey()],
+      passwordPinnedOff: false,
+      passwordlessSignup: false,
+    });
+
+    assert.lengthOf(warns, 0);
+  });
+
+  test('cala: host sem `sudo.methods` declarado — vale o default derivado', ({ assert }) => {
+    const { warns } = run({
+      methods: undefined,
+      passwordPinnedOff: true,
+      passwordlessSignup: true,
+    });
+
+    assert.lengthOf(warns, 0);
+  });
+
+  /**
+   * O aviso é heurístico por construção: de um método CUSTOMIZADO o pacote não
+   * sabe se exige credencial prévia. Diante de um, ele se cala — um aviso de boot
+   * que grita para configuração correta é um aviso que o host aprende a ignorar,
+   * e este precisa ser levado a sério na primeira vez que aparecer. É também a
+   * razão de ser WARN e não THROW: não há prova, há suspeita forte.
+   */
+  test('cala diante de um método customizado — não afirma o que não pode provar', ({ assert }) => {
+    const custom = {
+      id: 'meu-step-up',
+      async isAvailable() {
+        return true;
+      },
+      async describe() {
+        return {
+          labelKey: 'x',
+          kind: 'redirect' as const,
+          endpoint: '/x',
+        };
+      },
+    };
+
+    const { warns } = run({
+      methods: [password(), custom],
+      passwordPinnedOff: true,
+      passwordlessSignup: true,
+    });
+
+    assert.lengthOf(warns, 0);
+  });
+});
+
+/**
+ * A COSTURA: o aviso sai de verdade quando o `defineConfig` resolve.
+ *
+ * O teste acima exercita a função; este prega a costura, porque "loud at boot"
+ * é a propriedade que importa — um backstop que existe e nunca é chamado é o
+ * mesmo tipo de coisa que este plano veio consertar. `configProvider.resolve` é
+ * exatamente o que o `boot()` do provider chama, antes de qualquer request.
+ */
+test.group('sudo — o backstop dispara no boot, a partir do defineConfig', () => {
+  const baseConfig = {
+    issuer: 'https://sudo-backstop.test',
+    adapter: adapters.redis({ connection: 'main' }),
+    jwks: { source: 'managed' as const, algorithm: 'RS256' as const },
+    clients: [
+      { clientId: 'app1', clientSecret: 's', redirectUris: ['https://sudo-backstop.test/cb'] },
+    ],
+  };
+
+  async function resolveWith(extra: Record<string, unknown>) {
+    const fakeApp = {
+      container: { make: async () => ({ connection: () => new RedisMock() }) },
+    } as any;
+    const warns: string[] = [];
+    const original = console.warn;
+    console.warn = (msg?: unknown) => {
+      warns.push(String(msg));
+    };
+    try {
+      await configProvider.resolve(
+        fakeApp,
+        defineConfig({ ...baseConfig, accountStore: fakeAccountStore(), ...extra } as any),
+      );
+    } finally {
+      console.warn = original;
+    }
+    return warns.filter((w) => w.includes('sudo mode SEM SAÍDA'));
+  }
+
+  test('config passwordless com sudo.methods sem saída avisa no resolve', async ({ assert }) => {
+    const warns = await resolveWith({
+      authMethods: { password: false },
+      passwordless: { magicLink: true, signup: true },
+      sudo: { methods: [password(), passkey()] },
+    });
+
+    assert.lengthOf(warns, 1);
+  });
+
+  test('a mesma config com magicLink na lista não avisa', async ({ assert }) => {
+    const warns = await resolveWith({
+      authMethods: { password: false },
+      passwordless: { magicLink: true, signup: true },
+      sudo: { methods: [passkey(), magicLink()] },
+    });
+
+    assert.lengthOf(warns, 0);
+  });
+
+  test('config passwordless SEM sudo.methods não avisa — o default derivado resolve', async ({
+    assert,
+  }) => {
+    const warns = await resolveWith({
+      authMethods: { password: false },
+      passwordless: { magicLink: true, signup: true },
+    });
+
+    assert.lengthOf(warns, 0);
   });
 });

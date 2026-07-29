@@ -146,13 +146,18 @@ function metodoDesatento(): SudoMethod {
 }
 
 test.group('sudo — AuthHostOptions.sudoMethods monta métodos do host', () => {
-  test('sem a opção, monta os defaults (password + passkey)', ({ assert }) => {
+  test('sem a opção, monta os defaults (password + passkey + magic-link)', ({ assert }) => {
     const router = capturingRouter();
     registerAuthHost(router, { mountPath: '/oidc' });
 
     assert.isTrue(router.routes.has('POST /account/confirm'));
     assert.isTrue(router.routes.has('POST /account/confirm/passkey'));
-    assert.isFalse(router.routes.has('POST /account/confirm/magic-link'));
+    // `magicLink` entrou nos defaults: é o único método sem credencial prévia
+    // que a lib consegue montar sozinha, e sem ele um host passwordless não tem
+    // um único método satisfazível. MONTAR não é OFERECER — num host com senha a
+    // tela segue mostrando só password + passkey (ver
+    // `sudo_passwordless_default.spec.ts`).
+    assert.isTrue(router.routes.has('POST /account/confirm/magic-link'));
   });
 
   test('com a opção, monta as rotas do método customizado', ({ assert }) => {
