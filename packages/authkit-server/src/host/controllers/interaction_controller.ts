@@ -12,7 +12,12 @@ import { brandFor, isFirstParty } from '../branding.js';
 import { sendMagicLinkEmail } from '../default_mailer.js';
 import { sendOtpUnlockEmail } from '../default_mailer.js';
 import { translate } from '../i18n.js';
-import { attemptPasswordLogin, isEmailUnverifiedBlock } from '../login_attempt.js';
+import type { AccountStatusReason } from '../login_attempt.js';
+import {
+  assertLoginAllowed,
+  attemptPasswordLogin,
+  isEmailUnverifiedBlock,
+} from '../login_attempt.js';
 import { magicChannelProp, normalizeLoginChannel } from '../login_channel.js';
 import { notifyLoginSuccess } from '../login_notify.js';
 import {
@@ -51,6 +56,24 @@ async function getRuntimeSettings(ctx: HttpContext): Promise<RuntimeSettings> {
       },
     })
   );
+}
+
+/**
+ * Chave i18n do erro de status de conta (disabled/expired) compartilhada pelos
+ * fluxos passwordless (magic link, OTP, passkey). `password_expired` reaproveita
+ * o texto do passo de troca obrigatória (`login.password_expired_intro`) — estes
+ * fluxos não têm essa etapa, então falham fechado com uma mensagem ainda coerente
+ * em vez de inventar uma nova chave de tradução.
+ */
+function accountStatusErrorKey(reason: AccountStatusReason): string {
+  switch (reason) {
+    case 'disabled':
+      return 'errors.account_disabled';
+    case 'account_expired':
+      return 'errors.account_expired';
+    case 'password_expired':
+      return 'login.password_expired_intro';
+  }
 }
 
 const SESSION_KEY = 'authkit_login_email';
@@ -863,6 +886,32 @@ export default class AuthInteractionController {
         error: translate(cfg.messages, 'errors.email_unverified'),
       });
     }
+
+    // Status da conta (disabled/expired): mesmo gate de `attemptPasswordLogin`,
+    // agora aplicado ao magic link (o botão "desabilitar" no admin console não
+    // tinha efeito nenhum aqui antes desta checagem). Emite o MESMO evento
+    // `login.failure`/`password.expired_change_forced`/`account.expired_login_blocked`
+    // que o fluxo de senha (auditoria uniforme entre fluxos).
+    const magicLinkStatusGate = await assertLoginAllowed(cfg, acc.id, {
+      email: acc.email,
+      ip,
+      clientId,
+      settings: magicLinkRuntimeSettings,
+    });
+    if (!magicLinkStatusGate.allowed) {
+      const render = cfg.render!;
+      return render(ctx, 'login', {
+        ...(await this.#loginMethods(ctx, cfg)),
+        uid,
+        csrfToken: ctx.request.csrfToken,
+        step: 'password',
+        email: acc.email,
+        account: null,
+        brand: brandFor(cfg.branding!, clientId ?? undefined, undefined),
+        error: translate(cfg.messages, accountStatusErrorKey(magicLinkStatusGate.reason)),
+      });
+    }
+
     await notifyLoginSuccess(ctx, cfg, {
       accountId: acc.id,
       email: acc.email,
@@ -952,6 +1001,29 @@ export default class AuthInteractionController {
           error: translate(cfg.messages, 'errors.email_unverified'),
         });
       }
+
+      // Status da conta (disabled/expired): mesmo gate de `attemptPasswordLogin`,
+      // agora aplicado ao login por OTP. Emite o MESMO evento de auditoria que o
+      // fluxo de senha (uniforme entre fluxos).
+      const otpStatusGate = await assertLoginAllowed(cfg, result.account.id, {
+        email: result.account.email,
+        ip,
+        clientId,
+        settings: runtimeSettings,
+      });
+      if (!otpStatusGate.allowed) {
+        return render(ctx, 'login', {
+          ...(await this.#loginMethods(ctx, cfg)),
+          uid,
+          csrfToken: ctx.request.csrfToken,
+          step: 'password',
+          email: result.account.email,
+          account: null,
+          brand,
+          error: translate(cfg.messages, accountStatusErrorKey(otpStatusGate.reason)),
+        });
+      }
+
       await cfg.audit?.record({
         type: 'login.otp_verified',
         accountId: result.account.id,
@@ -1155,6 +1227,28 @@ export default class AuthInteractionController {
         uid: ctx.request.param('uid'),
         csrfToken: ctx.request.csrfToken,
         error: translate(cfg.messages, 'errors.email_unverified'),
+        brand,
+        passkeyAvailable: await this.hasPasskeys(cfg, accountId),
+        trustedDevicesEnabled: cfg.trustedDevices.enabled,
+        trustedDeviceDays: cfg.trustedDevices.days,
+      });
+    }
+
+    // Status da conta (disabled/expired): mesmo gate de `attemptPasswordLogin`,
+    // agora aplicado ao passkey (cobre sobretudo o passkey-first, que nunca passa
+    // pelo fluxo de senha). Emite o MESMO evento de auditoria que os outros fluxos.
+    const passkeyAccount = await cfg.accountStore.findById(accountId);
+    const passkeyStatusGate = await assertLoginAllowed(cfg, accountId, {
+      email: passkeyAccount?.email ?? '',
+      ip,
+      clientId,
+      settings: passkeyRuntimeSettings,
+    });
+    if (!passkeyStatusGate.allowed) {
+      return render(ctx, 'mfa-challenge', {
+        uid: ctx.request.param('uid'),
+        csrfToken: ctx.request.csrfToken,
+        error: translate(cfg.messages, accountStatusErrorKey(passkeyStatusGate.reason)),
         brand,
         passkeyAvailable: await this.hasPasskeys(cfg, accountId),
         trustedDevicesEnabled: cfg.trustedDevices.enabled,
