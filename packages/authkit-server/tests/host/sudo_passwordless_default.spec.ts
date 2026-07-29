@@ -1,0 +1,392 @@
+/**
+ * O DEADLOCK DO HOST PASSWORDLESS (plano 020).
+ *
+ * `0.46.0` publicou o SPI de métodos de sudo justamente para resolver isto — e
+ * NÃO mexeu no default. Um host que declara
+ *
+ * ```ts
+ * defineConfig({
+ *   authMethods: { password: false },
+ *   passwordless: { magicLink: true, passkeyFirst: true, signup: true },
+ * })
+ * registerAuthHost(router)            // sem `sudoMethods`
+ * ```
+ *
+ * monta `[password(), passkey()]`. O usuário que se cadastrou por magic link não
+ * tem senha (o signup passwordless grava um hash aleatório inutilizável) e não
+ * tem passkey — então NENHUM dos dois métodos é satisfazível, e ele fica preso
+ * fora de toda operação sob `requireSudo`: exportar/excluir dados (LGPD), MFA,
+ * PATs, troca de e-mail. Inclusive fora do cadastro de passkey, que é o que
+ * destravaria todo o resto.
+ *
+ * Estes testes são a reprodução do deadlock (grupo 1) e as duas travas de
+ * regressão que o conserto NÃO pode quebrar (grupo 2).
+ */
+
+import { test } from '@japa/runner';
+import { resetAuthHostConfig } from '../../src/host/auth_host_config.js';
+import AccountConfirmController from '../../src/host/controllers/account_confirm_controller.js';
+import { __setMailLoaderForTests } from '../../src/host/default_mailer.js';
+import { DEFAULT_MESSAGES } from '../../src/host/i18n.js';
+import { ACCOUNT_SESSION_KEY } from '../../src/host/middleware/account_auth.js';
+import { registerAuthHost } from '../../src/host/register_auth_host.js';
+import { magicLink } from '../../src/host/sudo/methods/magic_link.js';
+import { passkey } from '../../src/host/sudo/methods/passkey.js';
+import { password } from '../../src/host/sudo/methods/password.js';
+import { configuredSudoMethods, isSudoMethodEnabled } from '../../src/host/sudo/runtime.js';
+import { SUDO_SESSION_KEY } from '../../src/host/sudo_mode.js';
+
+const ACCOUNT = { id: 'acc-1', email: 'aluno@example.com' };
+
+/**
+ * Métodos de sudo que uma conta SEM senha e SEM passkey consegue satisfazer —
+ * é a definição operacional de "não está em deadlock".
+ */
+const CREDENTIAL_FREE = ['oidc-step-up', 'magic-link'];
+
+/** Router falso que GUARDA os handlers, para podermos invocá-los. */
+function capturingRouter() {
+  const routes = new Map<string, (ctx: any) => Promise<unknown>>();
+  const chain: any = {
+    as: () => chain,
+    middleware: () => chain,
+    use: () => chain,
+    prefix: () => chain,
+  };
+  const mk = (verb: string) => (pattern: string, handler: any) => {
+    if (typeof handler === 'function') routes.set(`${verb} ${pattern}`, handler);
+    return chain;
+  };
+  return {
+    get: mk('GET'),
+    post: mk('POST'),
+    patch: mk('PATCH'),
+    put: mk('PUT'),
+    delete: mk('DELETE'),
+    any: mk('ANY'),
+    group: (cb: () => void) => {
+      cb();
+      return chain;
+    },
+    routes,
+  } as any;
+}
+
+/**
+ * Mailer fake do `@adonisjs/mail`, para o caso "o host tem mailer configurado
+ * mas não escreveu hook nenhum de sudo" — que é o caso do consumidor real.
+ */
+function fakeMailStub() {
+  const sent: Array<{ to?: string; subject?: string; html?: string; text?: string }> = [];
+  const stub = {
+    async send(cb: any) {
+      const message: any = {
+        _sent: {} as Record<string, unknown>,
+        from(v: unknown) {
+          this._sent.from = v;
+          return this;
+        },
+        to(v: unknown) {
+          this._sent.to = v;
+          return this;
+        },
+        subject(v: unknown) {
+          this._sent.subject = v;
+          return this;
+        },
+        html(v: unknown) {
+          this._sent.html = v;
+          return this;
+        },
+        text(v: unknown) {
+          this._sent.text = v;
+          return this;
+        },
+      };
+      await cb(message);
+      sent.push(message._sent as any);
+    },
+  };
+  return { stub, sent };
+}
+
+/**
+ * Contexto de request de um host passwordless igual ao consumidor real:
+ * `authMethods.password === false`, `passwordless.*` ligado, e no `mail` só o
+ * hook de LOGIN (`onMagicLink`) — nenhum `onSudoLink`.
+ */
+function passwordlessCtx(cfgOverrides: Record<string, unknown> = {}) {
+  const session: Record<string, unknown> = { [ACCOUNT_SESSION_KEY]: ACCOUNT.id };
+  const flashed: Record<string, unknown> = {};
+  const redirects: string[] = [];
+  const rendered: Array<{ props: Record<string, unknown> }> = [];
+  const logs: Array<{ level: string; msg: string }> = [];
+
+  const cfg = {
+    messages: { ...DEFAULT_MESSAGES },
+    authMethods: { password: false },
+    passwordless: { magicLink: true, passkeyFirst: true, signup: true },
+    // Só o hook de LOGIN. É exatamente o `config/authkit.ts` do consumidor.
+    mail: { onMagicLink: async () => {} },
+    accountStore: {
+      async findById(id: string) {
+        return id === ACCOUNT.id ? ACCOUNT : null;
+      },
+      // Signup passwordless: senha aleatória INUTILIZÁVEL gravada na coluna.
+      // De dentro do pacote é indistinguível de uma senha real — é por isso que
+      // `password().isAvailable` diz "disponível" e a tela mostra um campo que
+      // ninguém consegue preencher.
+      async __getRawRow() {
+        return { password: 'hash-aleatorio-que-ninguem-conhece' };
+      },
+      // Conta sem passkey — e cadastrar uma exige sudo.
+      async listPasskeys() {
+        return [];
+      },
+      async verifyCredentials() {
+        return null;
+      },
+    },
+    render: async (_c: unknown, _v: string, props: Record<string, unknown>) => {
+      rendered.push({ props });
+      return {};
+    },
+    audit: {
+      records: [] as unknown[],
+      async record(e: unknown) {
+        (cfg.audit.records as unknown[]).push(e);
+      },
+    },
+    ...cfgOverrides,
+  } as any;
+
+  const ctx = {
+    session: {
+      get: (k: string) => session[k],
+      put: (k: string, v: unknown) => {
+        session[k] = v;
+      },
+      forget: (k: string) => {
+        delete session[k];
+      },
+      flash: (k: string, v: unknown) => {
+        flashed[k] = v;
+      },
+      flashMessages: { get: (k: string) => flashed[k] ?? null },
+    },
+    request: {
+      method: () => 'POST',
+      only: () => ({}),
+      input: () => undefined,
+      qs: () => ({}),
+      ip: () => '203.0.113.1',
+      protocol: () => 'https',
+      host: () => 'contas.example.com',
+      csrfToken: 'csrf',
+    },
+    response: {
+      redirect: (url: string) => {
+        redirects.push(url);
+        return { _redirect: url };
+      },
+      notFound: (body?: unknown) => ({ _notFound: body ?? null }),
+    },
+    logger: {
+      info: (_m: unknown, msg: string) => logs.push({ level: 'info', msg }),
+      warn: (_m: unknown, msg: string) => logs.push({ level: 'warn', msg }),
+      error: (_m: unknown, msg: string) => logs.push({ level: 'error', msg }),
+    },
+    containerResolver: { make: async () => ({ config: cfg }) },
+  } as any;
+
+  return { ctx, cfg, session, flashed, redirects, rendered, logs };
+}
+
+/** Ids que a TELA de confirmação oferece para esta conta. */
+async function offeredIds(h: ReturnType<typeof passwordlessCtx>): Promise<string[]> {
+  await new AccountConfirmController().show(h.ctx);
+  return (h.rendered.at(-1)!.props.methods as Array<{ id: string }>).map((m) => m.id);
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// 1 — A reprodução do deadlock
+// ───────────────────────────────────────────────────────────────────────────
+
+test.group('sudo — host passwordless sem `sudoMethods` (o deadlock)', (group) => {
+  group.each.setup(() => {
+    resetAuthHostConfig();
+    const { stub, sent } = fakeMailStub();
+    __setMailLoaderForTests(() => Promise.resolve(stub));
+    return () => {
+      __setMailLoaderForTests(undefined);
+      resetAuthHostConfig();
+      sent.length = 0;
+    };
+  });
+
+  test('a tela oferece ao menos um método que uma conta sem senha e sem passkey consegue satisfazer', async ({
+    assert,
+  }) => {
+    const router = capturingRouter();
+    registerAuthHost(router, { mountPath: '/oidc' });
+
+    const h = passwordlessCtx();
+    const ids = await offeredIds(h);
+
+    assert.isTrue(
+      ids.some((id) => CREDENTIAL_FREE.includes(id)),
+      `deadlock: a tela só oferece [${ids.join(', ')}] — nada que uma conta sem senha e sem passkey consiga satisfazer`,
+    );
+  });
+
+  test('o método oferecido tem rota montada e concede sudo de ponta a ponta', async ({
+    assert,
+  }) => {
+    const { stub, sent } = fakeMailStub();
+    __setMailLoaderForTests(() => Promise.resolve(stub));
+
+    const router = capturingRouter();
+    registerAuthHost(router, { mountPath: '/oidc' });
+
+    const h = passwordlessCtx();
+    const ids = await offeredIds(h);
+    const usable = ids.find((id) => CREDENTIAL_FREE.includes(id));
+    assert.isDefined(
+      usable,
+      `deadlock: nenhum método satisfazível oferecido (oferecidos: [${ids.join(', ')}])`,
+    );
+
+    // O único credential-free que a lib consegue montar sozinha é o magic link
+    // (o `oidcStepUp` exige uma URL do host).
+    assert.equal(usable, 'magic-link');
+
+    const emitir = router.routes.get('POST /account/confirm/magic-link');
+    assert.isFunction(emitir, 'a rota que emite o link de sudo precisa estar montada');
+    await emitir!(h.ctx);
+
+    // O e-mail saiu (aqui pelo mailer default do host — o consumidor real tem
+    // `@adonisjs/mail` configurado e NENHUM hook `onSudoLink`).
+    assert.lengthOf(sent, 1, 'o link de sudo precisa ter sido enviado');
+    const token = /magic-link\/([0-9a-f]{64})/.exec(String(sent[0].html ?? ''))?.[1];
+    assert.isString(token, 'o e-mail precisa carregar o link com o token');
+
+    const consumir = router.routes.get('GET /account/confirm/magic-link/:token');
+    assert.isFunction(consumir);
+    h.ctx.params = { token };
+    await consumir!(h.ctx);
+
+    assert.isNumber(h.session[SUDO_SESSION_KEY], 'o sudo tem de ter sido concedido');
+  });
+
+  test('o handler ACEITA o método que a tela oferece (os dois lados convergem)', async ({
+    assert,
+  }) => {
+    const router = capturingRouter();
+    registerAuthHost(router, { mountPath: '/oidc' });
+
+    const h = passwordlessCtx();
+    for (const id of await offeredIds(h)) {
+      assert.isTrue(
+        isSudoMethodEnabled(h.cfg, id),
+        `o handler recusaria "${id}", que a tela oferece`,
+      );
+    }
+  });
+
+  test('o campo de senha para de ser oferecido a quem o host declarou sem senha', async ({
+    assert,
+  }) => {
+    const router = capturingRouter();
+    registerAuthHost(router, { mountPath: '/oidc' });
+
+    const h = passwordlessCtx();
+    const ids = await offeredIds(h);
+
+    // `authMethods: { password: false }` é declaração de CONFIG, autoritativa: o
+    // deployment não tem senha usável. Oferecer o campo é oferecer uma opção que
+    // não pode dar certo.
+    assert.notInclude(ids, 'password');
+    assert.isFalse(isSudoMethodEnabled(h.cfg, 'password'));
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 2 — As travas de regressão: têm de passar ANTES e DEPOIS
+// ───────────────────────────────────────────────────────────────────────────
+
+test.group('sudo — o que o conserto NÃO pode mudar', (group) => {
+  group.each.setup(() => {
+    resetAuthHostConfig();
+    return () => resetAuthHostConfig();
+  });
+
+  test('host COM senha e sem `sudoMethods` continua com exatamente [password, passkey]', async ({
+    assert,
+  }) => {
+    const router = capturingRouter();
+    registerAuthHost(router, { mountPath: '/oidc' });
+
+    // Mesmo host, mas sem os pins de passwordless: é a maioria dos consumidores.
+    const h = passwordlessCtx({
+      authMethods: {},
+      passwordless: { magicLink: false, passkeyFirst: false, signup: false },
+      accountStore: {
+        async findById() {
+          return ACCOUNT;
+        },
+        async __getRawRow() {
+          return { password: 'hash-de-verdade' };
+        },
+        async listPasskeys() {
+          return [{ id: 'pk-1' }];
+        },
+      },
+    });
+
+    assert.deepEqual(await offeredIds(h), ['password', 'passkey']);
+    assert.isTrue(isSudoMethodEnabled(h.cfg, 'password'));
+    assert.isTrue(isSudoMethodEnabled(h.cfg, 'passkey'));
+    assert.deepEqual(
+      configuredSudoMethods(h.cfg).map((m) => m.id),
+      ['password', 'passkey'],
+    );
+  });
+
+  test('lista explícita do host é respeitada ao pé da letra — nada somado, nada tirado', async ({
+    assert,
+  }) => {
+    const router = capturingRouter();
+    const map = registerAuthHost(router, {
+      mountPath: '/oidc',
+      sudoMethods: [password(), passkey()],
+    });
+
+    // Montagem: exatamente a lista do host.
+    assert.deepEqual(map.sudoMethods, ['password', 'passkey']);
+
+    // Oferta/aceite com `config.sudo.methods` explícito: idem, inclusive num
+    // host passwordless — a opção SUBSTITUI os defaults e a lista é do host.
+    const h = passwordlessCtx({ sudo: { methods: [password(), passkey()] } });
+    assert.deepEqual(
+      configuredSudoMethods(h.cfg).map((m) => m.id),
+      ['password', 'passkey'],
+    );
+    assert.isTrue(isSudoMethodEnabled(h.cfg, 'password'));
+    assert.isTrue(isSudoMethodEnabled(h.cfg, 'passkey'));
+    assert.isFalse(isSudoMethodEnabled(h.cfg, 'magic-link'));
+  });
+
+  test('host que montou só magicLink continua oferecendo só magic-link', async ({ assert }) => {
+    const router = capturingRouter();
+    registerAuthHost(router, { mountPath: '/oidc', sudoMethods: [magicLink()] });
+
+    // Host COM senha que escolheu magic-link: a escolha é dele, em qualquer
+    // direção — a derivação não mexe em lista de host.
+    const h = passwordlessCtx({
+      authMethods: {},
+      mail: { onSudoLink: async () => {} },
+    });
+
+    assert.deepEqual(await offeredIds(h), ['magic-link']);
+  });
+});
