@@ -20,6 +20,7 @@ import type {
 } from '../account_store.js';
 import type { LucidStoreContext } from './shared.js';
 import { hasColumn } from './status_profile.js';
+import { generateHashedToken, rawToDbToken } from './token_hash.js';
 
 /** Prefixo do token de troca de e-mail (reaproveita a coluna emailVerificationToken). */
 const EMAIL_CHANGE_PREFIX = 'ec:';
@@ -154,8 +155,11 @@ export function buildCore(
     async issuePasswordResetToken(email) {
       const row = await Model.query().where('email', email).first();
       if (!row) return null;
-      const token = randomBytes(32).toString('hex');
-      row.passwordResetToken = token;
+      // Token BRUTO devolvido ao chamador (vai pro e-mail); só o HASH (sha256 da
+      // parte aleatória) é persistido — um dump da tabela não rende um token
+      // usável (mesmo padrão de host/otp_lockout.ts).
+      const { raw: token, dbValue } = generateHashedToken();
+      row.passwordResetToken = dbValue;
       row.passwordResetExpiresAt = DateTime.now().plus({ hours: 1 });
       await row.save();
       return { token, account: toAccount(row) };
@@ -164,8 +168,9 @@ export function buildCore(
     async consumePasswordResetToken(token, newPassword) {
       // Magic links (`ml:` e `ml2:` com OTP) NÃO são tokens de reset de senha —
       // só o fluxo de consumeMagicLinkToken pode consumi-los (não trocam senha).
+      // Checagem de prefixo acontece ANTES do hash, sobre o token BRUTO recebido.
       if (token.startsWith(MAGIC_LINK_PREFIX) || token.startsWith(OTP_LOGIN_PREFIX)) return false;
-      const row = await Model.query().where('passwordResetToken', token).first();
+      const row = await Model.query().where('passwordResetToken', rawToDbToken('', token)).first();
       if (!row) return false;
       if (!row.passwordResetExpiresAt || row.passwordResetExpiresAt < DateTime.now()) return false;
       // Política de senha aplicada também no reset (lança PasswordPolicyError).
