@@ -15,6 +15,7 @@ import { AuthkitConfigContext, resolveConfig } from '../src/config.js';
 import { canCache, checkCan, invalidateCanCache, useCan } from '../src/hooks/use_can.js';
 import { AuthProvider } from '../src/provider.js';
 import type { AuthUser } from '../src/types.js';
+import { createElementWithChildren } from './helpers/create_element.js';
 
 /** Instala um `fetch` fake global e devolve as chamadas + restaurador. */
 function installFetch(handler: (url: string, init?: RequestInit) => Response) {
@@ -197,7 +198,7 @@ test.group('useCan — render (cache quente / loading)', (group) => {
       createElement(
         AuthkitConfigContext.Provider,
         { value: config },
-        createElement(
+        createElementWithChildren(
           CanPermission,
           {
             permission,
@@ -230,13 +231,13 @@ test.group('useCan — render (cache quente / loading)', (group) => {
     const user: AuthUser | null =
       userId === null ? null : { id: userId, email: `${userId}@example.com`, globalRoles: [] };
     return renderToStaticMarkup(
-      createElement(
+      createElementWithChildren(
         AuthProvider,
         { value: { user, globalRoles: [] } },
         createElement(
           AuthkitConfigContext.Provider,
           { value: config },
-          createElement(
+          createElementWithChildren(
             CanPermission,
             { permission, fallback: 'NO', loadingFallback: 'LOAD' },
             'YES',

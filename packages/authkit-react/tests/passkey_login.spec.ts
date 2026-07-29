@@ -13,6 +13,7 @@ import { type UsePasskeyLoginOptions, usePasskeyLogin } from '../src/hooks/use_p
 import {
   type PasskeyCeremonyDeps,
   type StartAuthenticationFn,
+  type StartRegistrationFn,
   authenticatePasskey,
   loadStartAuthentication,
   submitPasskeyVerification,
@@ -170,8 +171,15 @@ test.group('loadStartAuthentication — sem CDN, falha alto', () => {
   /** O caminho feliz continua devolvendo a função do módulo, sem embrulho. */
   test('returns startAuthentication from the resolved module', async ({ assert }) => {
     const startAuthentication: StartAuthenticationFn = async () => ({});
+    // O ponto de injeção é o import do MÓDULO inteiro do
+    // `@simplewebauthn/browser` (o mesmo que `loadStartRegistration` usa), então
+    // o fake precisa das duas cerimônias. `loadStartAuthentication` só lê
+    // `startAuthentication` — este stub existe para o fake não mentir sobre o
+    // módulo, não porque o código sob teste o alcance.
+    const startRegistration: StartRegistrationFn = async () => ({});
     const resolved = await loadStartAuthentication(async () => ({
       startAuthentication,
+      startRegistration,
     }));
 
     assert.strictEqual(resolved, startAuthentication);
