@@ -2,7 +2,10 @@ import { test } from '@japa/runner';
 import { createRemoteAuthkit } from '../index.js';
 
 function mockFetch(responses: Record<string, { status?: number; body: any }>): typeof fetch {
-  return async (url: string, init: RequestInit = {}) => {
+  // Sem anotar os parâmetros: eles vêm por contexto do `typeof fetch` do
+  // retorno, então o stub aceita `string | URL | Request` igual ao fetch real
+  // (o `String(url)` abaixo já normalizava).
+  return async (url, init = {}) => {
     const method = (init.method ?? 'GET').toUpperCase();
     const urlStr = String(url);
     const path = urlStr.replace(/.*\/api\/authkit\/v1/, '');
@@ -69,7 +72,7 @@ test.group('SDK settings namespace — remote driver', () => {
     const sdkCapture = createRemoteAuthkit({
       baseUrl: 'http://idp.test',
       apiKey: 'test-key',
-      fetchImpl: async (_url: string, init: RequestInit = {}) => {
+      fetchImpl: async (_url, init = {}) => {
         capturedMethod = init.method ?? 'GET';
         capturedBody = init.body ? JSON.parse(init.body as string) : null;
         return {
