@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { compose } from '@adonisjs/core/helpers';
 import { BaseModel, beforeCreate, column } from '@adonisjs/lucid/orm';
 import { test } from '@japa/runner';
@@ -18,6 +18,7 @@ import {
   lucidAccountStore,
 } from '../../src/accounts/lucid_account_store.js';
 import type { WebauthnCeremonies } from '../../src/accounts/lucid_account_store.js';
+import { sha256Hex } from '../../src/accounts/lucid_store/token_hash.js';
 import type { AuditEvent } from '../../src/audit/audit_sink.js';
 import { withAuthUser } from '../../src/mixins/with_auth_user.js';
 import { withCredentials } from '../../src/mixins/with_credentials.js';
@@ -375,6 +376,163 @@ test.group('lucidAccountStore', (group) => {
     await store.create({ email: 'taken@x.com', password: 'pass123456' });
     const acc = await store.create({ email: 'me@x.com', password: 'pass123456' });
     assert.isNull(await store.requestEmailChange!(acc.id, 'taken@x.com'));
+  });
+
+  test('confirmEmailChange recusa se o e-mail foi tomado por OUTRA conta entre o pedido e a confirmação', async ({
+    assert,
+  }) => {
+    const store = lucidAccountStore(TestAccount);
+    const acc = await store.create({ email: 'race-a@x.com', password: 'pass123456' });
+    const issued = await store.requestEmailChange!(acc.id, 'race-target@x.com');
+    // Outra conta toma o e-mail-alvo ANTES da confirmação.
+    await store.create({ email: 'race-target@x.com', password: 'pass123456' });
+    const confirmed = await store.confirmEmailChange!(issued!.token);
+    assert.isFalse(confirmed.ok);
+    assert.equal((await store.findById(acc.id))!.email, 'race-a@x.com');
+  });
+
+  // ----- Expiração dos tokens de verificação/troca de e-mail (plan 009) -----
+
+  test('verificação de e-mail: token expirado é recusado e NÃO marca verificado', async ({
+    assert,
+  }) => {
+    const store = lucidAccountStore(TestAccount);
+    await store.create({ email: 'exp-verify@x.com', password: 'pass123456' });
+    const issued = await store.issueEmailVerificationToken('exp-verify@x.com');
+    const [, random] = issued!.token.split(':');
+    // Força o `exp` embutido para o passado — recomputa o dbValue coerente com
+    // ele (senão a igualdade de hash nunca bateria e o teste não provaria nada
+    // sobre expiração, só sobre token errado).
+    const pastExp = DateTime.now().minus({ hours: 1 }).toMillis();
+    const tamperedRaw = `${pastExp}:${random}`;
+    const row = await TestAccount.findBy('email', 'exp-verify@x.com');
+    row!.emailVerificationToken = `${pastExp}:${sha256Hex(random)}`;
+    await row!.save();
+
+    assert.isFalse(await store.consumeEmailVerificationToken(tamperedRaw));
+    const after = await TestAccount.findBy('email', 'exp-verify@x.com');
+    assert.isNull(after!.emailVerifiedAt);
+  });
+
+  test('troca de e-mail: token expirado é recusado e o e-mail NÃO muda', async ({ assert }) => {
+    const store = lucidAccountStore(TestAccount);
+    const acc = await store.create({ email: 'exp-change@x.com', password: 'pass123456' });
+    const issued = await store.requestEmailChange!(acc.id, 'exp-change-new@x.com');
+    const parts = issued!.token.split(':'); // ['ec', b64email, exp, random]
+    const pastExp = DateTime.now().minus({ hours: 1 }).toMillis();
+    const tamperedRaw = `ec:${parts[1]}:${pastExp}:${parts[3]}`;
+    const row = await TestAccount.find(acc.id);
+    row!.emailVerificationToken = `ec:${parts[1]}:${pastExp}:${sha256Hex(parts[3])}`;
+    await row!.save();
+
+    const confirmed = await store.confirmEmailChange!(tamperedRaw);
+    assert.isFalse(confirmed.ok);
+    assert.equal((await store.findById(acc.id))!.email, 'exp-change@x.com');
+  });
+
+  test('verificação de e-mail: exp ausente/não-parseável no valor armazenado conta como EXPIRADO (fail-closed)', async ({
+    assert,
+  }) => {
+    const store = lucidAccountStore(TestAccount);
+    await store.create({ email: 'noexp-verify@x.com', password: 'pass123456' });
+    const random = randomBytes(24).toString('hex');
+    const garbageExp = 'not-a-number';
+    const rawToken = `${garbageExp}:${random}`;
+    const row = await TestAccount.findBy('email', 'noexp-verify@x.com');
+    row!.emailVerificationToken = `${garbageExp}:${sha256Hex(random)}`;
+    await row!.save();
+
+    // O hash reconstruído a partir de `rawToken` BATE com o valor gravado
+    // (mesmo `garbageExp`, mesmo `random`) — a linha É encontrada. O que
+    // precisa falhar é a checagem de `exp`: `garbageExp` não é dígitos, então
+    // `parseExpiringTokenExp` devolve null, e null DEVE contar como expirado.
+    assert.isFalse(await store.consumeEmailVerificationToken(rawToken));
+    const after = await TestAccount.findBy('email', 'noexp-verify@x.com');
+    assert.isNull(after!.emailVerifiedAt);
+  });
+
+  test('troca de e-mail: exp ausente/não-parseável no valor armazenado conta como EXPIRADO (fail-closed)', async ({
+    assert,
+  }) => {
+    const store = lucidAccountStore(TestAccount);
+    const acc = await store.create({ email: 'noexp-change@x.com', password: 'pass123456' });
+    const encodedEmail = Buffer.from('noexp-change-new@x.com', 'utf8').toString('base64url');
+    const random = randomBytes(24).toString('hex');
+    const garbageExp = 'nope';
+    const rawToken = `ec:${encodedEmail}:${garbageExp}:${random}`;
+    const row = await TestAccount.find(acc.id);
+    row!.emailVerificationToken = `ec:${encodedEmail}:${garbageExp}:${sha256Hex(random)}`;
+    await row!.save();
+
+    const confirmed = await store.confirmEmailChange!(rawToken);
+    assert.isFalse(confirmed.ok);
+    assert.equal((await store.findById(acc.id))!.email, 'noexp-change@x.com');
+  });
+
+  test('verificação de e-mail: exp adulterado pelo cliente (empurrado pro futuro) é recusado — hash não bate mais', async ({
+    assert,
+  }) => {
+    const store = lucidAccountStore(TestAccount);
+    await store.create({ email: 'tamper-verify@x.com', password: 'pass123456' });
+    const issued = await store.issueEmailVerificationToken('tamper-verify@x.com');
+    const [origExp, random] = issued!.token.split(':');
+    const futureExp = DateTime.now().plus({ years: 10 }).toMillis();
+    assert.notEqual(String(futureExp), origExp);
+    const tamperedRaw = `${futureExp}:${random}`;
+
+    // O `exp` é reescrito no token BRUTO (não no banco) — simula o cliente
+    // editando a URL/valor antes de enviar. O dbValue reconstruído
+    // (`futureExp:sha256(random)`) difere do que está gravado
+    // (`origExp:sha256(random)`) só no segmento `exp` — a busca não encontra
+    // NENHUMA linha.
+    assert.isFalse(await store.consumeEmailVerificationToken(tamperedRaw));
+    const after = await TestAccount.findBy('email', 'tamper-verify@x.com');
+    assert.isNull(after!.emailVerifiedAt);
+  });
+
+  test('troca de e-mail: exp adulterado pelo cliente é recusado — hash não bate mais', async ({
+    assert,
+  }) => {
+    const store = lucidAccountStore(TestAccount);
+    const acc = await store.create({ email: 'tamper-change@x.com', password: 'pass123456' });
+    const issued = await store.requestEmailChange!(acc.id, 'tamper-change-new@x.com');
+    const parts = issued!.token.split(':');
+    const futureExp = DateTime.now().plus({ years: 10 }).toMillis();
+    assert.notEqual(String(futureExp), parts[2]);
+    const tamperedRaw = `ec:${parts[1]}:${futureExp}:${parts[3]}`;
+
+    const confirmed = await store.confirmEmailChange!(tamperedRaw);
+    assert.isFalse(confirmed.ok);
+    assert.equal((await store.findById(acc.id))!.email, 'tamper-change@x.com');
+  });
+
+  test('emailTokens.changeTtlHours customizado é aplicado no exp gravado', async ({ assert }) => {
+    const store = lucidAccountStore(TestAccount, { emailTokens: { changeTtlHours: 2 } });
+    const acc = await store.create({ email: 'custom-ttl-change@x.com', password: 'pass123456' });
+    const before = DateTime.now();
+    const issued = await store.requestEmailChange!(acc.id, 'custom-ttl-change-new@x.com');
+    const parts = issued!.token.split(':');
+    const exp = Number(parts[2]);
+    const expectedApprox = before.plus({ hours: 2 }).toMillis();
+    assert.isTrue(
+      Math.abs(exp - expectedApprox) < 5000,
+      'exp deveria refletir o TTL customizado (2h)',
+    );
+  });
+
+  test('emailTokens.verificationTtlHours customizado é aplicado no exp gravado', async ({
+    assert,
+  }) => {
+    const store = lucidAccountStore(TestAccount, { emailTokens: { verificationTtlHours: 48 } });
+    await store.create({ email: 'custom-ttl-verify@x.com', password: 'pass123456' });
+    const before = DateTime.now();
+    const issued = await store.issueEmailVerificationToken('custom-ttl-verify@x.com');
+    const [exp] = issued!.token.split(':');
+    const expectedApprox = before.plus({ hours: 48 }).toMillis();
+    assert.isTrue(
+      Math.abs(Number(exp) - expectedApprox) < 5000,
+      'exp deveria refletir o TTL customizado (48h)',
+    );
   });
 
   // ----- Status (disable/enable) + Perfil -----
