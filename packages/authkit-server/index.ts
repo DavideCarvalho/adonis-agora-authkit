@@ -384,6 +384,7 @@ export type {
 
 export {
   getAccountId,
+  realAccountId,
   hasAccountSession,
   consoleLoginUrl,
 } from './src/host/console_session.js';
