@@ -162,7 +162,7 @@ test.group('back-channel logout', (group) => {
   // ----- handler -----
 
   async function manager(extra: Partial<ResolvedClientConfig> = {}) {
-    const resolved = await configProvider.resolve(
+    const resolved = await configProvider.resolve<ResolvedClientConfig>(
       {} as any,
       defineConfig({
         issuer: ISSUER,

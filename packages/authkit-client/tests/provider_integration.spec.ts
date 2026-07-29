@@ -3,7 +3,7 @@ import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
 import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 import { AuthkitClientManager } from '../providers/authkit_client_provider.js';
-import { defineConfig, resolvers } from '../src/define_config.js';
+import { type ResolvedClientConfig, defineConfig, resolvers } from '../src/define_config.js';
 
 const PORT = 9813;
 const ISSUER = `http://localhost:${PORT}`;
@@ -38,7 +38,7 @@ test.group('AuthkitClientManager', (group) => {
   });
 
   test('createAuthenticator resolve identity da session', async ({ assert }) => {
-    const resolved = await configProvider.resolve(
+    const resolved = await configProvider.resolve<ResolvedClientConfig>(
       {} as any,
       defineConfig({
         issuer: ISSUER,

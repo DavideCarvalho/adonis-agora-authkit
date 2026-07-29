@@ -91,7 +91,7 @@ async function bootGuard(options: {
   );
   const auth = new FrameworkAuthenticator(ctx, {
     default: 'web',
-    guards: { web: factory as never },
+    guards: { web: factory },
   });
   (ctx as unknown as { auth: unknown }).auth = auth;
   return { auth, ctx, manager, provider, resolved };

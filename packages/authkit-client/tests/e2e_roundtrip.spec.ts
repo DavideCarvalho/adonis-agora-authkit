@@ -1,5 +1,10 @@
 import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http';
-import { OidcService, adapters, defineConfig as defineServer } from '@adonis-agora/authkit-server';
+import {
+  OidcService,
+  type ResolvedServerConfig,
+  adapters,
+  defineConfig as defineServer,
+} from '@adonis-agora/authkit-server';
 import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
 import RedisMock from 'ioredis-mock';
@@ -27,7 +32,7 @@ test.group('client ↔ server round-trip (ID token)', (group) => {
     const fakeApp = {
       container: { make: async () => ({ connection: () => new RedisMock() }) },
     } as any;
-    const cfg = await configProvider.resolve(
+    const cfg = await configProvider.resolve<ResolvedServerConfig>(
       fakeApp,
       defineServer({
         issuer: ISSUER,
@@ -64,6 +69,15 @@ test.group('client ↔ server round-trip (ID token)', (group) => {
           verifyCredentials: async () => null,
           findByEmail: async () => null,
           create: async () => {
+            throw new Error('not used');
+          },
+          // `AdminCapability` (parte de `CoreAccountStore`) exige as duas — o
+          // fake ficou para trás quando o contrato cresceu. Nenhuma delas é
+          // alcançada pelo round-trip OIDC, então estouram em vez de fingir.
+          listAccounts: async () => {
+            throw new Error('not used');
+          },
+          setGlobalRoles: async () => {
             throw new Error('not used');
           },
           issuePasswordResetToken: async () => null,
@@ -128,7 +142,12 @@ test.group('client ↔ server round-trip (ID token)', (group) => {
     assert.isString(tokens.access_token, 'deve emitir um access_token (fluxo code)');
 
     // 3) Valida o ID TOKEN através do JwtResolver do client (assinatura via JWKS do server)
-    const disco = await (await fetch(`${ISSUER}/.well-known/openid-configuration`)).json();
+    // `Response.json()` é `Promise<unknown>` nos tipos do Node; o cast declara o
+    // subset do discovery document que este teste usa.
+    const disco = (await (await fetch(`${ISSUER}/.well-known/openid-configuration`)).json()) as {
+      jwks_uri: string;
+    };
+    assert.isString(disco.jwks_uri);
     const factory = resolvers.jwt({ jwksUri: disco.jwks_uri });
     const resolver = await factory.resolver({
       issuer: ISSUER,

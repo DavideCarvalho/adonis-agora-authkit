@@ -1,6 +1,6 @@
 import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
-import { defineConfig, resolvers } from '../src/define_config.js';
+import { type ResolvedClientConfig, defineConfig, resolvers } from '../src/define_config.js';
 
 test.group('defineConfig (client)', () => {
   test('resolve config com defaults', async ({ assert }) => {
@@ -11,7 +11,7 @@ test.group('defineConfig (client)', () => {
       redirectUri: 'https://app/cb',
       resolver: resolvers.jwt(),
     });
-    const resolved = await configProvider.resolve({} as any, provider);
+    const resolved = await configProvider.resolve<ResolvedClientConfig>({} as any, provider);
     assert.equal(resolved!.issuer, 'https://auth.test/oidc');
     assert.equal(resolved!.sessionKey, 'authkit');
     // Default inclui `roles`: as roles/org saíram do scope `profile` no server (least
@@ -30,7 +30,7 @@ test.group('defineConfig (client)', () => {
       resolver: resolvers.jwt(),
       scopes: ['openid', 'email'],
     });
-    const resolved = await configProvider.resolve({} as any, provider);
+    const resolved = await configProvider.resolve<ResolvedClientConfig>({} as any, provider);
     assert.deepEqual(resolved!.scopes, ['openid', 'email']);
   });
 });
