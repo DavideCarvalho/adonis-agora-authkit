@@ -1,5 +1,5 @@
 import { test } from '@japa/runner';
-import { AUTHKIT_METRICS, InMemorySnapshot, NoopRecorder } from '../index.js';
+import { AUTHKIT_METRICS, InMemorySnapshot, type MetricsRecorder, NoopRecorder } from '../index.js';
 
 test.group('authkit-core public entry', () => {
   test('exporta AUTHKIT_METRICS com os nomes canônicos', ({ assert }) => {
@@ -21,7 +21,12 @@ test.group('authkit-core public entry', () => {
   });
 
   test('NoopRecorder nunca lança e devolve snapshot vazio', ({ assert }) => {
-    const recorder = new NoopRecorder();
+    // Anotado como `MetricsRecorder` de propósito: é assim que a lib é
+    // consumida (`recorder: MetricsRecorder = new NoopRecorder()` no
+    // authkit-server e no authkit-client). Os métodos do NoopRecorder são
+    // declarados sem parâmetros, então tipar pela classe concreta faria o
+    // teste checar um contrato que ninguém usa.
+    const recorder: MetricsRecorder = new NoopRecorder();
     recorder.increment(AUTHKIT_METRICS.loginFailure);
     recorder.record(AUTHKIT_METRICS.resolveDuration, 5);
 
