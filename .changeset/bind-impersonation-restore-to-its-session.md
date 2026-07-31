@@ -38,6 +38,15 @@ descartada, nunca devolvida, e o token set da sessão cai junto — uma recusa n
 back-channel e logout passaram a usar `manager.endSession(ctx)`, o único ponto
 que conhece as duas chaves.
 
+E o callback de login passou a usar `manager.startSession(ctx, tokenSet)`, o par
+de `endSession()`. Recusar o restore já fecha o roubo, mas recusar é só não
+DEVOLVER: com um `session.put(sessionKey, …)` cru, o refresh token do ator
+continuava serializado no cookie de sessão da identidade nova até a sessão
+expirar. Não devolver e não guardar são coisas diferentes, e é a segunda que
+sustenta a invariante — a credencial parqueada nunca sobrevive à sessão que a
+parqueou. Aplicações que escrevem o token set em `sessionKey` por conta própria
+num fluxo de login devem chamar `startSession()` no lugar.
+
 **Limite honesto**, também no docblock: quem controla o cookie jar DURANTE uma
 impersonação ativa continua indistinguível do ator — é literalmente a mesma
 sessão. Isso é o modelo de sessão, não esta conferência. O que fecha é a janela
