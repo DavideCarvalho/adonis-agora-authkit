@@ -128,7 +128,9 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
       const manager = await ctx.containerResolver.make('authkit.client');
       const cfg = manager.clientConfig;
       const idToken = manager.getIdToken(ctx);
-      (ctx as any).session?.forget(cfg.sessionKey);
+      // Leva junto a credencial de impersonação parqueada — era este logout que a
+      // deixava para trás, viva, para a próxima identidade do mesmo cookie jar.
+      manager.endSession(ctx);
 
       const postLogoutRedirectUri =
         typeof options.postLogoutRedirect === 'function'

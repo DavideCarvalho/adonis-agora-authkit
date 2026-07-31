@@ -20,7 +20,6 @@ export default class BackchannelRevocationMiddleware {
     const store = manager.clientConfig.backchannelStore;
     if (!store) return next();
 
-    const sessionKey = manager.clientConfig.sessionKey;
     const idToken = manager.getIdToken(ctx);
 
     if (idToken) {
@@ -30,8 +29,9 @@ export default class BackchannelRevocationMiddleware {
       const authTime = typeof claims?.iat === 'number' ? claims.iat : undefined;
 
       if ((sid || sub) && (await store.isRevoked({ sid, sub, authTime }))) {
-        // session é augmentado por @adonisjs/session no app host; na lib usamos cast.
-        (ctx as any).session?.forget(sessionKey);
+        // endSession, não `forget(sessionKey)`: uma revogação central não pode deixar
+        // a credencial de impersonação (refresh token do ATOR) parqueada no browser.
+        manager.endSession(ctx);
       }
     }
 
