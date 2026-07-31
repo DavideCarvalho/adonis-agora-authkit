@@ -107,7 +107,9 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
         code,
         codeVerifier: pkce.verifier,
       });
-      (ctx as any).session?.put(cfg.sessionKey, tokenSet);
+      // startSession, não `put(sessionKey)`: um login novo no mesmo cookie jar não pode
+      // herdar a credencial de impersonação parqueada pela sessão anterior.
+      manager.startSession(ctx, tokenSet);
       (ctx as any).session?.forget(pkceKey);
 
       const authenticator = await manager.createAuthenticator(ctx);

@@ -284,6 +284,24 @@ export class AuthkitClientManager {
     session.forget(this.#impersonatorKey);
   }
 
+  /**
+   * Instala o token set de um login recém-concluído, descartando o que sobrou da
+   * sessão anterior no mesmo cookie jar.
+   *
+   * O `stopImpersonating` já recusa uma credencial órfã — o token set novo nasce sem
+   * `impersonationBinding`, então o vínculo não fecha. Mas recusar é só não DEVOLVER:
+   * sem esta limpeza o refresh token do ator continua serializado no cookie de sessão
+   * de outra identidade até a sessão expirar. Não devolver e não guardar são coisas
+   * diferentes, e a segunda é a que mantém a invariante — a credencial parqueada nunca
+   * sobrevive à sessão que a parqueou.
+   */
+  startSession(ctx: HttpContext, tokenSet: TokenSet): void {
+    const session = (ctx as CtxWithSession).session;
+    if (!session) return;
+    session.forget(this.#impersonatorKey);
+    session.put(this.config.sessionKey, tokenSet);
+  }
+
   async createAuthenticator(ctx: HttpContext): Promise<Authenticator> {
     const resolver = await this.#getResolver();
     const sessionKey = this.config.sessionKey;

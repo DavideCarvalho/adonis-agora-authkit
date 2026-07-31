@@ -282,4 +282,41 @@ test.group('impersonation | caminhos que encerram a sessão', () => {
       restore();
     }
   });
+
+  test('um login novo no mesmo cookie jar não herda a credencial parqueada', async ({ assert }) => {
+    const restore = stubTokenEndpoint({
+      id_token: 'target-id',
+      access_token: 'target-at',
+      expires_in: 3600,
+    });
+    try {
+      const manager = await makeManager();
+      const session = fakeSession();
+      const ctx = ctxWith(session);
+
+      // Ator impersona e some sem clicar em "parar" — a sessão simplesmente acaba.
+      session.put('authkit', ADMIN);
+      await manager.impersonate(ctx, 'target-1');
+      assert.isDefined(session.get(IMPERSONATOR_KEY), 'pré-condição: credencial parqueada');
+
+      // Outra identidade loga no mesmo browser. É o que o callback OIDC faz.
+      manager.startSession(ctx, {
+        idToken: 'other-id',
+        accessToken: 'other-at',
+        refreshToken: 'other-rt',
+      });
+
+      // Recusar o restore não basta: o refresh token do ator não pode nem CONTINUAR
+      // no cookie de sessão de outra pessoa.
+      assert.isUndefined(
+        session.get(IMPERSONATOR_KEY),
+        'o refresh token do ator não pode sobreviver a um login de outra identidade',
+      );
+      assert.isFalse(await manager.stopImpersonating(ctx));
+      // E o usuário novo não é efeito colateral: a sessão DELE segue de pé.
+      assert.equal((session.get('authkit') as TokenSet | undefined)?.accessToken, 'other-at');
+    } finally {
+      restore();
+    }
+  });
 });
