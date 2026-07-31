@@ -1,5 +1,629 @@
 # @adonis-agora/authkit-server
 
+## 0.55.0
+
+### Minor Changes
+
+- 92580af: `admin.impersonation` vira um interruptor de verdade — antes era um controle que não fazia nada
+
+  **O que estava errado.** `admin.impersonation` aparecia como um controle
+  nomeado da lib, mas não existia como entrada de config: `AdminConfigInput`
+  declarava só `enabled` e `roles`, e `resolveAdmin` devolvia
+  `impersonation: false` HARDCODED, ignorando qualquer input. As consequências
+  eram as duas piores possíveis, cada uma no sentido oposto:
+
+  - **O painel de impersonation do console admin era código morto.**
+    `console_impersonation_controller.ts` recusa com 404 quando
+    `!cfg.admin.impersonation` — e como a flag era sempre `false`, ninguém no
+    mundo conseguia habilitar aquele endpoint.
+  - **O grant de impersonation era sempre ligado, sem interruptor.** O grant
+    RFC 8693 `urn:ietf:params:oauth:grant-type:token-exchange` era registrado
+    INCONDICIONALMENTE no provider (`src/provider/oidc_service.ts`), independente
+    da flag. Um operador que lesse `admin.impersonation` acreditaria, com toda a
+    razão, poder governar impersonation. Não podia: não havia como desligar.
+
+  **O que mudou.** `impersonation?: boolean` agora é declarável no
+  `defineConfig({ admin: { … } })`, é lido pelo `resolveAdmin` e governa as DUAS
+  superfícies com uma única declaração: com `false`, o grant token-exchange
+  deixa de ser registrado no provider (o token endpoint responde
+  `unsupported_grant_type`, o grant não existe) E o painel do console responde 404. É um kill switch, não um esconde-UI.
+
+  Declarar a chave também trava a setting de runtime `admin_impersonation`
+  (config vence, a UI/Admin API não altera mais o valor) — o lock já existia em
+  `src/host/config_locks.ts` mas apontava para uma chave que o tipo não permitia
+  escrever.
+
+  **O default é `true`: NENHUM host existente muda de comportamento.** O grant
+  sempre foi registrado incondicionalmente, e há hosts que o consomem a partir do
+  PRÓPRIO `/admin`, sem montar o console desta lib. Um default `false` os
+  quebraria em runtime, em silêncio — o grant simplesmente sumiria. Então o
+  default preserva exatamente o comportamento de hoje.
+
+  **Quem quer impersonation desligada agora tem de dizer isso explicitamente:**
+
+  ```ts
+  defineConfig({
+    admin: { enabled: true, impersonation: false },
+  });
+  ```
+
+  **Deferido para um major:** virar o default para `false`
+  (secure-by-default). É uma quebra de comportamento em runtime para hosts que
+  nunca declararam a chave, e não cabe num minor.
+
+- 762c90b: Adiciona expiração aos tokens de verificação de e-mail (cadastro) e de troca de e-mail — antes válidos para sempre
+
+  **Segurança.** `emailVerificationToken` (verificação de cadastro) e o token
+  `ec:` de troca de e-mail nunca expiravam — eram os únicos tokens desta lib sem
+  janela de validade (reset de senha: 1h; magic link: 15min; OTP: janela
+  configurável). Isso importa mais para a troca de e-mail, porque
+  `confirmEmailChange` REESCREVE o identificador de recovery da conta (o e-mail
+  usado por reset de senha e magic-link login); um link de confirmação enviado
+  anos atrás, esquecido numa caixa de entrada antiga, continuava funcionando
+  hoje.
+
+  **Correção.** A deadline (`exp`, epoch ms) agora vai embutida DENTRO do
+  próprio token, não numa coluna nova — esta lib não é dona da tabela `users`
+  (ver header de `src/schema/ensure.ts`), então não pode adicionar uma coluna
+  `emailVerificationExpiresAt` como o reset de senha tem. Isso só é seguro
+  porque o token já é hasheado em repouso (mesma mudança que fechou o
+  plaintext-at-rest para reset/magic-link): o lookup reconstrói o valor de DB a
+  partir do token bruto recebido e busca por IGUALDADE — se o `exp` for
+  adulterado pelo cliente, o valor reconstruído não bate com nenhuma linha, e é
+  esse MATCH (não uma assinatura separada) que prova que o `exp` não foi
+  mexido. Um `exp` ausente ou não-parseável conta como EXPIRADO (fail-closed),
+  o mesmo padrão já usado no reset de senha (`!row.passwordResetExpiresAt || ...`).
+  Como efeito colateral de reusar o hashing, o token `ec:` também deixa de ser
+  gravado em claro na coluna `emailVerificationToken`.
+
+  As duas janelas de validade são configuráveis via `emailTokens` nas opções do
+  `lucidAccountStore`/`lucidStores` (`verificationTtlHours`, default 24h;
+  `changeTtlHours`, default 1h — mesma janela do reset de senha, por reescrever
+  o identificador de recovery).
+
+  **Consequência da atualização:** todo link de verificação de e-mail ou de
+  troca de e-mail pendente no momento do upgrade passa a ser recusado —
+  tokens gravados por versões anteriores não carregam `exp` nenhum, e a
+  ausência conta como expirado (deliberado, não é regressão). Usuários no meio
+  desses fluxos precisam solicitar um novo link. **Nenhuma migração no host é
+  necessária** — a deadline vive dentro do valor já gravado na coluna
+  existente, não numa coluna nova.
+
+- 27a6a28: Aplica o gate de status de conta (disabled/expired) em TODOS os caminhos de login passwordless, não só no de senha
+
+  **Segurança.** `isDisabled`, `isPasswordExpired` e `isAccountExpired` eram
+  checados em um único lugar: `attemptPasswordLogin`. Todo outro jeito de
+  completar o login — magic link, código OTP por e-mail e passkey (incluindo o
+  modo passkey-first) — chamava `completeLogin` direto, sem consultar o status
+  da conta. Um admin que desabilita uma conta pelo console acredita ter revogado
+  o acesso; em um deployment passwordless (que esta lib suporta explicitamente
+  via `passwordless.magicLink`, `passwordless.passkeyFirst` e `login.otp`), o
+  botão "desabilitar" não tinha efeito algum — a conta continuava logando pelo
+  magic link, pelo código, ou pela passkey.
+
+  **Correção.** O gate de status foi extraído de `attemptPasswordLogin` para
+  `assertAccountEnabled`/`assertAccountNotExpired`/`assertLoginAllowed`
+  (`src/host/login_attempt.ts`, todos exportados), preservando exatamente o
+  mesmo probe de capacidade (`supportsAccountStatus`) e os mesmos eventos de
+  auditoria (`login.failure` com `reason: 'disabled'`,
+  `password.expired_change_forced`, `account.expired_login_blocked`) do fluxo de
+  senha. Magic link, OTP e passkey agora chamam esse gate imediatamente antes de
+  `completeLogin`, cada um re-renderizando o erro na sua própria convenção
+  (magic link e OTP re-renderizam a view `login`; passkey re-renderiza
+  `mfa-challenge`) — o mesmo padrão já usado pelo gate de e-mail não verificado
+  nesses fluxos. O login social (`social_controller.ts`) também passou a checar
+  o gate antes de completar o login e, adicionalmente, ganhou auditoria de falha
+  de login pela primeira vez (não existia nenhuma antes desta mudança).
+
+  **Consequência da atualização:** contas desabilitadas ou com
+  `password_expiration`/`account_expiration` vencidos deixam de completar login
+  por magic link, OTP, passkey ou social — onde antes conseguiam. Hosts cujo
+  `accountStore` não implementa a capacidade de status (`supportsAccountStatus`
+  retorna false) não são afetados: o gate degrada para "permitido", exatamente
+  como já acontecia no fluxo de senha.
+
+  **Limitação conhecida (não fechada nesta mudança):** o alvo de um
+  token-exchange (impersonation, `src/provider/token_exchange.ts`) agora aceita
+  um `accountStore` opcional em `TokenExchangeDeps` para recusar impersonar uma
+  conta desabilitada, e a lógica está coberta por teste isolado — mas o ÚNICO
+  call site de produção (`registerTokenExchange` em
+  `src/provider/oidc_service.ts:158`) ainda não passa esse campo. Até esse
+  1-line de wiring ser adicionado, impersonar uma conta desabilitada via
+  token-exchange continua funcionando como antes desta mudança. Ver plano
+  `plans/003-account-status-gate-all-login-paths.md` para o detalhe.
+
+- 1cd2b40: Hasheia (sha256) os tokens de reset de senha e magic link em repouso — antes eram gravados em texto claro
+
+  **Segurança.** `passwordResetToken` guardava reset de senha, magic link (`ml:`)
+  e magic link com OTP (`ml2:`) EM TEXTO CLARO, e as três leituras eram por
+  igualdade/`LIKE` direto contra esse valor. Qualquer leitura da tabela de
+  usuários — um dump de backup, uma réplica de leitura, uma ferramenta de
+  suporte, um DBA, ou um SQL injection no host — devolvia credenciais
+  diretamente usáveis para logar como (ou resetar a senha de) qualquer conta com
+  um token pendente. O token de desbloqueio OTP, na MESMA coluna, já seguia o
+  padrão correto (`prefix + sha256(raw)`); reset e magic link eram os únicos
+  fluxos fora do padrão.
+
+  **Correção.** Os três fluxos agora armazenam `prefix + sha256(<parte
+aleatória>)` em vez do token bruto:
+
+  - Reset de senha: sem prefixo, armazena só o hash.
+  - Magic link (`ml:`): o prefixo `ml:` continua em CLARO — só a parte aleatória
+    é hasheada.
+  - Magic link com OTP (`ml2:`): o slot é um composto
+    (`ml2:<linkToken>:<codeHash>:<codeExpMs>:<attempts>`) parseado pelo código e
+    buscado por `LIKE` de prefixo (a URL carrega só `ml2:<linkToken>`, não o
+    slot inteiro). Só o segmento `linkToken` é hasheado; `codeHash` já era
+    `sha256(uid:code)` e não é re-hasheado.
+
+  Os guards de discriminação de fluxo (`consumePasswordResetToken` recusando
+  `ml:`/`ml2:`; `consumeMagicLinkToken` recusando o que não é `ml:`) continuam
+  funcionando — eles leem o prefixo, que permanece em texto claro.
+
+  **Consequência da atualização:** links de reset de senha e magic links
+  pendentes na hora do deploy são invalidados (o valor gravado muda de formato).
+  O raio de impacto é limitado — reset expira em 1h, magic link em 15min — então
+  na prática só afeta quem tinha um link em voo no momento exato do deploy;
+  basta pedir um novo.
+
+- 86a41ea: Constrói os links emailados (reset de senha, magic link, desbloqueio OTP, convites de organização, verificação/troca de e-mail, avisos de segurança) a partir do `issuer` configurado, não mais do header `Host` da request — fecha um vetor de password-reset/magic-link poisoning
+
+  **Segurança.** Dezesseis pontos em nove arquivos montavam a origem do link
+  emailado concatenando `ctx.request.protocol()` + `ctx.request.host()`.
+  `Request.host()` reflete o header `Host` (ou `X-Forwarded-Host` sob proxy
+  confiável) — ambos client-supplied. Um atacante capaz de alcançar o servidor
+  diretamente (comum quando o load balancer na frente não fixa `Host`) podia
+  submeter um pedido de reset de senha ou magic link para o e-mail de uma
+  vítima com um `Host` forjado à sua escolha. A vítima recebia um e-mail
+  genuíno do sistema real cujo link apontava para infraestrutura controlada
+  pelo atacante — um token de autenticação ou de reset válido de uso único
+  entregue de bandeja. Isso cobre reset de senha, magic link, desbloqueio OTP e
+  convites de organização.
+
+  **Correção.** Novo helper `authkitOrigin(cfg)`
+  (`src/host/origin.ts`) deriva a origem canônica de `new URL(cfg.issuer).origin`
+  — a mesma origem que a lib já usa para o `rpId`/`origin` do WebAuthn. Os 16
+  sites foram classificados um a um (redirects em voo e usos de
+  `request.ip()`/`request.header()` para audit/geo ficaram de fora — não
+  constroem links emailados) e os 11 que estavam em controllers passaram a usar
+  o helper diretamente; os 5 que estavam em `default_mailer.ts`
+  (`sendNewLoginEmail`, `sendNewDeviceLoginEmail`, `sendEmailChangeNoticeEmail`,
+  `sendEmailChangedCompletedEmail`, `sendSecurityNoticeEmail`) passaram a
+  receber `cfg: ResolvedServerConfig` como parâmetro adicional (breaking a nível
+  de API interna — hosts que chamam esses exports diretamente, fora dos fluxos
+  padrão da lib, precisam passar `cfg`).
+
+  **Comportamento para deployments multi-hostname.** Hosts que servem o MESMO
+  issuer sob múltiplos hostnames públicos legítimos vão ver os links emailados
+  normalizarem para o hostname do issuer, em vez de seguir o `Host` da request
+  como antes. Para esse caso, foi adicionado o escape hatch opcional
+  `mail.origin` em `config/authkit.ts`: quando presente, sobrepõe o issuer como
+  origem dos links emailados.
+
+  **Prova por mutação:** reverter isoladamente a conversão do reset de senha e
+  a do magic link (uma de cada vez) faz os testes de "forged Host" correspondentes
+  falharem; com a conversão restaurada, ambos passam — ver
+  `tests/host/issuer_based_email_links.spec.ts`.
+
+  **Relacionado e deliberadamente não corrigido aqui** (ver
+  `plans/004-issuer-based-email-links.md`): `src/provider/build_provider.ts:273`
+  define `provider.proxy = true` incondicionalmente, tornando
+  `X-Forwarded-Proto`/`X-Forwarded-Host`/`X-Forwarded-For` autoritativos para os
+  endpoints OIDC independente do `trustProxy` do host — mesma família de
+  problema, correção separada. Tokens de reset/magic-link em texto plano na
+  tabela de contas e tokens de verificação/troca de e-mail sem expiração
+  também são achados relacionados, não fechados nesta mudança.
+
+- 962257b: Host passwordless deixa de ficar TRANCADO fora de toda operação sob sudo — o default finalmente mudou
+
+  **Se o seu `config/authkit.ts` tem `authMethods: { password: false }` ou
+  `passwordless: { signup: true }` e a sua chamada a `registerAuthHost` NÃO passa
+  `sudoMethods`, você tem este bug agora, em produção, em TODA versão anterior a
+  esta.** São dez segundos de conferência e vale a pena fazê-la antes de continuar
+  lendo.
+
+  ## O que estava quebrado
+
+  Sudo mode (`requireSudo`) só aceitava **senha** ou **passkey** por padrão. As duas
+  exigem uma credencial cadastrada ANTES. Num host passwordless não existe nenhuma:
+
+  - quem entrou por magic link ou OIDC não tem senha — e o signup passwordless
+    ainda grava um hash aleatório inutilizável na coluna, então a tela mostrava um
+    campo de senha que ninguém no mundo conseguia preencher;
+  - quem nunca cadastrou passkey não tem passkey;
+  - **e cadastrar passkey exige sudo.**
+
+  Resultado: essas contas ficavam permanentemente fora de **exportar os próprios
+  dados (LGPD), excluir a conta, ligar MFA, criar/revogar Personal Access Tokens e
+  trocar o e-mail** — inclusive fora do cadastro de passkey, que é o único caminho
+  que destravaria o resto. Deadlock fechado, e era o comportamento DEFAULT.
+
+  O `0.46.0` publicou o SPI `SudoMethod` exatamente para resolver isto, e o
+  changelog dele descreve o deadlock nestes termos. Mas **o default não mudou**: o
+  `oidcStepUp` e o `magicLink` existiam e ninguém os ligava. Quem soubesse
+  configurar ficava bem; quem herdasse os defaults continuava bricado. Publicar uma
+  capacidade não é publicar um conserto — atualizar para 0.46/0.47 não corrigia
+  nada. Esta versão é a que corrige.
+
+  ## O que mudou por padrão
+
+  1. **`registerAuthHost` passa a montar as rotas de `magicLink()`** junto com as de
+     `password()`/`passkey()`. `oidcStepUp` não pode entrar nos defaults (exige uma
+     URL do host), então o magic link de sudo é o único método sem credencial
+     prévia que a lib consegue montar sozinha.
+
+  2. **Montar não é oferecer.** O que a tela `/account/confirm` oferece — e o que os
+     handlers aceitam, pela mesma função, para que os dois lados não possam
+     divergir — passa a ser derivado do config resolvido:
+
+     | seu config                         | métodos de sudo por padrão                   |
+     | ---------------------------------- | -------------------------------------------- |
+     | senha ligada (a maioria)           | `[password, passkey]` — **idêntico a antes** |
+     | `authMethods: { password: false }` | `[passkey, magicLink]`                       |
+
+     Um host com senha **não** passa a oferecer step-up por e-mail a quem nunca
+     pediu; o endpoint do magic link fica montado e inerte. Um host que declarou
+     não ter senha para de mostrar o campo de senha (naquele deployment ele é uma
+     opção que não pode dar certo) e ganha um método que a conta consegue
+     satisfazer.
+
+  3. **`sudoMethods.magicLink()` não depende mais do hook `mail.onSudoLink`.** Sem o
+     hook, o próprio host-kit envia o e-mail pelo mailer default do app
+     (`@adonisjs/mail`), com o seu branding e i18n — a mesma postura de todo outro
+     e-mail da lib (reset de senha, verificação, magic link de login). Antes a
+     ausência do hook tornava o método INDISPONÍVEL, e era isso que fazia o
+     conserto do deadlock depender de alguém ter escrito um hook à mão. O hook
+     continua tendo prioridade quando declarado. Novas chaves de i18n:
+     `mail.sudo_link.*` (`en` e `pt-BR`), sobrescrevíveis como qualquer outra.
+
+  4. **Aviso alto no boot** (`console.warn`, não erro — nada deixa de subir) quando
+     o seu `sudo.methods` declarado não tem um único método satisfazível por conta
+     sem senha. Ele nomeia a config que disparou e as duas saídas. Só dispara com
+     `sudo.methods` DECLARADO, com deployment passwordless, e quando todos os
+     métodos da lista são built-in deste pacote — diante de um método customizado
+     ele se cala, porque não tem como saber se aquele exige credencial prévia.
+
+  ## O que NÃO mudou
+
+  - **Host com senha e sem `sudoMethods`: nada muda na experiência.** A tela segue
+    oferecendo exatamente `password` + `passkey`, na mesma ordem.
+  - **Se você passa `sudoMethods` (ou declara `sudo.methods`), você não é afetado —
+    e continua tendo de resolver isto por conta própria.** A lista é sua, ela
+    SUBSTITUI os defaults, e a derivação acima **não a toca em nenhuma direção**.
+    Se o seu host é passwordless e a sua lista é `[password(), passkey()]`, os seus
+    usuários seguem trancados: acrescente `sudoMethods.oidcStepUp({ url:
+'/auth/step-up' })` (reautenticação no seu IdP, com o callback chamando
+    `completeSudo`) ou `sudoMethods.magicLink()`. É esse o caso que o aviso do item
+    4 grita no boot.
+  - Nenhuma assinatura pública mudou; nenhuma rota existente mudou de path.
+  - O token do magic link de sudo continua sendo **outro** token, de escopo sudo:
+    `randomBytes(32)`, hasheado na sessão que o pediu, uso único, 5 minutos,
+    vinculado à conta emissora, e nunca autentica ninguém. Nada é compartilhado com
+    o token de login — só a infraestrutura de ENTREGA do e-mail.
+
+  ## Limite conhecido
+
+  O aviso do item 4 só vê a lista que passou pelo **config**. Um host que declare
+  `sudoMethods` apenas no argumento de `registerAuthHost(router, { … })` não é
+  coberto: o registro de rotas acontece antes de o config lazy resolver, e
+  `authMethods` vive no config. É o caso de quem escreveu a lista à mão — não o de
+  quem herdou os defaults, que é quem o aviso existe para pegar.
+
+- 0da4974: Novo `realAccountId(ctx)` — o id do humano real, para checagens de permissão que impersonation não pode enganar
+
+  **Se o seu app tem um role check, leia isto.** Durante uma impersonation ativa,
+  `getAccountId(ctx)` devolve a conta **PERSONIFICADA**, não o admin que a
+  personificou. Isso é correto para "como qual conta este request está agindo?" —
+  e é a entrada **ERRADA** para "esta pessoa pode fazer isto?". Um gate escrito
+  como `hasRole(getAccountId(ctx), 'admin')` erra nos dois sentidos: entrega os
+  privilégios do admin a quem está sendo personificado (quando o alvo é admin) e
+  tira do admin real o próprio acesso (quando não é).
+
+  **O padrão que isto substitui.** Auditando um app real encontramos a mesma
+  expressão copiada à mão em quatro gates de autorização de produção — o
+  `governanceAuthorize` do agent, o gate do dashboard durable, o middleware de
+  `/admin` e o listener que concede role:
+
+  ```ts
+  const realId = impersonationState(ctx).impersonatorId ?? getAccountId(ctx);
+  ```
+
+  Um dos quatro carregava um comentário avisando que inverter a ordem do `??`
+  removeria a proteção. Expressão de segurança cuja correção depende da ordem dos
+  operandos, copiada em quatro arquivos, é uma API da lib que ainda não tinha
+  nome. Agora tem:
+
+  ```ts
+  import { realAccountId } from "@adonis-agora/authkit-server";
+
+  const id = realAccountId(ctx);
+  if (!id || !(await authz.hasRole(id, "admin"))) throw new Error("forbidden");
+  ```
+
+  ```
+  impersonation ativa  → o id do impersonator (o admin real)
+  sem impersonation    → o id da conta logada
+  sem sessão           → null
+  ```
+
+  **Qual dos dois usar.**
+
+  | Pergunta                                                                                              | Helper               |
+  | ----------------------------------------------------------------------------------------------------- | -------------------- |
+  | "esta pessoa pode fazer isto?" (role, permissão, aprovação, auditoria de quem agiu)                   | `realAccountId(ctx)` |
+  | "como qual conta este request está agindo?" (queries com escopo no alvo, UI, banner de impersonation) | `getAccountId(ctx)`  |
+
+  **`getAccountId` não mudou** — nada no seu app quebra com esta versão. Isto é
+  uma adição: o comportamento efetivo/aparente dele é contrato do qual a UI, o
+  banner e as queries com escopo no alvo dependem. A migração é sua: troque
+  `getAccountId` por `realAccountId` nas decisões de autorização, e só nelas.
+
+- e5eb447: Uma convenção só de montagem de rotas: config E função, com uma regra de precedência
+
+  **A regra, em uma frase:** argumento omitido HERDA do config; chaves
+  ESTRUTURAIS (`mountPath`, prefixos, quais telas montar, `accountLoginUrl`) o
+  argumento vence; chaves de POLÍTICA (`social`, `rateLimit`, `sudoMethods` e o
+  liga/desliga de `admin`/`adminApi`) o **config vence e trava** quando o
+  `defineConfig` as declara — um `start/routes.ts` não pode afrouxar o que o
+  arquivo de config permite, senão o config deixa de ser auditável.
+
+  **A mudança de comportamento mais provável de surpreender:** argumentos
+  omitidos agora herdam do config em vez de caírem no default da lib. Em
+  concreto, `config.sudo.methods` passa a decidir também o que é **MONTADO** —
+  antes decidia só o que a tela oferecia e o que os handlers aceitavam, e a lista
+  tinha de ser repetida em `registerAuthHost(router, { sudoMethods })`. Se você
+  mantinha as duas listas, pode apagar a do `start/routes.ts`. Se elas
+  divergiam, o que vale agora é a do config (era ela que já valia em runtime; o
+  que mudava era só quais endpoints existiam, e os que sobravam falhavam
+  fechados). Passar `sudoMethods` na chamada com `config.sudo.methods` presente
+  passa a ser ignorado, com aviso nomeando a chave.
+
+  **Novidades:**
+
+  - `defineConfig({ routes })` — auto-montagem opcional. `true` ou um objeto faz
+    o provider montar as rotas no boot chamando **a mesma** `registerAuthHost`
+    exportada (não há segunda implementação); ausente ou `false` mantém o
+    comportamento atual (você chama no `start/routes.ts`). Auto-montar E chamar à
+    mão agora lança um erro explicando qual dos dois remover, em vez do
+    `route name already exists` do AdonisJS.
+  - `registerAuthHost` devolve o `AuthHostRouteMap` resolvido (prefixos, path de
+    cada tela do console de conta, base da JSON API, telas montadas, rotas
+    nomeadas, métodos de sudo montados). Entregue-o ao frontend — um override de
+    `accountRoutes.paths` era meio recurso enquanto os `href`s do React tinham de
+    ser atualizados à mão.
+  - Divergências de política aparecem em `AuthHostRouteMap.overriddenByConfig` e
+    como `console.warn` no boot; nunca são ignoradas em silêncio.
+
+- ac19e73: Aplica a política `account_expiration` também no login social — antes só `disabled` valia ali
+
+  **Segurança.** O callback do login social (`AuthSocialController#callback`)
+  chamava o gate de status compartilhado (`assertLoginAllowed`) **sem
+  `settings`**. Como `assertAccountNotExpired` guarda as duas checagens de
+  expiração atrás de `if (settings)`, o login social aplicava `disabled` e nada
+  mais. Uma conta bloqueada pela política `account_expiration` (não loga há mais
+  de `inactiveDays`) continuava entrando pelo "Continue with Google" — a política
+  valia no login por senha, magic link, OTP e passkey, e falhava exatamente no
+  caminho em que ninguém olha. Um operador que liga `account_expiration` acredita
+  que ela vale em todos os caminhos de login.
+
+  **Correção.** O callback agora resolve os runtime settings pelo caminho
+  canônico e os passa ao gate. O helper NON-NULL que faz isso
+  (`resolveRuntimeSettings` + degradação para um `RuntimeSettings` no-op) era
+  privado do `interaction_controller`; foi movido para
+  `src/host/runtime_settings.ts` como `resolveRuntimeSettingsOrNoop` e agora é
+  compartilhado pelos dois controllers, em vez de copiado.
+
+  **Consequência da atualização:** contas expiradas pela política
+  `account_expiration` deixam de completar o login social — onde antes
+  conseguiam. O evento de auditoria `account.expired_login_blocked` passa a ser
+  emitido também por este caminho.
+
+  **`password_expiration` não passa a valer aqui — de propósito.** Nenhuma senha é
+  usada no login social e este controller não renderiza a etapa de troca
+  obrigatória (`step: 'password_expired'`): o único caminho até ela passa por
+  `attemptPasswordLogin`, que só classifica a expiração DEPOIS de a senha correta
+  ser verificada. Recusar por senha vencida num fluxo sem senha não teria para
+  onde mandar o usuário, então o callback passa `passwordless: true` ao gate e
+  apenas essa checagem é pulada. O que este caminho aplica é `disabled` e a
+  expiração de conta por inatividade.
+
+  **Hosts sem a tabela `auth_settings` não são afetados:** a resolução degrada
+  para um `RuntimeSettings` no-op, toda leitura vira null e o comportamento é
+  idêntico ao anterior (login social conclui normalmente).
+
+- 14dcb20: A setting de runtime `admin_impersonation` passa a ter leitor — governa o painel do console
+
+  `resolveEffectiveAdminImpersonation` existia, a key `admin_impersonation` podia
+  ser escrita pelo console/Admin API/CLI, travada pelo `defineConfig` e validada —
+  e **nenhum caminho de produção a lia**. Os únicos referenciadores eram testes e o
+  CLI de settings. Ou seja: o admin mexia num interruptor que não fazia nada.
+
+  `src/host/admin_console/console_impersonation_controller.ts` agora consulta a
+  setting. As duas camadas são propositalmente assimétricas:
+
+  1. `config.admin.impersonation` decide se a CAPACIDADE existe. É decisão de boot:
+     é ela que registra (ou não) o grant RFC 8693 no provider OIDC. Uma setting de
+     runtime não desregistra rota que nunca foi registrada.
+  2. `admin_impersonation` decide se o CONSOLE OFERECE o painel. Decisão de
+     runtime, mudável sem redeploy.
+
+  **A setting só APERTA, nunca AFROUXA.** Duas barreiras independentes: o gate de
+  config é checado ANTES dela (`impersonation: false` → 404 mesmo com a setting em
+  `true`), e declarar `admin.impersonation` no `defineConfig` TRAVA a key, fazendo
+  `getSetting` devolver null e o resolver cair no valor do config. Config > runtime,
+  a mesma precedência do resto da lib.
+
+  **Consequência da atualização:** em instalações que NÃO declaram
+  `admin.impersonation` no `defineConfig` (a capacidade fica ligada por
+  back-compat) e que já têm `admin_impersonation: { enabled: false }` gravado em
+  `auth_settings`, o painel do console passa a responder 404 — antes o valor era
+  ignorado. O grant RFC 8693 em si não muda: quem chama o token endpoint direto
+  segue funcionando. Sem a tabela `auth_settings`, nada muda (fail-safe → config).
+
+### Patch Changes
+
+- 37562df: Ativa de fato o gate de status no token-exchange (impersonation) — ele estava INERTE
+
+  **Segurança.** A mudança anterior (ver
+  `gate-account-status-passwordless-logins`) adicionou um `accountStore` opcional
+  a `TokenExchangeDeps` e uma checagem de status do `requested_subject` dentro de
+  `src/provider/token_exchange.ts`. A lógica estava correta e coberta por teste —
+  mas o ÚNICO call site de produção, `registerTokenExchange(provider, { … })` em
+  `src/provider/oidc_service.ts`, nunca passava esse campo. Como o campo é
+  opcional e degrada para "permitido" quando ausente (de propósito, para não
+  quebrar hosts com stores mínimos), **a metade token-exchange daquela mudança
+  nunca rodou no servidor de verdade**: um admin continuava conseguindo
+  impersonar uma conta que acabara de desabilitar e receber um `access_token` e
+  um `id_token` plenamente funcionais.
+
+  Se você rodou uma versão publicada com aquele changeset e sem este, o gate de
+  impersonation estava inerte nela.
+
+  **Correção.** `oidc_service.ts` agora repassa `accountStore: config.accountStore`
+  para `registerTokenExchange`. Nenhuma outra mudança de comportamento: o gate
+  segue capability-probed (`supportsAccountStatus`), então hosts cujo
+  `accountStore` não implementa a capacidade de status continuam permitindo o
+  token-exchange exatamente como antes.
+
+  **Consequência da atualização:** um token-exchange cujo `requested_subject` é
+  uma conta desabilitada passa a ser recusado com `invalid_grant` — onde antes
+  mintava tokens.
+
+  **Nota de teste (a lição real).** O teste que existia construía o objeto de
+  deps na mão e passava `accountStore` ele mesmo, então passava com ou sem o
+  wiring de produção — foi exatamente assim que o gap sobreviveu. O teste
+  adicionado aqui sobe o `OidcService` real e bate no endpoint `/token`, e falha
+  se o wiring for removido. Dependência opcional que degrada para permissiva
+  precisa de teste na raiz de composição, não só no consumidor.
+
+- 3779efe: Corrige a checagem de senhas comuns (common-password block), que era um no-op em toda release publicada
+
+  A checagem offline de senhas comuns (`isCommonPassword`, usada por
+  `assertAcceptable` no signup, na criação de usuário via admin, no reset e na
+  troca forçada/self-service de senha) nunca funcionou em nenhum pacote
+  publicado: o build copiava `common_passwords.txt` para `build/password/`,
+  mas `tsc` emite o módulo que lê o arquivo para `build/src/password/` — um
+  diretório diferente. `dirname(import.meta.url)` dentro do módulo compilado
+  nunca encontrava o `.txt`, e o fail-safe (correto e necessário — um asset
+  ausente não deve quebrar login) silenciosamente virava um `Set` vazio. Em
+  todo host publicado, `password`, `123456` e o restante do top-10000 eram
+  aceitos, a menos que o HIBP estivesse configurado _e_ acessível — e o HIBP
+  também é fail-open.
+
+  Correção: o build agora copia o `.txt` para o diretório correto
+  (`build/src/password/`), e `loadCommonPasswords` passou a resolver o
+  arquivo por uma lista de candidatos (caminho-irmão primeiro, depois o
+  layout antigo, depois `src/`), para sobreviver a uma futura mudança de
+  `rootDir`/`outDir` sem quebrar de novo silenciosamente. O fail-safe
+  (`Set` vazio quando o arquivo não é encontrado em nenhum candidato)
+  continua intacto.
+
+  Consequência para quem já usa a lib: senhas fracas que antes eram aceitas
+  (por exemplo `password`, `123456`, `qwerty`) passam a ser rejeitadas em
+  **novas** escritas de senha (signup, reset, troca de senha). Hashes já
+  armazenados não são tocados — nenhum usuário existente é bloqueado por
+  essa mudança.
+
+- 7e25837: `oidcRpGuard`: requisição não autenticada virava **500** em vez de 401/redirect, e `check()` reportava queda de banco como "não logado"
+
+  Três defeitos no `oidcRpGuard`, todos presentes desde a **0.54.0** — a versão que
+  introduziu o guard. Se você plugou `oidcRpGuard()` em `config/auth.ts`, os três
+  te afetam.
+
+  ## 1. Um visitante não autenticado recebia 500, não 401
+
+  O guard lançava `new RuntimeException('Unauthorized', { cause: 'E_UNAUTHORIZED_ACCESS' })`
+  — uma exceção **genérica** carregando uma STRING em `cause`. Nada no framework
+  casa com essa string: o `E_UNAUTHORIZED_ACCESS` de verdade é uma CLASSE, com
+  `static status = 401`, um campo `redirectTo` e renderers html/json/jsonapi. O
+  `RuntimeException` não tem nada disso.
+
+  **Sintoma:** por trás de `middleware.auth()`, uma visita sem sessão a qualquer
+  rota protegida caía no handler de erro genérico do host e respondia **500**, com
+  stack trace em vez da página de login. Em ambiente de dev isso aparece como
+  "Unauthorized" numa tela de erro 500; em produção, como um 500 seco.
+
+  **Correção:** os dois pontos de falha de `authenticate()` (sem `account_user_id`
+  na sessão; sessão válida mas usuário inexistente no provider) agora lançam o
+  `E_UNAUTHORIZED_ACCESS` real do `@adonisjs/auth` — status 401, tratado pelo
+  exception handler exatamente como o dos guards nativos. O `getUserOrFail()`
+  também passa a lançar essa classe depois de uma tentativa de autenticação (a
+  mensagem continua a mesma).
+
+  **Follow-up conhecido — o redirect para o login ainda não acontece.** Os
+  renderers do `E_UNAUTHORIZED_ACCESS` são indexados por `guardDriverName`, e só a
+  entrada `session` faz `redirect().withIntendedUrl().toPath(error.redirectTo)`.
+  Como o `driverName` deste guard é `oidc_rp`, o `handle()` cai no fallback e
+  responde um **401 seco** (correto, mas sem redirect). Expor um `redirectTo` na
+  config do guard seria inerte enquanto o renderer não for endereçado — fica como
+  mudança separada. O ganho desta versão é 500 → 401.
+
+  ## 2. `check()` engolia TUDO, inclusive falha de infraestrutura
+
+  Era `try { await this.authenticate() } catch { return false }`. Uma queda do
+  Postgres dentro de `provider.findById` retornava `false` — indistinguível de
+  "não está logado".
+
+  **Sintoma:** durante uma indisponibilidade do banco, **todo mundo aparecia
+  deslogado**, sem nenhum erro nos logs vindo desse caminho. O incidente parecia
+  um bug de sessão.
+
+  **Correção:** igual ao `SessionGuard` nativo do `@adonisjs/auth` — engole
+  **apenas** `E_UNAUTHORIZED_ACCESS` e relança o resto. `check()` continua
+  retornando `false` para "sem sessão"; erro de infraestrutura agora propaga.
+
+  ## 3. `@adonisjs/auth` estava virando peer obrigatório na prática
+
+  `src/host/oidc_rp_guard.ts` tinha um import **estático** de `@adonisjs/auth`
+  (para `symbols`), e esse módulo é reexportado pelo `index.ts` do pacote. Ou seja:
+  `import '@adonis-agora/authkit-server'` quebrava com `ERR_MODULE_NOT_FOUND` em
+  qualquer host que não tivesse instalado `@adonisjs/auth` — que é um peer
+  **opcional**. (O smoke de empacotamento do monorepo não pegava porque o pacote
+  está instalado como devDep aqui.)
+
+  **Correção:** todo import de `@adonisjs/auth` neste módulo passou a ser
+  type-only; o único acesso de runtime é um `await import('@adonisjs/auth')` dentro
+  do resolver de `oidcRpGuard()` — que só roda quando o host resolve o
+  `config/auth.ts`, ou seja, quando ele já escolheu usar `@adonisjs/auth`. Se o
+  pacote não estiver instalado, o erro agora é uma mensagem explicando o que
+  instalar, no boot, em vez de um crash de import.
+
+- 6ab8147: Login social, magic link, OTP e passkey não aplicam mais `password_expiration`
+
+  **Correção de bloqueio total.** Os fluxos passwordless chamam o gate combinado
+  `assertLoginAllowed`, e `assertAccountNotExpired` guardava as DUAS checagens de
+  expiração atrás do mesmo `if (settings)` — não havia como ligar a de conta
+  inativa sem ligar junto a de senha vencida.
+
+  O problema é que `isPasswordExpired` trata `password_changed_at` NULL como
+  "vencida". Isso é correto no fluxo de senha, que tem o passo de troca
+  obrigatória (`step: 'password_expired'`) para onde mandar o usuário. Uma conta
+  que nunca definiu senha — social-only, importada via `importAccount` (que não
+  escreve a coluna), anterior à migração da coluna — não tem esse passo
+  alcançável: o único caminho até ele passa por `attemptPasswordLogin`, que exige
+  a senha CORRETA antes de classificar a expiração.
+
+  Resultado, com `password_expiration` ligada: todo usuário sem senha ficava
+  **permanentemente trancado fora** de "Continue with Google", do magic link, do
+  OTP e do passkey-first, devolvido a uma tela que não oferece senha nenhuma que
+  ele pudesse trocar. No passkey-first o beco era ainda mais fechado — a view de
+  erro (`mfa-challenge`) só oferece o desafio da passkey. Contas social criadas
+  por esta lib recebem `password_changed_at = now` no `create`, então para elas o
+  bloqueio não era imediato: chegava sozinho depois de `maxAgeDays` (default 90).
+
+  **Correção.** `LoginAllowedInput` ganha `passwordless?: boolean`. Quando `true`,
+  apenas a checagem de senha vencida é pulada. Os quatro fluxos passwordless
+  passam a flag; `attemptPasswordLogin` e o token-exchange não, e seguem
+  inalterados. O default (ausente/`false`) mantém a checagem valendo.
+
+  **`account_expiration` (inatividade) continua valendo em todos eles**, incluindo
+  o login social — o que a versão anterior corrigiu não foi desfeito. A checagem
+  de conta desabilitada também segue valendo.
+
+  `isPasswordExpired` não foi alterado: seu comportamento com a coluna NULL
+  continua correto para o fluxo de senha, que é quem tem para onde mandar o
+  usuário.
+
 ## 0.54.0
 
 ### Minor Changes
