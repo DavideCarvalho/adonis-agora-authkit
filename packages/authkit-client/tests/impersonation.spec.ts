@@ -94,8 +94,16 @@ test.group('impersonation | atribuição do restore', () => {
 
       assert.isFalse(ok, 'o restore precisa ser recusado');
       const live = session.get('authkit') as TokenSet | undefined;
-      assert.notEqual(live?.accessToken, ADMIN.accessToken, 'não pode receber o access token do ator');
-      assert.notEqual(live?.refreshToken, ADMIN.refreshToken, 'não pode receber o refresh token do ator');
+      assert.notEqual(
+        live?.accessToken,
+        ADMIN.accessToken,
+        'não pode receber o access token do ator',
+      );
+      assert.notEqual(
+        live?.refreshToken,
+        ADMIN.refreshToken,
+        'não pode receber o refresh token do ator',
+      );
       assert.isUndefined(
         session.get(IMPERSONATOR_KEY),
         'a credencial recusada é DESCARTADA, não fica para uma nova tentativa',
@@ -179,7 +187,10 @@ test.group('impersonation | atribuição do restore', () => {
 
     assert.isFalse(ok);
     assert.isUndefined(session.get(IMPERSONATOR_KEY));
-    assert.isUndefined(session.get('authkit'), 'fail-closed: não restaura e não deixa impersonando');
+    assert.isUndefined(
+      session.get('authkit'),
+      'fail-closed: não restaura e não deixa impersonando',
+    );
   });
 });
 
