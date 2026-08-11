@@ -213,3 +213,99 @@ test.group('token-exchange (impersonation)', (group) => {
     assert.equal(json.error, 'invalid_target');
   });
 });
+
+// ── H3: roles do ator via resolveTokenRoles + allowlist adminRoles ─────────────
+test.group('token-exchange — roles do ator fora do globalRoles (resolveTokenRoles)', (group) => {
+  let server: Server;
+  let service: OidcService;
+  const PORT3 = 9793;
+  const ISSUER3 = `http://localhost:${PORT3}`;
+
+  group.setup(async () => {
+    const fakeApp = {
+      container: { make: async () => ({ connection: () => new RedisMock() }) },
+    } as any;
+    const cfg = await configProvider.resolve(
+      fakeApp,
+      defineConfig({
+        issuer: ISSUER3,
+        adapter: adapters.redis({ connection: 'main' }),
+        jwks: { source: 'managed', algorithm: 'RS256' },
+        clients: [
+          {
+            clientId: 'app1',
+            clientSecret: 's',
+            redirectUris: [`${ISSUER3}/cb`],
+            grants: ['authorization_code', 'refresh_token', TOKEN_EXCHANGE],
+          },
+        ],
+        // O caso do app: roles vivem num store PRÓPRIO (ex.: @adonis-agora/authz),
+        // não no `globalRoles` do authkit. `admin` minúsculo + hook resolve.
+        admin: { roles: ['admin'] },
+        resolveTokenRoles: async (account: any) =>
+          account.id === 'authz-admin-1' ? ['admin'] : (account.globalRoles ?? []),
+        accountStore: fakeAccountStore({
+          findById: async (sub) => {
+            if (sub === 'authz-admin-1')
+              return { id: sub, email: 'a@x.com', globalRoles: [], name: 'AuthzAdmin' };
+            if (sub === 'target-1')
+              return { id: sub, email: 't@x.com', globalRoles: [], name: 'Target' };
+            return null;
+          },
+        }),
+      }),
+    );
+    service = new OidcService(cfg!, 'a'.repeat(32));
+    server = createServer(service.callback);
+    await new Promise<void>((r) => server.listen(PORT3, r));
+    return async () => new Promise<void>((r) => server.close(() => r()));
+  });
+
+  async function mintSubjectToken(accountId: string): Promise<string> {
+    const provider = (service as any).provider;
+    const client = await provider.Client.find('app1');
+    const at = new provider.AccessToken({ accountId, client, scope: 'openid profile email' });
+    return at.save();
+  }
+
+  function tokenRequest(params: Record<string, string>) {
+    return fetch(`${ISSUER3}/token`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        authorization: `Basic ${Buffer.from('app1:s').toString('base64')}`,
+      },
+      body: new URLSearchParams(params).toString(),
+    });
+  }
+
+  test('ator admin só no resolveTokenRoles (globalRoles vazio) → permitido', async ({ assert }) => {
+    const subjectToken = await mintSubjectToken('authz-admin-1');
+    const res = await tokenRequest({
+      grant_type: TOKEN_EXCHANGE,
+      subject_token: subjectToken,
+      subject_token_type: ACCESS_TOKEN_TYPE,
+      requested_subject: 'target-1',
+    });
+    assert.equal(res.status, 200);
+    const json = await res.json();
+    assert.equal(json.issued_token_type, ACCESS_TOKEN_TYPE);
+    const payload = decodeJwtPayload(json.id_token);
+    assert.equal(payload.sub, 'target-1');
+    assert.deepEqual(payload.act, { sub: 'authz-admin-1' });
+  });
+
+  test('ator SEM a role da allowlist (admin em outro nome) → negado', async ({ assert }) => {
+    // `user-1` tem globalRoles ['USER'] e o hook não a marca admin.
+    const subjectToken = await mintSubjectToken('target-1');
+    const res = await tokenRequest({
+      grant_type: TOKEN_EXCHANGE,
+      subject_token: subjectToken,
+      subject_token_type: ACCESS_TOKEN_TYPE,
+      requested_subject: 'target-1',
+    });
+    assert.equal(res.status, 400);
+    const json = await res.json();
+    assert.equal(json.error, 'invalid_grant');
+  });
+});

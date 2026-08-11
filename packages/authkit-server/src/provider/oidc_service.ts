@@ -165,6 +165,11 @@ export class OidcService {
         findAccount: config.findAccount,
         globalRolesClaim: config.globalRolesClaim,
         resolveTokenRoles: config.resolveTokenRoles,
+        // Allowlist de roles que autorizam impersonation — a MESMA de
+        // `config.admin.roles` usada pelos guards do console (default
+        // `['ADMIN']`). Permite que um host use papel próprio (ex.: `admin`
+        // minúsculo num store de roles próprio) sem alterar `globalRoles`.
+        adminRoles: config.admin.roles,
         // Resource indicators (RFC 8707) suportados: o `audience` default + cada
         // resource declarado. Usado para validar `audience`/`resource` no pedido de
         // token-exchange — alvos fora desta lista são rejeitados (invalid_target).

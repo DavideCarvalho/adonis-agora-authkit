@@ -21,6 +21,11 @@ export interface TokenExchangeDeps {
    * `target.globalRoles ?? []` (unchanged behavior). Mirrors the mint-time hook used
    * by the authorization-code flow so impersonated tokens source roles from the same
    * authority (e.g. @adonis-agora/authz) or custom store.
+   *
+   * The SAME hook also gates the ACTOR (the admin trying to impersonate): its roles
+   * are resolved through it too, so an app that keeps roles in its own table
+   * (e.g. via `@adonis-agora/authz`) can impersonate without storing roles in the
+   * authkit `globalRoles` column. When omitted, falls back to `actor.globalRoles`.
    */
   resolveTokenRoles?: (
     account: AuthAccount,
@@ -29,6 +34,14 @@ export interface TokenExchangeDeps {
       activeOrg?: { orgId: string; orgSlug: string; orgRole: string } | null;
     },
   ) => string[] | Promise<string[]>;
+  /**
+   * Allowlist de roles que autorizam a impersonation. Default: `['ADMIN']`.
+   * Aceita o papel EXATO (ex.: `'admin'` minúsculo) do app — resolve contra a
+   * MESMA fonte de roles do `resolveTokenRoles`/`globalRoles`, não a um papel
+   * hardcoded. Mantém `adminRole` como alias singular para back-compat.
+   */
+  adminRoles?: string[];
+  /** @deprecated Use `adminRoles` (allowlist). Mantido como alias singular. */
   adminRole?: string;
   /**
    * Resource indicators (RFC 8707) suportados pelo provider. Quando o pedido traz
@@ -65,7 +78,7 @@ function intersectScopes(requested: string, allowed: Set<string>): string {
 }
 
 export function registerTokenExchange(provider: any, deps: TokenExchangeDeps): void {
-  const adminRole = deps.adminRole ?? 'ADMIN';
+  const adminRoles = deps.adminRoles ?? (deps.adminRole ? [deps.adminRole] : ['ADMIN']);
   const supportedResources = new Set(deps.supportedResources ?? []);
 
   const handler = async (ctx: any) => {
@@ -90,7 +103,22 @@ export function registerTokenExchange(provider: any, deps: TokenExchangeDeps): v
     }
 
     const actor = await deps.findAccount(subjectAt.accountId);
-    if (!actor || !(actor.globalRoles ?? []).includes(adminRole)) {
+    if (!actor) {
+      throw new errors.InvalidGrant('actor not permitted to impersonate');
+    }
+    // Resolve as roles do ATOR pela MESMA fonte do claim (resolveTokenRoles
+    // quando o host configura — ex.: roles em tabela própria via
+    // `@adonis-agora/authz`), com fallback pro `globalRoles` do store. Sem isso
+    // um host que não grava roles na coluna `globalRoles` do authkit nunca
+    // conseguiria impersonar (o gate bateria sempre em `[]`). Mesmo padrão do
+    // console (`resolveAccountRoles` em `host/account_roles.ts`).
+    const actorRoles = deps.resolveTokenRoles
+      ? await deps.resolveTokenRoles(actor as AuthAccount, {
+          clientId: client?.clientId,
+          activeOrg: null,
+        })
+      : (actor.globalRoles ?? []);
+    if (!actorRoles.some((r) => adminRoles.includes(r))) {
       throw new errors.InvalidGrant('actor not permitted to impersonate');
     }
 
