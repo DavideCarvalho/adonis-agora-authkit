@@ -115,7 +115,7 @@ test.group('impersonation_session — happy path', () => {
 
     assert.equal(store[ACCOUNT_SESSION_KEY], 'admin-1', 'account volta a ser o admin');
     assert.isUndefined(store.impersonator_user_id);
-    assert.isUndefined(store.admin_access_token);
+    assert.equal(store.admin_access_token, 'admin-access-token', 'token do admin preservado');
     assert.equal(regenerated(), 2, 'regenera no start e no stop');
   });
 });
@@ -181,8 +181,10 @@ test.group('impersonation_session — invariante 2: impersonation aninhada é re
   });
 });
 
-test.group('impersonation_session — invariante 3: stop limpa tudo', () => {
-  test('stop restaura exatamente o impersonatorId e não vaza keys', async ({ assert }) => {
+test.group('impersonation_session — invariante 3: stop limpa a impersonation', () => {
+  test('stop restaura exatamente o impersonatorId e remove só a key de impersonation', async ({
+    assert,
+  }) => {
     const { ctx, store } = makeCtx({ [ACCOUNT_SESSION_KEY]: 'admin-9' });
     rememberAccessToken(ctx, 'admin-access-token');
     await startImpersonation(ctx, baseParams({ targetId: 'target-7', fetchImpl: fetchOk([]) }));
@@ -192,10 +194,30 @@ test.group('impersonation_session — invariante 3: stop limpa tudo', () => {
 
     assert.equal(store[ACCOUNT_SESSION_KEY], 'admin-9');
     assert.isUndefined(store.impersonator_user_id);
-    assert.isUndefined(store.admin_access_token);
+    // O admin_access_token (do ADMIN) é preservado: permite personificar de
+    // novo sem relogar. Ele é do admin — não do alvo — e o logout do app
+    // (`ctx.session.clear()`) continua limpando tudo.
+    assert.equal(store.admin_access_token, 'admin-access-token');
     // nenhuma outra key de impersonation deve permanecer
     assert.notProperty(store, 'impersonator_user_id');
-    assert.notProperty(store, 'admin_access_token');
+  });
+
+  test('stop → start de novo funciona (admin_access_token preservado)', async ({ assert }) => {
+    const { ctx, store } = makeCtx({ [ACCOUNT_SESSION_KEY]: 'admin-9' });
+    rememberAccessToken(ctx, 'admin-access-token');
+
+    // 1ª personificação
+    await startImpersonation(ctx, baseParams({ targetId: 'target-7', fetchImpl: fetchOk([]) }));
+    assert.equal(store[ACCOUNT_SESSION_KEY], 'target-7');
+
+    // sair
+    await stopImpersonation(ctx);
+    assert.equal(store[ACCOUNT_SESSION_KEY], 'admin-9');
+
+    // 2ª personificação SEM relogin — o token do admin ainda está na sessão
+    await startImpersonation(ctx, baseParams({ targetId: 'target-8', fetchImpl: fetchOk([]) }));
+    assert.equal(store[ACCOUNT_SESSION_KEY], 'target-8');
+    assert.equal(store.impersonator_user_id, 'admin-9');
   });
 
   test('stop sem impersonation ativa é no-op (não lança, não regenera)', async ({ assert }) => {

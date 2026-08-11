@@ -161,9 +161,16 @@ export function impersonationState(ctx: HttpContext): ImpersonationState {
 }
 
 /**
- * Encerra a impersonation: restaura `account_user_id = impersonator`, limpa TODAS
- * as keys de impersonation (impersonator + access token do admin) e regenera a
- * sessão (anti-fixation). No-op quando não há impersonation ativa.
+ * Encerra a impersonation: restaura `account_user_id = impersonator`, remove a
+ * key de impersonation e regenera a sessão (anti-fixation). No-op quando não há
+ * impersonation ativa.
+ *
+ * O `admin_access_token` (a credencial do ADMIN usada como `subject_token` do
+ * token-exchange) é PRESERVADO: ele é do admin — não do alvo — e o admin segue
+ * logado após o stop. Removê-lo forçava um relogin a cada vez que o admin
+ * personificava, saía e tentava personificar de novo (No admin access token in
+ * session). O token segue curto (TTL do access token do RP) e o logout do app
+ * (`ctx.session.clear()` em `AuthRpController.logout`) continua limpando tudo.
  */
 export async function stopImpersonation(ctx: HttpContext): Promise<void> {
   const impersonatorId = ctx.session.get(IMPERSONATOR_SESSION_KEY) as string | undefined;
@@ -180,5 +187,4 @@ export async function stopImpersonation(ctx: HttpContext): Promise<void> {
   // confirmação dele, sobre a conta dele, dentro da janela dele.
   ctx.session.put(ACCOUNT_SESSION_KEY, impersonatorId);
   ctx.session.forget(IMPERSONATOR_SESSION_KEY);
-  ctx.session.forget(ADMIN_ACCESS_TOKEN_SESSION_KEY);
 }
