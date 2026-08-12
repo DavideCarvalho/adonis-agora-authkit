@@ -13,6 +13,10 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
+  # Lets the job mint an OIDC token for npm trusted publishing, so a release needs no
+  # long-lived NPM_TOKEN. changesets/action probes for this; without it the run logs
+  # "No NPM_TOKEN or OIDC available" and never attempts OIDC at all.
+  id-token: write
 
 jobs:
   release:
@@ -34,6 +38,15 @@ jobs:
           cache: pnpm
           registry-url: 'https://registry.npmjs.org'
 
+      # Trusted publishing needs npm CLI >= 11.5.1; Node 22 still bundles npm 10.x.
+      #
+      # Pinned to 11.x, NOT @latest: npm 12 changed `npm info <pkg> --json` to return an
+      # array of manifests where 11 returned a single packument object. Changesets reads
+      # `pkgInfo.versions` off that value, which is `undefined` for an array, so on npm 12
+      # EVERY package looks unpublished and it republishes already-live versions, which npm
+      # rejects -- turning a fine release red. Revisit when changesets supports npm 12.
+      - run: npm install -g 'npm@^11.5.1'
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -46,4 +59,9 @@ jobs:
           title: 'chore: version packages'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # Deliberately empty: setup-node writes .npmrc with _authToken=${NODE_AUTH_TOKEN},
+          # and a real token there wins over OIDC -- npm uses the token and never exchanges
+          # the id-token for a credential. Empty, npm sees no auth and falls back to trusted
+          # publishing. The NPM_TOKEN secret still exists; put back `${{ secrets.NPM_TOKEN }}`
+          # here to revert to the token if trusted publishing isn't configured on npmjs.com yet.
+          NODE_AUTH_TOKEN: ''
