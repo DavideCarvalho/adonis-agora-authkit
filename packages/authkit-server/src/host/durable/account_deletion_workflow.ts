@@ -44,13 +44,15 @@ function emptyResult(): DeletionResult {
 }
 
 /**
- * Forma mínima do `ctx` durável que o corpo usa (um `ctx.step` checkpointado e
- * idempotente). Tipada estruturalmente para NÃO acoplar o build do authkit ao
- * pacote `@adonis-agora/durable` (peer OPCIONAL): o app passa o `engine.register`
- * real e o ctx satisfaz esta interface em runtime.
+ * Forma mínima do `ctx` durável que o corpo usa (um `ctx.localStep` checkpointado
+ * e idempotente — executado IN-PROCESS, nunca dispatchado a um worker remoto;
+ * distinto do `ctx.step` do engine, que é SEMPRE dispatchado a um handler
+ * registrado por nome). Tipada estruturalmente para NÃO acoplar o build do
+ * authkit ao pacote `@adonis-agora/durable` (peer OPCIONAL): o app passa o
+ * `engine.register` real e o ctx satisfaz esta interface em runtime.
  */
 export interface DurableStepCtx {
-  step<T>(name: string, fn: (...args: any[]) => Promise<T>, options?: unknown): Promise<T>;
+  localStep<T>(name: string, fn: (...args: any[]) => Promise<T>, options?: unknown): Promise<T>;
 }
 
 /** A assinatura do corpo do workflow (compatível com `engine.register`). */
@@ -77,9 +79,9 @@ export interface AccountDeletionWorkflowDeps {
  * ```
  *
  * O corpo é FORWARD-ONLY (sem compensação — nunca des-deleta): cada etapa do
- * cascade é um `ctx.step` checkpointado, com retry por-etapa e resumabilidade. A
+ * cascade é um `ctx.localStep` checkpointado, com retry por-etapa e resumabilidade. A
  * linha da conta é a ÚLTIMA etapa. Todos os efeitos colaterais ficam DENTRO de
- * `ctx.step` (corpo determinístico: nada de Date.now()/random no corpo). A
+ * `ctx.localStep` (corpo determinístico: nada de Date.now()/random no corpo). A
  * idempotência por `accountId` é feita pelo run-id no enqueue (ver
  * `enqueueAccountDeletion`).
  */
@@ -94,7 +96,7 @@ export function defineAccountDeletionWorkflow(deps: AccountDeletionWorkflowDeps)
     // Snapshot da conta ANTES de destruir (e-mail + avatar) — capturado num step
     // para ser determinístico no replay. Se a conta não existe (ou já foi
     // deletada num run anterior), encerra como no-op.
-    const snapshot = await ctx.step('snapshot', async (): Promise<AccountSnapshot | null> => {
+    const snapshot = await ctx.localStep('snapshot', async (): Promise<AccountSnapshot | null> => {
       const cfg = (await deps.oidc()).config;
       return snapshotAccount(cfg, accountId);
     });
@@ -103,13 +105,13 @@ export function defineAccountDeletionWorkflow(deps: AccountDeletionWorkflowDeps)
     const result = emptyResult();
 
     // 1) Audit `account.deleted` ANTES de qualquer destruição.
-    await ctx.step('audit.deleted', async () => {
+    await ctx.localStep('audit.deleted', async () => {
       const cfg: ResolvedServerConfig = (await deps.oidc()).config;
       await auditDeleted(cfg, snapshot, actor);
     });
 
     // 2) Sessões + grants (cascateia os tokens do oidc-provider).
-    const revoke = await ctx.step('revoke.sessions', async () =>
+    const revoke = await ctx.localStep('revoke.sessions', async () =>
       revokeSessions(await deps.oidc(), accountId),
     );
     result.sessions = revoke.sessions;
@@ -119,30 +121,30 @@ export function defineAccountDeletionWorkflow(deps: AccountDeletionWorkflowDeps)
 
     // 3) Personal Access Tokens.
     result.pats = (
-      await ctx.step('revoke.pats', async () => revokePats((await deps.oidc()).config, accountId))
+      await ctx.localStep('revoke.pats', async () => revokePats((await deps.oidc()).config, accountId))
     ).pats;
 
     // 4) Passkeys / credenciais WebAuthn.
     result.passkeys = (
-      await ctx.step('remove.passkeys', async () =>
+      await ctx.localStep('remove.passkeys', async () =>
         removePasskeys((await deps.oidc()).config, accountId),
       )
     ).passkeys;
 
     // 5) MFA / TOTP.
-    await ctx.step('disable.mfa', async () => {
+    await ctx.localStep('disable.mfa', async () => {
       await disableMfa((await deps.oidc()).config, accountId);
     });
 
     // 6) Identidades de provider linkadas.
     result.providerIdentities = (
-      await ctx.step('unlink.providers', async () =>
+      await ctx.localStep('unlink.providers', async () =>
         unlinkProviders((await deps.oidc()).config, accountId),
       )
     ).providerIdentities;
 
     // 6b) Organizations.
-    const orgResult = await ctx.step('remove.orgs', async () =>
+    const orgResult = await ctx.localStep('remove.orgs', async () =>
       removeFromOrgs((await deps.oidc()).config, accountId),
     );
     result.orgMemberships = orgResult.orgMemberships;
@@ -150,21 +152,21 @@ export function defineAccountDeletionWorkflow(deps: AccountDeletionWorkflowDeps)
 
     // 7) Avatar no drive.
     result.avatarDeleted = (
-      await ctx.step('delete.avatar', async () =>
+      await ctx.localStep('delete.avatar', async () =>
         deleteAccountAvatar((await deps.oidc()).config, accountId, snapshot.avatarUrl),
       )
     ).avatarDeleted;
 
     // 8) Anonimiza o histórico de audit.
     result.auditAnonymized = (
-      await ctx.step('anonymize.audit', async () =>
+      await ctx.localStep('anonymize.audit', async () =>
         anonymizeAudit((await deps.oidc()).config, accountId),
       )
     ).auditAnonymized;
 
     // 9) Deleta a linha da conta (ÚLTIMA etapa, forward-only).
     result.ok = (
-      await ctx.step('delete.account', async () =>
+      await ctx.localStep('delete.account', async () =>
         deleteAccountRow((await deps.oidc()).config, accountId),
       )
     ).ok;

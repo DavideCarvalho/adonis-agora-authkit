@@ -90,7 +90,7 @@ const noopDeliver: DeliverArtifact = async () => {};
 /**
  * Define a REGISTRAÇÃO do workflow durável `authkit.account.export`.
  *
- * Etapas (todas efeitos colaterais dentro de `ctx.step`, corpo determinístico):
+ * Etapas (todas efeitos colaterais dentro de `ctx.localStep`, corpo determinístico):
  *   1. `collect`  — reúne o payload (reusa {@link AccountExportService.collect});
  *   2. `audit`    — registra `account.exported`;
  *   3. `persist`  — serializa + grava o artefato no drive;
@@ -118,14 +118,14 @@ export function defineAccountExportWorkflow(deps: AccountExportWorkflowDeps): {
     const runId = ctx.runId ?? accountId;
 
     // 1) Coleta o payload (reusa a coleta inline do AccountExportService).
-    const payload = await ctx.step('collect', async (): Promise<AccountExport | null> => {
+    const payload = await ctx.localStep('collect', async (): Promise<AccountExport | null> => {
       const oidc = await deps.oidc();
       return new AccountExportService(oidc).collect(accountId);
     });
     if (!payload) return { ok: false, artifactKey: null, bytes: 0 };
 
     // 2) Audita o export (account.exported).
-    await ctx.step('audit', async () => {
+    await ctx.localStep('audit', async () => {
       const cfg = (await deps.oidc()).config;
       await cfg.audit?.record({
         type: 'account.exported',
@@ -136,13 +136,13 @@ export function defineAccountExportWorkflow(deps: AccountExportWorkflowDeps): {
 
     // 3) Serializa + persiste o artefato.
     const json = JSON.stringify(payload, null, 2);
-    const artifactKey = await ctx.step('persist', async () => {
+    const artifactKey = await ctx.localStep('persist', async () => {
       const oidc = await deps.oidc();
       return persist({ accountId, runId, json, oidc });
     });
 
     // 4) Entrega ao titular (signal + e-mail, pluggable).
-    await ctx.step('deliver', async () => {
+    await ctx.localStep('deliver', async () => {
       const oidc = await deps.oidc();
       await deliver({ accountId, runId, artifactKey, oidc });
     });

@@ -59,7 +59,7 @@
     "build:host-css": "node scripts/build_host_css.mjs"
   },
   "peerDependencies": {
-    "@adonis-agora/durable": "^0.2.0",
+    "@adonis-agora/durable": "^0.22.0",
     "@adonis-agora/media": "^0.1.0",
     "@adonis-agora/telescope": "^0.1.0",
     "@adonisjs/ally": "catalog:adonisPeers",
@@ -115,7 +115,7 @@
     "qrcode": "1.5.4"
   },
   "devDependencies": {
-    "@adonis-agora/durable": "0.2.0",
+    "@adonis-agora/durable": "0.22.0",
     "@adonis-agora/telescope": "0.6.0",
     "@adonisjs/ally": "catalog:adonis",
     "@adonisjs/auth": "catalog:adonis",
