@@ -7,7 +7,7 @@
   "homepage": "https://github.com/DavideCarvalho/adonis-authkit/tree/main/packages/authkit-server#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/DavideCarvalho/adonis-authkit.git",
+    "url": "https://github.com/DavideCarvalho/adonis-agora-authkit.git",
     "directory": "packages/authkit-server"
   },
   "bugs": {
