@@ -20,11 +20,11 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "catalog:frontend",
-    "@types/mdx": "2.0.13",
+    "@types/mdx": "2.0.14",
     "@types/node": "catalog:adonis",
     "@types/react": "catalog:frontend",
     "@types/react-dom": "catalog:frontend",
-    "postcss": "8.5.6",
+    "postcss": "8.5.26",
     "tailwindcss": "catalog:frontend",
     "typescript": "catalog:frontend"
   }

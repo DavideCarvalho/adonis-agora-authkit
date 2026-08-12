@@ -73,20 +73,20 @@
   },
   "dependencies": {
     "@adonis-agora/authkit-core": "workspace:*",
-    "jose": "^5.9.0"
+    "jose": "5.10.0"
   },
   "devDependencies": {
     "@adonisjs/auth": "catalog:adonis",
     "@adonisjs/core": "catalog:adonis",
     "@adonis-agora/authkit-server": "workspace:*",
-    "@adonis-agora/resilience": "^0.1.0",
+    "@adonis-agora/resilience": "0.3.1",
     "@adonisjs/session": "catalog:adonis",
     "@adonisjs/lucid": "catalog:adonis",
     "@adonisjs/tsconfig": "catalog:adonis",
     "@japa/assert": "catalog:",
     "@japa/runner": "catalog:",
     "@poppinss/ts-exec": "catalog:",
-    "ioredis-mock": "^8.9.0",
+    "ioredis-mock": "8.13.1",
     "@types/node": "catalog:adonis",
     "typescript": "catalog:frontend"
   }
