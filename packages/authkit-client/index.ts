@@ -41,6 +41,12 @@ export { default as BackchannelRevocationMiddleware } from './src/middleware/bac
 export { authkitClientGuard, AuthkitClientGuard } from './src/host/authkit_client_guard.js';
 export type { UnauthorizedAccessConstructor } from './src/host/authkit_client_guard.js';
 export { getAuthkit } from './src/host/request_authenticator.js';
+export {
+  isAuthkitAdmin,
+  authkitDashboardAuthorize,
+  authkitDashboardMiddleware,
+} from './src/host/dashboard_guard.js';
+export type { DashboardGuardOptions } from './src/host/dashboard_guard.js';
 export { default as AuthkitContextMiddleware } from './src/middleware/authkit_context_middleware.js';
 export { lucidMirror } from './src/lucid_mirror.js';
 export type { LucidMirrorOptions } from './src/lucid_mirror.js';

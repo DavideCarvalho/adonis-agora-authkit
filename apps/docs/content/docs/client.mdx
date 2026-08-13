@@ -124,6 +124,34 @@ The middleware resolves the `authkit.client` manager, **proactively refreshes** 
 set (`maybeRefresh` — see [Refresh Tokens](/docs/refresh-tokens)), and attaches
 `ctx.auth = await manager.createAuthenticator(ctx)`.
 
+## Gating an embedded dashboard
+
+Sibling libs that embed an admin console (`@adonis-agora/durable`, `@adonis-agora/media`,
+`@adonis-agora/agent`, `@adonis-agora/telescope`) each want the gate in a slightly different
+shape. `authkitDashboardAuthorize` and `authkitDashboardMiddleware` wrap the same
+`hasGlobalRole('ADMIN')` check as the two shapes those configs expect, so you don't hand-roll it
+per app:
+
+```ts title="config/durable_dashboard.ts"
+import { authkitDashboardAuthorize } from "@adonis-agora/authkit-client";
+
+export default defineConfig({
+  authorize: authkitDashboardAuthorize(), // authorize: (ctx) => boolean
+});
+```
+
+```ts title="config/media_dashboard.ts"
+import { authkitDashboardMiddleware } from "@adonis-agora/authkit-client";
+
+export default defineConfig({
+  middleware: authkitDashboardMiddleware(), // middleware: (ctx, next) => Promise<void>
+});
+```
+
+Pass `{ role: 'STAFF' }` if your host uses a different global role name for admin access. The
+underlying predicate, `isAuthkitAdmin(ctx, options?)`, is exported too if you need the boolean
+directly.
+
 ## Refresh & back-channel logout
 
 - **Refresh token rotation** is handled for you: `authkit_middleware` refreshes the session
