@@ -121,7 +121,9 @@ export function defineAccountDeletionWorkflow(deps: AccountDeletionWorkflowDeps)
 
     // 3) Personal Access Tokens.
     result.pats = (
-      await ctx.localStep('revoke.pats', async () => revokePats((await deps.oidc()).config, accountId))
+      await ctx.localStep('revoke.pats', async () =>
+        revokePats((await deps.oidc()).config, accountId),
+      )
     ).pats;
 
     // 4) Passkeys / credenciais WebAuthn.
