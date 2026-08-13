@@ -2,6 +2,11 @@ packages:
   - "packages/*"
   - "apps/*"
 
+# Disabled: with no explicit value pnpm applies a built-in supply-chain default
+# (~24h), which blocks CI from installing a dependency the release workflow itself
+# just published minutes ago (own-repo publishes, not third-party risk).
+minimumReleaseAge: 0
+
 allowBuilds:
   '@biomejs/biome': true
   '@swc/core': true
