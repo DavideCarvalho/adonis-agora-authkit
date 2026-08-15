@@ -30,7 +30,7 @@ catalog:
   "@japa/runner": "5.3.0"
   "@jrmc/adonis-attachment": "5.1.5"
   "@poppinss/ts-exec": "1.4.4"
-  "@videojs/http-streaming": "3.17.4"
+  "@videojs/http-streaming": "3.17.5"
   "@vinejs/vine": "4.4.0"
   "@vitejs/plugin-react": "6.0.5"
   "adonis-lucid-filter": "5.2.0"
