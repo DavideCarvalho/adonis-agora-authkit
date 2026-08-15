@@ -1,7 +1,9 @@
 import { test } from '@japa/runner';
 import {
   impersonationState,
+  refreshAccessToken,
   rememberAccessToken,
+  rememberRefreshToken,
   startImpersonation,
   stopImpersonation,
 } from '../src/host/impersonation_session.js';
@@ -131,6 +133,85 @@ test.group('impersonation_session — invariante 1: exchange falho não troca a 
     assert.isUndefined(store.impersonator_user_id, 'nenhum impersonator gravado');
     assert.equal(regenerated(), 0, 'sessão não regenerada');
     assert.isFalse(impersonationState(ctx).active);
+  });
+});
+
+test.group('impersonation_session — refresh token renova access expirado', () => {
+  /** fetch mock: 1º exchange falha (400 = token expirado), refresh responde, 2º exchange ok. */
+  function fetchRefreshThenOk(
+    calls: Array<{ url: string; body: string }>,
+  ): typeof fetch {
+    let exchangeAttempt = 0;
+    return (async (url: any, init: any) => {
+      calls.push({ url: String(url), body: String(init?.body ?? '') });
+      const body = new URLSearchParams(String(init?.body ?? ''));
+      const isExchange = body.get('grant_type') === 'urn:ietf:params:oauth:grant-type:token-exchange';
+      if (isExchange && exchangeAttempt++ === 0) {
+        return { ok: false, status: 400, json: async () => ({ error: 'invalid_grant' }) } as any;
+      }
+      if (body.get('grant_type') === 'refresh_token') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ access_token: 'fresh-admin-at', refresh_token: 'rotated-rt' }),
+        } as any;
+      }
+      return { ok: true, status: 200, json: async () => ({ access_token: 'target-at', id_token: 'jwt' }) } as any;
+    }) as any;
+  }
+
+  test('start com access expirado renova via refresh e personifica', async ({ assert }) => {
+    const { ctx, store, regenerated } = makeCtx({ [ACCOUNT_SESSION_KEY]: 'admin-1' });
+    rememberAccessToken(ctx, 'admin-access-token');
+    rememberRefreshToken(ctx, 'admin-refresh-token');
+
+    const calls: Array<{ url: string; body: string }> = [];
+    await startImpersonation(ctx, baseParams({ fetchImpl: fetchRefreshThenOk(calls) }));
+
+    assert.equal(store[ACCOUNT_SESSION_KEY], 'target-1', 'personificou o alvo');
+    assert.equal(store.impersonator_user_id, 'admin-1');
+    assert.equal(regenerated(), 1, 'regenerou no start');
+
+    // Ordem: exchange (falha 400) → refresh → exchange (ok).
+    assert.lengthOf(calls, 3);
+    const grants = calls.map((c) => new URLSearchParams(c.body).get('grant_type'));
+    assert.equal(grants[0], 'urn:ietf:params:oauth:grant-type:token-exchange');
+    assert.equal(grants[1], 'refresh_token');
+    assert.equal(grants[2], 'urn:ietf:params:oauth:grant-type:token-exchange');
+    assert.equal(new URLSearchParams(calls[1].body).get('refresh_token'), 'admin-refresh-token');
+
+    // O token renovado foi regravado na sessão (subject_token do 2º exchange).
+    assert.equal(new URLSearchParams(calls[2].body).get('subject_token'), 'fresh-admin-at');
+    assert.equal(store.admin_access_token, 'fresh-admin-at');
+    assert.equal(store.admin_refresh_token, 'rotated-rt', 'refresh rotacionado regravado');
+  });
+
+  test('start sem refresh token propaga o erro de exchange expirado', async ({ assert }) => {
+    const { ctx } = makeCtx({ [ACCOUNT_SESSION_KEY]: 'admin-1' });
+    rememberAccessToken(ctx, 'admin-access-token');
+    // sem rememberRefreshToken
+
+    await assert.rejects(
+      () => startImpersonation(ctx, baseParams({ fetchImpl: fetchErr(400) })),
+      /Token exchange failed: 400/,
+    );
+  });
+
+  test('refreshAccessToken renova e rotaciona o refresh token', async ({ assert }) => {
+    const { ctx, store } = makeCtx({});
+    rememberRefreshToken(ctx, 'rt-1');
+    const calls: Array<{ url: string; body: string }> = [];
+
+    const result = await refreshAccessToken(
+      ctx,
+      { issuer: 'http://idp.local', clientId: 'app1', fetchImpl: fetchRefreshThenOk(calls) },
+    );
+
+    assert.equal(result?.accessToken, 'fresh-admin-at');
+    assert.equal(result?.refreshToken, 'rotated-rt');
+    const sent = new URLSearchParams(calls[0].body);
+    assert.equal(sent.get('grant_type'), 'refresh_token');
+    assert.equal(sent.get('refresh_token'), 'rt-1');
   });
 });
 

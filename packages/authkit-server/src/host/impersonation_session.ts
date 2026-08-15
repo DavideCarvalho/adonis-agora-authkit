@@ -34,15 +34,33 @@ const IMPERSONATOR_SESSION_KEY = 'impersonator_user_id';
 const ADMIN_ACCESS_TOKEN_SESSION_KEY = 'admin_access_token';
 
 /**
+ * Key de sessão que guarda o refresh token do admin (do `offline_access`),
+ * usado para renovar o access token expirado antes do token-exchange. Interna:
+ * NÃO exporte o literal.
+ */
+const ADMIN_REFRESH_TOKEN_SESSION_KEY = 'admin_refresh_token';
+
+const REFRESH_TOKEN_GRANT = 'refresh_token';
+
+/**
  * Guarda o access token do admin na sessão (chame no callback OIDC do RP, logo
  * após o login). Necessário porque o token-exchange exige o access token do admin
  * como `subject_token`, e o RP normalmente descarta os tokens após o login.
  *
- * Access tokens são curtos: se expirar, `startImpersonation` falha e o admin
- * re-loga (aceitável; refresh fica pra depois — YAGNI).
+ * Access tokens são curtos: se expirar, `startImpersonation` renova via refresh
+ * token (`rememberRefreshToken`) e tenta de novo — o admin não precisa relogar.
  */
 export function rememberAccessToken(ctx: HttpContext, accessToken: string): void {
   ctx.session.put(ADMIN_ACCESS_TOKEN_SESSION_KEY, accessToken);
+}
+
+/**
+ * Guarda o refresh token do admin (do scope `offline_access`), usado para
+ * renovar o access token expirado antes do token-exchange. Chame no callback
+ * OIDC do RP junto com `rememberAccessToken`.
+ */
+export function rememberRefreshToken(ctx: HttpContext, refreshToken: string): void {
+  ctx.session.put(ADMIN_REFRESH_TOKEN_SESSION_KEY, refreshToken);
 }
 
 export interface StartImpersonationParams {
@@ -100,6 +118,46 @@ async function requestTokenExchange(
 }
 
 /**
+ * Renova o access token do admin via refresh grant (RFC 6749 §6), usando o
+ * refresh token guardado por `rememberRefreshToken`. Retorna o novo access
+ * token (e o refresh token rotacionado, se o IdP emitir outro), ou null se não
+ * houver refresh token / o refresh falhar.
+ *
+ * O IdP deste pacote roda `refresh_token` grant por default
+ * (`build_provider.ts`: `grant_types: ['authorization_code', 'refresh_token']`),
+ * então o refresh é válido na configuração padrão.
+ */
+export async function refreshAccessToken(
+  ctx: HttpContext,
+  params: Pick<StartImpersonationParams, 'issuer' | 'clientId' | 'clientSecret' | 'tokenEndpoint' | 'fetchImpl'>,
+): Promise<{ accessToken: string; refreshToken?: string } | null> {
+  const refreshToken = ctx.session.get(ADMIN_REFRESH_TOKEN_SESSION_KEY) as string | undefined;
+  if (!refreshToken) return null;
+
+  const body = new URLSearchParams({
+    grant_type: REFRESH_TOKEN_GRANT,
+    refresh_token: refreshToken,
+    client_id: params.clientId,
+  });
+  if (params.clientSecret) body.set('client_secret', params.clientSecret);
+
+  const fetchImpl = params.fetchImpl ?? fetch;
+  const res = await fetchImpl(params.tokenEndpoint ?? `${params.issuer}/token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+  if (!res.ok) return null;
+
+  const data = (await res.json()) as { access_token?: string; refresh_token?: string };
+  if (!data.access_token) return null;
+
+  const result: { accessToken: string; refreshToken?: string } = { accessToken: data.access_token };
+  if (data.refresh_token) result.refreshToken = data.refresh_token;
+  return result;
+}
+
+/**
  * Inicia a impersonation: lê o access token do admin da sessão, chama o
  * token-exchange (o IdP valida a role admin e audita) e SÓ em sucesso guarda o
  * impersonator (= `account_user_id` atual), regenera a sessão (anti-fixation) e
@@ -131,7 +189,18 @@ export async function startImpersonation(
 
   // O IdP é o gatekeeper: lança se o admin não puder personificar. Chamado ANTES
   // de qualquer mutação de sessão — em caso de erro nada é trocado.
-  await requestTokenExchange(params, adminAccessToken);
+  try {
+    await requestTokenExchange(params, adminAccessToken);
+  } catch (err) {
+    // Access token expirado (4xx do exchange): renova via refresh token e tenta
+    // de novo. Sem refresh token / refresh falho → propaga o erro original.
+    if (!(err instanceof Error) || !/exchange failed: 4\d\d/.test(err.message)) throw err;
+    const refreshed = await refreshAccessToken(ctx, params);
+    if (!refreshed) throw err;
+    rememberAccessToken(ctx, refreshed.accessToken);
+    if (refreshed.refreshToken) rememberRefreshToken(ctx, refreshed.refreshToken);
+    await requestTokenExchange(params, refreshed.accessToken);
+  }
 
   // Anti-fixation: rotaciona o id da sessão (mantém os dados) antes de gravar a
   // nova identidade. Mesmo padrão do consumidor real no RP.

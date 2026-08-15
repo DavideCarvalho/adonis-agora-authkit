@@ -395,6 +395,8 @@ export { ACCOUNT_SESSION_KEY } from './src/host/middleware/account_auth.js';
 // src/host/impersonation_session.ts.
 export {
   rememberAccessToken,
+  rememberRefreshToken,
+  refreshAccessToken,
   startImpersonation,
   impersonationState,
   stopImpersonation,
