@@ -99,7 +99,7 @@ catalogs:
     "@adonisjs/core": "7.4.0"
     "@adonisjs/cors": "3.0.0"
     "@adonisjs/drive": "4.0.0"
-    "@adonisjs/i18n": "3.0.0"
+    "@adonisjs/i18n": "3.0.1"
     "@adonisjs/inertia": "4.2.0"
     "@adonisjs/limiter": "3.0.1"
     "@adonisjs/lock": "2.1.0"
