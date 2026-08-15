@@ -138,14 +138,13 @@ test.group('impersonation_session — invariante 1: exchange falho não troca a 
 
 test.group('impersonation_session — refresh token renova access expirado', () => {
   /** fetch mock: 1º exchange falha (400 = token expirado), refresh responde, 2º exchange ok. */
-  function fetchRefreshThenOk(
-    calls: Array<{ url: string; body: string }>,
-  ): typeof fetch {
+  function fetchRefreshThenOk(calls: Array<{ url: string; body: string }>): typeof fetch {
     let exchangeAttempt = 0;
     return (async (url: any, init: any) => {
       calls.push({ url: String(url), body: String(init?.body ?? '') });
       const body = new URLSearchParams(String(init?.body ?? ''));
-      const isExchange = body.get('grant_type') === 'urn:ietf:params:oauth:grant-type:token-exchange';
+      const isExchange =
+        body.get('grant_type') === 'urn:ietf:params:oauth:grant-type:token-exchange';
       if (isExchange && exchangeAttempt++ === 0) {
         return { ok: false, status: 400, json: async () => ({ error: 'invalid_grant' }) } as any;
       }
@@ -156,7 +155,11 @@ test.group('impersonation_session — refresh token renova access expirado', () 
           json: async () => ({ access_token: 'fresh-admin-at', refresh_token: 'rotated-rt' }),
         } as any;
       }
-      return { ok: true, status: 200, json: async () => ({ access_token: 'target-at', id_token: 'jwt' }) } as any;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ access_token: 'target-at', id_token: 'jwt' }),
+      } as any;
     }) as any;
   }
 
@@ -202,10 +205,11 @@ test.group('impersonation_session — refresh token renova access expirado', () 
     rememberRefreshToken(ctx, 'rt-1');
     const calls: Array<{ url: string; body: string }> = [];
 
-    const result = await refreshAccessToken(
-      ctx,
-      { issuer: 'http://idp.local', clientId: 'app1', fetchImpl: fetchRefreshThenOk(calls) },
-    );
+    const result = await refreshAccessToken(ctx, {
+      issuer: 'http://idp.local',
+      clientId: 'app1',
+      fetchImpl: fetchRefreshThenOk(calls),
+    });
 
     assert.equal(result?.accessToken, 'fresh-admin-at');
     assert.equal(result?.refreshToken, 'rotated-rt');

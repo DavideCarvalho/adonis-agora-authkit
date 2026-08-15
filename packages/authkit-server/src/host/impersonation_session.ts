@@ -129,7 +129,10 @@ async function requestTokenExchange(
  */
 export async function refreshAccessToken(
   ctx: HttpContext,
-  params: Pick<StartImpersonationParams, 'issuer' | 'clientId' | 'clientSecret' | 'tokenEndpoint' | 'fetchImpl'>,
+  params: Pick<
+    StartImpersonationParams,
+    'issuer' | 'clientId' | 'clientSecret' | 'tokenEndpoint' | 'fetchImpl'
+  >,
 ): Promise<{ accessToken: string; refreshToken?: string } | null> {
   const refreshToken = ctx.session.get(ADMIN_REFRESH_TOKEN_SESSION_KEY) as string | undefined;
   if (!refreshToken) return null;
