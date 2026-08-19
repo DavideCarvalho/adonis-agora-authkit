@@ -171,6 +171,91 @@ export function checkAccountStore(input: DoctorInput): Finding[] {
   return findings;
 }
 
+/**
+ * Propriedades do model que o account store Lucid escreve/lê, agrupadas pelo
+ * FLUXO que deixa de funcionar quando a coluna não existe. Agrupar por fluxo (e
+ * não listar colunas soltas) é o que torna o achado acionável: "falta
+ * `password_reset_token`" não diz nada a quem não conhece o interior da lib;
+ * "o reset de senha vai quebrar" diz.
+ */
+const REQUIRED_COLUMN_GROUPS: { flow: string; properties: string[] }[] = [
+  { flow: 'identity (every flow)', properties: ['email'] },
+  { flow: 'password login', properties: ['password'] },
+  { flow: 'role claims / admin', properties: ['globalRoles'] },
+  {
+    flow: 'password reset',
+    properties: ['passwordResetToken', 'passwordResetExpiresAt'],
+  },
+  {
+    flow: 'email verification',
+    properties: ['emailVerifiedAt', 'emailVerificationToken'],
+  },
+];
+
+/**
+ * Propriedades OPCIONAIS: a capability correspondente é detectada pela presença
+ * da coluna, então ausência é configuração válida (feature desligada) e nunca
+ * um erro — só vale reportar para que a ausência seja uma escolha, e não uma
+ * surpresa.
+ */
+const OPTIONAL_COLUMN_GROUPS: { capability: string; properties: string[] }[] = [
+  { capability: 'profile (name/avatar)', properties: ['fullName', 'avatarUrl'] },
+  { capability: 'disable/enable account', properties: ['disabledAt'] },
+  { capability: 'password expiration', properties: ['passwordChangedAt'] },
+];
+
+/**
+ * Valida que o model por trás do account store tem as colunas que o store
+ * escreve. Existe por causa da adoção brownfield: quando o host aponta o
+ * AuthKit para a tabela `users` que ele JÁ tinha, as colunas dos mixins
+ * (`password_reset_token`, `email_verification_token`, …) não existem, o app
+ * sobe normalmente, e a falha só aparece quando alguém clica em "esqueci minha
+ * senha" — em produção. Este check antecipa isso para o boot.
+ *
+ * Silencioso quando não há o que inspecionar: um store custom (não-Lucid) não
+ * expõe `__model`, e nesse caso o contrato é responsabilidade de quem o
+ * implementou.
+ */
+export function checkAccountStoreColumns(input: DoctorInput): Finding[] {
+  const store = input.authkitConfig?.accountStore;
+  const model = store?.__model;
+  const definitions: Map<string, { columnName?: string }> | undefined = model?.$columnsDefinitions;
+  if (!definitions || typeof definitions.get !== 'function') return [];
+
+  /** Nome da coluna real (o que o DBA procura), com fallback à propriedade. */
+  const columnOf = (property: string): string => definitions.get(property)?.columnName ?? property;
+  const missing = (properties: string[]): string[] => properties.filter((p) => !definitions.has(p));
+
+  const findings: Finding[] = [];
+
+  for (const { flow, properties } of REQUIRED_COLUMN_GROUPS) {
+    const absent = missing(properties);
+    if (absent.length === 0) continue;
+    const named = absent.map((p) => `\`${p}\` (column \`${columnOf(p)}\`)`).join(', ');
+    findings.push({
+      level: 'error',
+      message: `accountStore model (${model.name ?? 'model'}) is missing ${named} — ${flow} will fail at runtime. Add the column(s) with a migration, or map an existing one with @column({ columnName: '…' }).`,
+    });
+  }
+
+  const off = OPTIONAL_COLUMN_GROUPS.filter((g) => missing(g.properties).length > 0);
+  if (off.length > 0) {
+    findings.push({
+      level: 'ok',
+      message: `Capabilities off (column absent): ${off.map((g) => g.capability).join(', ')}.`,
+    });
+  }
+
+  if (findings.every((f) => f.level === 'ok')) {
+    findings.unshift({
+      level: 'ok',
+      message: `accountStore model (${model.name ?? 'model'}) has every required column.`,
+    });
+  }
+
+  return findings;
+}
+
 /** session provider configurado + warn se cookie store com tokenSets grandes. */
 export function checkSession(input: DoctorInput): Finding[] {
   if (!input.peers.session) {
@@ -964,6 +1049,7 @@ export function runAllChecks(input: DoctorInput): Finding[] {
   const volatility = checkAdapterVolatility(input);
   if (volatility) findings.push(volatility);
   findings.push(...checkAccountStore(input));
+  findings.push(...checkAccountStoreColumns(input));
   findings.push(...checkSession(input));
   findings.push(checkShield(input));
   findings.push(checkAlly(input));

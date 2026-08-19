@@ -1,0 +1,214 @@
+---
+icon: Import
+title: Adopting an Existing User Table
+description: Point AuthKit at the `users` table you already have — without copying a single row.
+---
+
+You already have a product, a `users` table, and people logging into it. You want AuthKit's
+OIDC provider, MFA, passkeys and admin console — but you are not about to migrate everyone
+into a new table and reset their passwords.
+
+You don't have to. **AuthKit never owns your users table.** `ensureAuthkitSchema` creates
+only satellite tables (`auth_mfa`, `auth_settings`, `auth_password_history`,
+`auth_organizations`, …), all keyed by an opaque `account_id` with **no foreign key** to any
+user table. Your table stays yours; AuthKit hangs off the side of it.
+
+The whole adoption is: add a few columns, map your model, teach AuthKit to read your old
+password hashes. Nobody gets logged out and nobody resets a password.
+
+<Callout type="info">
+  If your users live somewhere AuthKit can't reach with Lucid — a different database, a
+  legacy service, a CSV export — use [`authkit:users:import`](/docs/passwords-and-migration)
+  instead. That copies rows (preserving hashes). This page is for adopting a table **in
+  place**.
+</Callout>
+
+## 1. What the store actually needs
+
+The Lucid account store is coupled to **model property names**, not column names. Here is
+every property it touches, grouped by the flow that breaks without it:
+
+| Flow | Properties | From |
+| --- | --- | --- |
+| Everything | `email` | `withAuthUser()` |
+| Password login | `password` | `withAuthUser()` |
+| Role claims / admin | `globalRoles` | `withAuthUser()` |
+| Password reset | `passwordResetToken`, `passwordResetExpiresAt` | `withCredentials()` |
+| Email verification | `emailVerifiedAt`, `emailVerificationToken` | `withCredentials()` |
+
+And the optional ones — these are **capability-probed**, so an absent column simply means
+that feature is off, never an error:
+
+| Capability | Properties |
+| --- | --- |
+| Profile (name / avatar) | `fullName`, `avatarUrl` |
+| Disable / enable account | `disabledAt` |
+| Password expiration | `passwordChangedAt` |
+
+You almost certainly already have `email` and some password column. The rest is a short
+additive migration.
+
+## 2. The additive migration
+
+Nothing here is destructive — no drops, no renames, no data movement:
+
+```ts title="database/migrations/xxxx_adopt_authkit_columns.ts"
+import { BaseSchema } from '@adonisjs/lucid/schema'
+
+export default class extends BaseSchema {
+  async up() {
+    this.schema.alterTable('users', (table) => {
+      table.text('global_roles').nullable()
+      table.timestamp('email_verified_at').nullable()
+      table.string('email_verification_token').nullable()
+      table.string('password_reset_token').nullable()
+      table.timestamp('password_reset_expires_at').nullable()
+      // Optional — add only the capabilities you want:
+      // table.timestamp('disabled_at').nullable()
+      // table.timestamp('password_changed_at').nullable()
+    })
+  }
+
+  async down() {
+    this.schema.alterTable('users', (table) => {
+      table.dropColumn('global_roles')
+      table.dropColumn('email_verified_at')
+      table.dropColumn('email_verification_token')
+      table.dropColumn('password_reset_token')
+      table.dropColumn('password_reset_expires_at')
+    })
+  }
+}
+```
+
+Existing rows get `NULL` everywhere, which is exactly the right starting state: no roles, no
+pending reset, email unverified.
+
+<Callout type="warn">
+  If your users are already email-verified in your own system, backfill
+  `email_verified_at` in the same migration — otherwise a `requireVerifiedEmail` policy
+  will lock out your entire existing base on the first login.
+</Callout>
+
+## 3. Map your model
+
+Compose the mixins onto the model you already have. If your columns are named differently —
+a Portuguese schema, a Rails-era convention, whatever — map them with `columnName` and you
+don't have to touch the database at all:
+
+```ts title="app/models/user.ts"
+import { BaseModel, column } from '@adonisjs/lucid/orm'
+import { compose } from '@adonisjs/core/helpers'
+import { withAuthUser, withCredentials } from '@adonis-agora/authkit-server'
+
+export default class User extends compose(BaseModel, withAuthUser(), withCredentials()) {
+  static table = 'users'
+
+  @column({ isPrimary: true })
+  declare id: number            // integer PKs are fine — see below
+
+  @column({ columnName: 'senha', serializeAs: null })
+  declare password: string
+
+  @column({ columnName: 'nome_completo' })
+  declare fullName: string | null
+}
+```
+
+Then point the store at it — the same model your app already uses:
+
+```ts title="config/authkit_server.ts"
+accountStore: lucidAccountStore(User)
+```
+
+<Callout type="info">
+  **Integer primary keys are supported.** The store coerces `id` to a string on the way out,
+  because the `id` becomes the `sub` claim and OIDC requires `sub` to be a string. You don't
+  need to migrate to UUIDs to adopt AuthKit.
+</Callout>
+
+## 4. Keep the old passwords working
+
+This is the part people expect to be painful. It isn't.
+
+AuthKit hashes with Scrypt. Your existing hashes are probably bcrypt (Laravel `$2y$`, Rails
+`$2a$`) or PBKDF2 (Django). Give the store a `legacyVerifier` and it will fall back to it
+whenever its native hasher doesn't recognise a hash — then **transparently rehash and save**
+the password to the modern format on that same successful login:
+
+```ts title="config/authkit_server.ts"
+accountStore: lucidAccountStore(User, {
+  password: {
+    legacyVerifier: async (hashedPassword, plainPassword) => {
+      // Return null when this verifier doesn't recognise the format —
+      // AuthKit then treats it as "not my problem" rather than "wrong password".
+      if (!hashedPassword.startsWith('$2y$') && !hashedPassword.startsWith('$2a$')) return null
+      const bcrypt = await import('bcrypt')
+      // PHP's `$2y$` and node-bcrypt's `$2b$` are the same algorithm.
+      const normalized = '$2b$' + hashedPassword.slice(4)
+      return bcrypt.compare(plainPassword, normalized)
+    },
+  },
+})
+```
+
+Common origins:
+
+| Source | Prefix | Verifier |
+| --- | --- | --- |
+| Laravel / PHP `password_hash` | `$2y$` | `bcrypt.compare` after rewriting the prefix to `$2b$` |
+| Rails `has_secure_password` | `$2a$` | `bcrypt.compare` directly |
+| Django | `pbkdf2_sha256$` | split `algo$iterations$salt$hash`, recompute with `crypto.pbkdf2` |
+| Node `bcrypt` | `$2b$` | `bcrypt.compare` directly |
+
+Returning `null` (not `false`) for an unrecognised format matters: `null` means "I can't
+judge this hash", `false` means "wrong password". You can chain several verifiers this way
+when your base has hashes from more than one era.
+
+Each successful legacy login emits a `password.rehashed` audit event, so you can watch the
+migration drain — query your audit-log table, or just count them as they arrive:
+
+```ts title="config/authkit_server.ts"
+events: {
+  onEvent: (event) => {
+    if (event.type === 'password.rehashed') metrics.increment('authkit.password.rehashed')
+  },
+}
+```
+
+Your base migrates itself as people log in. No mass reset, no email blast.
+
+## 5. Verify before you ship
+
+`authkit:doctor` inspects the model behind your account store and reports any property the
+store writes but your table doesn't have — naming both the property and the real column, and
+the flow that would break:
+
+```bash
+node ace authkit:doctor
+```
+
+```
+❌ accountStore model (User) is missing `passwordResetToken` (column `password_reset_token`)
+   — password reset will fail at runtime. Add the column(s) with a migration, or map an
+   existing one with @column({ columnName: '…' }).
+✅ Capabilities off (column absent): password expiration.
+```
+
+This is the check that turns "works fine until someone clicks *forgot my password* in
+production" into a failure you see before deploying. Run it in CI.
+
+## 6. What you did not have to do
+
+- No copying rows between tables.
+- No password reset for existing users.
+- No UUID migration.
+- No foreign keys from AuthKit's tables into yours — you can drop the satellites and walk
+  away, and your `users` table is untouched.
+
+## Where the accounts came from
+
+If your app also creates users through its own flows, keep AuthKit in sync (or the other way
+round) with [events](/docs/events#provisioning-your-own-database) — `onEvent` and the webhook
+both receive the complete audit event, so you can mirror signups, disables and deletions into
+your own tables without adopting any other Agora library.

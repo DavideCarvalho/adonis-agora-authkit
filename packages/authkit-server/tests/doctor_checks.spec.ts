@@ -4,6 +4,7 @@ import {
   type DoctorInput,
   checkAccessTokens,
   checkAccountStore,
+  checkAccountStoreColumns,
   checkAdapterVolatility,
   checkAdmin,
   checkAuthMethodsSetting,
@@ -473,5 +474,118 @@ test.group('doctor checks', () => {
     assert.equal(signingKeyAgeFinding(120, 90).level, 'warn');
     assert.equal(signingKeyAgeFinding(30, 90).level, 'ok');
     assert.equal(signingKeyAgeFinding(null, 90).level, 'ok'); // sem keystore managed → no-op ok
+  });
+});
+
+/**
+ * Brownfield: o host aponta o account store para a tabela de usuários que ele JÁ
+ * tem. Se faltar uma coluna que o core store escreve, o app sobe normalmente e só
+ * quebra quando alguém exercita o fluxo — em produção. Estes testes fixam a
+ * detecção no boot/doctor.
+ */
+function fakeModel(properties: string[]): any {
+  return {
+    name: 'User',
+    $columnsDefinitions: new Map(properties.map((p) => [p, { columnName: p }])),
+  };
+}
+
+/** Model completo (withAuthUser + withCredentials). */
+const COMPLETE = [
+  'id',
+  'email',
+  'password',
+  'globalRoles',
+  'emailVerifiedAt',
+  'emailVerificationToken',
+  'passwordResetToken',
+  'passwordResetExpiresAt',
+];
+
+test.group('doctor — colunas do model do account store', () => {
+  test('model completo passa sem achado de coluna faltando', ({ assert }) => {
+    const findings = checkAccountStoreColumns(
+      baseInput({ authkitConfig: { accountStore: { __model: fakeModel(COMPLETE) } } }),
+    );
+    assert.isEmpty(findings.filter((f) => f.level === 'error' || f.level === 'warn'));
+  });
+
+  test('coluna faltando vira error nomeando a coluna E o fluxo que quebra', ({ assert }) => {
+    const findings = checkAccountStoreColumns(
+      baseInput({
+        authkitConfig: {
+          accountStore: {
+            __model: fakeModel(COMPLETE.filter((c) => c !== 'passwordResetToken')),
+          },
+        },
+      }),
+    );
+    const err = findings.find((f) => f.level === 'error');
+    assert.isDefined(err, 'faltando passwordResetToken deveria virar error');
+    assert.include(err!.message, 'passwordResetToken');
+    // Sem dizer O QUE quebra, o achado não é acionável.
+    assert.match(err!.message, /password reset/i);
+  });
+
+  test('colunas opcionais ausentes viram info, nunca error', ({ assert }) => {
+    // fullName/avatarUrl/disabledAt são capability-probed: ausentes = feature off.
+    const findings = checkAccountStoreColumns(
+      baseInput({ authkitConfig: { accountStore: { __model: fakeModel(COMPLETE) } } }),
+    );
+    assert.isEmpty(findings.filter((f) => f.level === 'error'));
+    const info = findings.find((f) => f.message.includes('Capabilities off'));
+    assert.isDefined(
+      info,
+      'deveria reportar quais capabilities estão desligadas por falta de coluna',
+    );
+    // Ausência de coluna opcional é configuração válida — jamais error/warn.
+    assert.equal(info!.level, 'ok');
+    assert.include(info!.message, 'profile');
+    assert.include(info!.message, 'disable/enable');
+  });
+
+  test('runAllChecks ROTEIA o check de colunas (um check não-ligado é um check morto)', ({
+    assert,
+  }) => {
+    const findings = runAllChecks(
+      baseInput({
+        authkitConfig: {
+          issuer: 'https://idp.test/oidc',
+          accountStore: {
+            __model: fakeModel(COMPLETE.filter((c) => c !== 'emailVerificationToken')),
+          },
+        },
+      }),
+    );
+    const err = findings.find((f) => f.message.includes('emailVerificationToken'));
+    assert.isDefined(err, 'runAllChecks não está chamando checkAccountStoreColumns');
+    assert.equal(err!.level, 'error');
+    assert.isTrue(hasErrors(findings));
+  });
+
+  test('store não-Lucid (sem __model) não vira erro — nada a inspecionar', ({ assert }) => {
+    const findings = checkAccountStoreColumns(
+      baseInput({ authkitConfig: { accountStore: { findById: () => {} } } }),
+    );
+    assert.isEmpty(findings.filter((f) => f.level === 'error'));
+  });
+
+  test('reporta o columnName real, não o nome da propriedade', ({ assert }) => {
+    // Brownfield mapeia `password` → coluna `senha`; a mensagem tem que citar a
+    // coluna que o DBA vai procurar no banco.
+    const model = {
+      name: 'User',
+      $columnsDefinitions: new Map<string, { columnName: string }>([
+        ['id', { columnName: 'id' }],
+        ['email', { columnName: 'email' }],
+        ['password', { columnName: 'senha' }],
+      ]),
+    };
+    const findings = checkAccountStoreColumns(
+      baseInput({ authkitConfig: { accountStore: { __model: model } } }),
+    );
+    const all = findings.map((f) => f.message).join(' ');
+    assert.notInclude(all, "'password'");
+    assert.include(all, 'passwordResetToken');
   });
 });

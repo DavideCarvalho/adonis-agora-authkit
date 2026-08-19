@@ -326,7 +326,11 @@ export function lucidAccountStore(
       return encrypter.decrypt(stored);
     },
     toAccount: (row: any): AuthAccount => ({
-      id: row.id,
+      // `String(...)`: o `id` do AuthAccount vira o claim `sub`, que a spec OIDC
+      // exige que seja string. Tabelas adotadas em brownfield quase sempre têm
+      // `id` INTEGER auto-increment, e sem a coerção o número vazava para o
+      // token (e para todo call-site tipado como string).
+      id: String(row.id),
       email: row.email,
       globalRoles: row.globalRoles ?? [],
       name: row.fullName ?? undefined,
@@ -411,6 +415,16 @@ export function lucidAccountStore(
      */
     __mfaIssuer: mfaIssuer,
     __webauthn: options.webauthn,
+    /**
+     * O model Lucid por trás deste store — exposto para o `authkit:doctor`
+     * inspecionar `$columnsDefinitions` e avisar sobre colunas ausentes ANTES
+     * que o fluxo correspondente quebre em produção (ver
+     * `doctor/checks.ts#checkAccountStoreColumns`). Importa sobretudo em
+     * adoção brownfield, onde o model aponta para uma tabela `users` que já
+     * existia e não passou pelas migrations do authkit.
+     * NÃO faz parte do contrato AccountStore.
+     */
+    __model: Model,
   } as AccountStore;
 
   // Histórico de senhas: capability-probed via tabela `auth_password_history`.
@@ -466,7 +480,8 @@ export async function lucidAccountStoreAsync(
         sealSecret: (s) => s,
         openSecret: (s) => s ?? null,
         toAccount: (row: any) => ({
-          id: row.id,
+          // Ver a nota em `toAccount` acima: `sub` precisa ser string.
+          id: String(row.id),
           email: row.email,
           globalRoles: row.globalRoles ?? [],
           name: row.fullName ?? undefined,
