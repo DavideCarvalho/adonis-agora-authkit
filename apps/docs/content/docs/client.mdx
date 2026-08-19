@@ -485,6 +485,43 @@ const user = await ctx.auth.getUserOrFail(); // TUser, throws when anonymous
 The class is generic in your user type — `Authenticator<AppUser>` — so a host that pins the
 generic gets `AppUser | null` out of `getUser()` at every call site with no casts.
 
+### Typing `ctx.auth`
+
+There are two ways, and you take exactly one.
+
+Declare it yourself, parameterised over your model — this is what most apps want, and what
+[Getting started](/docs/getting-started) shows:
+
+```ts title="types/authkit.ts"
+import type { Authenticator } from '@adonis-agora/authkit-client'
+import type AppUser from '#models/app_user'
+
+declare module '@adonisjs/core/http' {
+  interface HttpContext {
+    auth: Authenticator<AppUser>
+  }
+}
+```
+
+Or opt into the library's own declaration, which leaves the generic at its `unknown`
+default:
+
+```ts title="anywhere in your app"
+import '@adonis-agora/authkit-client/types'
+```
+
+<Callout type="warn">
+  Never do both. `HttpContext.auth` declared twice with different types does not merge —
+  TypeScript keeps whichever declaration it reached first and raises the conflict on the
+  other, inside a `.d.ts`, where every AdonisJS app's `skipLibCheck` throws it away. The
+  symptom is silent and global: `getUser()` starts returning `unknown` everywhere, and
+  nothing points at the cause.
+
+  This is why importing a middleware never brings the declaration with it. Registering
+  `authkit_middleware` types the `authkit.client` container binding and nothing else —
+  what `ctx.auth` *is* stays your decision.
+</Callout>
+
 ### `getUser()` versus `getUserOrFail()`
 
 The pair mirrors `getIdentity()` / `authenticate()`, one level up: `getIdentity()` gives you

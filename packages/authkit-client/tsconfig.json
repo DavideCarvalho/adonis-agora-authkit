@@ -9,6 +9,7 @@
   "include": [
     "index.ts",
     "types.ts",
+    "container_bindings.ts",
     "src/**/*",
     "providers/**/*",
     "services/**/*",

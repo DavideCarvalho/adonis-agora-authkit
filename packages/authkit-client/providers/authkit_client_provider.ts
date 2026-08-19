@@ -1,3 +1,6 @@
+// Single source of this package's container bindings (see container_bindings.ts).
+// A bare side-effect import so the declaration survives into the emitted `.d.ts`.
+import '../container_bindings.js';
 import { randomUUID } from 'node:crypto';
 import type { SessionResolver } from '@adonis-agora/authkit-core';
 import { configProvider } from '@adonisjs/core';
@@ -313,12 +316,6 @@ export class AuthkitClientManager {
         return tokenSet?.accessToken;
       },
     });
-  }
-}
-
-declare module '@adonisjs/core/types' {
-  interface ContainerBindings {
-    'authkit.client': AuthkitClientManager;
   }
 }
 
