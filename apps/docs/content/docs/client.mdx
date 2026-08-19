@@ -5,8 +5,8 @@ description: Wire a relying party with @adonis-agora/authkit-client.
 ---
 
 The client kit makes an AdonisJS app a relying party of an AuthKit IdP: it resolves an
-`Identity` per request, maps it to your app's user, and gives you the login / callback /
-logout helpers.
+`Identity` per request, maps it to your app's user, and owns the login / callback / logout
+routes so you never hand-write the OIDC dance.
 
 ## Install & configure
 
@@ -15,12 +15,14 @@ npm install @adonis-agora/authkit-client
 node ace configure @adonis-agora/authkit-client
 ```
 
+The configure command writes `config/authkit_client.ts`, registers the provider, registers
+`authkit_middleware` as a router-global middleware, and adds the four env validations
+(`AUTHKIT_ISSUER`, `AUTHKIT_CLIENT_ID`, `AUTHKIT_CLIENT_SECRET`, `AUTHKIT_REDIRECT_URI`).
+
 ```ts title="config/authkit_client.ts"
 import env from "#start/env";
-import { defineConfig, resolvers } from "@adonis-agora/authkit-client";
-import type { Identity } from "@adonis-agora/authkit-client";
+import { defineConfig, resolvers, lucidMirror } from "@adonis-agora/authkit-client";
 import AppUser from "#models/app_user";
-import UserRole from "#models/user_role";
 
 const authkitClientConfig = defineConfig({
   issuer: env.get("AUTHKIT_ISSUER"),
@@ -29,27 +31,43 @@ const authkitClientConfig = defineConfig({
   redirectUri: env.get("AUTHKIT_REDIRECT_URI"),
   resolver: resolvers.jwt({ tokenSource: "session" }),
 
-  resolveUser: async (identity: Identity) => {
-    const user = await AppUser.updateOrCreate(
-      { id: identity.userId },
-      {
-        id: identity.userId,
-        email: identity.email,
-        fullName: identity.profile?.name ?? null,
-      },
-    );
-    await user.load("roles");
-    return user;
-  },
-
-  resolveAppRoles: async (identity: Identity) => {
-    const rows = await UserRole.query().where("userId", identity.userId);
-    return rows.map((r) => r.role);
-  },
+  // Mirror the IdP identity into a local Lucid row on every login.
+  resolveUser: lucidMirror(AppUser, {
+    sync: (identity) => ({
+      email: identity.email,
+      fullName: identity.profile?.name ?? null,
+    }),
+    preload: ["roles"],
+    injectGlobalRoles: true,
+  }),
 });
 
 export default authkitClientConfig;
 ```
+
+<Callout type="info">
+  AuthKit **authenticates**. It does not carry your app's roles or permissions — that is
+  [`@adonis-agora/authz`](/docs/security)'s job. The only roles the client knows about are
+  the IdP's *global* roles, read from the `globalRolesClaim` (default `roles`).
+</Callout>
+
+### The full config surface
+
+| Key | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `issuer` | `string` | — | The IdP's issuer URL. Every other endpoint is derived from it. |
+| `clientId` | `string` | — | This RP's client id, also the expected `aud`. |
+| `clientSecret` | `string?` | — | Set for confidential clients; omit for public ones. |
+| `redirectUri` | `string` | — | Must match the callback route you register **and** the URI registered on the client. |
+| `resolver` | `ResolverFactory` | — | How a request becomes an `Identity`. See below. |
+| `resolveUser` | `(identity, ctx) => Promise<unknown>` | — | Maps the identity to your app's user object. |
+| `sessionKey` | `string` | `authkit` | Session key the token set is stored under. |
+| `scopes` | `string[]` | `openid profile email offline_access roles` | Scopes requested at the authorize endpoint. |
+| `globalRolesClaim` | `string` | `roles` | Claim the global roles are read from. |
+| `backchannelLogout` | `{ store }` | — | Batteries-included [back-channel logout](/docs/back-channel-logout). |
+| `sessionIndex` | `SessionIndex?` | — | Manual sid/sub-to-local-session map, for server-side session stores. |
+| `onBackchannelLogout` | `(event) => void` | — | Extra hook run after a valid `logout_token` arrives. |
+| `resilience` | `ResiliencePolicy?` | — | Wraps outbound IdP calls. See below. |
 
 ## Resolvers: jwt, pat, opaque
 
@@ -98,31 +116,492 @@ interface Identity {
 }
 ```
 
-All three resolvers (`jwt`, `pat`, `opaque`) populate `profile.avatarUrl`
-(from `picture`) and `sessionId` (from `sid`), so these fields are available regardless of token
-model. See [Resolvers](/docs/resolvers).
+All three resolvers populate `profile.avatarUrl` (from `picture`) and `sessionId` (from
+`sid`), so these fields are available regardless of token model.
 
-## resolveUser & resolveAppRoles
+## Mapping the identity to your user
 
-- **`resolveUser(identity, ctx)`** — map the identity to _your_ user record (create on
-  first login, hydrate relations). Whatever you return becomes the authenticated user.
-- **`resolveAppRoles(identity)`** — app-local roles (distinct from the IdP's
-  `globalRoles`), e.g. for your authorization policies.
+`resolveUser` is the seam between the IdP's claims and your domain. It receives the
+validated `Identity` and a small context object carrying the session's `accessToken`, and
+whatever it returns becomes the value of `ctx.auth.getUser()`. There are three ready-made
+shapes, and hand-writing your own is the fourth.
+
+### `lucidMirror` — mirror the identity into a local table
+
+Almost every relying party wants the same thing: a local row keyed by the IdP's `sub`, kept
+in sync with the token's claims on every login, with a couple of relations preloaded.
+`lucidMirror` is exactly that, as a factory:
+
+```ts
+import { lucidMirror } from "@adonis-agora/authkit-client";
+import AppUser from "#models/app_user";
+
+resolveUser: lucidMirror(AppUser, {
+  sync: (identity) => ({
+    email: identity.email,
+    fullName: identity.profile?.name ?? null,
+  }),
+  preload: ["roles", "organization"],
+  injectGlobalRoles: true,
+  idColumn: "id",
+});
+```
+
+On each resolution it runs `Model.updateOrCreate({ [idColumn]: identity.userId }, { ...sync(identity) })`,
+then loads the relations you listed, then — if you asked for it — assigns the IdP's global
+roles onto a **non-persisted** property of the instance so policies can read them without a
+second lookup.
+
+| Option | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `sync` | `(identity) => Record<string, unknown>` | `{ email }` | Columns refreshed from the token on every login. |
+| `preload` | `string[]` | — | Lucid relations loaded on the resolved instance. |
+| `injectGlobalRoles` | `boolean \| string` | `false` | `true` assigns `identity.globalRoles` to `globalRoles`; pass a string to name the property yourself. |
+| `idColumn` | `string` | `id` | Column matched against `identity.userId` (the `sub` claim). |
+
+The only requirement on the model is a static `updateOrCreate` — any Lucid model qualifies.
+`@adonisjs/lucid` is an **optional** peer dependency, so an app that never calls
+`lucidMirror` never needs it installed.
+
+### `identityToUser` — claims only, no database
+
+When the ID token is fat enough to be the user (typical in a separate-databases topology),
+skip the round-trip entirely:
+
+```ts
+import { identityToUser } from "@adonis-agora/authkit-client";
+
+resolveUser: identityToUser;
+```
+
+It returns a `ClaimsUser`: `{ id, email, name?, avatarUrl?, globalRoles }`.
+
+### `createUserinfoResolver` — ask the IdP
+
+When the app needs profile data the token does not carry, fetch it from the IdP's
+`userinfo` endpoint with the session's access token:
+
+```ts
+import { createUserinfoResolver } from "@adonis-agora/authkit-client";
+
+resolveUser: createUserinfoResolver({ issuer: env.get("AUTHKIT_ISSUER") });
+```
+
+Point it at the issuer and it derives `${issuer}/me`, the AuthKit IdP's userinfo route; pass
+`userinfoEndpoint` explicitly for a third-party IdP whose path differs (take it from
+[discovery](#endpoint-discovery)). `fetchImpl` lets tests inject a fake `fetch`.
+
+The resolved object is `identityToUser(identity)` merged with the userinfo response, with
+the response winning on conflicts. When there is no access token to present — a `bearer`
+token source carrying only an ID token, for instance — it falls back to `identityToUser`
+rather than failing the request. A non-2xx userinfo response throws.
+
+<Callout type="warn">
+  This resolver runs on **every** request that resolves a session, so it puts the IdP on
+  your request path. Prefer `lucidMirror` (one write at login, local reads afterwards) unless
+  you genuinely need live IdP data per request.
+</Callout>
+
+### Writing your own
+
+The escape hatch is a plain function — reach for it when the mapping is not an
+`updateOrCreate` (multi-tenant lookups, soft-deleted accounts, provisioning side effects):
+
+```ts
+import type { Identity } from "@adonis-agora/authkit-client";
+
+resolveUser: async (identity: Identity, { accessToken }) => {
+  const user = await AppUser.findBy("externalId", identity.userId);
+  if (!user) return null; // fail closed: no local account, no session user
+  if (user.suspendedAt) return null;
+  return user;
+};
+```
+
+Returning `null` is meaningful: `getUser()` yields `null` and
+[`getUserOrFail()`](#the-authenticator) throws.
 
 ## Middleware
 
-Register `authkit_middleware` so each request gets an authenticator on `ctx.auth`:
+The client ships five middleware. Which ones you register depends on whether `ctx.auth`
+belongs to AuthKit or to `@adonisjs/auth` — see [Native @adonisjs/auth](/docs/adonis-auth)
+for the second path.
+
+| Module | Kind | Responsibility |
+| --- | --- | --- |
+| `authkit_middleware` | router-global | Refreshes the token set, puts an `Authenticator` on `ctx.auth`. |
+| `authkit_context_middleware` | router-global | Refreshes the token set, puts an `Authenticator` on `ctx.authkit`, leaves `ctx.auth` alone. |
+| `backchannel_revocation_middleware` | router-global | Drops the local session when the IdP revoked it out-of-band. |
+| `auth_middleware` | named | Requires a session; redirects anonymous hits to your login route. |
+| `silent_auth_middleware` | named | Resolves the session without requiring it. |
+
+### The global pair
+
+`authkit_middleware` is the one `node ace configure` registers. Per request it resolves the
+`authkit.client` manager, **proactively refreshes** the token set (`maybeRefresh` — see
+[Refresh Tokens](/docs/refresh-tokens)), and attaches the `Authenticator` to `ctx.auth`.
 
 ```ts title="start/kernel.ts"
 router.use([
-  // ...
+  () => import("@adonisjs/session/session_middleware"),
   () => import("@adonis-agora/authkit-client/authkit_middleware"),
+  () => import("@adonis-agora/authkit-client/backchannel_revocation_middleware"),
 ]);
 ```
 
-The middleware resolves the `authkit.client` manager, **proactively refreshes** the token
-set (`maybeRefresh` — see [Refresh Tokens](/docs/refresh-tokens)), and attaches
-`ctx.auth = await manager.createAuthenticator(ctx)`.
+`authkit_context_middleware` is its sibling for hosts that hand `ctx.auth` to
+`@adonisjs/auth`. It performs the same refresh and resolution but memoizes the
+`Authenticator` on `ctx.authkit`, so the AuthKit-only surface (`getIdentity()`,
+`hasGlobalRole()`, `toSharedProps()`) stays reachable on every route — public ones
+included — while the framework owns `ctx.auth`.
+
+<Callout type="warn">
+  Register **one** of the two. Both together resolve the session twice into two different
+  objects, and the two would disagree the moment one of them refreshes the token set.
+</Callout>
+
+`backchannel_revocation_middleware` belongs **after** whichever of the two you chose (it
+needs the manager) and **before** your named auth middleware. It is a no-op unless
+`backchannelLogout: { store }` is configured — see
+[Back-Channel Logout](/docs/back-channel-logout).
+
+### The named pair
+
+`auth_middleware` requires a session on a browser route. It calls `ctx.auth.check()` and, on
+a miss, redirects instead of throwing — a 302 to a login screen is what a human wants, not a
+500:
+
+```ts title="start/kernel.ts"
+export const middleware = router.named({
+  auth: () => import("@adonis-agora/authkit-client/auth_middleware"),
+  silentAuth: () => import("@adonis-agora/authkit-client/silent_auth_middleware"),
+});
+```
+
+```ts title="start/routes.ts"
+router
+  .group(() => {
+    router.get("/dashboard", [DashboardController]);
+    router.get("/settings", [SettingsController]);
+  })
+  .use(middleware.auth({ redirectTo: "/auth/login" }));
+
+// Marketing pages that render a "log in" or "your account" affordance:
+router.get("/", [HomeController]).use(middleware.silentAuth());
+```
+
+`redirectTo` defaults to `/auth/login`, which is what
+[`registerOidcClient`](#the-login--callback--logout-flow) registers, so the option only
+matters when you moved the prefix. `silent_auth_middleware` takes no options: it resolves the
+session so the view can branch on it and never redirects.
+
+Neither middleware does authorization. Role checks belong on the route, in a policy, or in
+`@adonis-agora/authz`.
+
+## The login / callback / logout flow
+
+`registerOidcClient` registers the whole relying-party surface in one call: authorization
+code + PKCE, a `state` nonce round-tripped through the session, the code exchange, the
+RP-initiated logout, and the back-channel logout endpoint.
+
+```ts title="start/routes.ts"
+import router from "@adonisjs/core/services/router";
+import { registerOidcClient } from "@adonis-agora/authkit-client";
+import { middleware } from "#start/kernel";
+
+registerOidcClient(router, {
+  loginMiddleware: middleware.guest(),
+  redirects: {
+    byGlobalRole: { ADMIN: "/admin", SUPPORT: "/support" },
+    default: "/dashboard",
+  },
+});
+```
+
+That single call registers four routes:
+
+| Method & path | Route name | What it does |
+| --- | --- | --- |
+| `GET /auth/login` | `auth.login` | Generates PKCE + `state`, stores them in the session, redirects to the IdP. |
+| `GET /auth/callback` | `auth.callback` | Verifies `state`, exchanges the code, starts the session, redirects. |
+| `POST /auth/logout` | `auth.logout` | Ends the local session and redirects to the IdP's end-session endpoint. |
+| `POST /auth/backchannel-logout` | `auth.backchannel_logout` | Receives the IdP's `logout_token`. |
+
+<Callout type="info">
+  `redirectUri` in `config/authkit_client.ts` must point at the callback route — with the
+  default prefix that is `https://your-app.example.com/auth/callback` — and the same URI must
+  be registered on the client at the IdP.
+</Callout>
+
+### Options
+
+```ts
+registerOidcClient(router, {
+  prefix: "/session", // -> /session/login, /session/callback, ...
+  loginMiddleware: middleware.guest(),
+  passthroughParams: ["audience", "organization"],
+  redirects: { byGlobalRole: { ADMIN: "/admin" }, default: "/" },
+  postLogoutRedirect: (ctx) => `https://${ctx.request.host()}/goodbye`,
+  backchannelLogout: false,
+
+  afterLogin: async (ctx, identity) => {
+    if (!identity) return;
+    await AuditLog.create({ userId: identity.userId, event: "login" });
+    const invite = ctx.session.pull("pending_invite");
+    if (invite) return `/invites/${invite}`; // returning a string wins
+  },
+});
+```
+
+| Option | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `prefix` | `string` | `/auth` | Path prefix for all four routes. |
+| `loginMiddleware` | middleware | — | Applied to the login route only, in the shape `.use()` accepts. |
+| `passthroughParams` | `string[]` | `['audience']` | Query params forwarded from the login request to the authorize URL. |
+| `afterLogin` | `(ctx, identity) => string \| void` | — | Post-exchange hook. Return a path to redirect there. |
+| `redirects` | `PostLoginRedirects` | — | Role-based destination when `afterLogin` returns nothing. |
+| `postLogoutRedirect` | `string \| (ctx) => string` | origin of `redirectUri` + `/` | Where the IdP sends the browser after logout. |
+| `backchannelLogout` | `boolean` | `true` | Set `false` to skip the back-channel endpoint. |
+
+The redirect decision runs in a fixed order: an `afterLogin` that returns a string wins;
+otherwise `redirects.byGlobalRole` is scanned in declaration order and the first global role
+the identity carries decides; otherwise `redirects.default`; otherwise `/`.
+
+`PostLoginRedirects.byGlobalRole` reads the **IdP's** global roles from the token. Anything
+that depends on your app's own roles or permissions belongs in `afterLogin`, where you can
+query whatever you like and return a path.
+
+### What the generated routes get right
+
+These are the details the hand-written version tends to miss, and the reason to prefer the
+generated routes:
+
+<Accordions>
+<Accordion title="A stale callback restarts the login instead of erroring">
+When the `state` in the session is missing or does not match — a bookmarked callback URL,
+a browser restored from history, a session that expired mid-flow — the callback clears the
+PKCE entry and bounces back to the login route. The hand-rolled version usually throws a
+500 at the token endpoint instead.
+</Accordion>
+<Accordion title="A new login never inherits the previous identity's leftovers">
+The callback starts the session through the manager, which clears anything the previous
+identity in the same cookie jar parked — including a stashed
+[impersonation](/docs/impersonation) credential.
+</Accordion>
+<Accordion title="Logout tears down the whole session, not just the token set">
+The logout route ends the session through the manager before redirecting to the IdP, so a
+parked impersonation credential leaves with it rather than surviving into the next login.
+</Accordion>
+<Accordion title="The back-channel endpoint is already wired">
+The IdP's `logout_token` POST lands on a route that validates it and applies your
+configured revocation store, with no extra routing on your side.
+</Accordion>
+</Accordions>
+
+### Escape hatch: build your own flow
+
+If your host needs a flow the generated routes do not express — a multi-tenant issuer chosen
+per request, a step-up re-authentication, an authorize URL with parameters that are not
+simple passthroughs — the primitives are exported and you can assemble the flow yourself:
+
+```ts
+import {
+  generatePkce,
+  buildAuthorizeUrl,
+  exchangeCode,
+  buildEndSessionUrl,
+} from "@adonis-agora/authkit-client";
+import authkit from "@adonis-agora/authkit-client/services/main";
+import { randomUUID } from "node:crypto";
+
+// 1. Login: generate PKCE + state, stash both in the session, redirect to the IdP
+const { verifier, challenge } = await generatePkce();
+const state = randomUUID();
+ctx.session.put("my_pkce", { verifier, state });
+return ctx.response.redirect(
+  buildAuthorizeUrl({
+    issuer,
+    clientId,
+    redirectUri,
+    scopes: ["openid", "profile", "email", "offline_access"],
+    state,
+    codeChallenge: challenge,
+  }),
+);
+
+// 2. Callback: verify state yourself, exchange the code, start the session
+const stashed = ctx.session.pull("my_pkce");
+if (!stashed || stashed.state !== ctx.request.input("state")) {
+  return ctx.response.redirect("/auth/login");
+}
+const tokens = await exchangeCode({
+  issuer,
+  clientId,
+  clientSecret,
+  redirectUri,
+  code: ctx.request.input("code"),
+  codeVerifier: stashed.verifier,
+});
+authkit.startSession(ctx, tokens);
+
+// 3. Logout: end the local session, then the IdP's
+const idToken = authkit.getIdToken(ctx);
+authkit.endSession(ctx);
+return ctx.response.redirect(
+  buildEndSessionUrl({
+    issuer,
+    idToken,
+    postLogoutRedirectUri: "https://my-app.example.com/",
+  }),
+);
+```
+
+Going manual means **you** now own the `state` comparison, the stale-callback path, the
+session teardown ordering, and the back-channel route. Use `startSession` / `endSession`
+rather than writing the session key directly: they are the two methods that also clear a
+parked impersonation credential, and skipping them is how a live refresh token outlives the
+session that stashed it.
+
+`buildEndSessionUrl` targets `${issuer}/session/end`. Passing `idToken` as the
+`id_token_hint` lets the IdP skip its confirmation page; the `postLogoutRedirectUri` must
+be registered on the client. See [Security](/docs/security) for the logout details.
+
+## The Authenticator
+
+`ctx.auth` (or `ctx.authkit`, on the `@adonisjs/auth` path) is an `Authenticator`. It
+resolves the session **once** per request and memoizes both the identity and the user, so
+calling these repeatedly across a controller and its views costs nothing extra.
+
+```ts
+const identity = await ctx.auth.getIdentity(); // Identity | null
+const identity = await ctx.auth.authenticate(); // Identity, throws when anonymous
+const signedIn = await ctx.auth.check(); // boolean, never throws
+const isAdmin = ctx.auth.hasGlobalRole("ADMIN"); // sync — resolve first
+
+const user = await ctx.auth.getUser(); // TUser | null
+const user = await ctx.auth.getUserOrFail(); // TUser, throws when anonymous
+```
+
+The class is generic in your user type — `Authenticator<AppUser>` — so a host that pins the
+generic gets `AppUser | null` out of `getUser()` at every call site with no casts.
+
+### `getUser()` versus `getUserOrFail()`
+
+The pair mirrors `getIdentity()` / `authenticate()`, one level up: `getIdentity()` gives you
+the IdP's claims, these give you *your* user.
+
+- **`getUser()`** is the honest answer: `null` when there is no session, and also `null` when
+  the session is valid but `resolveUser` produced nothing. Use it on routes that render for
+  visitors and members alike.
+- **`getUserOrFail()`** is fail-closed: it throws rather than hand you a `null` you might
+  forget to check. Use it on routes that already sit behind
+  [`auth_middleware`](#the-named-pair), where `null` would mean the route is misconfigured
+  rather than that a visitor arrived.
+
+```ts
+export default class InvoicesController {
+  // Behind middleware.auth() — a null user here is a bug, not a visitor.
+  async index({ auth }: HttpContext) {
+    const user = await auth.getUserOrFail();
+    return Invoice.query().where("userId", user.id);
+  }
+}
+```
+
+<Callout type="warn">
+  `getUserOrFail()` throws a plain error, not an HTTP response. It is a guard rail against a
+  misconfigured route, **not** a replacement for the auth middleware: put the middleware in
+  front so anonymous visitors get a redirect and only genuine misconfiguration reaches the
+  throw.
+</Callout>
+
+### `toSharedProps()`
+
+Frontends need the same three facts on every page — is anyone signed in, who, and what
+global roles do they carry. `toSharedProps()` assembles exactly the object
+`@adonis-agora/authkit-react` consumes, so the Inertia share is one line:
+
+```ts title="config/inertia.ts"
+import { defineConfig } from "@adonisjs/inertia";
+
+export default defineConfig({
+  sharedData: {
+    auth: (ctx) => ctx.auth.toSharedProps(),
+  },
+});
+```
+
+It returns `null` when there is no session, and `{ user, globalRoles }` when there is —
+`user` being whatever `resolveUser` produced, `globalRoles` the IdP claims. Nothing about
+your app's own authorization appears in it; that stays with
+[`@adonis-agora/authz`](/docs/security). See [React](/docs/react) for the consuming side.
+
+## Reaching the manager
+
+Everything the client does at runtime hangs off `AuthkitClientManager`. Import the singleton
+the same way you would `db` or `mail`:
+
+```ts
+import authkit from "@adonis-agora/authkit-client/services/main";
+
+authkit.clientConfig.issuer; // the resolved config
+authkit.getIdToken(ctx); // the session's id_token, for id_token_hint
+authkit.startSession(ctx, tokenSet); // install a freshly-minted token set
+authkit.endSession(ctx); // tear the session down completely
+await authkit.maybeRefresh(ctx); // refresh if the access token is near expiry
+await authkit.createAuthenticator(ctx); // a fresh Authenticator for this request
+await authkit.handleBackchannelLogout(ctx); // the logout_token endpoint handler
+```
+
+The singleton is bound once the application has booted, which covers every HTTP request,
+command, and job. Resolve `authkit.client` from the container instead in the two places where
+the singleton does not yet exist: inside a service provider's `register()` or `boot()`, and
+inside `config/*.ts` files, both of which run before the app is booted. In an HTTP handler
+`ctx.containerResolver.make('authkit.client')` also works and is what the library's own
+middleware use, but the singleton reads better and needs no `await` on the container.
+
+## Impersonation
+
+The manager implements the token side of [impersonation](/docs/impersonation) — the
+RFC 8693 token exchange plus the session bookkeeping that keeps the operator's own credential
+safe while they are wearing someone else's identity.
+
+```ts
+import authkit from "@adonis-agora/authkit-client/services/main";
+
+export default class ImpersonationController {
+  async start(ctx: HttpContext) {
+    // Authorization is YOURS. The manager does not check who may impersonate whom.
+    await ctx.bouncer.authorize("impersonate", ctx.params.userId);
+
+    await authkit.impersonate(ctx, ctx.params.userId);
+    return ctx.response.redirect("/");
+  }
+
+  async stop(ctx: HttpContext) {
+    const restored = await authkit.stopImpersonating(ctx);
+    // false means the credential could not be attributed to this session — it was
+    // discarded and the session dropped, so send the operator back through login.
+    return ctx.response.redirect(restored ? "/admin" : "/auth/login");
+  }
+}
+```
+
+- **`impersonate(ctx, requestedSubject)`** exchanges the current session's access token for
+  one issued for `requestedSubject`, parks the original token set, and swaps the session over.
+  It throws when there is no active session to impersonate *from*.
+- **`stopImpersonating(ctx)`** returns `true` only when the operator was genuinely restored.
+  A refusal is fail-closed: the parked credential is discarded and the session dropped, so
+  nobody is left stuck impersonating and no live refresh token is handed to whoever holds the
+  cookie jar later.
+- **`isImpersonating(ctx)`** is a synchronous boolean for rendering the "you are viewing as…"
+  banner.
+
+<Callout type="warn">
+  Authorization is entirely the caller's responsibility. Gate `impersonate()` behind Bouncer
+  or `@adonis-agora/authz` **before** calling it — the manager will happily exchange the token
+  for any subject the IdP allows.
+</Callout>
 
 ## Gating an embedded dashboard
 
@@ -152,14 +631,57 @@ Pass `{ role: 'STAFF' }` if your host uses a different global role name for admi
 underlying predicate, `isAuthkitAdmin(ctx, options?)`, is exported too if you need the boolean
 directly.
 
+## Endpoint discovery
+
+The flow helpers derive their URLs from the issuer using the AuthKit IdP's own layout
+(`/auth`, `/token`, `/jwks`, `/session/end`, `/me`, `/token/introspection`). That layout is
+exported as `conventionEndpoints(issuer)`, a pure synchronous function that does no I/O:
+
+```ts
+import { conventionEndpoints, discoverEndpoints } from "@adonis-agora/authkit-client";
+
+// Synchronous, no network — the AuthKit IdP's own route layout.
+const known = conventionEndpoints("https://auth.acme.com/oidc");
+
+// Reads /.well-known/openid-configuration, cached 15 min per issuer.
+const endpoints = await discoverEndpoints("https://keycloak.acme.com/realms/acme", {
+  overrides: { endSessionEndpoint: "https://keycloak.acme.com/custom/logout" },
+});
+```
+
+`discoverEndpoints` is the one to use against a third-party IdP — Keycloak, Auth0, Okta,
+Entra — because none of them lay their routes out the way the AuthKit IdP does. It caches per
+issuer for 15 minutes (tune with `cacheTtlMs`), so calling it per request is fine, and
+`overrides` win field by field over whatever the document says.
+
+The two are not alternatives so much as layers: `discoverEndpoints` falls back to
+`conventionEndpoints` when the discovery document is unreachable or malformed, and it caches
+that fallback too so a down IdP does not turn into a refetch loop. Call `conventionEndpoints`
+directly only when you want the AuthKit layout with certainty and no network at all — a test
+fixture, a build-time constant, an air-gapped deployment. See
+[BYO IdP](/docs/byo-idp) for the third-party wiring.
+
 ## Refresh & back-channel logout
 
-- **Refresh token rotation** is handled for you: `authkit_middleware` refreshes the session
+- **Refresh token rotation** is handled for you: the global middleware refreshes the session
   before it expires and persists the rotated refresh token. See
   [Refresh Tokens](/docs/refresh-tokens).
-- **Back-channel logout** lets the IdP terminate the RP's sessions out-of-band. Configure a
-  `sessionIndex` + `onBackchannelLogout` and route the IdP's POST to
-  `manager.handleBackchannelLogout(ctx)`. See
+- **Back-channel logout** lets the IdP terminate this RP's sessions out-of-band. For a
+  cookie-based session — the default in AdonisJS — configure a revocation store and register
+  the revocation middleware:
+
+  ```ts title="config/authkit_client.ts"
+  import { defineConfig, lucidRevocationStore } from "@adonis-agora/authkit-client";
+
+  export default defineConfig({
+    // ...
+    backchannelLogout: { store: lucidRevocationStore({ connection: "auth" }) },
+  });
+  ```
+
+  `registerOidcClient` already exposes the endpoint the IdP posts to. The full walkthrough —
+  the table, the middleware ordering, the `sid` versus `sub` semantics, and the manual
+  `SessionIndex` path for server-side session stores — is in
   [Back-Channel Logout](/docs/back-channel-logout).
 
 ## Resilience for outbound calls
@@ -250,50 +772,11 @@ It validates the signature, `iss`, `aud`, and enforces `typ: at+jwt` (RFC 9068 �
 Throws a `JWTVerifyError` (from `jose`) when the token is invalid. Calling this function is
 **stateless** — no round-trip to the IdP per request.
 
-## The login / callback / logout flow
+## Next
 
-The flow is OIDC authorization-code + PKCE. The exported helpers do the heavy lifting:
-
-```ts
-import {
-  generatePkce,
-  buildAuthorizeUrl,
-  exchangeCode,
-  buildEndSessionUrl,
-} from "@adonis-agora/authkit-client";
-
-// 1. Login: generate PKCE + state, stash in session, redirect to the IdP
-const { verifier, challenge } = await generatePkce();
-const url = buildAuthorizeUrl({
-  issuer,
-  clientId,
-  redirectUri,
-  scopes: ["openid", "profile", "email", "offline_access"],
-  state,
-  codeChallenge: challenge,
-});
-return response.redirect(url);
-
-// 2. Callback: exchange the code for tokens, store the session
-const tokens = await exchangeCode({
-  issuer,
-  clientId,
-  clientSecret,
-  redirectUri,
-  code: request.input("code"),
-  codeVerifier: verifier,
-});
-
-// 3. Logout (RP-initiated): end the IdP session, bounce back
-return response.redirect(
-  buildEndSessionUrl({
-    issuer,
-    idToken: tokens.idToken,
-    postLogoutRedirectUri: "https://my-app.example.com/",
-  }),
-);
-```
-
-`buildEndSessionUrl` targets `${issuer}/session/end`. Passing `idToken` as the
-`id_token_hint` lets the IdP skip its confirmation page; the `postLogoutRedirectUri` must
-be registered on the client. See [Security](/docs/security) for the logout details.
+<Cards>
+  <Card title="Native @adonisjs/auth" href="/docs/adonis-auth" description="Make ctx.auth.user, middleware.auth() and the Bouncer work over an AuthKit session." />
+  <Card title="Back-Channel Logout" href="/docs/back-channel-logout" description="Let the IdP terminate this RP's sessions out-of-band." />
+  <Card title="Impersonation" href="/docs/impersonation" description="Operators acting as another user, safely." />
+  <Card title="Resolvers" href="/docs/resolvers" description="jwt, pat and opaque in full detail." />
+</Cards>
