@@ -4,14 +4,14 @@
   "description": "AWS Secrets Manager keystore vault for the AuthKit JWKS keystore (createKeystoreVault).",
   "license": "MIT",
   "author": "dudousxd",
-  "homepage": "https://github.com/DavideCarvalho/adonis-authkit/tree/main/packages/authkit-vault-aws#readme",
+  "homepage": "https://github.com/DavideCarvalho/adonis-agora-authkit/tree/main/packages/authkit-vault-aws#readme",
   "repository": {
     "type": "git",
     "url": "https://github.com/DavideCarvalho/adonis-agora-authkit.git",
     "directory": "packages/authkit-vault-aws"
   },
   "bugs": {
-    "url": "https://github.com/DavideCarvalho/adonis-authkit/issues"
+    "url": "https://github.com/DavideCarvalho/adonis-agora-authkit/issues"
   },
   "keywords": ["adonisjs", "authkit", "keystore", "jwks", "aws", "secrets-manager"],
   "publishConfig": {

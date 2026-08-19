@@ -4,14 +4,14 @@
   "description": "AdonisJS OIDC/OAuth2 provider (Identity Provider) toolkit: ejectable auth server with sessions, rate-limiting, MFA/TOTP, audit log, federated logout and OpenTelemetry metrics.",
   "license": "MIT",
   "author": "dudousxd",
-  "homepage": "https://github.com/DavideCarvalho/adonis-authkit/tree/main/packages/authkit-server#readme",
+  "homepage": "https://github.com/DavideCarvalho/adonis-agora-authkit/tree/main/packages/authkit-server#readme",
   "repository": {
     "type": "git",
     "url": "https://github.com/DavideCarvalho/adonis-agora-authkit.git",
     "directory": "packages/authkit-server"
   },
   "bugs": {
-    "url": "https://github.com/DavideCarvalho/adonis-authkit/issues"
+    "url": "https://github.com/DavideCarvalho/adonis-agora-authkit/issues"
   },
   "keywords": [
     "adonisjs",

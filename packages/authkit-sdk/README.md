@@ -1,6 +1,6 @@
 # @adonis-agora/authkit-sdk
 
-Backend SDK for the [AuthKit](https://github.com/DavideCarvalho/adonis-authkit) Admin API:
+Backend SDK for the [AuthKit](https://github.com/DavideCarvalho/adonis-agora-authkit) Admin API:
 manage users, sessions, OIDC clients, organizations, settings, signing keys, and the audit
 log from server-side code — with **one typed interface** and **two interchangeable drivers**.
 
@@ -94,7 +94,7 @@ try {
 ## Documentation
 
 Full guide and the Admin REST API reference live in the
-[AuthKit docs](https://github.com/DavideCarvalho/adonis-authkit) (`apps/docs` → Backend SDK
+[AuthKit docs](https://github.com/DavideCarvalho/adonis-agora-authkit) (`apps/docs` → Backend SDK
 and Admin API).
 
 ## License
