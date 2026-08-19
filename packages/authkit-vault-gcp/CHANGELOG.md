@@ -1,5 +1,17 @@
 # @adonis-agora/authkit-vault-gcp
 
+## 0.3.1
+
+### Patch Changes
+
+- 1f15367: Point `homepage` and `bugs.url` at the repository's current name.
+
+  The repository was renamed to `adonis-agora-authkit`; `repository.url` followed,
+  `homepage` and `bugs.url` did not. Every package therefore shipped a manifest
+  that disagreed with itself, and the "Repository"/"Homepage" links on npm leaned
+  on GitHub's rename redirect — which lasts only until someone claims the old
+  name. All three fields now name the same repository.
+
 ## 0.3.0
 
 ### Minor Changes
