@@ -2,7 +2,7 @@ import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import type { PatRecord } from '../../pat/pat_store.js';
 import { accountPath } from '../account_paths.js';
-import { ACCOUNT_SESSION_KEY } from '../middleware/account_auth.js';
+import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { requireSudo } from '../sudo_mode.js';
 

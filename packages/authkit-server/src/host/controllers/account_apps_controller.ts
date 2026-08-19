@@ -1,8 +1,8 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import { accountPath } from '../account_paths.js';
+import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
-import { ACCOUNT_SESSION_KEY } from '../middleware/account_auth.js';
 
 /**
  * Self-service de consentimento ("apps com acesso") no console de conta. Lista os

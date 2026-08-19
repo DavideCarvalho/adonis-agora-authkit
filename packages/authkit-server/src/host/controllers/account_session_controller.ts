@@ -3,11 +3,11 @@ import type { HttpContext } from '@adonisjs/core/http';
 import { accountHome } from '../account_home.js';
 import { getAccountLoginUrl } from '../account_login_url.js';
 import type { AccountLoginProps } from '../account_screen_props.js';
+import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { syncAdonisAuthLogin, syncAdonisAuthLogout } from '../adonis_auth_sync.js';
 import { translate } from '../i18n.js';
 import { attemptPasswordLogin } from '../login_attempt.js';
 import { notifyLoginSuccess } from '../login_notify.js';
-import { ACCOUNT_SESSION_KEY } from '../middleware/account_auth.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { markSudo } from '../sudo_mode.js';
 

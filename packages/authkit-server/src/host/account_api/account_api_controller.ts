@@ -40,13 +40,13 @@ import {
 import { PasswordPolicyError } from '../../password/password_manager.js';
 import type { PatRecord } from '../../pat/pat_store.js';
 import { accountPath } from '../account_paths.js';
+import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { ACTIVE_ORG_COOKIE } from '../active_org_cookie.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
 import { syncAdonisAuthLogout } from '../adonis_auth_sync.js';
 import { AvatarUploadError, isAvatarUploadSupported, storeAvatar } from '../avatar_storage.js';
 import { sendEmailChangeConfirmationEmail, sendEmailChangeNoticeEmail } from '../default_mailer.js';
 import { translate } from '../i18n.js';
-import { ACCOUNT_SESSION_KEY } from '../middleware/account_auth.js';
 import { authkitOrigin } from '../origin.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import {

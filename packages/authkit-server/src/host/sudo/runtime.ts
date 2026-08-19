@@ -2,9 +2,9 @@ import type { HttpContext, Router } from '@adonisjs/core/http';
 import type { ResolvedServerConfig } from '../../define_config.js';
 import { accountHome } from '../account_home.js';
 import { accountPath } from '../account_paths.js';
+import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { validateReturnTo } from '../controllers/account_session_controller.js';
 import { translate } from '../i18n.js';
-import { ACCOUNT_SESSION_KEY } from '../middleware/account_auth.js';
 import { markSudo } from '../sudo_mode.js';
 import type { SudoContext, SudoMethod, SudoRouteHelpers } from './types.js';
 

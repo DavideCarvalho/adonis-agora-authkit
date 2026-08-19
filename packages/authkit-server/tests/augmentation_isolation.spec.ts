@@ -76,19 +76,20 @@ test.group('module augmentation isolation (server)', () => {
     assert.deepEqual(httpContextAugmentations(reachableFrom(PROVIDER)), []);
   });
 
-  test('nothing this package ships declares HttpContext.auth', ({ assert }) => {
-    // `auth` is the framework's slot and the app's to type. If this ever fires,
-    // an `import type {}` in augmentations.ts has been turned into a real import.
-    const offenders = httpContextAugmentations(reachableFrom(BARREL))
-      .filter((entry) => entry.members.includes('auth'))
-      .map((entry) => entry.file);
-
-    assert.deepEqual(
-      offenders,
-      [],
-      'these files push `HttpContext.auth` into every consumer and will silently ' +
-        "override the app's own `Authenticator<AppUser>`",
-    );
+  test('the barrel drags no HttpContext augmentation into a host either', ({ assert }) => {
+    // The barrel is the other entrypoint every consumer touches, and it used to
+    // reach `augmentations.d.ts`: `index.ts` re-exported `ACCOUNT_SESSION_KEY`
+    // from the middleware module, and that module side-effect-imports
+    // augmentations to type its own `ctx.session`. So every consumer of the
+    // barrel inherited this package's `HttpContext.adminApiKeyId`.
+    //
+    // `adminApiKeyId` is a name only this library claims, so nothing broke. That
+    // is nomenclature luck, not design — the sibling client package shipped the
+    // identical shape over `auth`, a name every app declares, and took a consumer
+    // from 24 type errors to 351. The bar here is therefore ZERO augmentations
+    // rather than "no dangerous ones": the next property added should not have to
+    // be audited for how exotic its name happens to be.
+    assert.deepEqual(httpContextAugmentations(reachableFrom(BARREL)), []);
   });
 
   test('no shipped declaration side-effect-imports an external module', ({ assert }) => {

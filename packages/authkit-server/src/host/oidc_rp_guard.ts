@@ -12,7 +12,7 @@ import { RuntimeException } from '@adonisjs/core/exceptions';
 import type { HttpContext } from '@adonisjs/core/http';
 import type { ApplicationService, ConfigProvider } from '@adonisjs/core/types';
 import type { EmitterLike } from '@adonisjs/core/types/events';
-import { ACCOUNT_SESSION_KEY } from './middleware/account_auth.js';
+import { ACCOUNT_SESSION_KEY } from './account_session_key.js';
 
 type RealUser<UserProvider> = UserProvider extends SessionUserProviderContract<infer U> ? U : never;
 

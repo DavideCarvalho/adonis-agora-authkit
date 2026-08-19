@@ -16,7 +16,7 @@
 
 import type { HttpContext } from '@adonisjs/core/http';
 import { accountPath } from './account_paths.js';
-import { ACCOUNT_SESSION_KEY } from './middleware/account_auth.js';
+import { ACCOUNT_SESSION_KEY } from './account_session_key.js';
 import type { SettingsCapability } from './runtime_settings.js';
 import { SETTING_KEYS } from './runtime_toggles.js';
 

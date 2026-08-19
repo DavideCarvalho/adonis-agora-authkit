@@ -388,7 +388,7 @@ export {
   hasAccountSession,
   consoleLoginUrl,
 } from './src/host/console_session.js';
-export { ACCOUNT_SESSION_KEY } from './src/host/middleware/account_auth.js';
+export { ACCOUNT_SESSION_KEY } from './src/host/account_session_key.js';
 
 // Session impersonation — RP-side glue that routes through the IdP's RFC 8693
 // token-exchange (the IdP validates the admin role + audits). See
