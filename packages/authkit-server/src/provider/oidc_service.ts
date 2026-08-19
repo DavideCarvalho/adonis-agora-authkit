@@ -4,7 +4,7 @@ import Koa from 'koa';
 import mount from 'koa-mount';
 import type { ResolvedServerConfig } from '../define_config.js';
 import { readActiveOrgFromKoaCtx } from '../host/active_org_cookie.js';
-import { isFirstParty } from '../host/branding.js';
+import { isFirstPartyClient } from '../host/branding.js';
 import { type ManagedKeyInfo, listKeyInfos, signingKeyAgeDays } from '../keys/keystore.js';
 import type { KeystoreManager } from '../keys/keystore_manager.js';
 import { wireProviderEvents } from '../observability/wire_provider_events.js';
@@ -116,12 +116,24 @@ export class OidcService {
           // Lê a org ativa do cookie de sessão (se organizations estiver disponível).
           const activeOrg = readActiveOrgFromKoaCtx(ctx);
 
-          // GATE de least-privilege: roles globais e claims de org só são emitidas para
-          // clients FIRST-PARTY (`branding.firstParty`). Capturamos o clientId aqui (fora
-          // do closure `claims()`, pois o `ctx` da request vive neste escopo). Um client
-          // third-party NUNCA recebe roles/org — mesmo solicitando `scope=roles`.
+          // GATE de least-privilege: roles globais e claims de org só são emitidas
+          // para clients FIRST-PARTY. Capturamos o clientId aqui (fora do closure
+          // `claims()`, pois o `ctx` da request vive neste escopo).
+          //
+          // SEM allowlist declarada, todo client registrado é first-party. O gate
+          // costumava ser `config.branding ? isFirstParty(...) : false`, o que
+          // fazia a AUSÊNCIA de um bloco de TEMA significar "ninguém é
+          // first-party": num host sem `branding`, todo RP recebia
+          // `globalRoles: []` — em silêncio, e assimetricamente, porque o console
+          // admin lê roles da sessão e seguia funcionando.
+          //
+          // Isto não abre as roles para qualquer um: a claim está amarrada ao
+          // escopo `roles` (ver `claims` em `build_provider.ts`), então o client
+          // ainda precisa ter sido registrado por um admin E pedir `scope=roles`.
+          // Quem hospeda clients de terceiros declara `firstPartyClients` e fecha
+          // a lista.
           const clientId: string | undefined = ctx?.oidc?.client?.clientId;
-          const firstParty = config.branding ? isFirstParty(config.branding, clientId) : false;
+          const firstParty = isFirstPartyClient(config.firstPartyClients, clientId);
 
           return {
             accountId: user.id,

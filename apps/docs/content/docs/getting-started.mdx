@@ -537,13 +537,12 @@ async handle({ auth, response }: HttpContext) {
   [Customizing auth](/docs/customizing-auth#where-roles-come-from-resolvetokenroles).
 </Callout>
 
-<Callout type="warn">
-  **`globalRoles` arrives empty until you declare first-party clients.** The provider emits
-  the roles claim only to clients listed in `branding.firstParty` — roles are internal
-  authorization data, so the default is to send them to nobody. The config above has no
-  `branding` block, which means `hasGlobalRole` answers `false` for everyone. Add one, with
-  your client id under `firstParty`, before you rely on roles in a relying party. The admin
-  console is not affected: its guard reads roles off the account rather than off a token.
+<Callout type="info">
+  **`globalRoles` needs the `roles` scope.** The provider binds the roles claim to that
+  scope, so a client only receives roles when it asks for it — which the client kit's
+  default scopes already do. If you register clients you do not own, restrict the claim
+  further with `firstPartyClients` in `config/authkit.ts`; see
+  [The roles claim](/docs/customizing-auth#the-roles-claim).
 </Callout>
 
 ### Protecting a route group
