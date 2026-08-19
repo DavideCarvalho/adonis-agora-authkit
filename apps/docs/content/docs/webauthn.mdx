@@ -15,7 +15,7 @@ The Relying Party (RP) parameters are derived from `issuer` when omitted: `rpId`
 issuer hostname (no port), `origin` = issuer origin, `rpName` = the branding / `mfaIssuer`
 name. Override them with `webauthn`:
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 defineConfig({
   issuer: env.get('AUTHKIT_ISSUER'),
   // ...

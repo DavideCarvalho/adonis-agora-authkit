@@ -14,7 +14,7 @@ existing hosts don't change behaviour.
 The console must be turned on in **both** places — `defineConfig` (the guard) and
 `registerAuthHost` (route mounting happens before the lazy config resolves):
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 defineConfig({
   // ...
   admin: {

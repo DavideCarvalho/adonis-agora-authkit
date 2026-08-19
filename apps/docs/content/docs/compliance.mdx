@@ -16,7 +16,7 @@ Block unverified accounts from authenticating. When `login.requireVerifiedEmail`
 any login attempt (password, magic link, or passkey-first) for an account whose email has
 **not** been verified is rejected with an instruction to check the inbox first.
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 defineConfig({
   // …
   login: {
@@ -108,7 +108,7 @@ curl -X PUT https://auth.acme.com/api/authkit/v1/settings/email_change \
 
 Override the default email templates by adding hooks to `mail` in `defineConfig`:
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 import mail from "@adonisjs/mail/services/main";
 
 defineConfig({
@@ -235,7 +235,7 @@ curl -X PUT https://auth.acme.com/api/authkit/v1/settings/security_notifications
 Provide a single `onSecurityNotice` hook that receives the event `kind` and renders the
 appropriate template. When absent, AuthKit sends a built-in default email:
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 import mail from "@adonisjs/mail/services/main";
 
 defineConfig({
@@ -457,7 +457,7 @@ warning window, even if the cron runs multiple times.
 
 ### Mail hook
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 import mail from "@adonisjs/mail/services/main";
 
 defineConfig({

@@ -25,7 +25,7 @@ two built-in catalogs are registered in `BUILTIN_MESSAGES` (`{ en, 'pt-BR' }`).
 To run the screens in pt-BR, just set the locale — you do **not** need to provide any
 messages:
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 import { defineConfig } from '@adonis-agora/authkit-server'
 
 export default defineConfig({
@@ -41,7 +41,7 @@ export default defineConfig({
 
 ## Overriding keys / adding locales
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 import { defineConfig } from '@adonis-agora/authkit-server'
 import type { I18nConfig } from '@adonis-agora/authkit-server'
 

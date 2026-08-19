@@ -12,7 +12,7 @@ Anti-brute-force throttles on the sensitive routes (login/signup/forgot/reset + 
 introspection), backed by `@adonisjs/limiter`. Off by default; mirror the switch in both
 `defineConfig` and `registerAuthHost`.
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 rateLimit: {
   enabled: true,
   // store: 'redis', // optional — a store from config/limiter.ts
@@ -415,7 +415,7 @@ Provide an `AuditSink` to capture security-relevant events. It is best-effort �
 must never throw into the request path. `lucidAuditSink(Model)` persists to a Lucid model
 (compose it with `withAuditLog`).
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 import AuditLog from '#models/audit_log'
 import { lucidAuditSink } from '@adonis-agora/authkit-server'
 
@@ -558,7 +558,7 @@ emitted.
 
 **Mail hook:**
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 import mail from '@adonisjs/mail/services/main'
 
 defineConfig({
@@ -604,7 +604,7 @@ Password reset and email verification are wired through optional hooks, so AuthK
 transport-agnostic. When absent, it falls back to dev logging (no email sent); the real
 send is up to the host (e.g. `@adonisjs/mail`).
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 import mail from '@adonisjs/mail/services/main'
 
 mail: {
@@ -742,7 +742,7 @@ period. The rotation emits a `keys.rotated` audit event.
 client-held key pair, so a stolen bearer token is useless without the matching private key.
 Off by default; enable it in `defineConfig`:
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 dpop: { enabled: true },
 ```
 
@@ -800,7 +800,7 @@ claims (plus `ath` when an access token is supplied, and `nonce` when the server
 parameters to the IdP first and receive an opaque `request_uri` to use at `/auth`, keeping
 parameters off the front channel. Off by default:
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 par: {
   enabled: true,
   requirePushedAuthorizationRequests: false, // set true to force every authorize via PAR
@@ -828,7 +828,7 @@ ${ISSUER}/auth?client_id=app&request_uri=urn:ietf:params:oauth:request_uri:…
 the account has MFA configured as optional. This is a pragmatic MVP built on the existing MFA
 interaction.
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 stepUp: {
   acrValues: ['urn:authkit:mfa'], // advertised in acr_values_supported
   mfaAcr: 'urn:authkit:mfa',       // the acr that forces MFA (default)

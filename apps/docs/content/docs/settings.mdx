@@ -19,7 +19,7 @@ back to the static config — zero breaking change.
 | Layer | Source of truth | When to use |
 | --- | --- | --- |
 | **Runtime setting** (DB) | `auth_settings` table | Business policy — things an operator changes while the app is running |
-| **Static config** (`defineConfig`) | `config/authkit_server.ts` | Infrastructure — secrets, adapters, mail transports, code hooks |
+| **Static config** (`defineConfig`) | `config/authkit.ts` | Infrastructure — secrets, adapters, mail transports, code hooks |
 | **Library default** | Built into AuthKit | Sensible baseline when no runtime setting is present |
 
 **Single precedence rule:** `setting > lib default`. Static config (`defineConfig`) carries

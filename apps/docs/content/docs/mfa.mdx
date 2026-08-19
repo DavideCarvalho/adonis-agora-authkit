@@ -14,7 +14,7 @@ codes. A second option, **WebAuthn passkeys**, is available as an alternative fa
 MFA is driven by the optional MFA methods on the `AccountStore`. With `lucidAccountStore`,
 compose the model with the `withMfa` mixin and set an `mfaIssuer`:
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 accountStore: lucidAccountStore(AuthUser, { mfaIssuer: 'Acme' }),
 mfaIssuer: 'Acme',
 ```

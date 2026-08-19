@@ -36,7 +36,7 @@ You never call the vault package directly. You select it with a `driver` in your
 config, and AuthKit's keystore layer lazy-loads the companion package and calls its
 `createKeystoreVault(config)` factory the first time it touches the keystore:
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 import { defineConfig } from '@adonis-agora/authkit-server'
 
 export default defineConfig({
