@@ -341,7 +341,7 @@ On completion it emits an `account.deleted` audit event.
 
 ## Admin deletion (via the admin console or API)
 
-Administrators can delete any account from the admin console (`POST /admin/users/:id/delete`)
+Administrators can delete any account from the admin console (`DELETE {prefix}/api/users/:id`)
 or the Admin REST API (`DELETE /api/authkit/v1/users/:id`). The cascade and anonymization are
 identical to the self-service flow. The operation emits a `user.deleted` audit event (not
 `account.deleted`, to distinguish actor).
@@ -376,6 +376,272 @@ const result = await authkit.users.delete("acc-42");
 // result.deleted === true
 // result.auditAnonymized — how many audit rows were pseudonymized
 ```
+
+## Durable account-lifecycle workflows
+
+Everything above describes the **synchronous** path: when a user (or an admin) asks for a
+deletion or an export, AuthKit runs the whole cascade in-process, inside the HTTP request,
+and only then answers. That is the default, and for most installations it is the right
+choice — the code is simpler, the response carries the real cascade counts, and there is
+nothing extra to operate.
+
+It stops being the right choice when the work outgrows a request. A cascade that touches
+tens of thousands of audit rows, an export that has to walk a long history, a drive call
+that hangs — all of them are now sitting between the user and their answer. Worse, the
+cascade has no memory: if the process is restarted mid-way (a deploy, an OOM kill, a
+dropped database connection), the steps that already ran are done, the steps that had not
+run yet are simply lost, and nothing will ever pick the account back up. Each step is
+best-effort and isolated, so a failure does not abort the rest — but it also does not get
+retried.
+
+The **durable** path moves the same cascade onto a workflow engine. Each step becomes a
+checkpoint: it runs once, its result is persisted, and a run that is interrupted resumes
+at the first step that had not completed instead of starting over. Nothing already done is
+done twice, and nothing left undone is forgotten — a run that failed halfway is a run you
+can drive to completion later, from the engine's own tooling, instead of an account left
+in an unknown state. A deploy in the middle of a deletion becomes a non-event.
+
+### Turning it on
+
+```ts title="config/authkit.ts"
+defineConfig({
+  // …
+  accountLifecycle: {
+    durable: true, // default: false — the synchronous path
+  },
+})
+```
+
+The flag is a single boolean and it is off unless you write `durable: true`. It changes
+four endpoints:
+
+| Endpoint | Synchronous (default) | Durable |
+| --- | --- | --- |
+| `GET /account/security/export` | Collects the payload and streams it back as a JSON download. | Enqueues `authkit.account.export`, flashes a "your export was requested" message and redirects back to `/account/security`. The artifact is produced and delivered by the workflow. |
+| `POST /account/security/delete` | Runs the whole cascade, then ends the session. | Revokes the actor's OIDC sessions and grants **synchronously** — so the user is logged out immediately, exactly as before — then enqueues `authkit.account.delete` for the rest of the cascade. |
+| `DELETE {prefix}/api/users/:id` (admin console) | Runs the whole cascade. | Enqueues the cascade. |
+| `DELETE /api/authkit/v1/users/:id` (Admin API) | Responds with the cascade counts. | Responds `{ "id": "acc-42", "deleted": true, "enqueued": true, "runId": "…" }`. |
+
+<Callout type="warn">
+  The Admin API response shape changes with the flag. In durable mode the cascade has not
+  happened yet when the response is written, so there are no counts to report — callers that
+  assert on `auditAnonymized` or `sessions` must branch on `enqueued` instead.
+</Callout>
+
+The `user.deleted` audit event is still written before the enqueue, so the administrative
+trail exists the moment the request is accepted, regardless of when the cascade finishes.
+
+### What the host must install and register
+
+The durable path is built on [`@adonis-agora/durable`](https://www.npmjs.com/package/@adonis-agora/durable),
+declared as an **optional peer dependency**. Nothing in the main entry point imports it:
+the durable code lives behind the `@adonis-agora/authkit-server/durable` subpath, and the
+endpoints only reach for that subpath on the branch where `accountLifecycle.durable` is
+true. An installation that never turns the flag on never loads a line of it.
+
+<Steps>
+<Step>
+**Install the peer.**
+
+```bash
+npm i @adonis-agora/durable
+```
+
+Then configure it as its own package documents (an engine needs a store to checkpoint
+into).
+</Step>
+
+<Step>
+**Register both workflows on your engine.** AuthKit does not own your `WorkflowEngine` —
+it does not create one, and it does not register anything on your behalf. The `/durable`
+subpath exports two *definitions*; you register them.
+
+```ts title="start/workflows.ts"
+import app from '@adonisjs/core/services/app'
+import { WorkflowEngine } from '@adonis-agora/durable'
+import {
+  defineAccountDeletionWorkflow,
+  defineAccountExportWorkflow,
+} from '@adonis-agora/authkit-server/durable'
+
+const engine = await app.container.make(WorkflowEngine)
+
+// Resolved lazily, inside each step — never captured at registration time.
+const oidc = () => app.container.make('authkit.server')
+
+const deletion = defineAccountDeletionWorkflow({ oidc })
+const dataExport = defineAccountExportWorkflow({ oidc })
+
+engine.register(deletion.name, deletion.version, deletion.body)
+engine.register(dataExport.name, dataExport.version, dataExport.body)
+```
+
+Both `define*` helpers return `{ name, version, body }` — the exact triple
+`engine.register` takes. The names are also exported as constants
+(`ACCOUNT_DELETE_WORKFLOW`, `ACCOUNT_EXPORT_WORKFLOW`) so you can reference a run in your
+own dashboards without hard-coding a string.
+</Step>
+
+<Step>
+**Make sure runs actually execute.** With the engine's default in-process dispatcher, a
+run starts executing on the instance that enqueued it, so a single-process app needs
+nothing further. If you gave the engine a no-op dispatcher because the web pod must not
+execute workflows, a worker has to poll for pending runs — that is the durable package's
+concern, not AuthKit's.
+</Step>
+</Steps>
+
+The engine is found through the container: `resolveWorkflowEngine` imports
+`@adonis-agora/durable` dynamically and resolves the `WorkflowEngine` binding from the
+resolver you hand it (`ctx.containerResolver` in a request, `app.container` outside one).
+The dynamic import is what keeps the peer genuinely optional — the specifier is never
+resolved unless the durable branch runs.
+
+<Callout type="error">
+  **`durable: true` without the peer installed fails at request time, not at boot.** The
+  first deletion or export to hit the durable branch throws
+  `durable account-lifecycle is enabled but "@adonis-agora/durable" is not installed`, and
+  the request errors out — nothing is deleted, nothing is exported. Setting the flag and
+  forgetting to register the workflows is quieter and worse: the enqueue succeeds and the
+  run sits there with no registered handler for its name. Exercise both flows in staging
+  after turning the flag on.
+</Callout>
+
+### The deletion workflow
+
+`authkit.account.delete` is **forward-only** — there is no compensation, because a deletion
+is not undoable. It runs the same cascade as `AccountDeletionService`, one checkpoint per
+stage, in the same order:
+
+| Step | What it does |
+| --- | --- |
+| `snapshot` | Captures the email and avatar URL before anything is destroyed. If the account is already gone (a previous run finished it), the workflow ends as a no-op. |
+| `audit.deleted` | Emits `account.deleted` **before** any destruction, so the event carries the real identifiers. |
+| `revoke.sessions` | OIDC sessions and grants (which cascade to access and refresh tokens). |
+| `revoke.pats` | Personal access tokens. |
+| `remove.passkeys` | WebAuthn credentials. |
+| `disable.mfa` | TOTP secret and recovery codes. |
+| `unlink.providers` | Linked social identities. |
+| `remove.orgs` | Organization memberships and pending invitations. |
+| `delete.avatar` | The avatar file on the drive. |
+| `anonymize.audit` | Pseudonymizes the account's audit history. |
+| `delete.account` | Deletes the account row — deliberately last. |
+
+The workflow returns the same `DeletionResult` counts the synchronous service returns, so
+whatever you build on top of a completed run sees the familiar shape.
+
+### The export workflow
+
+`authkit.account.export` is read-only plus one artifact, so it also needs no compensation.
+Its four steps are `collect` (the same payload the synchronous export streams), `audit`
+(emits `account.exported`), `persist`, and `deliver`. It returns
+`{ ok, artifactKey, bytes }`.
+
+The last two steps are the ones you will want to own:
+
+```ts title="start/workflows.ts"
+import mail from '@adonisjs/mail/services/main'
+import drive from '@adonisjs/drive/services/main'
+import { defineAccountExportWorkflow } from '@adonis-agora/authkit-server/durable'
+
+const dataExport = defineAccountExportWorkflow({
+  oidc: () => app.container.make('authkit.server'),
+
+  // Where the serialized JSON goes. Return the key/URL to record on the run.
+  persist: async ({ accountId, runId, json }) => {
+    const key = `exports/${accountId}/${runId}.json`
+    await drive.use('s3').put(key, json, {
+      contentType: 'application/json; charset=utf-8',
+    })
+    return key
+  },
+
+  // How the data subject is told the export is ready.
+  deliver: async ({ accountId, artifactKey, oidc }) => {
+    if (!artifactKey) return
+    const account = await oidc.config.accountStore.findById(accountId)
+    if (!account) return
+    const url = await drive.use('s3').getSignedUrl(artifactKey, { expiresIn: '24h' })
+    await mail.send((m) =>
+      m.to(account.email).subject('Your data export is ready').text(url),
+    )
+  },
+})
+```
+
+Both are optional. Without `persist`, AuthKit writes the JSON to the app's drive — the disk
+configured for avatar uploads, or the default disk — under an `authkit/exports` prefix, and
+returns that storage key; if `@adonisjs/drive` is not installed, persistence is skipped and
+`artifactKey` comes back `null`. Without `deliver`, nothing is sent: the artifact exists and
+the run records its key, but the account holder is never told. **Plug `deliver` in.** An
+export the data subject cannot reach does not satisfy a portability request.
+
+### Enqueueing from your own code
+
+The same helpers the endpoints use are public, so a support tool or a scheduled job can
+queue the identical workflows:
+
+```ts title="app/controllers/gdpr_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import {
+  resolveWorkflowEngine,
+  enqueueAccountDeletion,
+  enqueueAccountExport,
+} from '@adonis-agora/authkit-server/durable'
+
+export default class GdprController {
+  async erase(ctx: HttpContext) {
+    const engine = await resolveWorkflowEngine(ctx.containerResolver)
+
+    const runId = await enqueueAccountDeletion(engine, {
+      accountId: ctx.request.param('id'),
+      actor: { actorId: null, ip: ctx.request.ip(), source: 'admin-api' },
+    })
+
+    return { enqueued: true, runId }
+  }
+
+  async export(ctx: HttpContext) {
+    const engine = await resolveWorkflowEngine(ctx.containerResolver)
+    const runId = await enqueueAccountExport(engine, {
+      accountId: ctx.request.param('id'),
+      ip: ctx.request.ip(),
+    })
+    return { enqueued: true, runId }
+  }
+}
+```
+
+`enqueueDeletionVia(resolver)` is the same thing folded into a single callback — it
+resolves the engine and enqueues in one call, which is the shape
+`AdminUsersService.delete` accepts as its optional `enqueue` argument:
+
+```ts
+import { enqueueDeletionVia } from '@adonis-agora/authkit-server/durable'
+
+const enqueue = enqueueDeletionVia(ctx.containerResolver)
+const runId = await enqueue({ accountId, actor })
+```
+
+| Export | Signature |
+| --- | --- |
+| `defineAccountDeletionWorkflow` | `(deps: { oidc }) => { name, version, body }` |
+| `defineAccountExportWorkflow` | `(deps: { oidc, persist?, deliver? }) => { name, version, body }` |
+| `resolveWorkflowEngine` | `(resolver) => Promise<EnqueueEngine>` |
+| `enqueueAccountDeletion` | `(engine, { accountId, actor }) => Promise<string>` — the run id |
+| `enqueueAccountExport` | `(engine, { accountId, ip? }) => Promise<string>` — the run id |
+| `enqueueDeletionVia` | `(resolver) => (input) => Promise<string>` |
+
+`actor` is the same `DeletionActor` the synchronous service takes:
+`{ actorId, ip, source }`, where `source` is `'self'`, `'admin'` or `'admin-api'` and ends
+up in the audit metadata.
+
+<Callout type="info">
+  **Enqueueing twice is safe.** Both helpers derive the run id from the workflow name and
+  the account id, so a duplicated request — an impatient double-click, a retried job —
+  lands on the *same* run instead of starting a second cascade over the same account. Use
+  the returned run id rather than rebuilding it yourself.
+</Callout>
 
 ## Account expiration
 
