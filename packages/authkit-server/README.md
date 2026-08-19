@@ -31,7 +31,7 @@ node ace add @adonis-agora/authkit-server
 # ou: pnpm add @adonis-agora/authkit-server && node ace configure @adonis-agora/authkit-server
 ```
 
-O `configure` publica `config/authkit_server.ts`, o model `app/models/auth_user.ts`,
+O `configure` publica `config/authkit.ts`, o model `app/models/auth_user.ts`,
 o controller de interactions (`app/controllers/auth_interaction_controller.ts`) e
 registra o provider.
 
@@ -89,7 +89,7 @@ Em todos os presets o controller ejetado é **casca**: a lógica vive em
 `details(ctx)`, `login(ctx, { email, password })` e `consent(ctx)`. Você edita só a parte de
 render/redirect.
 
-Quem decide se as credenciais valem é o `verifyCredentials` do `config/authkit_server.ts`
+Quem decide se as credenciais valem é o `verifyCredentials` do `config/authkit.ts`
 — é o que o `service.interactions.login` chama. O default consulta o `AuthUser` por e-mail e
 usa `verifyPassword`; sobrescreva para plugar sua própria base de usuários.
 
@@ -105,7 +105,7 @@ router.post('/auth/interaction/:uid/consent', [AuthInteractionController, 'conse
 
 ## Persistência
 
-Escolha o backend no `config/authkit_server.ts`:
+Escolha o backend no `config/authkit.ts`:
 - `adapters.redis({ connection })` — requer `@adonisjs/redis` configurado.
 - `adapters.database({ connection? })` — Lucid; rode a migração `authkit_oidc_payloads`.
 
@@ -116,7 +116,7 @@ de resolve) e as expõe de forma opt-in.
 
 ### Configuração
 
-No `config/authkit_server.ts`, use a chave `observability`:
+No `config/authkit.ts`, use a chave `observability`:
 
 ```ts
 observability: {

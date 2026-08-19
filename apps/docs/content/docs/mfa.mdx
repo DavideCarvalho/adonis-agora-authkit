@@ -14,7 +14,7 @@ codes. A second option, **WebAuthn passkeys**, is available as an alternative fa
 MFA is driven by the optional MFA methods on the `AccountStore`. With `lucidAccountStore`,
 compose the model with the `withMfa` mixin and set an `mfaIssuer`:
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 accountStore: lucidAccountStore(AuthUser, { mfaIssuer: 'Acme' }),
 mfaIssuer: 'Acme',
 ```
@@ -65,42 +65,155 @@ disabling MFA emit the `mfa.enabled` / `mfa.disabled` [audit events](/docs/secur
 
 ## Trusted devices
 
-To avoid asking for the second factor on every sign-in, AuthKit can mark a device as
-**trusted** for a number of days. It's on by default (30 days). To tune the policy, use the
-`trusted_devices` runtime setting:
+Asking for a second factor on every single sign-in from the same laptop is friction without
+much security payoff. **Trusted devices** lets a user mark the browser they just proved
+themselves on, so subsequent sign-ins from it skip the MFA step for a number of days.
 
-```bash
-node ace authkit:settings:set trusted_devices '{"enabled":true,"days":14}'
+The whole mechanism is **one encrypted cookie** — no new table, no new column, no migration.
+That constraint drove the design, and it is also its main limitation; both are spelled out
+below.
+
+### The cookie
+
+```ts
+import { TRUSTED_DEVICE_COOKIE } from '@adonis-agora/authkit-server'
+import type { TrustedDevicePayload } from '@adonis-agora/authkit-server'
+
+TRUSTED_DEVICE_COOKIE // 'authkit_trusted_device'
 ```
 
-The cookie encryption secrets stay in `defineConfig` (infra — they are code-level secrets,
-not operational policy). See [Runtime Settings](/docs/settings) for the full field reference.
+When a second factor verifies — a TOTP code, a recovery code, or a passkey assertion — the
+MFA challenge screen offers a **"Trust this device for N days"** checkbox. If it is ticked,
+AuthKit writes `authkit_trusted_device` via `response.encryptedCookie`, so the payload is
+encrypted and signed with the application key. It is `httpOnly`, `sameSite: lax`, and its
+`maxAge` matches the trust window. Nothing about the trust is stored server-side.
 
-### How it works (no extra DB)
+The payload is a `TrustedDevicePayload`, deliberately terse because it rides in a cookie on
+every request:
 
-When a second factor verifies, the MFA challenge offers a **"Trust this device for N days"**
-checkbox. If checked, AuthKit writes a signed, `httpOnly` cookie (`authkit_trusted_device`)
-**encrypted with the app key** — via `response.encryptedCookie`, so no new table or column
-is required. The cookie carries `{ accountId, deviceId, iat, exp }`.
+| Field | Meaning |
+| --- | --- |
+| `a` | The account id the trust belongs to. |
+| `d` | An opaque, random per-device id. |
+| `iat` | Issued-at, epoch milliseconds. |
+| `exp` | Expiry, epoch milliseconds. |
 
-On later sign-ins, after the password is verified and the account has MFA, a valid trusted
-cookie for **that** account skips the MFA step. The login still records `amr: ['pwd']` (no
-MFA `acr`) so downstream relying parties can tell the factor apart.
+### Validation
 
-### Validation and revocation
+On a later sign-in, once the password has verified and the account turns out to have MFA
+enabled, AuthKit reads the cookie back and validates it. A trust is honoured only when all
+of the following hold:
 
-A trusted cookie is honored only when it has not expired, belongs to the account that just
-authenticated, and was issued **at or after** the last MFA (re)enrollment. The last point is
-the revocation lever: **re-enrolling the authenticator invalidates every previously trusted
-device** (the cookie's `iat` falls before the new `mfaEnabledAt`).
+<Steps>
+<Step>
+The payload is structurally intact — `a` is a string, `iat` and `exp` are numbers.
+</Step>
+<Step>
+`a` matches the account that **just** authenticated. A cookie minted for one account is
+worthless on another, so sharing a browser between two users does not leak a skipped factor.
+</Step>
+<Step>
+`exp` is still in the future.
+</Step>
+<Step>
+`iat` is at or after the account's last MFA (re)enrollment. This is the revocation lever:
+**re-enrolling the authenticator invalidates every previously trusted device at once**,
+because every outstanding cookie was issued before the new enrollment timestamp. When the
+store does not track an enrollment timestamp, this check is skipped and expiry alone governs.
+</Step>
+</Steps>
 
-`/account/security` exposes a **"Stop trusting this device"** button that clears the cookie
-for the current browser (emits `trusted_device.revoked`). A per-device, server-side
-revocation list is intentionally out of scope for this MVP — global revocation is achieved
-by re-enrolling MFA. This tradeoff keeps the feature migration-free.
+Reading the cookie is best-effort: a tampered or undecryptable value throws, the throw is
+swallowed, and the device is simply treated as untrusted. Failing closed here costs the user
+one MFA prompt.
 
-### Step-up always wins
+A honoured trust completes the login with `amr: ['pwd']` and **no MFA `acr`**, so a relying
+party downstream can still tell that this particular sign-in did not exercise a second
+factor.
 
-A [step-up](/docs/security#step-up-authentication) request (the client asks for the
-`mfaAcr` in `acr_values`) **always** forces the second factor, regardless of any trusted
+### Step-up always ignores the cookie
+
+A [step-up](/docs/security#step-up-authentication) request — one where the client asks for
+the `mfaAcr` in `acr_values` — **always** forces the second factor, and the trusted-device
+cookie is never even consulted. The controller decides this before it reaches for the
 cookie.
+
+This has to be so. Step-up exists because the client is about to do something that warrants
+proof *right now* — approving a payment, changing a payout account, entering an admin area.
+A trusted-device cookie is evidence about a **past** ceremony on this browser; honouring it
+would let the client believe it received a fresh factor when it received a months-old one.
+Worse, an attacker sitting on a live session in an already-trusted browser is exactly the
+adversary step-up is meant to stop, so a cookie that browser carries is precisely the wrong
+thing to trust. The `acr` the id_token carries would then be a lie, and everything the
+relying party builds on it becomes unsound.
+
+### Revocation
+
+`/account/security` exposes a **"Stop trusting this device"** button. It clears the cookie
+for the current browser and emits a `trusted_device.revoked`
+[audit event](/docs/events#event-types).
+
+<Callout type="warn">
+  There is no per-device, server-side revocation list — that is the price of the
+  no-migration design. A user who loses a trusted laptop cannot revoke *just* that device
+  from another browser; the available lever is global, and it is re-enrolling MFA, which
+  invalidates every trusted device at once.
+</Callout>
+
+### Policy and the exported helpers
+
+The policy is two values — whether the mechanism is on, and how many days a trust lasts.
+`resolveTrustedDevices` produces them, and the login flow reads the result off the resolved
+server config:
+
+```ts
+import { resolveTrustedDevices } from '@adonis-agora/authkit-server'
+import type { ResolvedTrustedDevicesConfig } from '@adonis-agora/authkit-server'
+
+const policy: ResolvedTrustedDevicesConfig = resolveTrustedDevices()
+// { enabled: true, days: 30 }
+```
+
+`TrustedDevicesConfigInput` — the shape `defineConfig`'s `trustedDevices` key accepts —
+carries no fields of its own. There is nothing infrastructural to configure: the cookie name
+is a constant, and the encryption is the application key, which the framework already owns.
+Declaring the key at all marks the `trusted_devices` [runtime setting](/docs/settings) as
+config-owned, which is how the admin console decides to render its card locked.
+
+<Callout type="warn">
+  The `trusted_devices` runtime setting is accepted and validated by
+  `authkit:settings:set`, but the login flow reads the **resolved config**, not the stored
+  setting. Storing `{"enabled":false}` therefore does not turn the mechanism off. Treat the
+  effective policy as on, with a 30-day window.
+</Callout>
+
+Two more helpers are exported for hosts that mint or check the trust themselves — for
+instance a custom login screen that does not use the bundled interaction views:
+
+```ts
+import {
+  buildTrustedDevicePayload,
+  isTrustedDeviceValid,
+  resolveTrustedDevices,
+  TRUSTED_DEVICE_COOKIE,
+} from '@adonis-agora/authkit-server'
+
+// After your own second-factor ceremony succeeds and the user opted in:
+const policy = resolveTrustedDevices()
+response.encryptedCookie(TRUSTED_DEVICE_COOKIE, buildTrustedDevicePayload(accountId, policy), {
+  httpOnly: true,
+  sameSite: 'lax',
+  maxAge: policy.days * 24 * 60 * 60,
+})
+
+// Before deciding whether to challenge:
+const trusted = isTrustedDeviceValid(request.encryptedCookie(TRUSTED_DEVICE_COOKIE), {
+  accountId,
+  mfaEnabledAt, // epoch ms of the last enrollment, or null when unknown
+})
+```
+
+`buildTrustedDevicePayload` generates the random device id and derives `iat`/`exp` from the
+policy, so a host never has to invent them. `isTrustedDeviceValid` is the same predicate the
+bundled flow uses, which is what keeps a custom screen from accidentally accepting a cookie
+the library would have rejected.

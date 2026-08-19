@@ -12,13 +12,39 @@ of registration helpers.
 
 ## The packages
 
+AuthKit is a family of independently versioned packages rather than one dependency. You
+install only the side of the wire you are on: an Identity Provider installs
+`authkit-server`, a relying party installs `authkit-client`, and everything else is
+additive.
+
+### The two ends of the wire
+
 <Cards>
-  <Card title="@adonis-agora/authkit-server" description="The Authorization Server: OIDC provider, host-kit routes/pages, account store, PAT, MFA, admin API/console, audit, rate-limit." />
-  <Card title="@adonis-agora/authkit-client" description="The relying-party kit: defineConfig, JWT/PAT resolvers, login/callback/logout flow, per-request Identity middleware." />
-  <Card title="@adonis-agora/authkit-core" description="Shared, transport-agnostic types (Identity, ClientConfig, TtlConfig, JwksConfig) and the metrics contracts." />
-  <Card title="@adonis-agora/authkit-sdk" description="A typed client for the Admin API, in remote (HTTP) or embedded (in-process) mode." />
-  <Card title="@adonis-agora/authkit-react" description="Frontend kit for Inertia + React: useAuth(), headless hooks, and pre-built components." href="/docs/react" />
+  <Card title="@adonis-agora/authkit-server" description="The Authorization Server: OIDC provider, host-kit routes/pages, account store, PAT, MFA, admin API/console, audit, rate-limit." href="/docs/host-kit" />
+  <Card title="@adonis-agora/authkit-client" description="The relying-party kit: defineConfig, JWT/PAT resolvers, login/callback/logout flow, per-request Identity middleware." href="/docs/client" />
+  <Card title="@adonis-agora/authkit-core" description="Shared, transport-agnostic types (Identity, ClientConfig, TtlConfig, JwksConfig, KeystoreStoreConfig) and the metrics contracts. Pulled in as a dependency of the other two — you rarely install it directly." href="/docs/reference" />
+</Cards>
+
+### Building on top
+
+<Cards>
+  <Card title="@adonis-agora/authkit-sdk" description="A typed client for the Admin API with two drivers: remote (HTTP/Bearer) and embedded (in-process, when the IdP runs in the same app)." href="/docs/sdk" />
+  <Card title="@adonis-agora/authkit-react" description="Frontend kit for Inertia + React: a typed useAuth(), role-gating hooks and components, and TanStack Query hooks over the JSON APIs." href="/docs/react" />
   <Card title="React Components" description="Pre-built, themeable components — SignInButton, SignOutButton, UserButton, UserProfile, AuthorizedApps, Avatar." href="/docs/components" />
+  <Card title="@adonis-agora/authkit-testing" description="Test helpers: mint real signed ID tokens against a local JWKS, serve that JWKS, and swap in fake authenticators and account stores — so host apps test auth flows without booting an IdP." href="/docs/testing" />
+</Cards>
+
+### Keystore vaults (optional companions)
+
+Only relevant when the IdP runs with a **managed** JWKS. Each package puts the private
+signing keystore inside a managed cloud secrets service and is lazy-loaded by
+`authkit-server` from the `jwks.store.driver` you configure — see
+[Keystore vaults](/docs/keystore-vaults).
+
+<Cards>
+  <Card title="@adonis-agora/authkit-vault-aws" description="Keystore vault backed by AWS Secrets Manager. Driver: aws-secrets-manager." href="/docs/keystore-vaults/aws" />
+  <Card title="@adonis-agora/authkit-vault-azure" description="Keystore vault backed by Azure Key Vault. Driver: azure-key-vault." href="/docs/keystore-vaults/azure" />
+  <Card title="@adonis-agora/authkit-vault-gcp" description="Keystore vault backed by GCP Secret Manager. Driver: gcp-secret-manager." href="/docs/keystore-vaults/gcp" />
 </Cards>
 
 ## Key features

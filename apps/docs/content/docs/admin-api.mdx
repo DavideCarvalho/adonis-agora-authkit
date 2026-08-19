@@ -1,7 +1,7 @@
 ---
 icon: Terminal
 title: Admin REST API
-description: The machine-to-machine management API — users, clients, sessions, audit, token verify.
+description: The machine-to-machine management API — users, clients, sessions, organizations, settings, signing keys, audit, token verify.
 ---
 
 AuthKit ships an opt-in **Admin REST API** mounted under `/api/authkit/v1`: a JSON,
@@ -22,7 +22,7 @@ either, both, or neither.
 Turn it on in **both** places — `defineConfig` (the guard) and `registerAuthHost` (route
 mounting happens before the lazy config resolves):
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 defineConfig({
   // ...
   adminApi: {
@@ -219,14 +219,83 @@ curl -X POST https://idp.example.com/api/authkit/v1/clients \
 
 ## Organizations
 
-Full CRUD for organizations and their members/invitations. See
-[Organizations](/docs/organizations#admin-rest-api) for the complete route table.
+Full CRUD for organizations, their members, and their invitations. Every route here is
+**capability-gated**: when the account store does not implement the organizations
+capability the whole group answers `404` with
+`{ "error": { "code": "capability_unsupported", … } }` — the same probe described in
+[Account Store](/docs/account-store). See [Organizations](/docs/organizations) for the
+schema, the role catalogue, and the invitation flow.
+
+| Method | Path | Body | Response |
+| --- | --- | --- | --- |
+| `GET` | `/organizations` | — | `{ data: [{ id, name, slug, logoUrl, metadata, createdAt, memberCount }] }` |
+| `POST` | `/organizations` | `{ name, slug, ownerAccountId, logoUrl? }` | `201` with the org. `409 slug_taken` when the slug is in use. |
+| `GET` | `/organizations/:id` | — | The org plus `members[]` and `pendingInvitations[]`. `404 not_found`. |
+| `PATCH` | `/organizations/:id` | `{ name?, logoUrl? }` | The updated org. `404 not_found`, `409 slug_taken`. |
+| `DELETE` | `/organizations/:id` | — | `{ id, deleted: true }`. `404 not_found`. |
+| `POST` | `/organizations/:id/members` | `{ accountId, role? }` | `201 { orgId, accountId, role, added: true }`. `role` defaults to `member`. |
+| `DELETE` | `/organizations/:id/members/:accountId` | — | `{ orgId, accountId, removed: true }`. `409 last_owner`. |
+| `PATCH` | `/organizations/:id/members/:accountId` | `{ role }` | `{ orgId, accountId, role, updated: true }`. `409 last_owner`. |
+| `POST` | `/organizations/:id/invitations` | `{ email, role? }` | `201` with the invitation. `role` defaults to `member`. |
+| `DELETE` | `/organizations/:id/invitations/:invitationId` | — | `{ orgId, invitationId, revoked: true }`. |
+
+A few error codes are specific to this group and worth handling explicitly:
+
+- **`invalid_role`** (`422`) — the `role` you sent is outside the organization's effective
+  role catalogue. The catalogue is resolved from runtime settings first and the static
+  config second, so a role that worked yesterday can be retired without a redeploy.
+- **`last_owner`** (`409`) — returned by member removal and role changes rather than
+  letting an organization end up with no owner.
+- **`account_not_found`** / **`member_not_found`** / **`invitation_not_found`** (`404`) —
+  the org exists but the sub-resource does not.
+
+Invitation revocation is **scoped by organization**: the route takes both ids and reports
+`404` when the invitation belongs to a different org, so an id leaked from elsewhere cannot
+be used to revoke across tenants.
+
+Because this API authenticates a key rather than a person, an invitation created here
+records `invitedBy: "admin"` instead of an account id. The invitation TTL comes from the
+organizations config on the server, not from the request.
+
+An org DTO looks like this:
+
+```json
+{
+  "id": "org-1",
+  "name": "Acme",
+  "slug": "acme",
+  "logoUrl": null,
+  "metadata": null,
+  "createdAt": "2026-06-05T12:00:00.000Z",
+  "memberCount": 4
+}
+```
 
 ```bash
+# Create an organization — the owner is added as a member automatically
 curl -X POST https://idp.example.com/api/authkit/v1/organizations \
   -H "Authorization: Bearer $KEY" \
   -H "Content-Type: application/json" \
   -d '{ "name": "Acme", "slug": "acme", "ownerAccountId": "acc-42" }'
+
+# Invite somebody into it
+curl -X POST https://idp.example.com/api/authkit/v1/organizations/org-1/invitations \
+  -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "email": "jane@acme.com", "role": "admin" }'
+```
+
+```json
+{
+  "id": "inv-9",
+  "organizationId": "org-1",
+  "email": "jane@acme.com",
+  "role": "admin",
+  "invitedBy": "admin",
+  "expiresAt": "2026-06-12T12:00:00.000Z",
+  "acceptedAt": null,
+  "createdAt": "2026-06-05T12:00:00.000Z"
+}
 ```
 
 ## Stats
@@ -277,12 +346,63 @@ curl "https://idp.example.com/api/authkit/v1/audit?type=user.created&limit=50" \
 CRUD for entries in the `auth_settings` table. All routes return **`404`** with
 `{ "error": { "code": "capability_unsupported", ... } }` when the table is absent.
 
-| Method | Path | Body | Notes |
+| Method | Path | Body / Query | Response |
 | --- | --- | --- | --- |
-| `GET` | `/settings` | — | List all stored settings. Empty array when the table has no rows. `404` when the table is absent. |
-| `GET` | `/settings/:key` | — | Get a single setting by key. `404` when absent or table missing. |
-| `PUT` | `/settings/:key` | `{ "value": any }` | Create or update a setting (upsert). `400` when `value` is missing. Invalidates the in-process cache. Emits `settings.updated`. |
-| `DELETE` | `/settings/:key` | — | Delete a setting. Returns `{ key, deleted: true }`. Emits `settings.updated`. |
+| `GET` | `/settings` | `?organizationId` | `{ data: Setting[], locked: string[] }`. `data` is empty when no rows are stored. |
+| `GET` | `/settings/:key` | `?organizationId` | A single setting. `404 not_found` when the key has no stored value. |
+| `PUT` | `/settings/:key` | `{ "value": any }`, `?organizationId` | The saved setting. `400 invalid_request` when `value` is missing, `423 setting_locked` when the key is pinned in config. Emits `settings.updated`. |
+| `DELETE` | `/settings/:key` | `?organizationId` | `{ key, organizationId, deleted: true }`. `423 setting_locked` applies here too. Emits `settings.updated`. |
+
+A setting is projected like this:
+
+```json
+{
+  "key": "bot_protection",
+  "organizationId": null,
+  "value": { "enabled": true },
+  "updatedAt": "2026-06-05T12:00:00.000Z",
+  "updatedBy": null,
+  "locked": false
+}
+```
+
+### Locked settings
+
+A key pinned in `defineConfig` is not editable at runtime. Writes to it are refused with
+**`423`** *before* anything is persisted:
+
+```json
+{
+  "error": {
+    "code": "setting_locked",
+    "message": "…",
+    "details": { "key": "bot_protection", "lockedBy": "config" }
+  }
+}
+```
+
+The list route's `locked` array carries **every** locked key — including keys that were
+never written to the table, since a config-only lock has no row. A UI reads that array to
+grey out the controls rather than letting an operator discover the lock by getting a `423`.
+A locked setting also carries `"locked": true` and `"lockedBy": "config"` in its own DTO.
+
+### Organization-scoped settings
+
+Some keys can be stored per organization instead of globally. Pass `?organizationId=<id>`
+on any of the four routes to read or write within that org's scope; omit it (or send it
+empty) and you are operating on the global scope. The org-scopable keys are
+`organizations_policy` and `roles_catalog` — see [Organizations](/docs/organizations).
+
+```bash
+# Give one org its own role catalogue and invitation lifetime
+curl -X PUT "https://idp.example.com/api/authkit/v1/settings/organizations_policy?organizationId=org-1" \
+  -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "value": { "roles": ["owner", "admin", "member", "billing"], "invitationTtlHours": 72 } }'
+```
+
+That is what makes the `invalid_role` response above org-specific: the member routes
+validate against the catalogue resolved for *that* organization.
 
 ### Bot-protection toggle example
 
@@ -297,9 +417,11 @@ curl -X PUT https://idp.example.com/api/authkit/v1/settings/bot_protection \
 ```json
 {
   "key": "bot_protection",
+  "organizationId": null,
   "value": { "enabled": true, "on": ["login", "signup", "reset"] },
   "updatedAt": "2026-06-05T12:00:00.000Z",
-  "updatedBy": null
+  "updatedBy": null,
+  "locked": false
 }
 ```
 
@@ -316,7 +438,7 @@ curl -X DELETE https://idp.example.com/api/authkit/v1/settings/bot_protection \
 ```
 
 ```json
-{ "key": "bot_protection", "deleted": true }
+{ "key": "bot_protection", "organizationId": null, "deleted": true }
 ```
 
 See [Security — Runtime toggle](/docs/security#runtime-toggle) for the full precedence rules and setting shape.
@@ -367,6 +489,96 @@ curl -X PUT https://idp.acme.com/api/authkit/v1/settings/maintenance_mode \
 
 See [Security — Maintenance mode](/docs/security#maintenance-mode) for the full behaviour
 and lockout-safety guarantees.
+
+## Signing keys
+
+Two routes expose the **managed signing key**: one reads its age against the rotation
+policy, the other rotates it live. They exist so key rotation is operable from a script or
+a pipeline — the same operation the console offers behind a session and the CLI offers on
+the box.
+
+| Method | Path | Body | Response |
+| --- | --- | --- | --- |
+| `GET` | `/keys` | — | Age, effective policy, ETA, and the key list. `501 not_implemented` when the JWKS is not a managed keystore. |
+| `POST` | `/keys/rotate` | `{ retire?, keep? }` | The rotation outcome. `501 not_implemented` when rotation is unavailable. |
+
+```bash
+curl https://idp.example.com/api/authkit/v1/keys \
+  -H "Authorization: Bearer $KEY"
+```
+
+```json
+{
+  "ageDays": 74,
+  "policy": { "enabled": true, "maxAgeDays": 90, "keep": 2 },
+  "nextRotationInDays": 16,
+  "keys": [
+    { "kid": "k-2026-03", "alg": "RS256", "ageDays": 74, "active": true },
+    { "kid": "k-2025-12", "alg": "RS256", "ageDays": 165, "active": false }
+  ]
+}
+```
+
+`policy` is the **effective** rotation policy: the `key_rotation` runtime setting when the
+settings table is available, and the built-in default (rotation off, `maxAgeDays: 90`,
+`keep: 2`) when it is not. `nextRotationInDays` is `null` while the policy is disabled —
+there is no next rotation to count down to — and never goes below zero once the key is
+overdue. `active: true` marks the key currently signing; the rest remain published in the
+JWKS so tokens they signed still verify.
+
+```bash
+curl -X POST https://idp.example.com/api/authkit/v1/keys/rotate \
+  -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "keep": 2 }'
+```
+
+```json
+{
+  "rotated": true,
+  "newKid": "k-2026-06",
+  "retiredKids": [],
+  "keptKids": ["k-2026-06", "k-2026-03"]
+}
+```
+
+`keep` is how many keys stay in the published JWKS after the rotation, newest first. It
+defaults to `2`, and any value that is not a number `>= 1` falls back to that default — you
+cannot rotate yourself into a JWKS that verifies nothing. `retire: true` overrides `keep`
+entirely and forces it to `1`: only the brand-new key survives, and `retiredKids` lists
+everything that was dropped. Rotation applies **live** — the next token is signed with
+`newKid`, no restart — and records a `keys.rotated` audit event.
+
+<Callout type="warn">
+  `retire: true` invalidates every token still signed with a dropped key. Under the default
+  (`keep: 2`, no retire) the previous key stays published, so tokens minted before the
+  rotation keep verifying until they expire. Only retire once that window has passed.
+</Callout>
+
+### The shared actions
+
+The route handlers are thin. The behaviour lives in two functions exported from
+`@adonis-agora/authkit-server`, and the admin console, this REST API, and the SDK's
+embedded driver all call the same pair — which is why all three report identical numbers:
+
+```ts
+import { buildKeysStatus, rotateNow } from '@adonis-agora/authkit-server'
+import type { ServerKeysStatus } from '@adonis-agora/authkit-server'
+
+// Reads age + effective policy + ETA. `null` means the JWKS is not a managed
+// keystore — the REST layer translates that to 501.
+const status: ServerKeysStatus | null = await buildKeysStatus(service, settings)
+
+// Validates `keep`/`retire` and performs the rotation, auditing as it goes.
+const result = await rotateNow(service, { keep: 2, retire: false })
+// { rotated: true, newKid, retiredKids, keptKids }
+```
+
+`buildKeysStatus` takes the AuthKit server service and an optional settings capability;
+pass `null` for the second argument and it falls back to the default policy instead of
+failing. Reach for these directly when you are building your own operations surface — a
+health endpoint, a scheduled job, a Slack command — and want the same semantics as the
+console without going through HTTP. See [Security — key rotation](/docs/security).
 
 ## Token verify
 

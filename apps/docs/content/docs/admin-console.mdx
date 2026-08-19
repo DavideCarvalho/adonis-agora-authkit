@@ -1,20 +1,22 @@
 ---
 icon: LayoutDashboard
 title: Admin Console
-description: The opt-in IdP admin console — a React SPA (default) or Edge server-rendered, with dashboard, users, sessions, orgs, clients, audit, and settings.
+description: The opt-in IdP admin console — a bundled React SPA with dashboard, users, sessions, orgs, clients, signing keys, audit, and runtime settings.
 ---
 
-AuthKit ships an opt-in **admin console**: a metrics dashboard, user/role management,
-session context, organization management, the OAuth client list, the audit log, an
-impersonation panel, and a full runtime settings editor. It is **off by default** —
-existing hosts don't change behaviour.
+import { Step, Steps } from 'fumadocs-ui/components/steps'
+
+AuthKit ships an opt-in **admin console**: a metrics dashboard, user and role management,
+session context and revocation, organizations, the OAuth client list, signing-key rotation,
+the audit log, an impersonation helper, and an editor for the runtime settings. It is **off
+by default**, so adding or upgrading the package never exposes it by accident — an existing
+host sees no change in behaviour until it says so in `config/authkit.ts`.
 
 ## Enabling it
 
-The console must be turned on in **both** places — `defineConfig` (the guard) and
-`registerAuthHost` (route mounting happens before the lazy config resolves):
+Turning the console on is a single decision, taken in `config/authkit.ts`:
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 defineConfig({
   // ...
   admin: {
@@ -27,25 +29,75 @@ defineConfig({
 ```ts title="start/routes.ts"
 registerAuthHost(router, {
   mountPath: '/oidc',
-  admin: true, // console under /admin
 })
 ```
+
+`registerAuthHost` inherits the on/off switch from the config — you do not repeat it in
+`start/routes.ts`. Whether the console exists is **policy**, and policy is owned by the
+config file so that `config/authkit.ts` can be audited on its own, without also reading
+every app's `start/routes.ts`. Declaring `admin` in `defineConfig` therefore *locks* the
+`admin` route option: passing `admin: true` alongside a config that already says
+`enabled: true` is harmless and redundant, while passing an option that **contradicts** the
+config is ignored, reported on the returned route map (`overriddenByConfig`), and warned
+about at boot. See [Config locks](/docs/config-locks) for the general rule and the full list
+of locked keys.
 
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `enabled` | `boolean` | `false` | Mounts the admin console group behind the admin guard. |
-| `roles` | `string[]` | `['ADMIN']` | Global roles that grant access to the console. |
+| `roles` | `string[]` | `['ADMIN']` | Global roles that grant access to the console. An empty array falls back to `['ADMIN']`. |
+| `impersonation` | `boolean` | `true` | Kill switch for impersonation — the RFC 8693 grant **and** the console panel. See below. |
+
+### The impersonation kill switch
+
+`admin.impersonation` is the one field here that reaches outside the console. It governs
+two surfaces at once:
+
+1. the RFC 8693 `urn:ietf:params:oauth:grant-type:token-exchange` grant registered on the
+   OIDC provider — the mechanism by which an admin trades their own access token for one
+   that acts as another account;
+2. the console's impersonation panel (`GET {prefix}/api/impersonation/:userId`).
+
+Setting it to `false` removes both. The grant is never registered, so the token endpoint
+answers `unsupported_grant_type`, and the panel endpoint answers **404**. It is a real kill
+switch, not a hidden button:
+
+```ts title="config/authkit.ts"
+defineConfig({
+  // ...
+  admin: {
+    enabled: true,
+    roles: ['ADMIN'],
+    impersonation: false, // no token-exchange grant, no console panel
+  },
+})
+```
+
+<Callout type="warn">
+  The default is **`true`**, not `false`. The token-exchange grant has always been
+  registered, and hosts consume it from their own admin tooling without mounting this
+  library's console at all — defaulting to `false` would break them silently at runtime.
+  If your deployment has no use for impersonation, turn it off explicitly.
+</Callout>
+
+Declaring `admin.impersonation` also **locks** the matching `admin_impersonation` runtime
+setting: the config file becomes the authority, reads of the setting resolve to the config
+value, and a write through the console's settings endpoint or the Admin API is rejected
+with **423 Locked** (`setting_locked`, `lockedBy: "config"`). `GET {prefix}/api/settings`
+returns the locked keys in a `locked` array so the UI can render the control disabled with
+a "defined via defineConfig" note. Leave the key out of `defineConfig` if you want
+operators to flip the panel at runtime instead. See [Config locks](/docs/config-locks) and
+[Impersonation](/docs/impersonation) for the full mechanism.
 
 ### Configurable admin prefix
 
-By default the console is mounted under `/admin`. You can move it to any path by passing
-`{ prefix: '...' }` instead of `true` in `registerAuthHost`:
+By default the console is mounted under `/admin`. You move it by passing an object with a
+`prefix` to `registerAuthHost`:
 
 ```ts title="start/routes.ts"
-// Default — console under /admin (backward-compatible)
+// Default — console under /admin
 registerAuthHost(router, {
   mountPath: '/oidc',
-  admin: true,
 })
 
 // Custom prefix — console under /auth/admin
@@ -54,6 +106,13 @@ registerAuthHost(router, {
   admin: { prefix: '/auth/admin' },
 })
 ```
+
+The `admin` option has two independent axes, and they resolve in opposite directions.
+*Whether* the console exists is policy — the config wins, as described above. *Where* it
+lives is **structural**, and the call site wins: mounting is a routing decision, and only a
+function call can express something a config object cannot (mounting twice under two
+prefixes, for instance). So `{ prefix }` is honoured even when `admin` is declared in
+`defineConfig`; only an on/off intent that contradicts the config is ignored.
 
 The prefix is normalised automatically: it always starts with `/` and never has a trailing
 slash. All console routes, API calls, and assets follow the effective prefix — no further
@@ -81,53 +140,72 @@ at `{prefix}` serves them all.
   used — identical to `admin: true`.
 </Callout>
 
-### The SPA under the hood
+### What you actually get
 
-The console is a self-contained, Vite-built React application (nuqs URL state, dark/light
-theme, violet accent `#625fff`) bundled **inside** the npm package — zero extra build step
-for the host. It is:
+The console is a self-contained React single-page application that ships **inside** the
+published `@adonis-agora/authkit-server` package, already built. Installing the package and
+setting `admin.enabled` is the whole story: there is no Vite config to add, no dev server to
+run, no build script to wire into your deploy, and no static files to copy into your app's
+`public/` directory. The routes serve the application and its assets straight out of the
+installed dependency.
 
-- **Pre-built and bundled inside `@adonis-agora/authkit-server`** — the Vite output lands
-  in `build/src/host/ui-dist/` at publish time and is served directly by `AdminShellController`.
-  No separate build, no Vite dev server, no extra npm scripts on the host.
-- **nuqs URL state** — page navigation (`?view=users`) and per-page filters (search,
-  pagination, the open detail drawer) live in the query string via
-  [nuqs](https://nuqs.47ng.com/)'s generic React adapter (`nuqs/adapters/react`). Every view
-  and filter combination is deep-linkable and survives refresh; switching pages clears the
-  shared filter params so state never leaks between views. Ephemeral UI (modals, forms)
-  stays in React state.
-- **JSON API + TanStack Query** — the SPA fetches all data client-side via
-  `@adonis-agora/authkit-react`'s typed client and TanStack Query hooks
-  (`useUsersQueryOptions`, `useCreateUserMutationOptions`, etc.). The API endpoints live
-  under `{prefix}/api/*` and are protected by the same `adminGuard` as the shell.
-  See **[Typed Client & TanStack Query](/docs/data-fetching)** for the full hook catalog —
-  the SPA is the canonical dogfood implementation; if you are building a custom admin
-  interface, use the same hooks.
-- **`AuthkitClientProvider`** — the shell wraps the app in `<QueryClientProvider>` and
-  `<AuthkitClientProvider>`. The client reads `window.__AUTHKIT__.endpoints.api` for the
-  base URL and `window.__AUTHKIT__.csrfToken` for CSRF — no hard-coded paths anywhere.
-- **Assets** — `{prefix}/assets/:file` serves the hashed JS/CSS files with
-  `Cache-Control: public, max-age=31536000, immutable`.
-- **Dark/light theme** — respects the OS preference (`prefers-color-scheme`). Accent colour
-  `#625fff`.
-- **`window.__AUTHKIT__` config** — the shell injects a config object at render time
-  (`adminBase`, `csrfToken`, `currentUser`, `endpoints.api`). The SPA never hard-codes paths.
+What that buys you, and what you can rely on:
 
-If the built dist is absent (a dev environment before running the server build), the shell
-falls back to a minimal HTML page with build instructions.
+- **Deep-linkable URL state** — page navigation and per-page filters live in the query
+  string via [nuqs](https://nuqs.47ng.com/): `?view=users`, `?view=users&q=ana&page=2`, and
+  so on. Every view and filter combination survives a refresh and can be pasted to a
+  colleague. Switching pages clears the shared filter params so one page's search never
+  leaks into another. Ephemeral UI — modals, half-filled forms — deliberately stays out of
+  the URL.
+- **Everything goes through the JSON API** — the shell is static HTML; all data is fetched
+  client-side from `{prefix}/api/*`, behind the same guard as the shell itself. Those
+  endpoints are consumed with `@adonis-agora/authkit-react`'s typed client and its TanStack
+  Query hooks (`useUsersQueryOptions`, `useCreateUserMutationOptions`, …). If you are
+  building your own admin interface, you are not reverse-engineering a private protocol —
+  the console is the dogfood, and the hooks are public. See
+  **[Typed Client & TanStack Query](/docs/data-fetching)** for the catalog.
+- **No hard-coded paths** — the shell injects a small runtime config object into the page
+  (the effective admin base, the CSRF token, the signed-in admin, and the API base URL),
+  and the application reads its endpoints from there. This is what makes the
+  [configurable prefix](#configurable-admin-prefix) work end-to-end: move the console and
+  the assets, API calls, and links all move with it.
+- **Cacheable assets** — hashed JS/CSS are served under `{prefix}/assets/*` with
+  `Cache-Control: public, max-age=31536000, immutable`, so a browser fetches them once per
+  release.
+- **Dark/light theme** — follows the operating-system preference
+  (`prefers-color-scheme`), with a violet accent (`#625fff`).
+
+<Callout type="info">
+  Working inside a clone of the AuthKit repository rather than on an installed package? The
+  shipped bundle only exists after the package has been built. Until then the console
+  routes render a placeholder page telling you to build it — the routes, the guard, and the
+  JSON API are all live regardless, so backend work does not need the front end built.
+</Callout>
 
 ## The guard
 
-The `adminGuard` (also exported) protects the group. It requires:
+The `adminGuard` (exported, if you want to reuse it on routes of your own) protects the
+whole group — the shell **and** every `{prefix}/api/*` endpoint. In order, it requires:
 
 1. `admin.enabled: true` — when the console is **disabled**, the guard responds with **404
    Not Found** (the routes simply don't exist as far as a caller can tell);
-2. an active **account session** (otherwise redirect to `/account/login`);
-3. the signed-in account having at least one of `admin.roles` in its global roles
-   (otherwise redirect to the configured `accountHome` — default `/account/security` — so the existence of `/admin` is not leaked).
+2. an active **account session** (otherwise a redirect to the account login URL, default
+   `/account/login`, carrying a `return_to`);
+3. a session that has not idled out — the account console's idle timeout applies here too,
+   and an expired one redirects to login with `reason=idle`;
+4. the signed-in account having at least one of `admin.roles` (otherwise a redirect to the
+   configured `accountHome` — default `/account/security` — so the existence of `/admin` is
+   not leaked).
 
-The allowed roles are resolved at runtime from the `authkit.server` config. See
-[Security](/docs/security) for how the disabled-console 404 fits the broader hardening.
+Two details worth knowing. The `admin.enabled` check at step 1 is a genuine safety net, not
+a formality: routes are registered before the lazy config resolves, so the guard is the
+thing that makes a disabled console actually behave as if it were never mounted. And the
+roles at step 4 are resolved through the host's role authority — the same `resolveTokenRoles`
+hook the token claims are minted from, when one is configured — falling back to the
+account's stored global roles otherwise. An admin whose role lives in your application's
+own tables therefore reaches the console without being duplicated into AuthKit.
+
+See [Security](/docs/security) for how the disabled-console 404 fits the broader hardening.
 
 ## Routes
 
@@ -139,7 +217,7 @@ under `{prefix}/api/*`. All endpoints are protected by the `adminGuard`.
 | --- | --- |
 | `GET {prefix}` | Shell HTML — SPA loads, [nuqs](https://nuqs.47ng.com/) drives URL state |
 | `GET {prefix}/*` | Shell HTML — catches all SPA deep links |
-| `GET {prefix}/assets/*` | Vite-built JS/CSS/fonts (hashed names, `Cache-Control: immutable`) |
+| `GET {prefix}/assets/*` | Bundled JS/CSS/fonts (hashed names, `Cache-Control: immutable`) |
 | `GET {prefix}/api/overview` | Dashboard metrics (total users, MAU, sessions, daily charts) |
 | `GET {prefix}/api/users` | List/search users |
 | `GET {prefix}/api/users/:id` | User detail |
@@ -163,24 +241,54 @@ under `{prefix}/api/*`. All endpoints are protected by the `adminGuard`.
 | `PATCH {prefix}/api/roles/:name` | Update a catalog role |
 | `DELETE {prefix}/api/roles/:name` | Remove a catalog role |
 | `GET {prefix}/api/orgs` | List organizations |
+| `POST {prefix}/api/orgs` | Create an organization |
 | `GET {prefix}/api/orgs/:id` | Org detail |
+| `PATCH {prefix}/api/orgs/:id` | Update an organization (name, slug, logo) |
+| `DELETE {prefix}/api/orgs/:id` | Delete an organization |
+| `POST {prefix}/api/orgs/:id/members` | Add a member |
+| `PATCH {prefix}/api/orgs/:id/members/:accountId` | Change a member's role |
+| `DELETE {prefix}/api/orgs/:id/members/:accountId` | Remove a member |
+| `POST {prefix}/api/orgs/:id/invitations` | Create an email invitation |
+| `DELETE {prefix}/api/orgs/:id/invitations/:invitationId` | Revoke a pending invitation |
 | `GET {prefix}/api/audit` | Browse audit log |
-| `GET {prefix}/api/settings` | Read all runtime settings |
-| `PUT {prefix}/api/settings/:key` | Upsert a setting |
-| `DELETE {prefix}/api/settings/:key` | Delete a setting (reset to lib default) |
+| `GET {prefix}/api/settings` | Read all runtime settings (add `?organizationId=` for org-scoped) |
+| `PUT {prefix}/api/settings/:key` | Upsert a setting — **423** when locked by config |
+| `DELETE {prefix}/api/settings/:key` | Delete a setting (reset to lib default) — **423** when locked |
+| `GET {prefix}/api/keys` | Managed signing-key status |
+| `POST {prefix}/api/keys/rotate` | Rotate the managed signing key |
 | `GET {prefix}/api/impersonation/:userId` | Get impersonation panel data |
+
+<Callout type="info">
+  Registration order matters here and is intentional: the assets route and every
+  `{prefix}/api/*` endpoint are registered **before** the `{prefix}/*` catch-all that serves
+  the shell. AdonisJS matches wildcards in registration order, so the reverse would have the
+  catch-all swallow API calls and answer them with HTML — which surfaces in the browser as a
+  JSON parse error rather than as a routing bug.
+</Callout>
 
 ## Dashboard
 
-`GET /admin` shows a metrics overview built from the audit sink:
+The landing view (`{prefix}`, i.e. `?view=overview`) is a metrics overview. It is a single
+call to `GET {prefix}/api/overview`, which combines the account store, the OIDC adapter,
+and the audit sink into one payload:
 
 - **Total users** — count from the account store.
 - **Active sessions** — count of current sessions (when the adapter supports enumeration).
 - **MAU (Monthly Active Users)** — unique accounts with a `login.success` in the last 30 days.
-- **Daily sign-ins / sign-ups** — server-side SVG line charts for the last 30 days.
+- **Sign-ins / sign-ups** — totals plus a per-day series for the same window, charted in
+  the browser.
+- **Clients** — how many OAuth clients the resolved config declares. Note that this counts
+  the config's client list, not the adapter's: clients created at runtime through the
+  [Clients page](#client-crud) do not move this number. The Clients page itself reads the
+  adapter and is the accurate picture.
+- **Recent activity** — the five most recent audit events.
 
-When the audit sink does not support `list`, the charts are omitted and only the static
-counts are shown.
+Everything after the user count depends on optional capabilities, and the response says so
+rather than guessing: when the audit sink cannot be queried (`list` is not implemented) the
+payload reports `auditSupported: false`, MAU and the per-day series come back zeroed, the
+audit total is `0`, and the recent-activity list is empty. The static counts still render.
+Active sessions behave the same way: the adapter's enumeration is optional, and the count
+is `null` rather than a fabricated zero when it is unavailable.
 
 ## Session context
 
@@ -216,8 +324,15 @@ The user detail drawer lists the account's active **sessions** (IdP logins) and 
 user (`POST {prefix}/api/users/:id/revoke-sessions`) — the admin-side equivalent of the
 self-service "Sign out of all devices" action on `/account/security`.
 
-The global **Sessions** page additionally offers a **"Revoke all sessions and grants"**
-button across all accounts, served by `AdminSessionsService`.
+The global **Sessions** page lists sessions and grants across every account and offers the
+same revocation from there, via `POST {prefix}/api/sessions/revoke-all`. Despite the route
+name, that endpoint is also **per account**: it requires an `accountId` (query, body, or
+route param) and revokes everything belonging to that one account. There is no
+revoke-the-entire-IdP button — that would sign out every user of every relying party in one
+click, which is not an action a console should make one keystroke away.
+
+Both paths go through the exported `AdminSessionsService`, so a host that wants the same
+behaviour from a job or a command can call it directly.
 
 Revocation works by destroying the account's `Session` and `Grant` artifacts directly
 through the OIDC adapter. Destroying a grant **cascades** to its tokens: oidc-provider
@@ -234,23 +349,68 @@ table query and the Redis adapter's `SCAN` are scoped per model, so the lookup i
 
 ## Impersonation panel
 
-When the `admin_impersonation` runtime setting is enabled (`{ "enabled": true }`), a user's
-detail page shows an **Impersonation** panel with the exact `token_exchange` parameters
-needed to assume that user's identity (RFC 8693). This surfaces the `subject_token_type`,
-`requested_token_type`, and a ready-to-run `curl` snippet — it does **not** perform the
-exchange itself.
+A user's detail drawer can hand you the exact RFC 8693 token-exchange parameters needed to
+assume that user's identity, served by `GET {prefix}/api/impersonation/:userId`. The
+response carries the token endpoint, the `grant_type`, the `subject_token_type`, the
+`requested_subject`, the client id used in the example, and a ready-to-run `curl` snippet.
+It does **not** perform the exchange — it composes the request you (or your tooling) then
+make with a real admin access token.
+
+Availability is decided in two layers, deliberately asymmetric:
+
+<Steps>
+
+<Step>
+**`config.admin.impersonation` decides whether the capability exists at all.** This is a
+boot-time decision: it is what registers (or does not register) the RFC 8693 grant on the
+OIDC provider. It defaults to `true`. When it is `false` the panel endpoint answers **404** —
+returning parameters for a grant the provider does not implement would be a lie. See
+[the kill switch](#the-impersonation-kill-switch) above.
+</Step>
+
+<Step>
+**The `admin_impersonation` runtime setting decides whether the console offers the panel.**
+This one is changeable without a redeploy. It only ever *tightens*: the config gate is
+evaluated first, and when `admin.impersonation` is declared in `defineConfig` the setting
+key is locked and the config value wins outright. When the setting is absent — or the
+`auth_settings` table does not exist — the resolver falls back to the config value, so the
+panel stays available by default rather than failing closed on a missing table.
+</Step>
+
+</Steps>
 
 ```bash
-# Enable via runtime setting (no redeploy)
-node ace authkit:settings:set admin_impersonation '{"enabled":true}'
+# Turn the panel off at runtime, without a redeploy
+# (only works when admin.impersonation is NOT declared in defineConfig)
+node ace authkit:settings:set admin_impersonation '{"enabled":false}'
 ```
 
+A third condition is structural rather than configurable: the panel needs a client carrying
+the `urn:ietf:params:oauth:grant-type:token-exchange` grant to build its example against,
+and it looks for one in the **clients declared on the resolved server config**. When it
+finds none, the endpoint answers 404 with `no_token_exchange_client` — there is no exchange
+to describe.
+
 <Callout type="warn">
-  The exchange requires a confidential client with the `urn:ietf:params:oauth:grant-type:token-exchange`
-  grant and a valid admin access token as `subject_token`. The panel shows the parameters;
-  your client performs the actual request. Viewing the panel emits an
-  `impersonation.started` audit event.
+  Clients created at runtime — through the [Client CRUD](#client-crud) page, the Admin API,
+  or `authkit:clients:create` — live in the OIDC adapter, not on the config object, so they
+  do not satisfy that lookup. On an IdP that manages all of its clients at runtime the panel
+  answers `no_token_exchange_client` even though a perfectly good token-exchange client
+  exists. The exchange itself is unaffected: the grant works against any adapter-stored
+  client that carries it. Only the console's parameter helper needs the client to be visible
+  on the config.
 </Callout>
+
+<Callout type="warn">
+  The exchange itself requires a valid admin access token as the `subject_token`; the token
+  endpoint validates the caller's admin role independently of anything the console does. The
+  panel only shows the parameters. Requesting it is treated as intent to impersonate and
+  emits an `impersonation.started` audit event with `channel: "admin-console"`, before any
+  exchange has happened.
+</Callout>
+
+See [Impersonation](/docs/impersonation) for the grant itself, the `act` claim, and how the
+impersonated session behaves.
 
 ## User management (create / invite / reset / disable / delete)
 
@@ -279,10 +439,11 @@ accounts with an "account disabled" message, even with a correct password.
 
 ## Client CRUD
 
-All clients are managed at runtime — there is no static client list in config. Create them
-via this console, the [Admin REST API](/docs/admin-api#clients), or the
-`authkit:clients:create` command (see [Reference](/docs/reference#authkitclientscreate)).
-No redeploy needed.
+Clients are meant to be managed at runtime rather than declared in a config file. Create
+them from this console, the [Admin REST API](/docs/admin-api#clients), or the
+`authkit:clients:create` command (see [Reference](/docs/reference#authkitclientscreate)) —
+no redeploy needed. `defineConfig` does accept a `clients` array, but it is an internal
+seam for tests and one-off migrations, not the production path.
 
 The clients page lists all **adapter-stored** clients created via the
 console or [Dynamic Registration](/docs/dynamic-registration). Adapter-stored clients are
@@ -303,16 +464,16 @@ persists (matching what RFC 7591 dynamic registration writes) and then **evicts 
 provider's dynamic-client cache** so the change takes effect immediately. Each operation
 emits an audit event: `client.created`, `client.updated`, `client.deleted`.
 
-Enumeration relies on the adapter's **optional** `list?()` capability (the legacy
-`listClients?()` is still honored for back-compat and now delegates to `list()`). When the
-adapter implements neither, the service's `canList` is `false` and the page **degrades
+Enumeration relies on the adapter's **optional** `list?()` capability (an adapter that
+implements only the older `listClients?()` is still honored, delegating to `list()`). When
+the adapter implements neither, the service's `canList` is `false` and the page **degrades
 gracefully** — the create form still works, but the adapter-stored list is hidden with a
 notice rather than erroring.
 
 ## Organizations
 
-When the three organization tables are present, an **Organizations** tab appears at
-`/admin/orgs`. See [Organizations](/docs/organizations#admin-console----adminorgs) for
+When the three organization tables are present, an **Organizations** view appears at
+`?view=orgs`. See [Organizations](/docs/organizations#admin-console----adminorgs) for
 the full route table and behaviour.
 
 ### Organization management
@@ -339,95 +500,94 @@ Saving an org-scoped value creates a row in `auth_settings` with `organization_i
 the org's ID. The resolution chain is `org → global → lib default`. See
 [Runtime Settings — Org-scoped settings](/docs/settings#org-scoped-settings) for details.
 
+
+## Signing keys
+
+`?view=keys` is the operational view for the **managed** JWKS signing key. `GET
+{prefix}/api/keys` reports the current key's age alongside the effective rotation policy
+and when the next rotation is due, and `POST {prefix}/api/keys/rotate` performs a rotation
+on the spot — the same operation as `node ace authkit:keys:rotate`, with the same
+`keep` / `retire` semantics in the request body.
+
+This view only means something when the JWKS is managed **and** has a persisted store: with
+an inline keyset there is nothing for AuthKit to rotate, and with a managed keyset and no
+store the key is regenerated every boot anyway. In both of those cases the endpoints answer
+**501 `not_implemented`** rather than pretending. See
+[Keystore vaults](/docs/keystore-vaults) for the store options and
+[Signing key rotation](/docs/security#signing-key-rotation) for the policy.
+
 ## Settings page
 
-`{prefix}#/settings` shows a **Runtime
-Settings** panel with multiple sections covering all 21 known setting keys. The page is the
-primary interface for operational configuration that does not require a redeploy. See
-[Runtime Settings](/docs/settings) for the full setting catalog, precedence rules, and
-migration guide.
-
-Every card shows a **badge** indicating whether the effective value comes from the runtime
-setting (`from setting`) or falls back to the lib default (`from default`). When the
-`auth_settings` table is absent, a notice appears with the `CREATE TABLE` snippet and submit
-buttons are disabled.
-
-Every save emits a `settings.updated` audit event.
-
-### Section: Security & Access
-
-Contains cards for `bot_protection`, `registration`, `require_verified_email`,
-`maintenance_mode`, and `auth_methods`.
+`?view=settings` is the **Runtime Settings** view — the operational configuration that
+changes without a redeploy. Everything on it goes through one small HTTP surface rather
+than a route per control:
 
 | Route | Action |
 | --- | --- |
-| `GET {prefix}/settings` | Render the settings page. |
-| `POST {prefix}/settings/bot-protection` | Save (upsert) the `bot_protection` setting. |
-| `POST {prefix}/settings/bot-protection/reset` | Delete the setting — reverts to static config. |
-| `POST {prefix}/settings/registration` | Save (upsert) the `registration` setting. |
-| `POST {prefix}/settings/registration/reset` | Delete the setting — reverts to static config. |
-| `POST {prefix}/settings/require-verified-email` | Save (upsert) the `require_verified_email` setting. |
-| `POST {prefix}/settings/require-verified-email/reset` | Delete the setting — reverts to static config. |
-| `POST {prefix}/settings/maintenance-mode` | Save (upsert) the `maintenance_mode` setting. |
-| `POST {prefix}/settings/maintenance-mode/reset` | Delete the setting — disables maintenance mode. |
-| `POST {prefix}/settings/auth-methods` | Save (upsert) the `auth_methods` setting. |
-| `POST {prefix}/settings/auth-methods/reset` | Delete the setting — reverts to config-derived defaults. |
+| `GET {prefix}/api/settings` | Read every stored setting, plus a `locked` array naming the keys frozen by `defineConfig`. |
+| `GET {prefix}/api/settings?organizationId={id}` | The same, scoped to one organization. |
+| `PUT {prefix}/api/settings/:key` | Upsert a setting. Body: `{ "value": <json> }`. |
+| `DELETE {prefix}/api/settings/:key` | Delete a setting — the effective value falls back to config, then to the lib default. |
 
-#### Bot-protection card
+Both writes accept the same `?organizationId=` query parameter, and both emit a
+`settings.updated` audit event carrying the key, the value (or `action: "deleted"`),
+`source: "admin-console"`, and the organization id.
 
-The card shows the current effective state and lets an admin:
+Two failure modes are worth knowing before you wire an operator up to this page:
 
-- **Enable / disable** bot protection for the whole IdP without a redeploy.
-- **Override the protected flows** (`login`, `signup`, `reset`) independently of the
-  config value.
+- **No `auth_settings` table** — every one of these endpoints answers **404** with
+  `capability_unsupported`, and the view degrades to a notice telling you to run the
+  migration. Runtime settings are an optional capability, not a hard requirement.
+- **The key is locked by config** — writes answer **423 Locked** with
+  `setting_locked` and `lockedBy: "config"`. This is not an error to work around: it means
+  the value was declared in `config/authkit.ts`, which by design outranks anything set at
+  runtime. Remove it from `defineConfig` to hand control back to the console. See
+  [Config locks](/docs/config-locks).
 
-**States:**
+### The sections on the page
 
-- **Config absent (`botProtection.verify` not set)** — the card is rendered in a disabled
-  state with a notice that bot protection has not been wired up in `config/authkit.ts`. The
-  form controls are non-interactive.
-- **`auth_settings` table absent** — a notice explains that the `auth_settings` table is
-  required for runtime toggles and shows the `CREATE TABLE` snippet. The form still
-  renders so the admin can see the static-config values, but submit buttons are disabled.
-- **Table present** — the form is live. Submitting it writes (or deletes) the
-  `bot_protection` row and every subsequent request picks up the change within 15 s (the
-  TTL of the in-process cache). A **Reset to config** button deletes the row and returns
-  control to the static config.
+The view is a stack of structured sections. Each section is one setting key, and the
+fields inside it map onto the fields of that key's stored JSON object — so saving the
+"Cadastro" section writes `{"enabled": true}` to the `registration` key, nothing more
+magical than that. A section whose key is locked renders read-only with a "defined via
+`defineConfig`" note.
 
-See [Security — Runtime toggle](/docs/security#runtime-toggle) for the full precedence
-rules and setting shape.
+| Section | Setting key | Fields |
+| --- | --- | --- |
+| Login methods | `auth_methods` | `password`, `magicLink`, `passkey`, `forgotPassword`, `passkeyAutofill` |
+| Sign-up | `registration` | `enabled` |
+| Email verification | `require_verified_email` | `enabled`, `graceDays` |
+| Maintenance | `maintenance_mode` | `enabled`, `message` |
+| Lockout | `lockout` | `enabled`, `maxAttempts`, `windowSec`, `baseLockoutSec`, `maxLockoutSec` |
+| Token TTL | `token_ttl` | `accessTokenSec`, `idTokenSec`, `refreshTokenSec` |
 
-#### Registration card
+A few notes on the fields that are not self-explanatory:
 
-Controls whether public sign-up is open. The static fallback is `config.registration.enabled`
-(default `true`). Disabling closes the sign-up page and rejects new registrations; org
-invitations and admin-created accounts are unaffected. A **Reset to config** button
-removes the runtime setting and returns to the static default.
+- **`auth_methods.forgotPassword`** depends on `password`: there is nothing to reset when
+  password login is off, so the resolver treats it accordingly. `magicLink` and `passkey`
+  additionally need the underlying capability (mail plus `passwordless.magicLink`, and a
+  configured WebAuthn respectively) — the setting cannot switch on a method the code does
+  not have wired up. See
+  [Security — Authentication methods](/docs/security#authentication-methods).
+- **`require_verified_email.graceDays`** lets newly-registered accounts sign in without a
+  verified email for N days (`0` disables the grace window). It is a no-op when the account
+  store does not implement the `isEmailVerified` capability. See
+  [Compliance — Email verification gate](/docs/compliance#verified-email-grace).
+- **`maintenance_mode`** blocks login, sign-up, and forgot-password for everyone whose
+  roles do not match `admin.roles`, so an operator can still get in and turn it back off.
+  Leaving `message` blank falls back to the built-in translated string. See
+  [Security — Maintenance mode](/docs/security#maintenance-mode).
+- **`lockout`** is the per-account brute-force lock (progressive backoff from
+  `baseLockoutSec` up to `maxLockoutSec`), which is a different mechanism from the route
+  throttles. See [Account lockout](/docs/account-lockout).
+- **`token_ttl`** changes take effect immediately — the provider reads the TTLs through
+  mutable holders rather than capturing them at boot. Session lifetime is not here; it
+  lives in `session_policy`.
 
-See [Security — Registration toggle](/docs/security#registration-toggle) for the full
-behaviour and escape hatch.
-
-#### Require verified email card
-
-Overrides `config.login.requireVerifiedEmail` at runtime for all three login flows. Includes
-an optional **grace period** field (`graceDays`) that allows newly-registered accounts to
-log in for a configurable number of days without a verified email. When the `accountStore`
-lacks the `isEmailVerified` capability the card shows a notice that the guard is a no-op.
-
-See [Compliance — Email verification gate](/docs/compliance#verified-email-grace) for the
-grace-period behaviour and [Security — Require verified email toggle](/docs/security#require-verified-email-toggle)
-for the precedence rules.
-
-#### Maintenance mode card
-
-Activates a maintenance screen that blocks login / sign-up / forgot-password for
-non-admin users. An optional custom message is shown on the maintenance page; leave it
-blank to use the built-in i18n string. Admin accounts (roles matching `admin.roles`)
-bypass the gate.
-
-A **Reset** button removes the setting and takes the IdP out of maintenance mode. If the
-console is unreachable during an incident, the Admin REST API escape hatch lets you disable
-maintenance without a session:
+<Callout type="warn">
+  If a locked-out operator needs `maintenance_mode` turned off and the console itself is
+  unreachable, the [Admin REST API](/docs/admin-api) is the escape hatch — it writes the
+  same settings with an API key instead of a session:
 
 ```bash
 curl -X PUT https://idp.acme.com/api/authkit/v1/settings/maintenance_mode \
@@ -436,150 +596,36 @@ curl -X PUT https://idp.acme.com/api/authkit/v1/settings/maintenance_mode \
   -d '{ "value": { "enabled": false } }'
 ```
 
-See [Security — Maintenance mode](/docs/security#maintenance-mode) for the full behaviour.
-
-#### Authentication methods card
-
-Controls which login methods the sign-in screen offers at runtime — without a redeploy.
-
-The card lists checkboxes for each method with contextual dependency hints:
-
-- **Password** — the standard email + password form.
-- **Magic link** — "send me a login link"; shown only when the mail capability and store
-  support it. The checkbox is disabled with a hint when the capability is absent.
-- **Passkey** — passkey-first sign-in; shown only when WebAuthn is configured.
-- **Forgot password** — the "forgot my password" link. The checkbox is automatically
-  disabled (and unchecked) when **Password** is off — there is nothing to reset without a
-  password.
-- **Social providers** — one checkbox per configured provider (e.g. Google, GitHub). Only
-  providers present in the static config are listed; the setting cannot activate a provider
-  the code does not have wired up.
-
-A **Reset to config** button deletes the row and returns to the config-derived defaults.
-
-See [Security — Authentication methods](/docs/security#authentication-methods) for the full
-shape, precedence rules, and fail-safe behaviour.
-
-### Section: Email Change
-
-Card for the `email_change` setting. Controls whether users can change their email address
-and the parameters of the verified double-confirmation flow.
-
-| Route | Action |
-| --- | --- |
-| `POST {prefix}/settings/email-change` | Save (upsert) the `email_change` setting. |
-| `POST {prefix}/settings/email-change/reset` | Delete the setting — reverts to defaults. |
-
-See [Compliance — Verified email-change flow](/docs/compliance#email-change) for the full
-flow, mail hooks, and capability requirements.
-
-### Section: Security Notifications
-
-Card for the `security_notifications` setting. Controls automatic security-alert emails
-triggered by sensitive account events.
-
-| Route | Action |
-| --- | --- |
-| `POST {prefix}/settings/security-notifications` | Save (upsert) the `security_notifications` setting. |
-| `POST {prefix}/settings/security-notifications/reset` | Delete the setting — reverts to defaults (all enabled). |
-
-The card shows checkboxes for each of the six notification kinds (`password_changed`,
-`mfa_enabled`, `mfa_disabled`, `passkey_added`, `passkey_removed`, `email_changed`). All
-are enabled by default.
-
-See [Compliance — Security notifications](/docs/compliance#security-notifications) for
-the full kind list, mail hook, and audit details.
-
-### Section: Passwords
-
-Cards for `password_history`, `password_expiration`, and `password_policy` (which now
-includes `blockCommon` — see [Passwords & Migration](/docs/passwords-and-migration#common-passwords)).
-
-| Route | Action |
-| --- | --- |
-| `POST {prefix}/settings/password-history` | Save (upsert) the `password_history` setting. |
-| `POST {prefix}/settings/password-history/reset` | Delete — disables history enforcement. |
-| `POST {prefix}/settings/password-expiration` | Save (upsert) the `password_expiration` setting. |
-| `POST {prefix}/settings/password-expiration/reset` | Delete — disables expiration enforcement. |
-| `POST {prefix}/settings/password-policy` | Save (upsert) the `password_policy` setting. |
-| `POST {prefix}/settings/password-policy/reset` | Delete — reverts to config/lib defaults. |
-
-The password-history card shows a notice when the `auth_password_history` table is absent
-(capability not detected). The password-expiration card shows a notice when the
-`password_changed_at` column is absent.
-
-See [Passwords & Migration](/docs/passwords-and-migration) for the full capability setup,
-migration SQL, and behaviour details.
-
-### Section: Sessions & Tokens
-
-Cards for `session_policy`, `trusted_devices`, `notifications`, and `token_ttl`.
-
-| Route | Action |
-| --- | --- |
-| `POST {prefix}/settings/session-policy` | Save (upsert) the `session_policy` setting. |
-| `POST {prefix}/settings/session-policy/reset` | Delete — reverts to defaults. |
-| `POST {prefix}/settings/trusted-devices` | Save (upsert) the `trusted_devices` setting. |
-| `POST {prefix}/settings/trusted-devices/reset` | Delete — reverts to lib defaults. |
-| `POST {prefix}/settings/notifications` | Save (upsert) the `notifications` setting. |
-| `POST {prefix}/settings/notifications/reset` | Delete — reverts to defaults. |
-| `POST {prefix}/settings/token-ttl` | Save (upsert) the `token_ttl` setting. |
-| `POST {prefix}/settings/token-ttl/reset` | Delete — reverts to lib defaults. |
-
-**Session policy card** shows fields for:
-- **Remember me** — enable/disable the "keep me signed in" checkbox and its duration.
-- **Default session hours** — session duration when remember-me is unchecked (or disabled).
-- **Single session** — when enabled, logging in revokes all other active sessions for the
-  account. Emits `session.single_enforced` audit events.
-- **Idle timeout** — inactivity timeout for the account console (minutes). 0 = disabled.
-  See the [known limitation](#idle-timeout-limitation) below.
-
-<Callout type="info">
-  **Idle timeout limitation:** the idle timeout is tracked via the Adonis session on the
-  account console routes. It does **not** affect the OIDC side — refresh tokens have
-  their own lifetime controlled by `token_ttl.refreshTokenSec`. This limitation is
-  intentional and documented: the oidc-provider session cannot be interrupted per-request
-  without a full logout.
 </Callout>
 
-**Token TTL card** shows numeric inputs for `accessTokenSec`, `idTokenSec`, and
-`refreshTokenSec`. Changes take effect immediately via mutable holders (the oidc-provider
-TTL functions read the holder synchronously). Session TTL is in the Session Policy card.
+### Keys the form does not cover
 
-### Section: Admin & Organizations
+The runtime settings catalog is larger than the console's form. There are 23 known keys in
+all; the six sections above are the ones with a purpose-built UI. The rest are still fully
+usable — they are ordinary rows in `auth_settings`, reachable through the same
+`PUT {prefix}/api/settings/:key`, through the [Admin REST API](/docs/admin-api#settings),
+and from the command line:
 
-Cards for `admin_impersonation`, `organizations_policy`, `lockout`, and `rate_limit`.
+```bash
+node ace authkit:settings:list                       # every stored setting
+node ace authkit:settings:get password_policy        # read one
+node ace authkit:settings:set sudo_mode '{"enabled":true,"graceMinutes":15}'
+node ace authkit:settings:unset sudo_mode            # back to config / lib default
+```
 
-| Route | Action |
-| --- | --- |
-| `POST {prefix}/settings/admin-impersonation` | Save (upsert) the `admin_impersonation` setting. |
-| `POST {prefix}/settings/admin-impersonation/reset` | Delete — reverts to lib defaults. |
-| `POST {prefix}/settings/organizations-policy` | Save (upsert) the `organizations_policy` setting. |
-| `POST {prefix}/settings/organizations-policy/reset` | Delete — reverts to lib defaults. |
-| `POST {prefix}/settings/lockout` | Save (upsert) the `lockout` setting. |
-| `POST {prefix}/settings/lockout/reset` | Delete — reverts to lib defaults. |
-| `POST {prefix}/settings/rate-limit` | Save (upsert) the `rate_limit` setting. |
-| `POST {prefix}/settings/rate-limit/reset` | Delete — reverts to lib defaults. |
+The keys without a form section are `bot_protection`, `password_policy`,
+`password_history`, `password_expiration`, `session_policy`, `trusted_devices`,
+`notifications`, `security_notifications`, `email_change`, `rate_limit`,
+`admin_impersonation`, `organizations_policy`, `roles_catalog`, `sudo_mode`,
+`otp_lockout`, `account_expiration`, and `key_rotation`.
 
-The **rate_limit card** shows a notice about the known limitation: the route throttle
-middleware uses boot-time values; only the lockout-side (AccountLockout) is affected by
-the runtime setting.
+[Runtime Settings](/docs/settings) is the reference for all of them: the shape of each
+value, the precedence chain (`org → global → config → lib default`), the cache TTL, and
+the capability each one depends on.
 
-The **organizations policy card** always includes `owner` in the roles list — the `owner`
-role is an invariant and cannot be removed even if the setting omits it.
-
-### Section: Account Security
-
-Cards for `sudo_mode`, `otp_lockout`, and `account_expiration` (new in this release).
-
-| Route | Action |
-| --- | --- |
-| `POST {prefix}/settings/sudo-mode` | Save (upsert) the `sudo_mode` setting. |
-| `POST {prefix}/settings/sudo-mode/reset` | Delete — reverts to lib defaults (enabled, 15 min grace). |
-| `POST {prefix}/settings/otp-lockout` | Save (upsert) the `otp_lockout` setting. |
-| `POST {prefix}/settings/otp-lockout/reset` | Delete — reverts to lib defaults (enabled, 5 attempts, 24 h). |
-| `POST {prefix}/settings/account-expiration` | Save (upsert) the `account_expiration` setting. |
-| `POST {prefix}/settings/account-expiration/reset` | Delete — reverts to lib defaults (disabled). |
-
-See [Security — Sudo mode](#sudo-mode-and-otp-lockout) and
-[Compliance — Account expiration](/docs/compliance#account-expiration) for full details.
+<Callout type="info">
+  `organizations_policy` and `roles_catalog` are the two org-scopable keys. They are the
+  ones the [org drawer's Settings tab](#org-scoped-settings-settings-tab-in-the-org-drawer)
+  edits, and the only ones for which `?organizationId=` changes anything — every other key
+  is global.
+</Callout>

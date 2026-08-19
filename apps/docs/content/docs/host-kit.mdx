@@ -1,47 +1,181 @@
 ---
 icon: Server
 title: Host Kit
-description: registerAuthHost, the render seam, branding, bundled pages, and ejecting.
+description: Mounting the routes, AuthHostOptions, the config-vs-argument precedence rule, the render seam, branding, and ejecting.
 ---
 
 The **host kit** is the batteries-included front of the Authorization Server: the routes,
 the controllers, and the login / consent / signup / account pages. One call wires it all
 up.
 
-## registerAuthHost
+## Mounting the host
+
+Both ways of getting the routes registered run the same code: the automatic mount is
+literally a call to `registerAuthHost`, so nothing about the resolution differs between
+them. What differs is *who* makes the call and *when*.
+
+### Mounting from the config file
+
+`routes` in `defineConfig` tells the provider to mount the whole host during its `boot()`:
+
+```ts title="config/authkit.ts"
+import { defineConfig } from '@adonis-agora/authkit-server'
+
+export default defineConfig({
+  // ...
+  routes: true,
+})
+```
+
+`true` mounts everything using what the rest of the config already declares. An object
+mounts the same way but supplies *structural* defaults for the call — the paths, not the
+policies:
+
+```ts title="config/authkit.ts"
+export default defineConfig({
+  // ...
+  routes: {
+    mountPath: '/sso',
+    accountRoutes: { prefix: '/conta', paths: { security: 'seguranca' } },
+    account: { orgs: false },
+    accountLoginUrl: '/login',
+  },
+})
+```
+
+Policy keys (`social`, `rateLimit`, `sudoMethods`, and the admin on/off switches) are
+redundant inside that object: they already have top-level config keys, and those top-level
+keys are what locks them. Keep this object for structure.
+
+Omitting `routes` — or setting it to `false`, the explicit kill switch — means the provider
+mounts nothing and you call `registerAuthHost` yourself.
+
+Two consequences of auto-mounting are worth knowing before you choose it:
+
+- The provider's `boot()` runs **before** the `start/routes.ts` preload, so the host's
+  routes are registered first. The wildcards (`${mountPath}/*`, and the admin console's
+  `${prefix}/*`) therefore match before any app route with an overlapping pattern. If you
+  need your own route to win, register the host yourself, in the position you want.
+- The resolved `AuthHostRouteMap` is produced but not handed back to you — the provider
+  mounts and keeps it. If you want that map (to feed your frontend), call `registerAuthHost`.
+
+<Callout type="error">
+  Auto-mounting **and** calling `registerAuthHost` is a double registration: every route
+  would be registered twice, and two routes with the same name abort the AdonisJS boot with
+  an error that does not say where it came from. So `registerAuthHost` detects that the
+  provider already auto-mounted and throws first, loudly, telling you to pick one: drop the
+  call from `start/routes.ts`, or put `routes: false` in `defineConfig` and configure
+  everything through the call.
+</Callout>
+
+### Mounting from `start/routes.ts`
 
 ```ts title="start/routes.ts"
 import router from '@adonisjs/core/services/router'
 import { registerAuthHost } from '@adonis-agora/authkit-server'
 
-registerAuthHost(router, {
+const authkitRoutes = registerAuthHost(router, {
   mountPath: '/oidc',
-  social: { providers: ['google'] }, // opt-in
-  rateLimit: { enabled: true },      // opt-in
 })
 ```
 
-`AuthHostOptions`:
-
-| Option | Type | Notes |
-| --- | --- | --- |
-| `mountPath` | `string` | Where the OIDC provider is mounted; must match the issuer tail. |
-| `social` | `{ providers: string[] }` | Opt-in; mounts the social redirect/callback routes (uses `ctx.ally`). |
-| `rateLimit` | `RateLimitConfigInput` | Opt-in; throttles login/signup/forgot/reset + PAT introspection. Only `enabled` and `store` belong here (infra); bucket values are in the `rate_limit` runtime setting. |
-| `admin` | `true \| { prefix?: string }` | Opt-in; mounts the admin console. `true` = default prefix `/admin` (back-compat). `{ prefix: '/auth/admin' }` = custom prefix. Prefix is normalised: leading `/`, no trailing slash. Mirror `admin.enabled` in `defineConfig`. |
-| `adminApi` | `boolean` | Opt-in; mounts the Admin REST API at `/api/authkit/v1` (unaffected by `admin.prefix`). Mirror `adminApi.enabled` in `defineConfig`. |
+Every argument is optional. `registerAuthHost(router)` is entirely config-driven;
+`registerAuthHost(router, { mountPath: '/sso' })` overrides the mount path and inherits
+everything else. Omitting a key means "use the config", never "use nothing".
 
 It mounts (among others): the provider wildcard at `mountPath`, the multi-step
 interaction at `/auth/interaction/:uid` (`identifier` → `login` → optional `mfa` →
 `consent`), signup, `/auth/forgot-password` + `/auth/reset-password`,
 `/auth/verify-email`, the optional social routes, PAT introspection at
 `/authkit/pat/introspect`, and the account console under `/account/*` (login, tokens,
-security, MFA).
+security, MFA), including the sudo confirmation screen and the console's JSON API.
+
+**Choose the config mount** when you want one auditable file to describe the whole
+deployment and you have no ordering requirements — which is most apps. **Choose the call**
+when you need the host registered at a specific point relative to your own routes, or when
+you want the returned route map.
+
+## AuthHostOptions
+
+Each option is either **policy** — it decides what is *allowed* — or **structure** — it
+decides where things *live*. The distinction is not cosmetic: policy options are locked by
+the config file, structure options are not. See
+[the precedence rule](#config-wins-for-policy-options) right below the table.
+
+| Option | Type | Kind | Notes |
+| --- | --- | --- | --- |
+| `mountPath` | `string` | structure | Where the OIDC provider is mounted; must match the issuer tail. Falls back to `mountPath` in the config, then `/oidc`. |
+| `social` | `AuthSocialConfig` | policy | Mounts the social redirect/callback routes (they use `ctx.ally`). |
+| `rateLimit` | `RateLimitConfigInput` | policy | Throttles login/signup/forgot/reset, the sudo routes and PAT introspection. Only `enabled` and `store` belong here (infra); bucket values live in the `rate_limit` runtime setting. |
+| `admin` | `boolean \| { prefix?: string }` | policy (on/off) + structure (prefix) | Mounts the admin console. `true` = default prefix `/admin`; `{ prefix: '/auth/admin' }` = custom prefix, normalised to a leading `/` with no trailing slash. |
+| `adminApi` | `boolean \| { prefix?: string }` | policy (on/off) + structure (prefix) | Mounts the Admin REST API. `true` = default prefix `/api/authkit/v1`; the prefix is independent of `admin.prefix`. |
+| `sudoMethods` | `SudoMethod[]` | policy | Which sudo methods get **routes mounted**. Replaces the built-in list, it does not add to it. See [Console session & sudo mode](/docs/console-session). |
+| `account` | `false \| AccountScreensOptions` | structure | Per-screen mounting of the account console. `false` unmounts every navigable screen; an object (`login`, `tokens`, `orgs`, `security`, `mfa`, `apps`) unmounts them selectively. |
+| `accountLoginUrl` | `string` | structure | Where "you need to sign in" redirects go. Default: the console's own login path. |
+| `accountRoutes` | `AccountPathsOptions` | structure | Prefix and per-screen segments of the account console — `{ prefix: '/conta', paths: { security: 'seguranca' } }`. |
+
+### Config wins for policy options
+
+When `defineConfig` declares a policy option, the equivalent `registerAuthHost` argument is
+**ignored**. The config value wins, and the divergence is reported rather than swallowed:
+the key lands in `AuthHostRouteMap.overriddenByConfig` and a `console.warn` at boot names it.
+
+The lock is derived per key, from what the config actually declares:
+
+| Declared in `defineConfig` | Locks the argument |
+| --- | --- |
+| `social` | `social` |
+| `rateLimit` | `rateLimit` |
+| `sudo: { methods }` | `sudoMethods` |
+| `admin` | `admin` (the on/off switch only) |
+| `adminApi` | `adminApi` (the on/off switch only) |
+
+A key the config does not declare is not locked, and the argument keeps full control of it.
 
 <Callout type="warn">
-  `social` and `rateLimit` are passed *here* as well as in `defineConfig` because route
-  mounting is decided at registration time, before the lazy config resolves. Mirror them.
+  The reason is auditability. Without the lock, `start/routes.ts` could quietly **loosen**
+  what the reviewed config file declares — turn off the rate limiter the config turned on,
+  mount a social login the config never declared, swap the sudo method list — and
+  `config/authkit.ts` would stop being readable on its own: you would have to open every
+  app's routes file to know what is actually in force. It is the same rule
+  `defineConfig({ authMethods })` already applies to login methods against the runtime
+  settings, pointed at the other axis. See [Config locks](/docs/config-locks).
 </Callout>
+
+Only the *enable* axis of `admin` / `adminApi` is policy. Passing `{ prefix: '/backoffice' }`
+while the config declares `admin` moves the console and reports nothing, because it does not
+contradict the config; passing `admin: false` against a config that enabled it does, and is
+ignored.
+
+## The returned route map
+
+`registerAuthHost` returns an `AuthHostRouteMap` — the resolved answer to "where did
+everything end up", read after all registration is done:
+
+| Field | Contents |
+| --- | --- |
+| `mountPath` | Where the OIDC provider was mounted (the wildcard is `${mountPath}/*`). |
+| `account.prefix` | The resolved console prefix. |
+| `account.api` | The base of the console's JSON API. |
+| `account.paths` | The full path of every navigable screen, keyed by screen (`security` → `/account/security`). |
+| `account.loginUrl` | The "sign in" redirect target in force. |
+| `account.screens` | Which screens were actually mounted. |
+| `admin` / `adminApi` | `{ prefix }` for each, or `null` when it was not mounted. |
+| `names` | The named routes the host registers (the rest inherit AdonisJS auto-naming). |
+| `sudoMethods` | The ids of the sudo methods whose routes were mounted, in mount order. |
+| `overriddenByConfig` | Policy arguments that were ignored because the config declared them. Empty in the normal case. |
+
+Hand it to your frontend instead of hardcoding `href`s — as an Inertia shared prop, a
+`<script type="application/json">` blob, or an endpoint of your own:
+
+```ts title="start/routes.ts"
+const authkitRoutes = registerAuthHost(router)
+
+router.get('/', ({ inertia }) => inertia.render('home', { authkitRoutes }))
+```
+
+That matters most once you relocate the console: a path override that only reaches the
+server is half a feature, right in the routes and wrong in the UI.
 
 ## Account console
 
@@ -67,9 +201,9 @@ The change-password and change-email flows are backed by the optional
 `AccountSecurityCapability` of the `AccountStore` (`changePassword`, `requestEmailChange`,
 `confirmEmailChange`). The bundled `lucidAccountStore` implements them with **no extra
 migration**: the email-change confirmation token reuses the existing
-`emailVerificationToken` column, encoding the pending address in an `ec:<email>:<token>`
-payload. The tradeoff is that a signup-verification token and an email-change token can't
-coexist for the same account (one column) — in practice these are distinct flows in time.
+`emailVerificationToken` column and carries the pending address with it. The tradeoff is
+that a signup-verification token and an email-change token can't coexist for the same
+account (one column) — in practice these are distinct flows in time.
 The confirmation email is sent through the same default mailer (and is overridable via the
 `mail.onEmailVerification` hook). Stores that don't implement the capability simply hide the
 security page (`supportsAccountSecurity` guards it).
@@ -110,6 +244,102 @@ with access** page (`/account/apps`) lists the account's OIDC grants and lets th
 a single client's access — the consent self-service counterpart of the admin "revoke all"
 button. It relies on the OIDC adapter's optional `list?()` capability and degrades gracefully
 when the adapter can't enumerate.
+
+### Relocating or unmounting console screens
+
+The console does not have to live at `/account/*` in English, and it does not have to be
+whole. Two independent options cover the two questions.
+
+**`accountRoutes` renames.** It takes a base `prefix` and a per-screen `paths` map, and the
+screen keys are `login`, `logout`, `security`, `mfa`, `confirm`, `tokens`, `apps`, `orgs`
+and `emailConfirm`:
+
+```ts title="start/routes.ts"
+registerAuthHost(router, {
+  accountRoutes: {
+    prefix: '/conta',
+    paths: { security: 'seguranca', confirm: 'confirmar', tokens: 'tokens' },
+  },
+})
+```
+
+The prefix is normalised (leading `/`, no trailing slash) and an empty or whitespace-only
+value falls back to the default rather than producing a broken path. Only the prefix and the
+screen segment are renameable. The action subpaths that the screens post to (`/password`,
+`/enroll`, `/passkeys/verify`, and their siblings) and the `api` segment of the console's
+JSON API are fixed: the user never types them, they exist as `<form action>` / `fetch`
+targets, and the JSON API is a machine contract consumed by
+[`@adonis-agora/authkit-react`](/docs/react). Renaming the screen already covers the real
+case.
+
+`accountRoutes` is a top-level option rather than a field of `account` on purpose: even with
+`account: false`, the sudo routes and the JSON API stay mounted, and they follow the prefix
+too — so the prefix cannot live under the flag that unmounts the navigable screens.
+
+**`account` unmounts.** `false` drops every navigable screen; an object drops them
+selectively, and any flag you leave out defaults to mounted:
+
+```ts title="start/routes.ts"
+registerAuthHost(router, {
+  // Passwordless console: keep security and MFA, delegate sign-in to the host's own IdP.
+  account: { login: false, tokens: false, orgs: false },
+  accountLoginUrl: '/login',
+})
+```
+
+<Callout type="warn">
+  If you unmount `login`, pass `accountLoginUrl`. Every "you need to sign in" redirect in
+  the package — the account guard, the admin console guard, the account middleware,
+  `consoleLoginUrl()`, the controllers' fallback redirects and the OTP-unlock screen — sends
+  the visitor there, and without the option they would all point at a route that no longer
+  exists.
+</Callout>
+
+These flags decide only whether the **routes** exist. Runtime behaviour still comes from the
+resolved config, and the guards remain the safety net, so a flag that drifts from the config
+degrades into a 404 rather than into a bypass.
+
+### Deriving a console path in your own code
+
+When your code needs a console path — to attach a middleware to a console route, to build a
+link, to match a request — derive it instead of hardcoding `/account/...`, so it keeps
+working under an override:
+
+```ts
+import { accountPath, joinAccountPath, accountPrefix } from '@adonis-agora/authkit-server'
+```
+
+- `accountPath(key)` returns the full path of a screen: `accountPath('security')` →
+  `/account/security` by default, `/conta/seguranca` under the override above. For an action
+  subpath, append the fixed suffix: `` `${accountPath('security')}/export` ``.
+- `joinAccountPath(sub)` joins the prefix with an arbitrary subpath. Use it for any
+  composition that is not a screen — it collapses a root prefix (`/`) correctly, where a
+  hand-written `` `${accountPrefix()}/thing` `` would produce `//thing`, which a browser
+  reads as a protocol-relative URL whose host is `thing`.
+- `accountPrefix()` returns the raw prefix, for the rare case that needs the bare value.
+
+<Callout type="warn">
+  These helpers read a process-level singleton that only reflects your overrides **after**
+  `registerAuthHost` has run — it is the registration that applies `accountRoutes`. Called
+  earlier, they return the defaults. So compose URLs at request time, inside a handler or
+  inside the body of a middleware, never at module import time.
+</Callout>
+
+```ts title="app/middleware/audit_console_access.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import type { NextFn } from '@adonisjs/core/types/http'
+import { accountPath } from '@adonis-agora/authkit-server'
+
+export default class AuditConsoleAccessMiddleware {
+  async handle(ctx: HttpContext, next: NextFn) {
+    // Resolved per request — correct even when the console was relocated.
+    if (ctx.request.url().startsWith(accountPath('security'))) {
+      ctx.logger.info({ url: ctx.request.url() }, 'console security screen touched')
+    }
+    return next()
+  }
+}
+```
 
 ## The render seam
 
@@ -158,6 +388,50 @@ export default defineConfig({
 
 For the full walk-through — scaffold command, file list, `views` allowlist semantics, and
 Inertia pages resolver — see [Custom screens](/docs/customizing-auth#custom-screens).
+
+## Recovering a lost interaction session
+
+An OIDC login is a multi-step interaction, and the provider keeps its state in a short-lived
+interaction session. That session gets lost routinely and for entirely mundane reasons: a
+stale cookie, a browser tab refreshed long after the TTL, a server restart that cleared an
+ephemeral adapter store. When it is gone, the provider raises an `invalid_request` from the
+middle of the login flow, and with no handling that surfaces to the user as a raw error page
+in the middle of signing in.
+
+Losing an interaction session is a normal event, not a host bug, so the host kit recovers
+from it. Every interaction handler — magic link, OTP, identifier, passkeys, MFA, consent —
+funnels through a single capture point, so none of them needs its own `try`/`catch`, and the
+strategy is one config key:
+
+```ts title="config/authkit.ts"
+import { defineConfig } from '@adonis-agora/authkit-server'
+
+export default defineConfig({
+  // ...
+  interactionRecovery: {
+    mode: 'screen',            // 'screen' (default) | 'redirect'
+    redirectTo: '/sign-in',    // optional; defaults to the console login URL
+  },
+})
+```
+
+**`mode: 'screen'`** — the default — renders the themeable `session-expired` view with a
+`400` status: a short "your session expired" page carrying the brand and a single
+"back to login" link, so the user restarts cleanly instead of reloading a dead URL. It is
+the built-in Edge view by default, or your own React page when you list `session-expired` in
+the `inertiaRenderer` allowlist; it receives `{ loginUrl, brand }` as props. The brand is
+best effort: a lost session no longer carries the `client_id`, so the page falls back to the
+default brand rather than a per-client one.
+
+**`mode: 'redirect'`** — responds with a `302` to `redirectTo`. Use it when you would rather
+send people straight back into your own sign-in page than show them an interstitial.
+
+`redirectTo` sets the destination in both modes: the link target on the screen, the redirect
+target in redirect mode. It defaults to the account console login URL, which respects
+`accountLoginUrl`. Do not point it at an interaction URL — the console login is a separate
+flow with its own session, which is exactly what keeps the recovery from looping. And a host running
+fully headless, with no renderer configured, degrades to that same redirect rather than
+failing.
 
 ## Branding
 

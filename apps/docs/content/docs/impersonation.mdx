@@ -1,17 +1,80 @@
 ---
 icon: UserRoundCog
 title: Impersonation
-description: Act as another user via RFC 8693 token-exchange.
+description: Act as another user via RFC 8693 token-exchange — the IdP grant, the kill switch, and the relying-party session glue.
 ---
 
 Impersonation lets a privileged actor (an admin) obtain a token that represents a
 *target* user, so they can act on that user's behalf for support or debugging. AuthKit
 implements this with **OAuth 2.0 Token Exchange (RFC 8693)**.
 
-## Enabling the grant
+There are two halves to it, and they are worth separating in your head:
 
-The acting client must be allowed the token-exchange grant in its registration. Update the
-client via the admin console (`/admin/clients` → Edit) or the Admin REST API:
+- **The grant, on the IdP.** A registered client posts the admin's access token to the
+  token endpoint and gets back a token minted for the target. The IdP is the gatekeeper:
+  it decides whether this actor is allowed to impersonate at all, and it audits the event.
+- **The session glue, on the relying party.** Swapping a token is not the same as
+  "browse the app as this user". AuthKit ships helpers that route a browser session
+  through that same grant, so the rest of your app keeps working while the admin is
+  looking through someone else's eyes.
+
+## The kill switch
+
+Impersonation is governed by one config key, `admin.impersonation`, and it is a real kill
+switch — not a hidden UI toggle.
+
+```ts title="config/authkit.ts"
+defineConfig({
+  // …
+  admin: {
+    enabled: true,
+    roles: ['ADMIN'],
+    impersonation: false, // default: true
+  },
+})
+```
+
+With `impersonation: false`, the RFC 8693 grant is **never registered on the OIDC
+provider**. The token endpoint answers `unsupported_grant_type`, because as far as it is
+concerned the grant does not exist — there is no per-request check to bypass, no policy to
+misconfigure. The admin console's impersonation panel endpoint
+(`GET {prefix}/api/impersonation/:userId`) answers `404` for the same reason: offering
+parameters for a grant the provider will not honour would be a lie.
+
+The default is `true`. Turning the capability off is a deliberate act.
+
+<Callout type="warn">
+  `admin.impersonation` is read **at boot**, when the OIDC provider is built. Flipping it
+  requires a restart — a runtime setting cannot unregister a grant that was never
+  registered.
+</Callout>
+
+### Relationship with the `admin_impersonation` runtime setting
+
+There is also an `admin_impersonation` [runtime setting](/docs/settings) with the shape
+`{ enabled?: boolean }`. The two are deliberately asymmetric:
+
+| Layer | Decides | Changed by |
+| --- | --- | --- |
+| `admin.impersonation` (config) | Whether the **capability exists** — the grant is registered, the panel endpoint is reachable. | Editing `config/authkit.ts` and restarting. |
+| `admin_impersonation` (runtime setting) | Whether the **console offers the panel**. | The Admin Console settings screen, the Admin API, or `node ace authkit:settings:set`, with no redeploy. |
+
+The config gate is evaluated **before** the setting, so the setting can only tighten,
+never loosen: a runtime `{ "enabled": true }` cannot resurrect a grant that config turned
+off. When the setting is absent, it falls back to the config value — so an installation
+that leaves both alone has impersonation available.
+
+Declaring `admin.impersonation` in `defineConfig` also **locks** the runtime setting: the
+file becomes the authority and the Console/Admin API can no longer change the value. See
+[Config locks](/docs/config-locks). If you want operators to be able to switch the panel
+off and on without a deploy, omit the key from `defineConfig` and drive it entirely from
+the runtime setting.
+
+## Enabling the grant on a client
+
+Beyond the capability being on, the acting **client** must be allowed the token-exchange
+grant in its registration. Update the client via the admin console (`/admin/clients` →
+Edit) or the Admin REST API:
 
 ```bash
 curl -X PATCH https://auth.acme.com/api/authkit/v1/clients/acme-admin \
@@ -26,10 +89,51 @@ curl -X PATCH https://auth.acme.com/api/authkit/v1/clients/acme-admin \
       }'
 ```
 
-## Exchanging a token
+The admin console's impersonation panel looks for a client with this grant enabled and
+reports that none exists rather than handing you parameters that cannot work.
 
-From the relying party, swap the admin's current access token for one minted for the
-target subject:
+## What the IdP validates
+
+The token-exchange handler is not a rubber stamp. Before it mints anything it checks, in
+order:
+
+1. `subject_token_type` is an access-token type, and `subject_token` is present.
+2. The `subject_token` resolves to a live, unexpired access token.
+3. That token was issued to the **same client** that is authenticating this request — so
+   client B cannot replay a token minted for client A.
+4. The **actor** behind the subject token exists, and holds one of the roles in
+   `admin.roles` (default `['ADMIN']`). Roles are resolved through the same
+   `resolveTokenRoles` hook the authorization-code flow uses, falling back to the account
+   store's global roles — so a host that keeps roles in its own table is checked against
+   that table, not against an empty column.
+5. `requested_subject` is present and resolves to a real account.
+6. The **target** is not disabled or expired — the same gate a password login goes
+   through, when the account store exposes account status. Impersonating an account you
+   just disabled would otherwise hand out fully working tokens for an identity that
+   should have no access.
+7. Any `audience` / `resource` in the request is one of the provider's supported resource
+   indicators; an unknown target is rejected rather than embedded in the token.
+8. When the client declares a scope allowlist, the requested `scope` is intersected with
+   it, and a request whose scopes have no overlap is rejected outright instead of
+   yielding an empty-scope token.
+
+Only then is a token issued for the target, with the `act` claim naming the actor and an
+`impersonation` audit event recorded.
+
+<Callout type="warn">
+  **The IdP authorizes the *actor*, not the *pairing*.** Steps 4 and 6 mean a non-admin
+  cannot impersonate anyone and nobody can impersonate a disabled account. What the IdP
+  does **not** know is whether *this particular admin* should be allowed to act as *this
+  particular user* — tenant boundaries, support-ticket scoping, break-glass approval. That
+  policy is yours: gate the route or button that triggers the exchange, and make your
+  checks against the **real** admin (see [below](#authorization-while-impersonating)), not
+  against the account the session currently points at.
+</Callout>
+
+## Exchanging a token directly
+
+From a relying party, swap the admin's current access token for one minted for the target
+subject:
 
 ```ts
 import { exchangeToken } from '@adonis-agora/authkit-client'
@@ -47,16 +151,297 @@ This posts `grant_type=urn:ietf:params:oauth:grant-type:token-exchange` with
 `subject_token` (the actor) and `requested_subject` (the target) to `${issuer}/token`,
 returning a fresh `TokenSet` for the target user.
 
-## The `act` claim
+## Browser-session impersonation
+
+Getting a token back is the easy part. What a support engineer actually wants is to click
+"view as this user" and have the app behave as if that user were signed in — then click
+"stop" and be themselves again.
+
+`@adonis-agora/authkit-server` exports the glue for exactly that, on top of AuthKit's
+console account session:
+
+```ts
+import {
+  rememberAccessToken,
+  rememberRefreshToken,
+  refreshAccessToken,
+  startImpersonation,
+  impersonationState,
+  stopImpersonation,
+  realAccountId,
+} from '@adonis-agora/authkit-server'
+```
+
+These helpers are **only** session plumbing. `startImpersonation` performs the token
+exchange first and swaps the session only if the IdP answered 2xx — the authorization
+decision stays where it belongs, and no role check is reimplemented on the app side.
+
+### Prerequisite: `offline_access` and a remembered refresh token
+
+<Callout type="warn">
+  **Read this before you wire anything up.** The token exchange needs the admin's *access
+  token* as its `subject_token`, and access tokens are short — the IdP's default
+  `ttl.accessToken` is **900 seconds (15 minutes)**. A relying party normally throws its
+  tokens away right after login, and even if it keeps them, the admin's access token will
+  have expired long before they open the support screen.
+
+  Renewal is what fixes this, and it has **two** requirements, both on you:
+
+  1. The relying party must request **`offline_access`** in its login `scope`, so the IdP
+     issues a refresh token at all.
+  2. Your login callback must call **`rememberRefreshToken(ctx, tokens.refreshToken)`** —
+     next to `rememberAccessToken`.
+
+  Miss either one and impersonation works for about fifteen minutes after login and then
+  starts failing with a token-exchange error, forcing the admin to log out and back in
+  before every attempt.
+</Callout>
+
+Here is a login callback that satisfies both:
+
+```ts title="app/controllers/auth_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import { decodeJwt } from 'jose'
+import {
+  generatePkce,
+  buildAuthorizeUrl,
+  exchangeCode,
+} from '@adonis-agora/authkit-client'
+import {
+  ACCOUNT_SESSION_KEY,
+  rememberAccessToken,
+  rememberRefreshToken,
+} from '@adonis-agora/authkit-server'
+
+const issuer = 'https://auth.acme.com/oidc'
+const clientId = 'acme-admin'
+const redirectUri = 'https://admin.acme.com/auth/callback'
+
+export default class AuthController {
+  async login(ctx: HttpContext) {
+    const { verifier, challenge } = await generatePkce()
+    const state = crypto.randomUUID()
+    ctx.session.put('pkce', { verifier, state })
+
+    return ctx.response.redirect(
+      buildAuthorizeUrl({
+        issuer,
+        clientId,
+        redirectUri,
+        // offline_access is REQUIRED for impersonation to survive token expiry.
+        scopes: ['openid', 'profile', 'email', 'offline_access'],
+        state,
+        codeChallenge: challenge,
+      }),
+    )
+  }
+
+  async callback(ctx: HttpContext) {
+    const pkce = ctx.session.get('pkce') as { verifier: string; state: string }
+    if (!pkce || pkce.state !== ctx.request.input('state')) {
+      return ctx.response.redirect('/auth/login')
+    }
+    ctx.session.forget('pkce')
+
+    const tokens = await exchangeCode({
+      issuer,
+      clientId,
+      clientSecret: process.env.OIDC_CLIENT_SECRET,
+      redirectUri,
+      code: ctx.request.input('code'),
+      codeVerifier: pkce.verifier,
+    })
+
+    // The console account session the impersonation helpers read and swap.
+    // The ID token came straight back from the token endpoint over TLS, so
+    // reading its `sub` without re-verifying the signature is safe here.
+    const { sub } = decodeJwt(tokens.idToken)
+    ctx.session.put(ACCOUNT_SESSION_KEY, sub as string)
+
+    // Both lines matter. The first makes impersonation possible at all; the
+    // second makes it keep working after the access token expires.
+    rememberAccessToken(ctx, tokens.accessToken)
+    if (tokens.refreshToken) rememberRefreshToken(ctx, tokens.refreshToken)
+
+    return ctx.response.redirect('/admin')
+  }
+}
+```
+
+With both stored, renewal is automatic: when the exchange comes back with a `4xx`,
+`startImpersonation` calls `refreshAccessToken` itself, stores the fresh access token (and
+the rotated refresh token, when the IdP issues one), and retries the exchange once. If
+there is no refresh token in the session, or the refresh itself fails, the original
+exchange error is re-thrown unchanged.
+
+The retry is a single, bounded extra attempt, and it never masks a real refusal. A
+rejection on the merits — the actor is not an admin, the target is disabled — is also a
+`4xx`, so it costs one wasted refresh and then fails again on the retry. What surfaces is
+always a token-exchange error, never a silent success.
+
+`refreshAccessToken` is also exported on its own, if you would rather refresh on a
+schedule:
+
+```ts
+const refreshed = await refreshAccessToken(ctx, { issuer, clientId, clientSecret })
+if (refreshed) {
+  rememberAccessToken(ctx, refreshed.accessToken)
+  if (refreshed.refreshToken) rememberRefreshToken(ctx, refreshed.refreshToken)
+}
+```
+
+It returns `null` — never throws — when there is no stored refresh token or the IdP
+refuses the refresh.
+
+<Callout type="info">
+  The IdP registers the `refresh_token` grant by default, so the refresh call works out of
+  the box. What it will not do is issue a refresh token for a login that never asked for
+  `offline_access`. See [Refresh tokens](/docs/refresh-tokens).
+</Callout>
+
+### Starting and stopping
+
+```ts title="app/controllers/impersonation_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import {
+  startImpersonation,
+  stopImpersonation,
+  impersonationState,
+  realAccountId,
+} from '@adonis-agora/authkit-server'
+import { canImpersonate } from '#policies/impersonation' // your own rule
+
+export default class ImpersonationController {
+  async start(ctx: HttpContext) {
+    // YOUR policy — the IdP checks the actor is an admin, not that this admin
+    // may act as this user.
+    const adminId = realAccountId(ctx)
+    if (!adminId || !(await canImpersonate(adminId, ctx.request.param('id')))) {
+      return ctx.response.forbidden()
+    }
+
+    await startImpersonation(ctx, {
+      targetId: ctx.request.param('id'),
+      issuer: 'https://auth.acme.com/oidc',
+      clientId: 'acme-admin',
+      clientSecret: process.env.OIDC_CLIENT_SECRET,
+      scope: 'openid profile email',
+    })
+
+    return ctx.response.redirect('/')
+  }
+
+  async stop(ctx: HttpContext) {
+    await stopImpersonation(ctx)
+    return ctx.response.redirect('/admin/users')
+  }
+
+  async banner(ctx: HttpContext) {
+    return impersonationState(ctx)
+  }
+}
+```
+
+`startImpersonation` throws — and leaves the session **completely untouched** — when the
+exchange is rejected, when an impersonation is already active (stop the current one
+first), when there is no remembered admin access token, and when there is no account
+session to return to. Nothing is mutated before the IdP has said yes.
+
+On success it regenerates the session id (session-fixation defence), records the admin as
+the impersonator, and points the account session at the target. Everything downstream —
+middleware, `getAccountId`, your controllers — keeps working without knowing anything
+changed.
+
+`stopImpersonation` reverses it: regenerate, restore the admin as the account, drop the
+impersonator marker. It is a no-op when nothing is active. The admin's remembered access
+token is deliberately **kept**, so an admin can impersonate, stop, and impersonate someone
+else without logging in again; your application logout clears the session and with it the
+token.
+
+<Callout type="info">
+  **Sudo does not travel across the switch.** [Sudo mode](/docs/console-session#sudo-mode-step-up-authentication)
+  is bound to the account that confirmed it, so an admin who was in sudo over their own
+  account does not enter the impersonated session with that grace already open — and a
+  sudo obtained *while* impersonating does not follow them back. Both directions are
+  closed structurally, by the binding, not by remembering to clear a flag.
+</Callout>
+
+### The API surface
+
+| Export | Signature | Notes |
+| --- | --- | --- |
+| `rememberAccessToken` | `(ctx, accessToken: string) => void` | Store the admin's access token — the `subject_token` of the exchange. Call at login. |
+| `rememberRefreshToken` | `(ctx, refreshToken: string) => void` | Store the admin's refresh token. Call at login. Required for renewal. |
+| `refreshAccessToken` | `(ctx, params) => Promise<{ accessToken, refreshToken? } \| null>` | Refresh grant against the token endpoint. `null` on any failure. |
+| `startImpersonation` | `(ctx, params: StartImpersonationParams) => Promise<void>` | Exchange, then swap the session. Throws on refusal. |
+| `impersonationState` | `(ctx) => ImpersonationState` | For banners and conditional UI. |
+| `stopImpersonation` | `(ctx) => Promise<void>` | Restore the admin. No-op when inactive. |
+| `realAccountId` | `(ctx) => string \| null` | The human behind the request. Use for authorization. |
+
+`StartImpersonationParams`:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `targetId` | `string` | The account to impersonate. |
+| `issuer` | `string` | The IdP issuer, e.g. `https://auth.acme.com/oidc`. |
+| `clientId` | `string` | A client with the token-exchange grant enabled. |
+| `clientSecret` | `string?` | Sent when the client is confidential. |
+| `tokenEndpoint` | `string?` | Override; defaults to `${issuer}/token`. Use the value from `discoverEndpoints` for a third-party IdP. |
+| `scope` | `string?` | Requested scope, intersected with the client's allowlist by the IdP. |
+| `fetchImpl` | `typeof fetch?` | Injectable fetch, for tests. |
+
+`ImpersonationState` is `{ active: false }`, or
+`{ active: true, targetId, impersonatorId }` while a session is impersonating.
+
+## Authorization while impersonating
+
+This is the sharpest edge in the whole feature, so it gets its own helper.
+
+While an impersonation is active, `getAccountId(ctx)` returns the **impersonated** account.
+That is correct and load-bearing — it is the answer to "which account is this request
+acting as?", and it is why the rest of your app keeps working unchanged. It is also exactly
+the wrong input to a permission check.
+
+Ask "is `getAccountId(ctx)` an admin?" during an impersonation and you are asking about the
+*impersonated* user. The failure runs both ways:
+
+- If the target happens to be an admin, the person being impersonated effectively lends
+  their privileges to the session — the check passes for reasons that have nothing to do
+  with who is driving.
+- If the target is an ordinary user, the real admin loses their own access mid-session, and
+  the "view as user" button becomes a way to lock yourself out of your own console.
+
+`realAccountId(ctx)` answers the other question: **who is actually behind this request?**
+It returns the impersonator when an impersonation is active, the signed-in account
+otherwise, and `null` with no session.
+
+```ts
+import { getAccountId, realAccountId } from '@adonis-agora/authkit-server'
+
+// Authorization — ALWAYS the real human.
+const adminId = realAccountId(ctx)
+if (!adminId || !(await authz.hasRole(adminId, 'ADMIN'))) {
+  return ctx.response.forbidden()
+}
+
+// Data scoping — the account the request is acting as.
+const viewingAs = getAccountId(ctx)
+const invoices = await Invoice.query().where('accountId', viewingAs!)
+```
+
+The rule of thumb: **`realAccountId` for "may this person do it", `getAccountId` for "whose
+data is this".** Anything that grants privilege, approves, spends, or writes an audit
+`actorId` belongs in the first column.
+
+## The `act` claim and the audit trail
 
 The issued token carries the standard RFC 8693 **`act`** (actor) claim, recording *who*
 is impersonating the subject. This keeps the audit trail honest — the token is for the
-target user, but the `act` claim names the admin behind it. Impersonation also emits an
-`impersonation` [audit event](/docs/security) with the actor id.
+target user, but the `act` claim names the admin behind it.
 
-<Callout type="warn">
-  Impersonation is **admin-only**. Gate the exchange behind your own authorization (e.g. a
-  Bouncer policy that checks the actor's global roles) before calling `exchangeToken` —
-  the grant being enabled on the client does not by itself authorize a given user to use
-  it.
-</Callout>
+Two [audit events](/docs/security) are emitted:
+
+| Event | When |
+| --- | --- |
+| `impersonation` | A token exchange succeeded. `actorId` is the admin, `accountId` the target, `metadata.scope` the granted scope. |
+| `impersonation.started` | The admin console's impersonation panel was opened for a target — the intent, recorded before any exchange happens. |

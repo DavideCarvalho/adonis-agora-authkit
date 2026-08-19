@@ -8,6 +8,17 @@ OIDC **Back-Channel Logout** lets the IdP notify a relying party out-of-band tha
 session (or grant) ended, so the RP can destroy its local sessions — even when the user's
 browser never visits the RP again. AuthKit implements both sides.
 
+The hard part is not receiving the notification; it is knowing *which* local session it
+refers to. That answer depends on how your app stores sessions, and it is the fork this page
+is organised around:
+
+- **Cookie-based sessions** — the AdonisJS default. There is no server-side session record to
+  delete, so AuthKit uses a shared **revocation log** plus a per-request check. This is the
+  batteries-included path: one config key and one middleware.
+- **Server-side session stores** (Redis, a database) — a stable session id exists, so a
+  `SessionIndex` can map the IdP's `sid`/`sub` onto it and destroy it directly. This is the
+  escape hatch.
+
 ## Server: declare the logout URI per client
 
 Set `backchannelLogoutUri` on the client. The recommended way is through the admin console
@@ -30,35 +41,192 @@ Both fields are also editable in the admin console client form.
 | `backchannelLogoutUri` | `string?` | — | RP endpoint that receives the `logout_token` POST. |
 | `backchannelLogoutSessionRequired` | `boolean?` | `false` | Maps to `backchannel_logout_session_required`; requires the `sid` claim in the token. |
 
-## Client: handle the logout_token
+<Callout type="info">
+  With `backchannelLogoutSessionRequired: true` the IdP always includes `sid`, which lets a
+  logout terminate exactly one SSO session. Leave it off only if you want `sub`-only tokens
+  and the coarser "all of this user's sessions" semantics described below.
+</Callout>
 
-The client kit ships `AuthkitClientManager.handleBackchannelLogout(ctx)` and the
-`validateLogoutToken` primitive. Wire a route to the manager handler:
+## Client: the endpoint
+
+`registerOidcClient` already registers the receiving route at
+`POST {prefix}/backchannel-logout` — with the default prefix, exactly the URI in the example
+above. Nothing to wire:
 
 ```ts title="start/routes.ts"
 import router from '@adonisjs/core/services/router'
+import { registerOidcClient } from '@adonis-agora/authkit-client'
 
-router.post('/auth/backchannel-logout', async (ctx) => {
-  const manager = await ctx.containerResolver.make('authkit.client')
-  return manager.handleBackchannelLogout(ctx)
-})
+registerOidcClient(router) // registers /auth/backchannel-logout among the four routes
+```
+
+Pass `backchannelLogout: false` to skip it, or mount the handler yourself if you build the
+flow by hand:
+
+```ts title="start/routes.ts"
+import authkit from '@adonis-agora/authkit-client/services/main'
+
+router.post('/auth/backchannel-logout', (ctx) => authkit.handleBackchannelLogout(ctx))
 ```
 
 The handler reads `logout_token` from the form body, validates it, updates the session
-index (if configured), and invokes your `onBackchannelLogout` callback. It returns `200` on
-success and `400 { error: 'invalid_request' }` on an invalid token, and always sets
-`Cache-Control: no-store` (a spec requirement).
+index (if configured), and invokes your revocation store and `onBackchannelLogout` callback.
+It returns `200` on success and `400 { error: 'invalid_request' }` on an invalid token, and
+always sets `Cache-Control: no-store` (a spec requirement).
 
-`validateLogoutToken` verifies the signature against the IdP's JWKS and enforces the spec:
-`iss` matches, `aud` includes the `clientId`, `iat` present, the `events` claim contains
+`validateLogoutToken` — exported, so you can verify a token in a test — checks the signature
+against the IdP's JWKS and enforces the spec: `iss` matches, `aud` includes the `clientId`,
+`iat` present, the `events` claim contains
 `http://schemas.openid.net/event/backchannel-logout` (exported as `BACKCHANNEL_LOGOUT_EVENT`),
 at least one of `sid`/`sub` present, and **no** `nonce` claim. Violations throw
 `InvalidLogoutTokenError`.
 
-## The session index
+## Cookie-based sessions: the revocation store
 
-To know *which* local sessions to destroy, the client maps the OP's `sid`/`sub` to your
-local session ids via a `SessionIndex`. Configure it and an `onBackchannelLogout` callback:
+A cookie-based session lives entirely in the user's browser. When the `logout_token` arrives
+there is no server-side record to delete — the session only reappears on the user's *next*
+request, and that is the only moment the RP can act on it.
+
+So AuthKit splits the work in two:
+
+<Steps>
+<Step>
+**On the logout token**, the endpoint appends a row to a shared revocation log: the `sid`
+and/or `sub` the IdP named, plus the moment it happened.
+</Step>
+<Step>
+**On every subsequent request**, `BackchannelRevocationMiddleware` reads the `sid`, `sub`
+and `iat` out of the ID token in the session and asks the store whether that session was
+revoked. If it was, it ends the session — and the resolver downstream simply sees an
+anonymous request.
+</Step>
+</Steps>
+
+### Configure the store
+
+```ts title="config/authkit_client.ts"
+import { defineConfig, resolvers, lucidRevocationStore } from '@adonis-agora/authkit-client'
+
+const authkitClientConfig = defineConfig({
+  issuer: env.get('AUTHKIT_ISSUER'),
+  clientId: env.get('AUTHKIT_CLIENT_ID'),
+  clientSecret: env.get('AUTHKIT_CLIENT_SECRET'),
+  redirectUri: env.get('AUTHKIT_REDIRECT_URI'),
+  resolver: resolvers.jwt({ tokenSource: 'session' }),
+
+  backchannelLogout: {
+    store: lucidRevocationStore({ connection: 'auth' }),
+  },
+})
+
+export default authkitClientConfig
+```
+
+`backchannelLogout: { store }` does two things at once: it derives the `onBackchannelLogout`
+callback that writes to the store, and it exposes the store to the middleware so the check
+happens per request. You do not write a model, a service, or a callback.
+
+If you *also* pass `onBackchannelLogout`, both run — the store first, your hook second — so
+you can keep a side effect (an audit row, a cache bust) alongside the built-in behaviour.
+
+### Register the middleware
+
+```ts title="start/kernel.ts"
+router.use([
+  () => import('@adonisjs/session/session_middleware'),
+  () => import('@adonis-agora/authkit-client/authkit_middleware'),
+  () => import('@adonis-agora/authkit-client/backchannel_revocation_middleware'),
+])
+```
+
+Order matters: it must run **after** the middleware that resolves the AuthKit manager
+(`authkit_middleware`, or `authkit_context_middleware` on the
+[`@adonisjs/auth` path](/docs/adonis-auth)) and **before** any named auth middleware, so a
+revoked session is already gone by the time a route decides whether to let the request
+through. Without `backchannelLogout: { store }` configured the middleware is a no-op, so it
+is safe to register unconditionally.
+
+### The table
+
+`lucidRevocationStore` talks to the table through the query builder, so there is no model to
+declare — but the table has to exist. On a host running `@adonis-agora/authkit-server` with
+schema auto-management, `ensureAuthkitSchema()` already creates it under the name exported as
+`DEFAULT_REVOCATION_TABLE`. A standalone relying party with its own database creates it in a
+migration:
+
+```ts title="database/migrations/xxxx_create_auth_session_revocations.ts"
+import { BaseSchema } from '@adonisjs/lucid/schema'
+import { DEFAULT_REVOCATION_TABLE } from '@adonis-agora/authkit-client'
+
+export default class extends BaseSchema {
+  async up() {
+    this.schema.createTable(DEFAULT_REVOCATION_TABLE, (table) => {
+      table.increments('id').primary()
+      table.string('sid').nullable().index()
+      table.string('sub').nullable().index()
+      table.timestamp('revoked_at', { useTz: true }).notNullable()
+      table.index(['revoked_at'])
+    })
+  }
+
+  async down() {
+    this.schema.dropTable(DEFAULT_REVOCATION_TABLE)
+  }
+}
+```
+
+The log is append-only and deliberately boring, which is what makes it shareable: several
+relying parties pointing at the **same** database can read one another's revocations, so a
+logout at the IdP propagates to all of them.
+
+| Option | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `connection` | `string?` | primary connection | Point it at a connection whose search path sees the schema the table lives in. |
+| `table` | `string?` | `DEFAULT_REVOCATION_TABLE` | Override only if you cannot use the shared table. |
+| `autoPrune` | `false \| { everyHours?, olderThanDays? }` | `{ everyHours: 24, olderThanDays: 35 }` | Opportunistic cleanup. |
+
+### Pruning
+
+Revocation rows stop mattering once they are older than your longest possible session, so
+the store cleans up after itself. When it writes a revocation it checks whether at least
+`everyHours` have passed since this process last pruned; if so it deletes rows older than
+`olderThanDays`. There is nothing to schedule — the maintenance comes with the library.
+
+The throttle is per process, and the delete is best-effort: a failure there is swallowed so
+it can never break a logout. Set `autoPrune: false` and call `store.prune(days)` from your own
+scheduler if you would rather own the timing.
+
+### `sid` versus `sub`
+
+The two claims mean different things, and the store treats them differently:
+
+- **`sid`** revokes exactly one SSO session — the ordinary "log me out" at the IdP. Any local
+  session whose ID token carries that `sid` is dropped, whenever its next request arrives.
+- **`sub`** revokes **every** session of that user established *before* the revocation
+  timestamp. This is the mass-revocation lever an operator pulls after a compromise. The
+  comparison against the ID token's `iat` is what keeps it usable: a user who logs in again
+  afterwards gets a session that is newer than the revocation and therefore untouched.
+
+<Callout type="warn">
+  A `sub`-only revocation with no `iat` on the local ID token cannot be anchored in time — the
+  store cannot tell an old session from a fresh login — so it declines to revoke rather than
+  put legitimate logins into a logout loop. Enable `backchannelLogoutSessionRequired` on the
+  client so tokens carry `sid`, which has no such ambiguity.
+</Callout>
+
+### The propagation delay
+
+Be explicit with yourself about the guarantee: with cookie-based sessions a revocation takes
+effect on the session's **next request**, not at the instant the `logout_token` arrives. In
+practice that is milliseconds for an active user and irrelevant for an idle one, since an
+idle session does nothing. If you need the session dead the moment the IdP says so — no
+window at all — you need either a server-side session store (the next section) or
+`resolvers.opaque`, which introspects the access token at the IdP on every request.
+
+## Server-side session stores: the session index
+
+When your app keeps sessions in Redis or a database, each one has a stable id you can delete
+directly. `SessionIndex` is the map from the IdP's `sid`/`sub` to those ids:
 
 ```ts title="config/authkit_client.ts"
 import { defineConfig, InMemorySessionIndex } from '@adonis-agora/authkit-client'
@@ -74,17 +242,34 @@ export default defineConfig({
 })
 ```
 
-Register the binding on login (after the callback creates a local session):
+Register the binding on login, once the callback has created a local session:
 
 ```ts
-sessionIndex.register({ sid: identity.sessionId, sub: identity.userId, sessionId: localSessionId })
+sessionIndex.register({
+  sid: identity.sessionId,
+  sub: identity.userId,
+  sessionId: localSessionId,
+})
 ```
 
-`SessionIndex` is an interface with `register`, `revokeBySid`, and `revokeBySub`. On
-logout, the handler calls `revokeBySid` when a `sid` is present, else `revokeBySub`.
+`SessionIndex` is an interface with three methods — `register(entry)`,
+`revokeBySid(sid)` and `revokeBySub(sub)`, the latter two returning the local session ids they
+removed. On a logout token the handler calls `revokeBySid` when a `sid` is present and
+`revokeBySub` otherwise, then hands `{ sid, sub }` to your `onBackchannelLogout` so you can
+delete those sessions from the store.
 
 <Callout type="warn">
   `InMemorySessionIndex` is for tests and **single-instance** deployments only. In a
   multi-instance host the logout POST can land on a different instance than the one that
   created the session — implement `SessionIndex` over a shared store (Redis/DB).
 </Callout>
+
+## Choosing between them
+
+<Cards>
+  <Card title="backchannelLogout: { store }" description="Cookie-based sessions — the AdonisJS default. Two lines of config, shareable across relying parties, self-pruning. Revocation applies on the session's next request." />
+  <Card title="sessionIndex + onBackchannelLogout" description="Server-side session stores only. Destroys the session immediately, but you implement the index over a shared store and register every binding at login." />
+</Cards>
+
+Nothing stops you from configuring both — the store's callback runs first, then your hook —
+but you only need the second if your sessions really do live server-side.

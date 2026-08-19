@@ -59,7 +59,7 @@ export default class AuthUser extends compose(
 
 ### A3. Server config
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 import env from '#start/env'
 import AuthUser from '#models/auth_user'
 import {
@@ -274,7 +274,7 @@ Identical to [A2](#a2-the-account-model) — compose `AuthUser` from `withAuthUs
 
 #### B3. Server config
 
-```ts title="config/authkit_server.ts (IdP)"
+```ts title="config/authkit.ts (IdP)"
 import env from '#start/env'
 import AuthUser from '#models/auth_user'
 import {

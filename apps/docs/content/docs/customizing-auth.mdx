@@ -1,7 +1,7 @@
 ---
 icon: Wrench
 title: Customizing auth
-description: Task-oriented recipes for bending AuthKit's behaviour — route guards, role gating, user mapping, custom screens, emails, account stores, events, and token resolution.
+description: Task-oriented recipes for bending AuthKit's behaviour — route guards, role gating, where roles come from, user mapping, custom screens, emails, account stores, events, and token resolution.
 ---
 
 A grab-bag of focused recipes for "I want to change how the lib behaves". Each one is a
@@ -12,29 +12,16 @@ you need.
 
 `ctx.auth` is always present after the client middleware runs, but it never forces a login.
 For browser routes you want anonymous hits to *redirect* to your login route rather than
-throw a 500. Centralise the check in one middleware and apply it to a group:
+throw a 500.
 
-```ts title="app/middleware/require_auth_middleware.ts"
-import type { HttpContext } from '@adonisjs/core/http'
-import type { NextFn } from '@adonisjs/core/types/http'
-
-export default class RequireAuthMiddleware {
-  async handle(ctx: HttpContext, next: NextFn) {
-    // check() is the non-throwing probe: true if an Identity resolved.
-    if (!(await ctx.auth.check())) {
-      return ctx.response.redirect().toRoute('auth.login')
-    }
-    return next()
-  }
-}
-```
-
-Register it as a **named** middleware in the kernel, then `use()` it on the group:
+Don't write that middleware. `@adonis-agora/authkit-client` ships it. Register it as a
+**named** middleware and apply it to the group:
 
 ```ts title="start/kernel.ts"
 export const middleware = router.named({
   // ...existing named middleware
-  requireAuth: () => import('#middleware/require_auth_middleware'),
+  auth: () => import('@adonis-agora/authkit-client/auth_middleware'),
+  silentAuth: () => import('@adonis-agora/authkit-client/silent_auth_middleware'),
 })
 ```
 
@@ -46,31 +33,75 @@ router
   })
   .prefix('/app')
   .as('app')
-  .use(middleware.requireAuth())
+  .use(middleware.auth({ redirectTo: '/auth/login' }))
+```
+
+The shipped middleware probes `ctx.auth.check()` and redirects to `redirectTo` when there
+is no session — `/auth/login` if you omit the option. Its sibling,
+`silent_auth_middleware`, resolves the identity **without** requiring it, which is what you
+want on public pages that render a "Sign in" button for guests and an avatar for members:
+
+```ts title="start/routes.ts"
+router.get('/', [HomeController]).use(middleware.silentAuth())
+```
+
+<Callout type="info">
+  Two different middleware, two different jobs, and you generally want both.
+  `authkit_middleware` is registered **router-globally** by `node ace add` and is what
+  *creates* `ctx.auth` on every request. `auth_middleware` and `silent_auth_middleware` are
+  opt-in per route and decide what happens when nobody is logged in. Full details in
+  [Client](/docs/client) and [AdonisJS auth](/docs/adonis-auth).
+</Callout>
+
+### When to hand-roll one anyway
+
+Reach for your own middleware only when the shipped behaviour genuinely doesn't fit — you
+need to remember the originally requested URL, redirect by *named* route rather than by
+path, or return a JSON 401 for a mixed HTML/API surface. That is a real customization, not
+a re-implementation:
+
+```ts title="app/middleware/require_auth_middleware.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import type { NextFn } from '@adonisjs/core/types/http'
+
+/**
+ * Same guard as `auth_middleware`, plus: remembers where the visitor was
+ * heading, and answers JSON on API requests instead of redirecting.
+ */
+export default class RequireAuthMiddleware {
+  async handle(ctx: HttpContext, next: NextFn) {
+    if (await ctx.auth.check()) return next()
+
+    if (ctx.request.accepts(['html', 'json']) === 'json') {
+      return ctx.response.unauthorized({ message: 'Not authenticated' })
+    }
+
+    ctx.session.put('returnTo', ctx.request.url(true))
+    return ctx.response.redirect().toRoute('auth.login')
+  }
+}
 ```
 
 `auth.login` is the route name from the [Getting Started](/docs/getting-started#login-callback-logout)
-login/callback/logout wiring. For API routes where anonymous access is a programming error,
-skip the middleware and call `auth.authenticate()` in the controller instead (it throws).
+login/callback/logout wiring (`registerOidcClient` registers it under that name too). For
+API routes where anonymous access is a programming error, skip the middleware entirely and
+call `auth.authenticate()` in the controller — it throws.
 
 ## Role-gate a group
 
 Same shape, but it checks a role after confirming a login. `hasGlobalRole(role)` is
 **synchronous** and reads `identity.globalRoles` (the IdP claims), so the identity must be
-resolved first — `authenticate()` does both (resolve + throw-if-anonymous):
+resolved first — stacking it after `middleware.auth()` guarantees that:
 
-```ts title="app/middleware/require_role_middleware.ts"
+```ts title="app/middleware/require_global_role_middleware.ts"
 import type { HttpContext } from '@adonisjs/core/http'
 import type { NextFn } from '@adonisjs/core/types/http'
 
-export default class RequireRoleMiddleware {
+export default class RequireGlobalRoleMiddleware {
   async handle(ctx: HttpContext, next: NextFn, options: { role: string }) {
-    // Browser flow: bounce anonymous users to login first.
-    if (!(await ctx.auth.check())) {
-      return ctx.response.redirect().toRoute('auth.login')
-    }
+    // `middleware.auth()` already ran, so the identity is resolved and non-null.
     if (!ctx.auth.hasGlobalRole(options.role)) {
-      return ctx.response.forbidden({ message: 'Acesso negado' })
+      return ctx.response.forbidden({ message: 'Access denied' })
     }
     return next()
   }
@@ -79,7 +110,7 @@ export default class RequireRoleMiddleware {
 
 ```ts title="start/kernel.ts"
 export const middleware = router.named({
-  requireRole: () => import('#middleware/require_role_middleware'),
+  requireGlobalRole: () => import('#middleware/require_global_role_middleware'),
 })
 ```
 
@@ -88,12 +119,151 @@ router
   .group(() => {
     router.get('/admin', [AdminController]).as('admin')
   })
-  .use(middleware.requireRole({ role: 'ADMIN' }))
+  .use([middleware.auth(), middleware.requireGlobalRole({ role: 'ADMIN' })])
 ```
 
-For app-local roles (not in the IdP claims) use `await ctx.auth.hasAppRole('billing.manager')`
-— it's `async` and consults `resolveAppRoles` (next recipe). For a full admin surface
-that's already built, see the [Admin Console](/docs/admin-console).
+<Callout type="warn">
+  **Global roles are the only role surface AuthKit gives you, and that is deliberate.**
+  `identity.globalRoles` is what the *identity provider* asserted about a person — a
+  platform-wide fact, the same for every relying party that receives the token. There is no
+  per-app role, no permission, and no resource-scoped check on `ctx.auth`.
+
+  Per-app authorization belongs to
+  [`@adonis-agora/authz`](https://www.npmjs.com/package/@adonis-agora/authz), which stores
+  roles and permissions in your own database and integrates with AdonisJS Bouncer, or to
+  Bouncer on its own. AuthKit answers *who this is*; authz answers *what they may do*. If
+  you find yourself wanting `hasAppRole`, that is the seam you are looking for.
+</Callout>
+
+For a full admin surface that is already built — users, clients, roles, audit — see the
+[Admin Console](/docs/admin-console).
+
+## Where roles come from: `resolveTokenRoles`
+
+Everything above *consumes* roles. This is the hook that decides where they come from in
+the first place.
+
+By default, the roles minted into a token are whatever the account store reports on
+`account.globalRoles` — typically a column on your `AuthUser` model. That is fine until
+roles stop living there. The moment an external authority owns roles — a permissions
+service, or `@adonis-agora/authz` with its own `roles` / `user_roles` tables — you have two
+sources of truth, and the token carries the stale one.
+
+`resolveTokenRoles` collapses them back into one. Set it on the server config and it
+becomes *the* answer to "what roles does this account have", replacing the stored column
+entirely:
+
+```ts title="config/authkit.ts"
+import { defineConfig, adapters, lucidAccountStore } from '@adonis-agora/authkit-server'
+import type { AuthAccount } from '@adonis-agora/authkit-server'
+import AuthUser from '#models/auth_user'
+import RoleAssignment from '#models/role_assignment'
+
+export default defineConfig({
+  issuer: env.get('AUTHKIT_ISSUER'),
+  adapter: adapters.database({ connection: 'auth' }),
+  jwks: 'auto',
+  accountStore: lucidAccountStore(AuthUser),
+  globalRolesClaim: 'roles',
+
+  // The single source of truth for this account's roles.
+  resolveTokenRoles: async (account: AuthAccount, { clientId, activeOrg }) => {
+    const rows = await RoleAssignment.query()
+      .where('user_id', account.id)
+      .preload('role')
+
+    const roles = rows.map((row) => row.role.slug)
+
+    // The context lets you scope what you emit. Here: an org-scoped role
+    // travels alongside the global ones when a workspace is active.
+    if (activeOrg) roles.push(`org:${activeOrg.orgRole}`)
+
+    return roles
+  },
+})
+```
+
+### The contract
+
+```ts
+resolveTokenRoles?: (
+  account: AuthAccount,
+  context: {
+    clientId?: string
+    activeOrg?: { orgId: string; orgSlug: string; orgRole: string } | null
+  },
+) => string[] | Promise<string[]>
+```
+
+`account` is the public `AuthAccount` DTO (`id`, `email`, `globalRoles?`, `name?`,
+`avatarUrl?`) — not a Lucid model, so the hook stays valid whichever account store you use.
+`context.clientId` is the OIDC client the token is being minted for; `context.activeOrg` is
+the organization selected in the current session, or `null`. Return the flat array of role
+strings to emit. Returning `[]` is a legitimate answer and means "no roles".
+
+**When it is absent**, nothing changes: the mint falls back to `account.globalRoles ?? []`.
+Adding the hook is opt-in and reversible.
+
+### Where it is called
+
+Three places, and it matters that they are the same three:
+
+<Steps>
+
+<Step>**Minting the roles claim.** When the OIDC provider assembles claims for an account,
+the value of the claim named by `globalRolesClaim` (default `roles`) comes from this hook.
+Both `clientId` and `activeOrg` are populated here, so you can emit different roles to
+different products from one identity provider.</Step>
+
+<Step>**Token exchange (impersonation).** The RFC 8693 grant resolves roles through the
+same hook twice: once for the **actor**, to decide whether they are allowed to impersonate
+at all, and once for the **target**, to build the impersonated token's claim. Without this,
+a host that keeps roles outside `globalRoles` could never impersonate — the admin check
+would always see an empty array. Here `activeOrg` is `null`, because a token exchange is
+not tied to a browser session.</Step>
+
+<Step>**Admin console access.** The guard on `/admin` looks up the account, resolves its
+roles through this hook, and requires at least one of `admin.roles` (default `['ADMIN']`).
+The console is neither client- nor org-scoped for role purposes, so the hook is called with
+an empty context (`clientId: undefined`, `activeOrg: null`).</Step>
+
+</Steps>
+
+<Callout type="warn">
+  Because the console guard goes through the same hook, `resolveTokenRoles` is
+  **authoritative for console access, not additive**. An account with `ADMIN` sitting in
+  `account.globalRoles` is locked out if your hook doesn't return `ADMIN` for them. That is
+  the point — one authority, no shadow path — but it is easy to lock yourself out of your
+  own admin console the first time you wire it up. Make sure your role store actually
+  contains the admin role before you deploy the hook.
+</Callout>
+
+### How it interacts with `globalRolesClaim`
+
+The two settings are the *what* and the *where*: `resolveTokenRoles` decides which roles to
+emit, `globalRolesClaim` decides which claim carries them (default `roles`). They are
+independent — you can change either without touching the other.
+
+The claim name has to agree across the wire. The client resolves `identity.globalRoles`
+from the claim named by its **own** `globalRolesClaim` in `config/authkit_client.ts`; if the
+two names diverge, the roles arrive but land nowhere and every `hasGlobalRole` check quietly
+answers `false`. Keep them equal, or you have a silent failure rather than an error.
+
+One more gate sits in front of both: the roles claim (and the org claims) are emitted to
+**first-party clients only** — those listed in `branding.firstParty`. A third-party client
+never receives roles even when it asks for the `roles` scope, and `resolveTokenRoles` is not
+even called for it. Roles are internal authorization data; least privilege is the default.
+
+<Callout type="warn">
+  That gate is closed by default. If your config has **no `branding` block at all**, no
+  client is first-party, and the roles claim is emitted to nobody — `identity.globalRoles`
+  arrives empty at every relying party and every `hasGlobalRole` check answers `false`. If
+  you rely on global roles in a client app, declare `branding` with the client ids listed
+  under `firstParty`, as in the [per-client UI recipe](#recipe-per-client-auth-ui-one-idp-a-face-per-product)
+  below. Note that the admin console is unaffected: its guard reads roles from the account
+  directly, not from a token, so the console can let you in while your app sees no roles at
+  all — which is exactly the sort of asymmetry that costs an afternoon.
+</Callout>
 
 ## Map the Identity to your own User model
 
@@ -133,30 +303,32 @@ export default defineConfig({
     })
   },
 
-  // App-local roles, derived however you like (DB join, claim mapping, ...).
-  resolveAppRoles: async (identity: Identity) => {
-    const user = await AppUser.find(identity.userId)
-    return user ? user.roles.map((r) => r.slug) : []
-  },
 })
 ```
 
-`resolveUser` runs lazily (only on `auth.getUser()`), `resolveAppRoles` only on
-`auth.hasAppRole()`. Both signatures live in
-[`define_config.ts`](/docs/client). The `Identity` shape (`userId`, `email`, `globalRoles`,
-`profile`, `sessionId`, `raw`) is the same regardless of resolver — see [Resolvers](/docs/resolvers).
+`resolveUser` runs **lazily** — only when something calls `auth.getUser()` — and its result
+is memoised for the rest of the request, so a request that never asks for the user never
+touches your database. It receives a second argument, `{ accessToken }`, when the session
+carries one; use it if your mapping needs to call back to the IdP (for example to fetch
+extra profile fields from a userinfo endpoint).
+
+The `Identity` shape (`userId`, `email`, `globalRoles`, `profile`, `sessionId`, `raw`) is
+the same regardless of which resolver produced it — see [Resolvers](/docs/resolvers).
+
+<Callout type="info">
+  There is no companion hook for app-local roles, and adding one would be the wrong shape:
+  a role you compute in the relying party is authorization, and authorization is
+  [`@adonis-agora/authz`](https://www.npmjs.com/package/@adonis-agora/authz)'s job. Map the
+  identity to a user here; ask authz what that user may do. If instead you want your role
+  store to feed the *token itself*, that belongs on the server side — see
+  [Where roles come from](#where-roles-come-from-resolvetokenroles).
+</Callout>
 
 ## Custom screens
 
 AuthKit's login / consent / signup / account screens are rendered through a `render` hook
 in `config/authkit.ts`. There are three modes, and the right one depends on how much you
 want to customise.
-
-<Callout type="info">
-  The robust key is the `clientId`, exposed on `brand.clientId` (the host's
-  `brandFor()` includes it). Switch on `REGISTRY[brand.clientId]` directly and
-  keep an `appName` match only as a fallback.
-</Callout>
 
 ### Default (zero setup): Edge views
 
@@ -231,22 +403,26 @@ To render the flow screens as React components you need to:
 
 #### What the scaffold generates
 
-`--ui=react` writes the following files into your project (relative to your Inertia pages
-directory, e.g. `inertia/pages/` by default):
+`--ui=react` writes these files into your project, at paths relative to the application
+root:
 
 | File | Screen |
 | --- | --- |
-| `authkit/login.tsx` | Email + password sign-in |
-| `authkit/signup.tsx` | Registration form |
-| `authkit/consent.tsx` | OAuth consent / scope grant |
-| `authkit/forgot.tsx` | Forgot-password request |
-| `authkit/reset.tsx` | Password reset form |
-| `authkit/verify-email.tsx` | Email verification landing |
-| `authkit/mfa-challenge.tsx` | TOTP / passkey MFA prompt |
-| `authkit/account/login.tsx` | Account console sign-in |
-| `authkit/account/tokens.tsx` | Personal Access Tokens management |
-| `authkit/account/mfa.tsx` | MFA enrolment |
-| `authkit/components/auth_shell.tsx` | Shared layout shell used by the pages above |
+| `inertia/pages/authkit/login.tsx` | Sign-in (identifier step, then password) |
+| `inertia/pages/authkit/signup.tsx` | Registration form |
+| `inertia/pages/authkit/consent.tsx` | OAuth consent / scope grant |
+| `inertia/pages/authkit/forgot.tsx` | Forgot-password request |
+| `inertia/pages/authkit/reset.tsx` | Password reset form |
+| `inertia/pages/authkit/verify-email.tsx` | Email verification landing |
+| `inertia/pages/authkit/mfa-challenge.tsx` | TOTP / passkey MFA prompt |
+| `inertia/pages/authkit/account/login.tsx` | Account console sign-in |
+| `inertia/pages/authkit/account/tokens.tsx` | Personal Access Tokens management |
+| `inertia/pages/authkit/account/mfa.tsx` | MFA enrolment |
+| `inertia/components/auth_shell.tsx` | Shared layout shell the pages above import |
+
+Note that the shell lands in `inertia/components/`, one level up from the pages — it is a
+component, not a routable page, and Inertia would otherwise try to resolve it as one. Every
+generated page imports it as `../../components/auth_shell`.
 
 These files are **yours from the moment they are generated**. Edit them freely — they will
 not be overwritten by future `node ace add` runs.
@@ -254,17 +430,18 @@ not be overwritten by future `node ace add` runs.
 #### The `views` allowlist and the Edge fallback
 
 `views` is an explicit **set** of the screen names you have React pages for — the order of
-the array is irrelevant, only membership matters. When a screen name is **not** in the set
-(for example, a screen added in a future AuthKit release that you have not yet created a
-page for), the renderer silently falls back to the built-in Edge view instead of throwing
-an SSR error. Watch for typos: a misspelled name simply falls back to Edge for that screen.
+the array is irrelevant, only membership matters. A screen name that is **not** in the set
+falls back to the built-in Edge view instead of throwing an SSR error. That covers both
+directions: screens you deliberately left on Edge, and any screen the library renders that
+your project has no page for. Watch for typos — a misspelled name simply routes that one
+screen to Edge, silently.
 
 ```
 Requested screen: 'verify-email'
-  → listed in views? yes → inertia.render('authkit/verify-email', props)
+  → listed in views? yes → rendered through Inertia as 'authkit/verify-email'
 
-Requested screen: 'new-future-screen' (not scaffolded yet)
-  → listed in views? no  → ctx.view.render('authkit::new-future-screen', props)  [Edge fallback]
+Requested screen: 'session-expired'
+  → listed in views? no  → rendered by the built-in Edge view  [fallback]
 ```
 
 <Callout type="warn">
@@ -274,32 +451,29 @@ Requested screen: 'new-future-screen' (not scaffolded yet)
   exact set of pages the scaffold generated.
 </Callout>
 
-#### Where the files live: Inertia's pages resolver
+#### Where the files live, and how `prefix` maps to them
 
-The React pages live wherever `@adonisjs/inertia` is configured to look for pages — that
-is set in your app's Inertia config, not in AuthKit's config. By default it is
-`inertia/pages/`. The `prefix` you pass to `inertiaRenderer` is a **subdirectory** inside
-that root:
+Two different things decide the final path, and it helps to keep them apart.
+
+The **scaffold** writes to fixed locations — `inertia/pages/authkit/*` for the screens and
+`inertia/components/auth_shell.tsx` for the shell. It does not read your Inertia config.
+
+The **renderer** doesn't know about files at all. `inertiaRenderer({ prefix: 'authkit' })`
+turns the screen name `login` into the Inertia page identifier `authkit/login`, and hands
+that string to `inertia.render()`. Resolving that identifier to a module is entirely
+`@adonisjs/inertia`'s job — in a default AdonisJS app, the glob in `inertia/app/app.tsx`
+maps it to `inertia/pages/authkit/login.tsx`:
 
 ```
-prefix: 'authkit'  +  Inertia pages root: inertia/pages/
-→ login screen:  inertia/pages/authkit/login.tsx
-→ consent screen: inertia/pages/authkit/consent.tsx
+screen name:  'login'
+prefix:       'authkit'
+→ page id:    'authkit/login'
+→ resolved:   inertia/pages/authkit/login.tsx
 ```
 
-If your app places pages elsewhere — for example, many projects use a domain layout like
-`app/**/ui/pages/` — configure that in `config/inertia.ts` (the `ssrEntrypoint` /
-`assetsVersion` / `rootView` settings of `@adonisjs/inertia`), then pass a matching
-prefix to `inertiaRenderer`. **AuthKit does not own that setting.**
-
-```ts title="config/inertia.ts (example for a domain layout)"
-import { defineConfig } from '@adonisjs/inertia'
-
-export default defineConfig({
-  // Your pages live under app/**/ui/pages/
-  // @adonisjs/inertia resolves 'authkit/login' → app/auth/ui/pages/authkit/login.tsx
-})
-```
+So if your app keeps pages somewhere other than `inertia/pages/`, nothing in AuthKit needs
+to change — adjust your Inertia page resolver, move the generated files to match, and keep
+`prefix` pointing at the subdirectory they live in. **AuthKit does not own that setting.**
 
 ### Headless (bring your own renderer)
 
@@ -369,8 +543,6 @@ link). Hooks are best-effort — a throw is swallowed and never breaks the reque
 
 ### Dedicated sender (`mail.from`)
 
-<Callout>Added in `@adonis-agora/authkit-server` 0.41.0.</Callout>
-
 When you rely on the **default** emails (no `onX` hook) — reset, verification, magic link,
 and the security alerts (new device/login, password changed, MFA toggled) — AuthKit needs a
 `from` address. It resolves in this order:
@@ -405,7 +577,13 @@ MFA, passkeys, provider linking, and magic link are **opt-in capabilities** you 
 if you want those features:
 
 ```ts title="app/auth/my_account_store.ts"
-import type { CoreAccountStore, AuthAccount, CreateAccountInput } from '@adonis-agora/authkit-server'
+import type {
+  CoreAccountStore,
+  AuthAccount,
+  CreateAccountInput,
+  ListAccountsParams,
+  Paginated,
+} from '@adonis-agora/authkit-server'
 
 export class MyAccountStore implements CoreAccountStore {
   // --- identity (provider-facing) ---
@@ -424,16 +602,29 @@ export class MyAccountStore implements CoreAccountStore {
   async issueEmailVerificationToken(email: string) { /* ... */ }
   async consumeEmailVerificationToken(token: string) { /* ... */ }
 
-  // --- admin listing/roles (AdminCapability) ---
-  async listAccounts(/* ... */) { /* ... */ }
+  // --- admin listing/roles (AdminCapability, part of the core contract) ---
+  async listAccounts(params: ListAccountsParams): Promise<Paginated<AuthAccount>> { /* ... */ }
+  async setGlobalRoles(accountId: string, roles: string[]): Promise<void> { /* ... */ }
 }
 ```
 
 `findById`/`verifyCredentials` return the public `AuthAccount` DTO (`id`, `email`,
-`globalRoles?`, `name?`, `avatarUrl?`) — never a raw Lucid model. To enable MFA or passkeys,
-also implement `MfaCapability` / `WebauthnCapability` on the same class. The full contract,
-every capability, and the published mixins are documented in
+`globalRoles?`, `name?`, `avatarUrl?`) — never a raw Lucid model. That DTO boundary is what
+lets the same IdP run over Lucid, over an LDAP directory, or over a legacy table, without
+anything upstream knowing.
+
+`CoreAccountStore` extends `AdminCapability`, so `listAccounts` and `setGlobalRoles` are
+part of the mandatory surface, not extras. Everything else is opt-in: implement
+`MfaCapability` / `WebauthnCapability` on the same class to light up MFA and passkeys. The
+full contract, every capability, and the published mixins are documented in
 [Account Store](/docs/account-store).
+
+<Callout type="info">
+  If an external authority owns roles, `setGlobalRoles` becomes a write path into a store
+  that is no longer the source of truth. Pair a custom store with
+  [`resolveTokenRoles`](#where-roles-come-from-resolvetokenroles) so reads and writes agree
+  on who decides.
+</Callout>
 
 ## React to auth events
 
@@ -447,8 +638,8 @@ export default defineConfig({
   // ...
   events: {
     onEvent: async (event) => {
-      // event: { type, accountId, email, clientId, ip, metadata }
-      if (event.type === 'signup.success' && event.accountId) {
+      // event: { type, accountId, email, clientId, actorId, ip, metadata }
+      if (event.type === 'signup' && event.accountId) {
         await AppUser.firstOrCreate(
           { id: event.accountId },
           { id: event.accountId, email: event.email ?? undefined }
@@ -479,51 +670,83 @@ and revocation needs:
 resolver: resolvers.opaque({ tokenSource: 'session', cacheTtlMs: 5000 })
 ```
 
-Whichever you pick, `resolveUser` / `resolveAppRoles` are unchanged. See
-[Resolvers](/docs/resolvers) for every option and the choosing matrix.
+Whichever you pick, `resolveUser` is unchanged and the `Identity` it receives has the same
+shape — the resolver is swappable precisely because nothing downstream depends on the token
+model. See [Resolvers](/docs/resolvers) for every option and the choosing matrix.
 
 ## Recipe: per-client auth UI (one IdP, a face per product)
 
 **Problem.** You run a single IdP (true SSO) but multiple products redirect to it
-to log in (e.g. `entre-textos` and `eduliberta`). With one shared login screen,
+to log in (say, a writing app and a courses app). With one shared login screen,
 every product shows the IdP owner's branding.
 
-**The OIDC constraint.** Login *always* happens at the IdP — the RP redirects to
+**The OIDC constraint.** Login *always* happens at the IdP — the relying party redirects to
 `/authorize`, the IdP authenticates, then redirects back with a code. A client
 **cannot** serve its own login page on its own domain and still delegate auth to
-your IdP; that would require the deprecated ROPC grant (the client proxies the
+your IdP; that would require the deprecated password grant (the client proxies the
 password) and breaks SSO. So the IdP renders — but each product can still **own**
 its screens.
 
-**The pattern.** Keep one IdP, and resolve the auth shell per client. The host
-already passes a `brand` (from `branding.clients[clientId]` in `defineConfig`) to
-every rendered screen. Build a small registry that picks the shell:
+**The pattern.** Keep one IdP, and resolve the auth shell per client. Declare each
+product's look under `branding.clients`, keyed by `clientId`:
 
-```tsx title="app/authkit/ui/components/auth_shell.tsx"
-import EntreTextosAuthShell from './shells/entre_textos_auth_shell'
-import EduLibertaAuthShell from './shells/eduliberta_auth_shell'
+```ts title="config/authkit.ts"
+export default defineConfig({
+  // ...
+  branding: {
+    company: 'Acme',
+    clients: {
+      'writing-app': { appName: 'Acme Write', accent: '#1d4ed8', accentSoft: '#3b82f6', tagline: 'Draft together' },
+      'courses-app': { appName: 'Acme Learn', accent: '#047857', accentSoft: '#10b981', tagline: 'Learn anything' },
+    },
+    default: { appName: 'Acme', accent: '#111827', accentSoft: '#374151', tagline: 'One account' },
+    firstParty: ['writing-app', 'courses-app'],
+  },
+})
+```
 
-const REGISTRY = {
-  'entre-textos': EntreTextosAuthShell,
-  eduliberta: EduLibertaAuthShell,
+The host resolves that entry for the client that started the flow and passes it to every
+rendered screen as `brand` — including the **`clientId` itself**, which is the stable key
+you want to switch on. String-matching `appName` works until someone renames a product;
+`clientId` never changes.
+
+```tsx title="inertia/components/auth_shell.tsx"
+import type { ReactNode } from 'react'
+import WriteAuthShell from './shells/write_auth_shell'
+import LearnAuthShell from './shells/learn_auth_shell'
+import DefaultAuthShell from './shells/default_auth_shell'
+
+// Extend the generated `AuthBrand` with the key the host already sends.
+export interface AuthBrand {
+  clientId?: string
+  appName: string
+  accent: string
+  accentSoft?: string
+  company?: string
+  tagline?: string
+  audienceLabel?: string
 }
 
-export default function AuthShell({ brand, children }) {
-  const name = (brand?.appName ?? '').toLowerCase()
-  const Shell = name.includes('liberta') ? REGISTRY.eduliberta : EntreTextosAuthShell
+const REGISTRY: Record<string, typeof DefaultAuthShell> = {
+  'writing-app': WriteAuthShell,
+  'courses-app': LearnAuthShell,
+}
+
+export default function AuthShell({ brand, children }: { brand?: AuthBrand; children: ReactNode }) {
+  const Shell = (brand?.clientId && REGISTRY[brand.clientId]) || DefaultAuthShell
   return <Shell brand={brand}>{children}</Shell>
 }
 ```
 
 Each `shells/<product>.tsx` owns that product's look (colors, fonts, copy). The
 pages (`login`, `consent`, …) keep importing `AuthShell` — selection is
-transparent. In a monorepo, promote each product's shells to its own package
-(`@workspace/authkit-ui-<product>`) so each team works in its own area; the IdP
-just imports and registers them.
+transparent, and an unknown or missing `clientId` falls back to the default shell rather
+than crashing. In a monorepo, promote each product's shells to its own package so each team
+works in its own area; the IdP just imports and registers them.
 
 <Callout type="info">
-  Resolving by `brand.appName` is a string match. The robust key is the
-  `clientId`, which `brandFor()` currently flattens out of the props. If you
-  control the host, pass `clientId` through to the screen and switch on
-  `REGISTRY[clientId]` directly.
+  `branding.firstParty` is doing double duty in that config. Beyond branding, it is the
+  allowlist that decides which clients receive the roles and organization claims at all —
+  see [Where roles come from](#where-roles-come-from-resolvetokenroles). Adding a product to
+  `clients` without adding it to `firstParty` gives it your branding but no roles.
 </Callout>

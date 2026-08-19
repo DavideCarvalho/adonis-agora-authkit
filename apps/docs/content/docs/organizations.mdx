@@ -60,7 +60,7 @@ Configure organizations in `defineConfig`. Only the `enabled` override and `clai
 belong here — policy fields (`roles`, `allowSelfCreate`, `invitationTtlHours`) are managed
 via the `organizations_policy` runtime setting:
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 defineConfig({
   // …
   organizations: {
@@ -87,7 +87,7 @@ node ace authkit:settings:set organizations_policy \
 
 Pass your three model classes to `lucidAccountStore`:
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 import { lucidAccountStore } from '@adonis-agora/authkit-server'
 import AuthOrganization from '#models/auth_organization'
 import AuthOrganizationMember from '#models/auth_organization_member'
@@ -152,7 +152,7 @@ creating the membership.
 
 #### Wire up the invitation email
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 mail: {
   onOrgInvitation: async ({ email, orgName, orgSlug, role, acceptUrl }) => {
     await mailer.send((m) =>

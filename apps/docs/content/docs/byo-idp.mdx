@@ -12,7 +12,7 @@ keeps working — hiding only the pieces that genuinely need the AuthKit server.
 ```
 ┌────────────┐   OIDC code + PKCE   ┌──────────────────────┐
 │ Your IdP   │ ◄──────────────────► │ AdonisJS app          │
-│ (Keycloak, │                      │ @…/adonis-authkit-    │
+│ (Keycloak, │                      │ @adonis-agora/authkit-│
 │  Auth0…)   │                      │ client (sessions,     │
 └────────────┘                      │ JWT/JWKS, logout)     │
                                     │ + authkit-react (UI)  │
@@ -29,8 +29,9 @@ back-channel logout. Point `issuer` at your IdP.
 
 Third-party IdPs publish their endpoints at `{issuer}/.well-known/openid-configuration` —
 paths differ per vendor (Keycloak uses `/protocol/openid-connect/auth`, Auth0 uses
-`/authorize`…). Use `discoverEndpoints` and pass the resolved endpoints to the flow
-helpers:
+`/authorize`…). The flow helpers all default to the AuthKit provider's own route
+conventions, so against a third-party IdP you resolve the real endpoints once with
+`discoverEndpoints` and pass them through:
 
 ```ts
 import {
@@ -71,38 +72,96 @@ buildEndSessionUrl({
 Notes:
 
 - **Fail-safe**: if the discovery document is unreachable, `discoverEndpoints` silently
-  falls back to the oidc-provider conventions (`/auth`, `/token`, `/jwks`…) — so against
-  `authkit-server` everything keeps working even offline.
+  falls back to the AuthKit provider's route conventions — so against `authkit-server`
+  everything keeps working even offline. The fallback is cached too, so a flapping
+  discovery endpoint does not turn into a refetch loop.
 - **Manual override**: `discoverEndpoints(issuer, { overrides: { tokenEndpoint: '…' } })`
-  wins field-by-field — useful behind proxies.
-- The JWT resolvers already accept `jwksUri`/`introspectionUrl` directly — feed them
+  wins field-by-field, ahead of the discovery document — useful behind proxies that rewrite
+  hostnames.
+- The resolvers already accept `jwksUri` / `introspectionUrl` directly — feed them
   `endpoints.jwksUri` / `endpoints.introspectionEndpoint`.
+
+### Which resolver against a third-party IdP
+
+`resolvers.jwt` is the safe default: it verifies the ID token against the IdP's published
+JWKS, which every compliant provider exposes. `resolvers.opaque` also works — RFC 7662
+introspection is standard — but check that your IdP actually exposes an introspection
+endpoint and that your client is confidential. `resolvers.pat` is AuthKit-specific and has
+no third-party equivalent. See [Resolvers](/docs/resolvers).
+
+One detail that bites: `globalRoles` is read from the claim named by `globalRolesClaim`
+(default `roles`). Third-party IdPs put roles wherever they like — Keycloak nests them
+under `realm_access.roles`, Auth0 under a namespaced claim. Set `globalRolesClaim` to
+whatever *your* IdP emits, and if the shape is nested rather than a flat array, read it out
+of `identity.raw` inside `resolveUser` instead.
 
 See **[Client toolkit](/docs/client)** for sessions, middleware, resolvers and
 back-channel logout.
 
 ## 2. React SDK — `idp: 'external'`
 
-The React package talks to two very different surfaces:
+The React package talks to two very different surfaces. Most of it only needs *your app's*
+session, which the client toolkit above already provides. A small set of components is a
+front-end for the AuthKit server's own REST surface, and there is nothing for them to call
+when that server isn't there.
 
 | Works with any IdP | Needs authkit-server |
 | --- | --- |
 | `SignInButton`, `SignOutButton` (redirect to your app's login/logout routes) | `UserProfile` (profile/MFA/sessions panel) |
-| `useAuth`, `Authenticated`, `Can`, `Avatar` | `OrganizationSwitcher`, `OrganizationProfile` |
-| `PasswordStrengthMeter`, `usePasswordStrength` | `AuthorizedApps` |
+| `useAuth`, `Authenticated`, `Guest`, `Avatar`, `UserButton` | `OrganizationSwitcher`, `OrganizationProfile` |
+| `hasGlobalRole` / `hasAnyGlobalRole` / `hasAllGlobalRoles` | `AuthorizedApps` |
+| `PasswordStrengthMeter`, `usePasswordStrength` | |
 
-Tell the provider your IdP is external and the right-column components degrade to
-`null` instead of calling endpoints that don't exist:
+Tell the provider your IdP is external and the right-column components render `null`
+instead of calling endpoints that don't exist:
 
 ```tsx
+import { AuthkitProvider } from '@adonis-agora/authkit-react'
+
 <AuthkitProvider config={{ idp: 'external', loginUrl: '/auth/login' }}>
   <App />
 </AuthkitProvider>
 ```
 
-Everything else — auth state, sign-in/out buttons, role gates — keeps working exactly
-the same, because those only depend on your app's session (provided by the client
-toolkit above).
+`idp` is `'authkit'` by default, so this flag is the one thing you must remember to set in
+a bring-your-own-IdP deployment. Everything else — auth state, sign-in/out buttons, the
+global-role helpers — keeps working exactly the same, because those only depend on the
+session your app already owns.
+
+### Permission gating: `useCan` and `<CanPermission>`
+
+`useCan(permission, resource?)` and `<CanPermission permission="…">` are **not** role
+gates and they are **not** part of the IdP surface. They `POST` to an authorization
+endpoint in *your own app* — `/authz/can` by default — with `{ permission, resource? }` and
+expect `{ allowed: boolean }` back. That contract is served by
+[`@adonis-agora/authz`](https://www.npmjs.com/package/@adonis-agora/authz), which owns
+per-app roles, permissions, and resource-level checks.
+
+```tsx
+import { CanPermission, useCan } from '@adonis-agora/authkit-react'
+
+// Component form: render children only if the check passes.
+<CanPermission permission="posts.update" resource={post.id} fallback={<ReadOnlyNotice />}>
+  <EditPostButton post={post} />
+</CanPermission>
+
+// Hook form, when you need the state rather than a subtree.
+function PublishButton({ post }) {
+  const { allowed, loading } = useCan('posts.publish', post.id)
+  if (loading) return <Spinner />
+  return <button disabled={!allowed}>Publish</button>
+}
+```
+
+Because the endpoint is yours, this works unchanged against Keycloak, Auth0 or anything
+else — the IdP never sees the question. Point it elsewhere with
+`<AuthkitProvider config={{ canPath: '/api/permissions/check' }}>` if your route differs.
+Results are cached in memory per (user, permission, resource) and the decision is
+fail-closed: a failed request denies, and surfaces the error on `useCan().error`.
+
+For coarse gating on what the **IdP** asserted — the `globalRoles` in the token — use
+`useAuth()` with the `hasGlobalRole` helpers instead. That needs no endpoint at all,
+because the roles already travelled in the session.
 
 ## What you give up without authkit-server
 

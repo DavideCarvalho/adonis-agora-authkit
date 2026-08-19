@@ -11,7 +11,7 @@ CI jobs, scripts, integrations — that authenticate without the interactive OID
 
 PAT requires a `patStore` on the server and a shared `patIntrospectionSecret`:
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 import PersonalAccessToken from '#models/personal_access_token'
 import { lucidPatStore } from '@adonis-agora/authkit-server'
 

@@ -14,43 +14,67 @@ description: The full defineConfig option tables for server and client.
 | `adapter` | `AdapterFactory` | — | Storage adapter, e.g. `adapters.database({ connection })`. |
 | `clients` | `ClientConfig[]` | — | Internal/test use only. Create clients via the admin console, Admin API (`node ace authkit:clients:create`), or [Dynamic Registration](/docs/dynamic-registration). |
 | `jwks` | `JwksConfig` | — | `{ source: 'managed' \| 'jwks', algorithm?, rotationDays?, keys? }`. |
-| `ttl` | `TtlConfig` | see below | Token/session lifetimes; accepts `'15m'`, `'30d'`, or seconds. |
+| `ttl` | `TtlConfig` | see below | Token/session lifetimes; accepts `'15m'`, `'30d'`, or seconds. **Declaring this key locks the `token_ttl` setting.** |
 | `globalRolesClaim` | `string` | `'roles'` | Claim name where global roles are emitted. |
+| `resolveTokenRoles` | `(account, ctx) => string[] \| Promise<string[]>` | `account.globalRoles ?? []` | The pluggable seam for role **emission** — see [Customizing auth](/docs/customizing-auth#resolvetokenroles). Called at mint time for first-party clients, on token-exchange, and on the admin-console gate; `ctx` carries `{ clientId?, activeOrg? }`. This is what lets an external authority (typically `@adonis-agora/authz`) own roles instead of a column on the account model. |
 | `cookieKeys` | `string[]` | `[]` | Cookie signing keys. |
 | `observability` | `ObservabilityConfig` | `{}` | `{ metrics?, jsonRoutes?, dashboard? }`. |
 | `accountStore` | `AccountStore` | — | Primary identity contract; derives `findAccount`/`verifyCredentials`. `AccountStore = CoreAccountStore & Partial<Mfa/Webauthn/ProviderIdentity capabilities>`; narrow with `supportsMfa`/`supportsPasskeys`/`supportsProviderIdentity`. See [Account Store](/docs/account-store). |
 | `patStore` | `PatStore` | — | Optional; required only for PAT flows. |
 | `mountPath` | `string` | `'/oidc'` | Where the host kit mounts the OIDC routes. |
+| `routes` | `boolean \| AuthHostOptions` | absent (no auto-mount) | Mount the host kit from the config instead of calling `registerAuthHost` in `start/routes.ts`. `true` mounts with config defaults, an object supplies **structural** defaults (`accountRoutes`, `account`, `accountLoginUrl`, `mountPath`). Calling `registerAuthHost` afterwards throws — see [Host Kit](/docs/host-kit#route-mounting). |
 | `accountHome` | `string` | `'/account/security'` | Default destination for the account area: post-login at `/account/login` (without `return_to`), e-mail confirmations, and non-admin redirects away from the console. Point it at your app's home to land users straight in the product. |
-| `render` | `AuthHostRenderer` | — | `inertiaRenderer` / `edgeRenderer`, or omit for headless. |
+| `render` | `AuthHostRenderer` | `edgeRenderer` | `inertiaRenderer` to render the screens as Inertia pages, or `edgeRenderer` for the bundled Edge templates. |
+| `interactionRecovery` | `{ mode?: 'screen' \| 'redirect'; redirectTo?: string }` | `{ mode: 'screen' }` | What happens when the OIDC interaction session is lost or expired: render the themeable `session-expired` screen, or 302 to the login. See [Host Kit](/docs/host-kit#interaction-recovery). |
 | `branding` | `BrandingConfig` | — | Per-client theming + first-party list. |
 | `social` | `AuthSocialConfig` | — | `{ providers: string[] }`; opt-in social login. |
 | `patIntrospectionSecret` | `string` | — | Shared secret authenticating PAT introspection. |
-| `rateLimit` | `RateLimitConfigInput` | disabled | Opt-in anti-brute-force throttles. `enabled` and `store` are infra — set here. Bucket values (`login`, `introspection`) are managed via the `rate_limit` runtime setting. |
-| `lockout` | `LockoutConfigInput` | enabled | Progressive per-email lockout. `store` is infra — set here. Policy (`enabled`, `maxAttempts`, etc.) is managed via the `lockout` runtime setting. See [Account Lockout](/docs/account-lockout). |
-| `mail` | `MailHooks` | — | `onPasswordReset` / `onEmailVerification` / `onEmailChangeConfirm` / `onEmailChangeNotice` / `onSecurityNotice` / `onOtpUnlock` / `onAccountExpirationWarning` hooks. See [Security — Mail hooks](/docs/security#mail-hooks). |
+| `rateLimit` | `RateLimitConfigInput` | disabled | Opt-in anti-brute-force throttles. **Declaring this key locks the `rate_limit` runtime setting** — see [Config locks](/docs/config-locks). Leave it out to let the console own the buckets. |
+| `lockout` | `LockoutConfigInput` | enabled | Progressive per-email lockout. `store` is infra. **Declaring this key locks the `lockout` runtime setting.** See [Account Lockout](/docs/account-lockout). |
+| `mail` | `MailHooks` | — | Pluggable email hooks: `onPasswordReset`, `onEmailVerification`, `onMagicLink`, `onSudoLink`, `onNewDeviceLogin`, `onOrgInvitation`, `onEmailChangeConfirm`, `onEmailChangeNotice`, `onOtpUnlock`, `onSecurityNotice`, `onAccountExpirationWarning`, plus `from` and `origin`. Every hook is optional — without one the host kit sends its own branded, translated email. See [Security — Mail hooks](/docs/security#mail-hooks). |
+| `sudo` | `{ methods?: SudoMethod[] }` | derived from the rest of the config | The identity-confirmation methods offered on `/account/confirm`. Omitting it derives a satisfiable list; declaring it turns derivation **off** and the list is taken literally. **Declaring `sudo.methods` locks the `sudoMethods` route option.** See [Console session & sudo](/docs/console-session#sudo-methods). |
 | `audit` | `AuditSink` | no-op | Best-effort audit sink. |
 | `events` | `EventsConfigInput` | — | `{ onEvent?, webhook? }` — observe every audit event in-process or via an HMAC-signed webhook. See [Events & Webhooks](/docs/events). |
 | `mfaIssuer` | `string` | `'AuthKit'` | TOTP issuer label shown in authenticator apps. |
 | `webauthn` | `WebauthnConfigInput` | derived from `issuer` | Passkey RP params. See [WebAuthn](/docs/webauthn). |
 | `i18n` | `I18nConfig` | English (`en`); pt-BR built in | Host-kit screen translations. See [Internationalization](/docs/i18n). |
 | `dynamicRegistration` | `DynamicRegistrationConfigInput` | disabled | RFC 7591/7592. See [Dynamic Registration](/docs/dynamic-registration). |
-| `admin` | `AdminConfigInput` | disabled | The `/admin` console. `AdminConfigInput = { enabled: boolean; roles?: string[] }`. The console is the Vite-built React SPA bundled inside the package. See [Admin Console](/docs/admin-console). |
-| `adminApi` | `true \| { prefix?: string }` | disabled | The Admin REST API (API-key auth). `true` mounts at the default `/api/authkit/v1`; pass `{ prefix: '/custom/path' }` to override. Prefix is normalised (leading `/`, no trailing slash). Must match `apiPrefix` in the SDK's remote driver. See [Admin REST API](/docs/admin-api). |
+| `admin` | `AdminConfigInput` | disabled | The `/admin` console: `{ enabled, roles?, impersonation? }`. `impersonation: false` unregisters the RFC 8693 grant outright and 404s the console panel — see [Impersonation](/docs/impersonation#kill-switch). **Declaring this key locks the `admin_impersonation` setting and the `admin` route option** (the prefix stays overridable). See [Admin Console](/docs/admin-console). |
+| `adminApi` | `true \| { prefix?: string }` | disabled | The Admin REST API (API-key auth). `true` mounts at the default `/api/authkit/v1`; `{ prefix: '/custom/path' }` overrides it (normalised: leading `/`, no trailing slash). Must match `apiPrefix` in the SDK's remote driver. **Declaring this key locks the `adminApi` route option.** See [Admin REST API](/docs/admin-api). |
 | `deviceFlow` | `{ enabled: boolean }` | disabled | Device Authorization Grant (RFC 8628). See [Device Flow](/docs/device-flow). |
 | `dpop` | `{ enabled: boolean }` | disabled | DPoP sender-constrained tokens (RFC 9449). See [Security](/docs/security#dpop). |
 | `par` | `{ enabled: boolean; requirePushedAuthorizationRequests?: boolean }` | disabled | Pushed Authorization Requests (RFC 9126). See [Security](/docs/security#par). |
 | `stepUp` | `{ acrValues?: string[]; mfaAcr?: string }` | `mfaAcr: 'urn:authkit:mfa'` | Step-up auth via `acr_values`. See [Security](/docs/security#step-up-authentication). |
-| `trustedDevices` | `TrustedDevicesConfigInput` | enabled, 30 days | Skip MFA on a trusted device via an encrypted cookie. Cookie secrets stay here (infra). `enabled` and `days` are managed via the `trusted_devices` runtime setting. See [MFA](/docs/mfa#trusted-devices). |
+| `trustedDevices` | `TrustedDevicesConfigInput` | enabled, 30 days | Skip MFA on a trusted device via an encrypted cookie. **Declaring this key locks the `trusted_devices` setting.** Step-up authentication always ignores the cookie. See [MFA](/docs/mfa#trusted-devices). |
 | `uploads` | `{ avatars?: { disk?: string; directory?: string; maxSizeMb?: number } }` | app's default drive disk, `authkit/avatars`, 5MB | Avatar upload via the app's `@adonisjs/drive`; degrades to URL input when drive is absent. See [Host Kit](/docs/host-kit#avatar-uploads). |
-| `passwordless` | `{ magicLink?: boolean; passkeyFirst?: boolean }` | both disabled | Magic-link email login and/or passkey-first login. See [Passwordless](/docs/passwordless). |
-| `login` | `{ requireVerifiedEmail?: boolean }` | `false` | Block logins for unverified emails. Capability-probed. Overridable at runtime via the `require_verified_email` setting. See [Compliance](/docs/compliance) and [Security — Require verified email toggle](/docs/security#require-verified-email-toggle). |
-| `registration` | `{ enabled?: boolean }` | `{ enabled: true }` | Allow public sign-up. `enabled: false` closes registration statically. Overridable at runtime via the `registration` setting. See [Security — Registration toggle](/docs/security#registration-toggle). |
+| `passwordless` | `PasswordlessConfigInput` | all disabled | Magic-link email login, passkey-first login, and password-free public sign-up. See [Passwordless](/docs/passwordless). |
+| `authMethods` | `AuthMethodsConfigInput` | `{}` | Pin login methods in the file. Each field you declare wins over the `auth_methods` runtime setting and the console shows it read-only. **Declaring this key locks the `auth_methods` setting.** See [Config locks](/docs/config-locks). |
+| `login` | `LoginConfigInput` | all off | Login policy: `requireVerifiedEmail` (capability-probed) and `otp` (six-digit email codes — see [Passwordless](/docs/passwordless#otp-login)). **Declaring `login.requireVerifiedEmail` locks the `require_verified_email` setting.** |
+| `registration` | `{ enabled?: boolean }` | `{ enabled: true }` | Allow public sign-up. **Declaring this key locks the `registration` setting** — the console can no longer open or close sign-up. Leave it out to keep that switch in the console. |
 | `accessTokens` | `AccessTokensConfig` | `{ format: 'opaque' }` | JWT access tokens (RFC 9068) and per-resource config. See [Security](/docs/security#jwt-access-tokens-rfc-9068). |
-| `botProtection` | `BotProtectionConfigInput` | disabled | Pluggable CAPTCHA/challenge for login, signup, reset. Runtime-toggleable via `auth_settings`. See [Security](/docs/security#bot-protection). |
+| `botProtection` | `BotProtectionConfigInput` | disabled | Pluggable CAPTCHA/challenge for login, signup, reset; the host supplies `verify`. Fail-safe: a `verify` error or timeout lets the request through. **Declaring this key locks the `bot_protection` setting.** See [Security](/docs/security#bot-protection). |
 | `notifications` | — | — | Removed. New-device and new-IP email alerts are managed via the `notifications` runtime setting (default: both on). See [Runtime Settings](/docs/settings) and [Security](/docs/security#new-device-login-notification). |
 | `resolveGeo` | `(ip: string) => Promise<string \| null>` | — | Pluggable IP → location lookup for session context. See [Admin Console](/docs/admin-console#session-context). |
-| `organizations` | `OrganizationsConfigInput` | auto | Multi-tenancy. See [Organizations](/docs/organizations). |
+| `organizations` | `OrganizationsConfigInput` | auto (on when the three org tables exist) | Multi-tenancy. **Declaring this key locks the `organizations_policy` setting.** See [Organizations](/docs/organizations). |
+| `schema` | `{ autoManage?: boolean; connection?: string }` | `{ autoManage: true }` | Auto-creation of the eight tables AuthKit owns. `autoManage: false` hands you the job — call `ensureAuthkitSchema(db)` from a migration. See [Runtime Settings — Schema](/docs/settings). |
+| `accountLifecycle` | `{ durable?: boolean }` | `{ durable: false }` | `durable: true` enqueues account deletion and export as durable workflows instead of running the cascade in-process. See [Compliance — Durable workflows](/docs/compliance#durable-workflows). |
+| `adonisAuth` | `{ guard: string }` | absent | Opt-in `@adonisjs/auth` integration: the account console's login/logout also drive `ctx.auth.use(guard)`, so `middleware.auth()`, `ctx.auth.user` and the Bouncer work natively. Pair with `authkitUserProvider` in `config/auth.ts`. See [AdonisJS Auth integration](/docs/adonis-auth). |
+
+<Callout type="warn">
+  Ten of the options above are **policy**, and declaring one in `defineConfig` locks the
+  matching runtime setting: `registration`, `authMethods`, `login.requireVerifiedEmail`,
+  `lockout`, `rateLimit`, `trustedDevices`, `botProtection`, `organizations`,
+  `admin.impersonation` and `ttl`. A locked key reads back as `null`, writes from the console
+  and the Admin API fail with `423 Locked`, and the console renders the control disabled.
+  Five more — `social`, `rateLimit`, `sudo.methods`, `admin` and `adminApi` — lock the
+  matching `registerAuthHost` argument the same way. Read
+  [Config locks](/docs/config-locks) before you decide where a policy belongs.
+
+  Watch the keys whose config type carries only infrastructure: declaring
+  `lockout: { store: 'redis' }`, `rateLimit`, `trustedDevices` or `organizations` for
+  plumbing reasons still locks the whole setting key, freezing its policy at the library
+  defaults rather than at anything you wrote.
+</Callout>
 
 ### `ttl` defaults
 
@@ -92,13 +116,14 @@ Infrastructure fields only. Bucket policy (`login`, `introspection`) is managed 
 | `clientSecret` | `string?` | — | For confidential clients. |
 | `redirectUri` | `string` | — | This client's callback URI. |
 | `resolver` | `ResolverFactory` | — | `resolvers.jwt(...)` or `resolvers.pat(...)`. |
-| `resolveUser` | `(identity, ctx) => Promise<unknown>` | — | Map identity to your user. |
-| `resolveAppRoles` | `(identity) => Promise<string[]>` | — | App-local roles. |
+| `resolveUser` | `(identity, ctx) => Promise<unknown>` | — | Map the IdP identity onto your own user. `lucidMirror(...)` is the ready-made implementation for a Lucid model — see [Client](/docs/client#lucidmirror). |
 | `sessionKey` | `string` | `'authkit'` | Session key for the token set. |
-| `scopes` | `string[]` | `['openid','profile','email','offline_access']` | Requested scopes. |
+| `scopes` | `string[]` | `['openid','profile','email','offline_access','roles']` | Requested scopes. Keep `offline_access` — without it the IdP issues no refresh token, and [impersonation](/docs/impersonation) breaks the moment the admin's access token expires. |
 | `globalRolesClaim` | `string` | `'roles'` | Claim to read global roles from. |
-| `onBackchannelLogout` | `BackchannelLogoutCallback` | — | Invoked with `{ sid, sub }` on a valid logout token. See [Back-Channel Logout](/docs/back-channel-logout). |
-| `sessionIndex` | `SessionIndex` | — | Maps OP `sid`/`sub` to local session ids for back-channel logout. |
+| `backchannelLogout` | `BackchannelLogoutInput` | — | The batteries-included back-channel logout path: `{ store }` derives the callback, persists revocations, and pairs with `BackchannelRevocationMiddleware`. See [Back-Channel Logout](/docs/back-channel-logout). |
+| `onBackchannelLogout` | `BackchannelLogoutCallback` | — | Invoked with `{ sid, sub }` on a valid logout token. Runs *after* the `backchannelLogout` store when both are set. |
+| `sessionIndex` | `SessionIndex` | — | Maps OP `sid`/`sub` to local session ids — the manual alternative to `backchannelLogout: { store }`. |
+| `resilience` | `ResiliencePolicy` | — | Optional policy wrapped around the outbound HTTP calls to the IdP (discovery + token endpoints). Pass the result of `wrap(...)` from `@adonis-agora/resilience`; typed structurally, so the client never imports that package. |
 
 ### Resolver factories
 
@@ -108,7 +133,22 @@ Infrastructure fields only. Bucket policy (`login`, `introspection`) is managed 
 | `resolvers.pat` | `{ introspectionUrl, introspectionSecret }` | Validates PATs via the IdP introspection endpoint. |
 | `resolvers.opaque` | `{ tokenSource?, introspectionUrl?, cacheTtlMs? }` | Per-request introspection of opaque access tokens (immediate revocation). Requires a confidential client. |
 
-### Login helpers
+### Route registration
+
+| Export | Purpose |
+| --- | --- |
+| `registerOidcClient(router, options)` | Registers `/auth/login`, the callback, `/auth/logout` and the back-channel endpoint in one call, with PKCE, state, and role-based post-login redirects. The path most relying parties want — see [Client](/docs/client#registeroidcclient). |
+| `authkitClientGuard` / `AuthkitClientGuard` | `@adonisjs/auth` guard backed by the AuthKit session, so `ctx.auth.user` and `middleware.auth()` work natively. See [AdonisJS Auth integration](/docs/adonis-auth). |
+| `getAuthkit(ctx)` | Read the request's `Authenticator` without going through the container. |
+| `AuthkitContextMiddleware` | Populates the per-request identity. |
+| `lucidMirror(options)` | A `resolveUser` that mirrors the IdP identity into a Lucid model. |
+| `createUserinfoResolver(options)` | Builds a `resolveUser` that fetches the OP's `userinfo` endpoint. |
+| `conventionEndpoints(issuer)` | The endpoint map by convention, skipping discovery. |
+| `lucidRevocationStore` / `BackchannelRevocationMiddleware` / `DEFAULT_REVOCATION_TABLE` | The batteries-included back-channel logout path. |
+
+### Login primitives
+
+Use these only when `registerOidcClient` cannot express your flow.
 
 | Export | Purpose |
 | --- | --- |
@@ -127,6 +167,8 @@ Infrastructure fields only. Bucket policy (`login`, `introspection`) is managed 
 | --- | --- |
 | `createAuthkit({ mode: 'remote', baseUrl, apiKey, apiPrefix?, fetchImpl? })` | HTTP driver over the [Admin REST API](/docs/admin-api). `apiPrefix` defaults to `'/api/authkit/v1'`; override when the server uses a custom `adminApi.prefix`. |
 | `createAuthkit({ mode: 'embedded', app })` | In-process driver resolving server services from the AdonisJS container. |
+| `createRemoteAuthkit(options)` | The remote driver directly, when you already know you want HTTP and would rather skip the mode discriminator. |
+| `createEmbeddedAuthkit(options)` | The embedded driver directly. |
 | `AuthkitApiError` | Error thrown by the remote driver (`status`, `code`, `message`). |
 
 See the [SDK guide](/docs/sdk) for the full method table.
@@ -181,9 +223,13 @@ if (supportsSettings(store)) {
 
 ### Known setting keys
 
-21 known keys. All are capability-probed — if the `auth_settings` table is absent every
-key falls back to the lib default (fail-safe). See [Runtime Settings](/docs/settings)
-for the canonical guide, precedence rules, CLI, and migration from static config.
+Every key below is capability-probed: if the `auth_settings` table is absent, it falls back
+to the lib default (fail-safe). Precedence has two cases. When `defineConfig` does **not**
+declare the matching field, the persisted setting wins over the lib default. When it
+**does**, the key is locked — `getSetting` reads back `null` so the config value stands,
+and writes fail with `423 Locked`. See [Config locks](/docs/config-locks) for the ten
+lockable keys, and [Runtime Settings](/docs/settings) for the canonical guide, the CLI, and
+migration from static config.
 
 | Key | Shape | Lib default | Notes |
 | --- | --- | --- | --- |
@@ -205,9 +251,11 @@ for the canonical guide, precedence rules, CLI, and migration from static config
 | `token_ttl` | `{ accessTokenSec?: number; idTokenSec?: number; refreshTokenSec?: number }` | `{ accessTokenSec: 900, idTokenSec: 900, refreshTokenSec: 2592000 }` | Token lifetimes (seconds). Takes effect immediately via holder. Session TTL is in `session_policy`. |
 | `admin_impersonation` | `{ enabled?: boolean }` | `{ enabled: false }` | Show impersonation panel in admin console. |
 | `organizations_policy` | `{ allowSelfCreate?: boolean; invitationTtlHours?: number; roles?: string[] }` | `{ allowSelfCreate: false, invitationTtlHours: 168, roles: ['owner','admin','member'] }` | Org policies. `owner` is always preserved. |
-| `sudo_mode` | `{ enabled?: boolean; graceMinutes?: number }` | `{ enabled: true, graceMinutes: 15 }` | Re-authentication gate for sensitive account actions. `graceMinutes: 0` prompts on every action. Session key: `authkit_sudo_at`. See [Security — Sudo mode](/docs/security#sudo-mode). |
-| `otp_lockout` | `{ enabled?: boolean; maxAttempts?: number; unlockTtlHours?: number }` | `{ enabled: true, maxAttempts: 5, unlockTtlHours: 24 }` | Lock TOTP/recovery after N failures; unlock via `GET /auth/otp-unlock/:token`. Token prefix `ou:` in `passwordResetToken` column. Requires `@adonisjs/limiter`. See [Security — OTP lockout](/docs/security#otp-lockout). |
-| `account_expiration` | `{ enabled?: boolean; inactiveDays?: number; warnDays?: number }` | `{ enabled: false, inactiveDays: 365, warnDays: 14 }` | Block inactive accounts. Last activity = last `login.success` in audit. Warn via `onAccountExpirationWarning`. Scan via `authkit:accounts:expire-scan`. Requires queryable audit sink. See [Compliance — Account expiration](/docs/compliance#account-expiration). |
+| `sudo_mode` | `{ enabled?: boolean; graceMinutes?: number }` | `{ enabled: true, graceMinutes: 15 }` | Re-authentication gate for sensitive account actions. `graceMinutes: 0` prompts on every action. The grace is bound to the account that earned it, so switching accounts always re-prompts. See [Console session & sudo](/docs/console-session). |
+| `otp_lockout` | `{ enabled?: boolean; maxAttempts?: number; unlockTtlHours?: number }` | `{ enabled: true, maxAttempts: 5, unlockTtlHours: 24 }` | Lock TOTP/recovery after N failures; the account unlocks itself through a single-use emailed link (`onOtpUnlock`). Requires `@adonisjs/limiter`. See [Security — OTP lockout](/docs/security#otp-lockout). |
+| `account_expiration` | `{ enabled?: boolean; inactiveDays?: number; warnDays?: number }` | `{ enabled: false, inactiveDays: 365, warnDays: 14 }` | Block inactive accounts. Last activity = last `login.success` in audit. Warn via `onAccountExpirationWarning({ email, expiresInDays })`. Scan via `authkit:accounts:expire-scan`. Requires a queryable audit sink. See [Compliance — Account expiration](/docs/compliance#account-expiration). |
+| `roles_catalog` | `{ roles: { name: string; description?: string }[] }` | `{ roles: [{ name: 'ADMIN', … }] }` | The catalogue of assignable global roles. It turns the free-text role field on the console's user page into checkboxes. `ADMIN` is always merged back in — it is the console's own gate, so it can never be catalogued away. Entries with an empty or non-string `name` are dropped silently, and the result is sorted by name. Resolves org-scoped first, then global, then the default. |
+| `key_rotation` | `{ enabled?: boolean; maxAgeDays?: number; keep?: number }` | `{ enabled: false, maxAgeDays: 90, keep: 2 }` | Automatic signing-key rotation for a managed keystore: rotate once the active key is older than `maxAgeDays`, retaining `keep` previous keys so tokens signed before the rotation still verify. Surfaced by the console's key page and by `GET {adminApi}/keys`. See [Security — Signing key rotation](/docs/security#signing-key-rotation). |
 
 ## Ace commands
 
@@ -226,25 +274,45 @@ Commands provided by `@adonis-agora/authkit-server`:
 | `node ace authkit:settings:unset <key> [--json]` | Delete a setting (reset to lib default). Audits `settings.updated`. |
 | `node ace authkit:accounts:expire-scan [--warn] [--dry-run] [--json]` | Scan for expired/expiring accounts. `--warn` sends `mail.onAccountExpirationWarning` (deduped via audit). `--dry-run` prints counts without writing. `--json` outputs `{ expired, warned, skipped }`. See [Compliance — Account expiration](/docs/compliance#account-expiration). |
 
-### `authkit:doctor` — `checkSettings`
+### `authkit:doctor` — the full check list
 
-When the doctor command probes the `auth_settings` table:
+The doctor runs thirty checks and prints each one at `ok`, `warn` or `error`. Most are
+informational: they tell you which optional capability is actually reachable, given the
+config, the account store and the tables that exist. A check stays silent when the feature
+it covers is switched off — an opt-in feature you never enabled is not a finding.
 
-- **Table absent** — silently ok (the feature is opt-in, nothing to warn about).
-- **Table present + `botProtection.verify` present in config** — `ok`: runtime settings and
-  the bot-protection toggle are active.
-- **Table present + `botProtection.verify` absent from config** — `warn`: the
-  `bot_protection` row in `auth_settings` is an orphan and has no effect. Either configure
-  `botProtection.verify` in `config/authkit.ts` or drop the row.
-
-The doctor also emits a `warn` when `maintenance_mode` or `registration` settings are
-stored but the `auth_settings` table is absent, or when `require_verified_email: true` is
-set but the `accountStore` lacks the `isEmailVerified` capability.
-
-### `authkit:doctor` — `checkClients` (informational)
-
-- **Persistent adapter (DatabaseAdapter)** — `ok`: clients managed via console/API survive restarts.
-- **Non-persistent adapter** — `warn`: clients created at runtime will be lost on restart unless the adapter persists storage (Redis with AOF/RDB, etc.).
+| Check | What it looks at |
+| --- | --- |
+| `checkConfigResolves` | `config('authkit')` resolves at all. |
+| `checkIssuer` | `issuer` is a valid URL and its pathname matches `mountPath`. |
+| `checkClients` | No static `clients` in the config — clients are runtime-only, via the console or the Admin API. |
+| `checkAdapterVolatility` | The adapter persists. Because clients live only at runtime, a volatile adapter (in-memory, Redis without persistence) silently loses them on restart. |
+| `checkAccountStore` | The store is present, and which capabilities it implements. |
+| `checkSession` | `@adonisjs/session` is configured; warns about the cookie store with large token sets. |
+| `checkShield` | The CSRF exceptions Shield needs for `mountPath`. |
+| `checkAlly` | `@adonisjs/ally` is present when social login is configured. |
+| `checkOtpLockout` | OTP lockout is enabled but `@adonisjs/limiter` is missing, which makes it a no-op. |
+| `checkSudoMode` | Reports the effective sudo-mode state. |
+| `checkRateLimit` | `rateLimit` is on but `@adonisjs/limiter` is missing. |
+| `checkAdmin` | `admin.enabled` without `roles`; reports the active UI mode. |
+| `checkRequireVerifiedEmail` | The gate is on but the store cannot answer `isEmailVerified`. |
+| `checkBotProtection` | Which actions the challenge covers, and a reminder of the fail-safe semantics. |
+| `checkWebauthn` | The WebAuthn `rpId` matches the issuer host. |
+| `checkPasswordPolicy` | The policy shape is valid; reports whether the breach check is on. |
+| `checkJwks` | Rotation state for a managed keystore; warns when managed without a store (no real rotation). |
+| `checkAccessTokens` | The access-token format; in JWT mode, reminds you the JWKS must be persisted so relying parties keep validating across restarts. |
+| `checkOrganizations` | Organizations are enabled in the config but the store lacks the capability. |
+| `checkSettings` | The `auth_settings` table's presence; flags an orphan `bot_protection` row that has no `verify` behind it. |
+| `checkAuthMethodsSetting` | The persisted `auth_methods` value has a usable shape — notably, that it does not switch every method off. |
+| `checkEmailChange` | The store supports the verified email-change flow. |
+| `checkSecurityNotifications` | Mail is configured and the store supports the security capability. |
+| `checkPasswordPepper` | Reports how the password pepper is configured, and nudges a bare string toward the `[new, old]` array form that allows rotation without downtime. |
+| `checkPasswordHistory` | The `auth_password_history` table exists when reuse prevention is on. |
+| `checkPasswordExpiration` | The `password_changed_at` column exists when expiration is on. |
+| `checkSessionPolicy` | Internally inconsistent values — e.g. an idle timeout longer than the session itself, which can never fire. |
+| `checkRolesCatalog` | Warns when `admin.roles` names a role outside the catalogue, which would leave the console gate unreachable. |
+| `checkAccountExpiration` | The audit sink can be queried (otherwise the feature is unavailable) and the setting's fields cohere. |
+| `checkPasskeyAutofill` | Conditional mediation can actually be offered — it never appears without WebAuthn configured. |
 
 ### `authkit:users:import`
 
@@ -303,10 +371,11 @@ Helpers for use inside AdonisJS controllers, middleware, and route callbacks.
 
 | Export | Purpose |
 | --- | --- |
-| `getAccountId(ctx)` | Returns `string \| null` — the signed-in account ID from the console session. |
+| `getAccountId(ctx)` | Returns `string \| null` — the account the console session currently acts as. During an impersonation session this is the **target**. |
+| `realAccountId(ctx)` | Returns `string \| null` — the human behind the session. Outside impersonation it equals `getAccountId`; during impersonation it stays the admin. **Authorize with this one**; `getAccountId` answers "whose data am I looking at", not "who is allowed to do this". See [Impersonation](/docs/impersonation). |
 | `hasAccountSession(ctx)` | Returns `boolean` — `true` when the console session is present. |
-| `consoleLoginUrl(returnTo?)` | Returns the login URL with an optional `return_to` parameter. |
-| `ACCOUNT_SESSION_KEY` | Raw session key (`account_user_id`). Prefer `getAccountId`/`hasAccountSession`. |
+| `consoleLoginUrl(returnTo?)` | The login URL with an optional `return_to`, honouring an `accountLoginUrl` override. |
+| `ACCOUNT_SESSION_KEY` | Raw session key. Prefer `getAccountId`/`hasAccountSession`. |
 
 See [Console session & sudo mode](/docs/console-session) for recipes.
 
@@ -314,12 +383,89 @@ See [Console session & sudo mode](/docs/console-session) for recipes.
 
 | Export | Purpose |
 | --- | --- |
-| `requireSudo(ctx)` | Redirects to `/account/confirm` (or returns `403`) when the sudo grace period has expired. Respects the `sudo_mode` runtime setting. |
-| `isSudoActive(ctx, graceMinutes)` | Pure boolean check — `true` when the step-up timestamp is within the grace window. |
-| `markSudo(ctx)` | Stamps `authkit_sudo_at = Date.now()` in the session (call after a successful credential confirmation). |
-| `SUDO_SESSION_KEY` | Raw session key (`authkit_sudo_at`). |
+| `requireSudo(ctx, settings)` | Returns `true` when the caller already holds sudo, and otherwise returns a redirect to the confirmation screen with a `return_to`. Guard with `if (gate !== true) return gate`. Both arguments are required: `settings` is a `SettingsCapability` or `null`, and `null` means "no runtime settings here", so `SUDO_MODE_DEFAULTS` applies. Fail-safe — a settings error lets the request through. |
+| `isSudoActive(ctx, graceMinutes)` | Pure boolean check — `true` when the step-up timestamp is within the grace window **and** belongs to the account currently signed in. |
+| `markSudo(ctx)` | Stamps the step-up timestamp, bound to the current account. Deprecated as a way to *grant* sudo — it records no `sudo.confirmed` audit event, no remembered method and no redirect. Use `completeSudo(sudoContextFrom(ctx), methodId)` instead. |
+| `SUDO_SESSION_KEY` | Raw session key for the timestamp. |
+| `SUDO_ACCOUNT_SESSION_KEY` | Raw session key for the account the grace was earned by — checked before the grace window, so a sudo grant cannot survive a switch to another account. |
 | `SUDO_MODE_DEFAULTS` | `{ enabled: true, graceMinutes: 15 }` |
-| `resolveEffectiveSudoMode(settings)` | Reads the `sudo_mode` setting from a `SettingsCapability` instance, with fail-safe fallback. |
+| `resolveEffectiveSudoMode(settings)` | Reads the `sudo_mode` setting from a `SettingsCapability`, with fail-safe fallback. |
+
+### Sudo methods (the confirmation SPI)
+
+The methods offered on the confirmation screen are pluggable. Read
+[Console session & sudo mode](/docs/console-session#sudo-methods) for the full guide.
+
+| Export | Purpose |
+| --- | --- |
+| `sudoMethods` | The built-in method factories: `password()`, `passkey()`, `magicLink()`, `oidcStepUp()`. |
+| `completeSudo(context)` | Grant sudo from your own handler. Required for `oidcStepUp()`, which registers no routes — your callback validates the grant, so your callback has to grant the sudo. Doing it with `markSudo` instead loses the `sudo.confirmed` audit event, the remembered method, and the `return_to` redirect. |
+| `failSudo(context, reason)` | Record a failed confirmation attempt. |
+| `sudoContextFrom(ctx)` | Build the `SudoContext` the two functions above take. Use it — assembling the context by hand means validating `return_to` by hand, which is an open redirect waiting to happen. |
+| `LAST_METHOD_SESSION_KEY` | Raw session key for the last method used successfully, which is promoted to the top of the screen. |
+| `SudoMethod` / `SudoContext` / `SudoMethodDescriptor` / `SudoRouteHelpers` | The SPI types for writing your own method. |
+
+### Config locks
+
+| Export | Purpose |
+| --- | --- |
+| `SettingLockedError` | Thrown by `setSetting`/`deleteSetting` for a key locked by `defineConfig`. Carries `code: 'E_SETTING_LOCKED'` and the `key`; the console and Admin API surface it as `423 Locked`. |
+| `isSettingLocked(key)` | Is this key locked? |
+| `lockedSettingKeys()` | Snapshot of the locked keys — what a custom settings UI reads to render controls as disabled. |
+| `deriveLockedSettingKeys(config)` | Derives the locked keys from a raw config input. |
+| `setLockedSettingKeys(keys)` | Installs the lock set. The provider calls this once at boot; a host normally never does. |
+| `resetLockedSettingKeys()` | Clears the locks — for tests. |
+| `POLICY_ROUTE_OPTIONS` / `PolicyRouteOption` | The five `registerAuthHost` options that are policy rather than structure. |
+
+See [Config locks](/docs/config-locks).
+
+### `@adonisjs/auth` integration
+
+| Export | Purpose |
+| --- | --- |
+| `authkitUserProvider(...)` | User provider for `config/auth.ts`'s `sessionGuard()`, backed by AuthKit's own account store. Pair with `adonisAuth: { guard }`. |
+| `oidcRpGuard(...)` / `OidcRpGuard` | Guard for a relying party: the identity comes from the session the OIDC callback wrote, so `ctx.auth.user` works without the RP authenticating anyone itself. |
+| `OidcRpGuardOptions` / `OidcRpGuardEvents` | Its option and event types. |
+
+See [AdonisJS Auth integration](/docs/adonis-auth).
+
+### Trusted devices
+
+| Export | Purpose |
+| --- | --- |
+| `resolveTrustedDevices(input)` | Resolve the config into its effective form. |
+| `isTrustedDeviceValid(payload, ...)` | Is a decoded cookie payload still valid for this account? |
+| `buildTrustedDevicePayload(...)` | Build the payload to store in the cookie after a successful MFA challenge. |
+| `TRUSTED_DEVICE_COOKIE` | The cookie name. |
+
+Step-up authentication always ignores the cookie — the whole point of a step-up is that a
+past decision does not answer for it. See [MFA — Trusted devices](/docs/mfa#trusted-devices).
+
+### Durable account lifecycle
+
+Published from `@adonis-agora/authkit-server/durable`, and only relevant with
+`accountLifecycle: { durable: true }`. See
+[Compliance — Durable workflows](/docs/compliance#durable-workflows).
+
+| Export | Purpose |
+| --- | --- |
+| `defineAccountDeletionWorkflow(...)` / `defineAccountExportWorkflow(...)` | Register the two workflows with your app's workflow engine. |
+| `enqueueAccountDeletion(...)` / `enqueueAccountExport(...)` | Enqueue a run. |
+| `enqueueDeletionVia(...)` | Enqueue a deletion through a specific engine instance. |
+| `resolveWorkflowEngine(...)` | Locate the app's workflow engine. |
+
+### Impersonation (relying-party glue)
+
+| Export | Purpose |
+| --- | --- |
+| `rememberAccessToken(ctx, token)` | Store the admin's access token so it can be exchanged later. |
+| `rememberRefreshToken(ctx, token)` | Store the refresh token. **Required** — without it, impersonation dies when the admin's access token expires. Needs `offline_access` in the RP's requested scopes. |
+| `refreshAccessToken(ctx, ...)` | Renew the stored access token from the refresh token. |
+| `startImpersonation(params)` | Exchange the admin's token for a token representing the target (RFC 8693). |
+| `impersonationState(ctx)` | The current `ImpersonationState`, or none. |
+| `stopImpersonation(ctx)` | Drop back to the admin's own session. |
+
+See [Impersonation](/docs/impersonation).
 
 ## Client helpers — `@adonis-agora/authkit-client`
 
@@ -376,13 +522,21 @@ Full export list. For usage and examples see
 
 | Export | Notes |
 | --- | --- |
-| `useAuth()` | `{ user, isAuthenticated, hasGlobalRole, hasAppRole }` |
-| `AuthProvider` | Inject auth state outside Inertia |
-| `AuthkitProvider` | Configure URLs and endpoints |
+| `useAuth()` | `{ user, isAuthenticated, globalRoles, hasGlobalRole, hasAnyGlobalRole, hasAllGlobalRoles }`, read from the `authkit` Inertia shared prop (or an `AuthProvider` above it). Never throws — a missing prop yields the unauthenticated state |
+| `AuthProvider` / `AuthContext` | Inject auth state outside Inertia |
+| `AuthkitProvider` | Configure URLs, endpoints, and the IdP mode |
+| `AuthkitConfigContext` / `useAuthkitConfig` / `resolveConfig` / `buildAuthUrl` / `DEFAULT_CONFIG` | The configuration layer under `AuthkitProvider` |
 | `Authenticated` / `Guest` | Gating components |
-| `Can` | Role-gating component (`role`, `roles`, `mode`, `appRole`, `fallback`) |
-| `hasGlobalRole` / `hasAnyGlobalRole` / `hasAllGlobalRoles` | Pure role helpers |
-| `hasAppRole` / `hasAnyAppRole` / `hasAllAppRoles` | App-role helpers |
+| `CanPermission` | Permission-gating component, backed by the `can` endpoint |
+| `useCan` / `checkCan` / `invalidateCanCache` | The hook, the bare check, and the cache reset behind `CanPermission` |
+| `hasGlobalRole` / `hasAnyGlobalRole` / `hasAllGlobalRoles` | Pure global-role helpers |
+
+<Callout type="info">
+  AuthKit authenticates and carries **global** roles. Per-application authorization —
+  app-local roles and permissions — belongs to `@adonis-agora/authz`, and reaches React
+  through `useCan` / `CanPermission`. There is no `hasAppRole` on `ctx.auth` and no
+  app-role helper in this package.
+</Callout>
 
 ### Headless hooks
 
@@ -397,9 +551,32 @@ Full export list. For usage and examples see
 | `useOrganization(orgId)` | Org detail + members |
 | `useSwitchOrganization` | `{ activate(orgId), deactivate() }` |
 | `useOrgInvitations` | `{ data, loading, error, actions: { accept } }` |
-| `usePasswordStrength(password)` | `{ score: 0–4, feedback }` |
+| `usePasswordStrength(password, opts?)` | `{ score: 0–4, feedback }`; `heuristicScorer` is the default scorer and can be swapped |
 | `usePasskeyAutofill(opts)` | WebAuthn conditional mediation |
-| `useResource` / `jsonRequest` | Generic JSON fetch primitive |
+| `usePasskeyLogin(opts)` | Passkey sign-in for a custom login screen |
+| `usePasskeyAssertion(opts)` / `usePasskeyRegistration(opts)` | The assertion and registration ceremonies as hooks |
+| `useResource` / `jsonRequest` | The generic JSON primitive every headless hook is built on |
+
+### Passkeys — the three tiers
+
+| Tier | Export |
+| --- | --- |
+| Component | `PasskeyButton` |
+| Hooks | `usePasskeyLogin`, `usePasskeyAssertion`, `usePasskeyRegistration`, `usePasskeyAutofill` |
+| Functions | `authenticatePasskey`, `registerPasskey`, `submitPasskeyVerification`, `runPasskeyAssertion`, `runPasskeyRegistration`, `submitClassicForm`, `loadStartAuthentication`, `loadStartRegistration` |
+
+Reach for the component on a stock login screen, the hook inside your own React screen,
+and the function when your screen owns its state machine. See
+[React](/docs/react#passkeys) and [Components](/docs/components).
+
+### Interaction URLs
+
+| Export | Notes |
+| --- | --- |
+| `interactionUrls` | Typed builders for the interaction endpoints |
+| `oauthRedirectUrl` | The OAuth redirect URL builder |
+| `OTP_CODE_FIELD` | The form field name the OTP step posts |
+| `InteractionUrls` / `InteractionPostStep` | Their types |
 
 ### Typed client
 
@@ -415,15 +592,17 @@ Full export list. For usage and examples see
 
 | Export | Notes |
 | --- | --- |
-| `authkitKeys.admin.*` | Structured keys for all admin queries |
+| `authkitKeys.admin.*` | Structured keys for all admin queries, including `admin.keys()` |
 | `authkitKeys.account.*` | Structured keys for all account queries |
+| `authkitKeys.admin.settings(orgId?)` | Settings key; without an `orgId` it is the global scope |
 
 ### Admin query hooks
 
 `useOverviewQueryOptions`, `useUsersQueryOptions`, `useUserQueryOptions`,
 `useUserSessionsQueryOptions`, `useSessionsQueryOptions`, `useClientsQueryOptions`,
 `useClientQueryOptions`, `useRolesQueryOptions`, `useOrgsQueryOptions`, `useOrgQueryOptions`,
-`useAuditQueryOptions`, `useSettingsQueryOptions`, `useImpersonationQueryOptions`.
+`useAuditQueryOptions`, `useSettingsQueryOptions`, `useImpersonationQueryOptions`,
+`useKeysQueryOptions`.
 
 ### Admin mutation hooks
 
@@ -436,7 +615,8 @@ Full export list. For usage and examples see
 `useUpdateOrgMutationOptions`, `useDeleteOrgMutationOptions`,
 `useAddOrgMemberMutationOptions`, `useRemoveOrgMemberMutationOptions`, `useUpdateOrgMemberRoleMutationOptions`,
 `useCreateOrgInvitationMutationOptions`, `useRevokeOrgInvitationMutationOptions`,
-`useSetSettingMutationOptions`, `useRemoveSettingMutationOptions`.
+`useSetSettingMutationOptions`, `useRemoveSettingMutationOptions`,
+`useRotateKeysMutationOptions`.
 
 ### Account query hooks
 

@@ -4,14 +4,14 @@
   "description": "Shared core types and utilities for AuthKit — the AdonisJS OIDC/OAuth2 server and client toolkits.",
   "license": "MIT",
   "author": "dudousxd",
-  "homepage": "https://github.com/DavideCarvalho/adonis-authkit/tree/main/packages/authkit-core#readme",
+  "homepage": "https://github.com/DavideCarvalho/adonis-agora-authkit/tree/main/packages/authkit-core#readme",
   "repository": {
     "type": "git",
     "url": "https://github.com/DavideCarvalho/adonis-agora-authkit.git",
     "directory": "packages/authkit-core"
   },
   "bugs": {
-    "url": "https://github.com/DavideCarvalho/adonis-authkit/issues"
+    "url": "https://github.com/DavideCarvalho/adonis-agora-authkit/issues"
   },
   "keywords": ["adonisjs", "oidc", "oauth2", "openid-connect", "authentication", "authkit"],
   "publishConfig": {

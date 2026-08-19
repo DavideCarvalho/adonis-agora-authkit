@@ -66,6 +66,10 @@ function buildFakeServer() {
   };
 
   const config = {
+    // Emailed links (password reset included) are built from the resolved
+    // `issuer`, never from the request host. A fake config without it makes
+    // `users.create` throw on `new URL(undefined)`.
+    issuer: 'https://idp.example.com',
     accountStore,
     patStore: {
       async findActiveByToken(token: string) {

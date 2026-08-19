@@ -8,25 +8,42 @@ AuthKit bundles the security plumbing an Authorization Server needs — most of 
 
 ## Rate-limiting
 
-Anti-brute-force throttles on the sensitive routes (login/signup/forgot/reset + PAT
-introspection), backed by `@adonisjs/limiter`. Off by default; mirror the switch in both
-`defineConfig` and `registerAuthHost`.
+Anti-brute-force throttles sit on the sensitive routes, backed by `@adonisjs/limiter`. They
+are **on by default** — you opt *out*, not in:
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 rateLimit: {
-  enabled: true,
+  enabled: true,     // default
   // store: 'redis', // optional — a store from config/limiter.ts
 }
 ```
 
-```ts title="start/routes.ts"
-registerAuthHost(router, { mountPath: '/oidc', rateLimit: { enabled: true } })
-```
+The host must have `@adonisjs/limiter` configured (`config/limiter.ts`). Without it every
+throttle degrades to a **no-op**: the routes still work, they simply are not throttled. That
+is a deliberate fail-safe — a missing optional peer must never take the login down — but it
+also means "throttled" is a claim worth verifying in production rather than assuming.
 
-The `login` bucket is keyed by IP and guards the interactive auth routes; the
-`introspection` bucket guards `/authkit/pat/introspect`. Bucket values are managed via the
-`rate_limit` runtime setting (see [Runtime Settings](/docs/settings)). The host must have
-`@adonisjs/limiter` configured (`config/limiter.ts`).
+`registerAuthHost` accepts the same `rateLimit` option, for hosts that configure routing
+without a server config. When both declare it, **the config wins and locks the option**: a
+`routes.ts` that passed `{ enabled: false }` cannot switch off protection the config turned
+on.
+
+Five buckets exist, each with its own budget, and they are separate on purpose — two
+different questions must not consume one another's allowance:
+
+| Bucket | Keyed by | Budget | Guards |
+| --- | --- | --- | --- |
+| `login` | IP | 10 / min | The interactive credential routes — login, sign-up, forgot, reset, MFA, magic-link request. |
+| `otpLogin` | IP | 5 / min | `POST /auth/interaction/:uid/otp-verify`. Tighter than `login` because a [six-digit code](/docs/passwordless#email-login-codes-otp) is guessable in a way a token is not. |
+| `sudo` | IP | 10 / min | The [sudo-mode](#sudo-mode) confirmation routes. Same numbers as `login`, separate budget: `login` measures an anonymous stranger guessing credentials, `sudo` measures a signed-in user re-proving themselves. |
+| `introspection` | IP or bearer secret | 60 / min | `/authkit/pat/introspect`. |
+| `adminIp` | IP | 30 / min | The Admin REST API group. Keyed by IP rather than by key, so trying a thousand different API keys from one address still hits one budget. |
+
+<Callout type="warn">
+  The bucket budgets above come from the library defaults. `rateLimit` accepts `enabled` and
+  `store` only — the points and windows are not configurable through it, and the
+  `rate_limit` runtime setting is stored and validated but is not read by the throttles.
+</Callout>
 
 ## Account lockout
 
@@ -40,8 +57,8 @@ runtime-setting CLI examples.
 
 On a successful login **without a trusted-device cookie** (the same signal GitHub uses),
 the host kit sends a **"new device login"** email to the account owner. The trigger is the
-absence of a valid trusted-device cookie — it works whether or not the trusted-devices
-feature is otherwise enabled.
+absence of a valid [trusted-device](/docs/mfa#trusted-devices) cookie — it works whether or
+not the user ever ticked "trust this device".
 
 It is **on by default**. To opt out, update the `notifications` runtime setting:
 
@@ -216,7 +233,7 @@ defineConfig({
 
 **Behaviour when closed:**
 
-- The sign-up page displays a "Registration is currently closed" message.
+- The sign-up page displays the "registration is currently disabled" message from the [i18n catalog](/docs/i18n) (`errors.registration_disabled`).
 - `POST /auth/signup` rejects the submission.
 - The sign-up link is hidden from the login screen.
 - Org invitations and admin-created accounts are **not** affected — those are privileged
@@ -324,8 +341,9 @@ curl -X PUT https://idp.acme.com/api/authkit/v1/settings/maintenance_mode \
   -d '{ "value": { "enabled": false } }'
 ```
 
-**Audit:** enabling and disabling maintenance mode emits `maintenance.enabled` and
-`maintenance.disabled` audit events respectively.
+**Audit:** writing the setting — from the admin console or the Admin REST API — emits a
+`settings.updated` [audit event](/docs/events#event-types) whose `metadata.key` is
+`maintenance_mode`.
 
 **Precedence rules:**
 
@@ -359,6 +377,7 @@ All fields are optional; absent fields fall back to the config / capability defa
 | `passkey` | `boolean?` | Show passkey-first sign-in. Default: `true` when WebAuthn is configured. |
 | `social` | `string[]?` | Provider ids to display (e.g. `["google", "github"]`). Default: all configured providers. The setting can only **filter**; it cannot activate a provider the code does not have wired up. |
 | `forgotPassword` | `boolean?` | Show the "forgot my password" link. Default: `true`. **Auto-derived:** always `false` when `password` is effectively off — there is nothing to reset without a password. |
+| `passkeyAutofill` | `boolean?` | WebAuthn conditional mediation on the login screen — the email input offers the browser's discoverable passkeys inline. Default: `true` when `passkey` is on. Browsers without support simply ignore it and the ordinary login continues. |
 
 **Precedence rules:**
 
@@ -415,7 +434,7 @@ Provide an `AuditSink` to capture security-relevant events. It is best-effort �
 must never throw into the request path. `lucidAuditSink(Model)` persists to a Lucid model
 (compose it with `withAuditLog`).
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 import AuditLog from '#models/audit_log'
 import { lucidAuditSink } from '@adonis-agora/authkit-server'
 
@@ -551,14 +570,15 @@ When the factor is locked, the login challenge step shows an error and sends an
 GET /auth/otp-unlock/:token
 ```
 
-The token is a raw 32-byte hex string; its SHA-256 hash (prefixed `ou:`) is stored in the
-existing `passwordResetToken` column — no new column or migration needed. On a valid click
-the limiter counters are cleared, the column is nulled, and a `otp.unlocked` audit event is
-emitted.
+The link carries a single-use, high-entropy token; only a hash of it is ever persisted, and
+it reuses storage the account row already has, so unlocking needs **no new column and no
+migration**. On a valid click the failure counters are cleared, the stored token is
+discarded, and an `otp.unlocked` audit event is emitted. A token that is unknown, already
+used, or past its TTL emits `otp.unlock_failed` and changes nothing.
 
 **Mail hook:**
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 import mail from '@adonisjs/mail/services/main'
 
 defineConfig({
@@ -575,8 +595,9 @@ defineConfig({
 })
 ```
 
-When `onOtpUnlock` is absent, AuthKit logs the unlock URL to the console (development mode)
-and never sends an email.
+When `onOtpUnlock` is absent, the host kit sends the unlock email itself through the
+default mailer, with branding and i18n applied — see [Mail hooks](#mail-hooks) for the
+two-tier arrangement every email follows.
 
 **Audit events:**
 
@@ -600,11 +621,32 @@ leaked. See [Admin Console](/docs/admin-console).
 
 ## Mail hooks
 
-Password reset and email verification are wired through optional hooks, so AuthKit stays
-transport-agnostic. When absent, it falls back to dev logging (no email sent); the real
-send is up to the host (e.g. `@adonisjs/mail`).
+Every email AuthKit sends goes out through the same two-tier arrangement, and understanding
+it removes most of the surprises.
 
-```ts title="config/authkit_server.ts"
+**Tier one is your hook.** `mail.<hook>` in `config/authkit.ts` is a plain async function
+that receives everything needed to compose the message — the destination address, the
+fully-built URL, and the raw token where one exists. When the hook is present it *is* the
+send: AuthKit calls it and does nothing else, and you own the subject, the template, and the
+`from`.
+
+**Tier two is the bundled mailer.** When the hook is absent, the host kit sends the message
+itself through the host's default `@adonisjs/mail` mailer, with responsive HTML, your
+[branding](/docs/customizing-auth), and the [i18n catalog](/docs/i18n) already applied. Only
+when `@adonisjs/mail` is not installed or configured does it fall back to logging the URL —
+that is a development convenience, not the normal path.
+
+Every hook is best-effort and fire-and-forget: a throwing hook never breaks the flow that
+triggered it.
+
+<Callout type="warn">
+  `onOrgInvitation` is the one exception to tier two. Organization invitations have no
+  bundled template, so **no email is sent at all** unless you provide the hook. Enabling
+  [organizations](/docs/organizations) without wiring `onOrgInvitation` produces invitations
+  that exist in the database and never reach an inbox.
+</Callout>
+
+```ts title="config/authkit.ts"
 import mail from '@adonisjs/mail/services/main'
 
 mail: {
@@ -622,38 +664,83 @@ mail: {
         .text(`Confirm your email: ${verifyUrl}`)
     )
   },
-  /** OTP lockout — unlock the second factor via email. See Security — OTP lockout. */
-  onOtpUnlock: async ({ email, unlockUrl, token }) => {
+  /** OTP lockout — unlock the second factor by email. See Security — OTP lockout. */
+  onOtpUnlock: async ({ email, unlockUrl }) => {
     await mail.send((m) =>
       m.from(env.get('EMAIL_FROM')).to(email)
         .subject('Unlock your two-factor authentication')
         .text(`Click to unlock 2FA: ${unlockUrl}`)
     )
   },
-  /** Account expiration warning — sent N days before the account expires. See Compliance — Account expiration. */
-  onAccountExpirationWarning: async ({ account, expiresAt, daysLeft }) => {
+  /** Account expiration warning. See Compliance — Account expiration. */
+  onAccountExpirationWarning: async ({ email, expiresInDays }) => {
     await mail.send((m) =>
-      m.from(env.get('EMAIL_FROM')).to(account.email!)
-        .subject('Your account will expire soon')
-        .text(`Your account will be locked in ${daysLeft} day(s) due to inactivity.`)
+      m.from(env.get('EMAIL_FROM')).to(email)
+        .subject('Your account will be deactivated soon')
+        .text(`Your account will be deactivated in ${expiresInDays} day(s) due to inactivity.`)
     )
   },
 }
 ```
 
-Each hook receives the destination `email`, the fully-built URL (`resetUrl` / `verifyUrl`),
-and the raw `token` where applicable.
+### Every hook
 
 | Hook | Payload | When sent |
 | --- | --- | --- |
-| `onPasswordReset` | `{ email, resetUrl, token }` | Password-reset token issued. |
-| `onEmailVerification` | `{ email, verifyUrl, token }` | Email verification token issued. |
-| `onEmailChangeConfirm` | `{ email, confirmUrl, token, oldEmail }` | Email-change confirmation to new address. |
-| `onEmailChangeNotice` | `{ email, newEmail }` | Security notice to current address on email-change request. |
-| `onSecurityNotice` | `{ account, kind, ip, userAgent, timestamp, metadata }` | One of the six security-notification event kinds. |
-| `onNewDeviceLogin` | `{ account, ip, userAgent, timestamp }` | Login from a device without a trusted-device cookie. |
-| `onOtpUnlock` | `{ email, unlockUrl, token }` | OTP factor locked — unlock link sent. |
-| `onAccountExpirationWarning` | `{ account, expiresAt, daysLeft }` | Account approaching expiration (sent `warnDays` before). |
+| `onPasswordReset` | `{ email, resetUrl, token }` | A password-reset token was issued. |
+| `onEmailVerification` | `{ email, verifyUrl, token }` | An email-verification token was issued. |
+| `onMagicLink` | `{ email, magicUrl, token, code?, channel? }` | A [magic link](/docs/passwordless#magic-link) was issued. `code` is present only when [email login codes](/docs/passwordless#email-login-codes-otp) are enabled; `channel` (`'code'` or `'link'`) carries the user's choose-first selection so you can render a code-only or link-only email. Both are absent in the plain magic-link flow. |
+| `onSudoLink` | `{ email, sudoUrl }` | A [sudo-mode](#sudo-mode) confirmation link was requested. Distinct from `onMagicLink` on purpose: a magic link **authenticates**, a sudo link only grants sudo to someone already signed in, and the two tokens share nothing. |
+| `onNewDeviceLogin` | `{ account, ip, userAgent, timestamp }` | A login succeeded from a device with no valid [trusted-device](/docs/mfa#trusted-devices) cookie. |
+| `onOrgInvitation` | `{ email, invitationId, orgName, orgSlug, role, acceptUrl, token }` | An [organization](/docs/organizations) invitation was created, from the account console or the Admin API. **No bundled fallback** — without this hook nothing is sent. |
+| `onEmailChangeConfirm` | `{ email, confirmUrl, token, oldEmail }` | An email change was requested; the confirmation link goes to the **new** address. `oldEmail` is the current one, for context in the template. |
+| `onEmailChangeNotice` | `{ email, newEmail }` | The same request, notifying the **current** address that a change was asked for. |
+| `onOtpUnlock` | `{ email, unlockUrl, token }` | The TOTP/recovery factor was locked; the unlock link was issued. |
+| `onAccountExpirationWarning` | `{ email, expiresInDays }` | `authkit:expire-scan` found an account about to be deactivated for inactivity. Deduplicated by the `account_expiration` warning window, so an account gets at most one warning per window. |
+| `onSecurityNotice` | `{ account, kind, ip, userAgent, timestamp, metadata? }` | A security-relevant change happened. `kind` is one of `password_changed`, `mfa_enabled`, `mfa_disabled`, `passkey_added`, `passkey_removed`, `email_changed`; `metadata` carries extras such as the old and new address for `email_changed`. |
+
+### `from` — a sender just for auth mail
+
+`mail.from` sets the sender of the emails **the library itself** sends. It takes precedence
+over the host's global `config/mail.ts` sender, which lets security mail come from its own
+address without disturbing the rest of the application's mail:
+
+```ts title="config/authkit.ts"
+mail: {
+  from: { address: 'no-reply-auth@acme.com', name: 'Acme Security' },
+},
+```
+
+Absent, it falls back to the host's `config.mail.from`, and finally to the `@adonisjs/mail`
+default. It has no effect on your own hooks — there, you build the message, so you build the
+`from`.
+
+### `origin` — and why emailed links ignore the request
+
+Every link AuthKit emails — password reset, magic link, OTP unlock, organization invitation,
+email verification and change, security notices — is built from `new URL(issuer).origin`.
+Never from `request.host()`, and never from `X-Forwarded-Proto`.
+
+That is not an arbitrary preference. Both of those are **client-supplied**. An attacker who
+can reach the application directly — routine when it sits behind a load balancer that does
+not pin `Host` — can request a password reset for a victim's address while supplying a
+`Host` of their own choosing. The victim then receives a genuine email, from the real
+system, whose link points at attacker-controlled infrastructure. That is classic
+**password-reset poisoning**, and deriving the origin from the issuer closes it by
+construction.
+
+`mail.origin` is the escape hatch for the one legitimate case this rules out: an issuer
+genuinely served under several public hostnames, where emailed links must follow a fixed
+hostname other than the issuer's.
+
+```ts title="config/authkit.ts"
+mail: {
+  origin: 'https://login.acme.com', // scheme://host[:port]
+},
+```
+
+If you have a single issuer — the ordinary case — you do not need this field, and setting it
+to anything derived from an incoming request reopens exactly the hole the default closes.
 
 ## JWT access tokens (RFC 9068)
 
@@ -742,7 +829,7 @@ period. The rotation emits a `keys.rotated` audit event.
 client-held key pair, so a stolen bearer token is useless without the matching private key.
 Off by default; enable it in `defineConfig`:
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 dpop: { enabled: true },
 ```
 
@@ -800,7 +887,7 @@ claims (plus `ath` when an access token is supplied, and `nonce` when the server
 parameters to the IdP first and receive an opaque `request_uri` to use at `/auth`, keeping
 parameters off the front channel. Off by default:
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 par: {
   enabled: true,
   requirePushedAuthorizationRequests: false, // set true to force every authorize via PAR
@@ -825,10 +912,10 @@ ${ISSUER}/auth?client_id=app&request_uri=urn:ietf:params:oauth:request_uri:…
 ## Step-up authentication
 
 **Step-up auth** lets a client require MFA *for a specific request* via `acr_values`, even if
-the account has MFA configured as optional. This is a pragmatic MVP built on the existing MFA
-interaction.
+the account has MFA configured as optional. It is built on the existing MFA interaction
+rather than a separate ceremony.
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 stepUp: {
   acrValues: ['urn:authkit:mfa'], // advertised in acr_values_supported
   mfaAcr: 'urn:authkit:mfa',       // the acr that forces MFA (default)
@@ -847,3 +934,9 @@ Behaviour when a client requests the `mfaAcr` in `acr_values`:
   `recovery`, `webauthn`).
 - **Account has no MFA enrolled** → the login is **blocked** for that request, with a message
   to configure MFA in the account console (there is no second factor to challenge).
+
+A step-up request **always ignores the [trusted-device](/docs/mfa#trusted-devices) cookie**.
+The client asked for proof on *this* request; a cookie is evidence about a past ceremony, so
+honouring it would let the client believe it received a fresh factor when it did not — and
+the `acr` stamped into the id_token would be a lie. See
+[Trusted devices — step-up always ignores the cookie](/docs/mfa#step-up-always-ignores-the-cookie).

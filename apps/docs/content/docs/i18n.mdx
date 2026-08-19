@@ -25,7 +25,7 @@ two built-in catalogs are registered in `BUILTIN_MESSAGES` (`{ en, 'pt-BR' }`).
 To run the screens in pt-BR, just set the locale — you do **not** need to provide any
 messages:
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 import { defineConfig } from '@adonis-agora/authkit-server'
 
 export default defineConfig({
@@ -34,14 +34,15 @@ export default defineConfig({
 })
 ```
 
-<Callout type="warn">
-  As of the English-default release, hosts that relied on the previous pt-BR default must
-  set `i18n: { locale: 'pt-BR' }` explicitly to keep Portuguese screens.
+<Callout type="info">
+  `locale` is the only thing that switches the screens to Portuguese. There is no
+  request-header negotiation and no per-user preference: the catalog is resolved once, from
+  the config, and every screen and transactional email renders in it.
 </Callout>
 
 ## Overriding keys / adding locales
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 import { defineConfig } from '@adonis-agora/authkit-server'
 import type { I18nConfig } from '@adonis-agora/authkit-server'
 

@@ -1,0 +1,378 @@
+---
+icon: Plug
+title: Native @adonisjs/auth
+description: Make ctx.auth.user, middleware.auth() and the Bouncer work over an AuthKit session.
+---
+
+AuthKit resolves identities on its own: the server authenticates its account console with its
+own session cookie, and the client resolves an `Identity` per request from an OIDC token set.
+Neither of those is `@adonisjs/auth`. In an app that also runs the framework's auth layer, that
+means `ctx.auth.user` is `undefined`, `middleware.auth()` rejects a perfectly logged-in user, and
+a Bouncer ability written against `ctx.auth.user` never fires.
+
+This page closes that gap. It is **opt-in** — nothing here changes unless you configure it — and
+`@adonisjs/auth` stays an *optional* peer dependency of both packages, so an app that never wants
+the framework's auth layer never has to install it.
+
+## Which situation are you in?
+
+The wiring depends on where the identity is actually established, and there are three answers.
+
+<Cards>
+  <Card title="I am the IdP host" description="The app runs @adonis-agora/authkit-server and its account console is where people log in. Use authkitUserProvider() + adonisAuth: { guard }." href="#the-idp-host" />
+  <Card title="I am a relying party on authkit-client" description="The app signs in against an AuthKit IdP over OIDC. Use authkitClientGuard()." href="#a-relying-party-on-the-client-kit" />
+  <Card title="I drive my own OIDC callback" description="The app depends on authkit-server and stores the user id in the session itself. Use oidcRpGuard()." href="#a-relying-party-that-owns-its-own-session" />
+</Cards>
+
+The rest of this page walks each one.
+
+## The IdP host
+
+On the host, people log in through AuthKit's own account console, which writes AuthKit's own
+session cookie. That cookie remains the source of truth for AuthKit's own routes — nothing about
+this integration replaces it. What the integration adds is a *mirror* into `@adonisjs/auth`, so
+the rest of your app can use the framework idioms.
+
+Two pieces have to line up.
+
+<Steps>
+<Step>
+**A user provider** that reads AuthKit's account store, so the framework's session guard knows
+how to load an account by id.
+
+```ts title="config/auth.ts"
+import { defineConfig } from '@adonisjs/auth'
+import { sessionGuard } from '@adonisjs/auth/session'
+import { authkitUserProvider } from '@adonis-agora/authkit-server'
+import type { InferAuthenticators } from '@adonisjs/auth/types'
+
+const authConfig = defineConfig({
+  default: 'web',
+  guards: {
+    web: sessionGuard({
+      useRememberMeTokens: false,
+      provider: authkitUserProvider(),
+    }),
+  },
+})
+
+export default authConfig
+
+declare module '@adonisjs/auth/types' {
+  interface Authenticators extends InferAuthenticators<typeof authConfig> {}
+}
+```
+
+`authkitUserProvider()` takes no options. It resolves AuthKit's account store from the
+container and looks accounts up by id, so `ctx.auth.user` is a real `AuthAccount` — the same
+record the console authenticated, not a second copy of it.
+</Step>
+<Step>
+**The sync switch**, so the console's login and logout also drive that guard:
+
+```ts title="config/authkit.ts"
+export default defineConfig({
+  // ...
+  adonisAuth: { guard: 'web' },
+})
+```
+
+With this set, a successful console login also calls `ctx.auth.use('web').login(account)`, and
+a console logout calls `.logout()`. Without it, AuthKit never touches `ctx.auth` at all — which
+is the default, and the right default for a host that does not run `@adonisjs/auth`.
+</Step>
+</Steps>
+
+The guard name in `adonisAuth` must be a guard you actually declared in `config/auth.ts`, and that
+guard must use `authkitUserProvider()` — otherwise it will be handed an account object its provider
+cannot serialise.
+
+<Callout type="info">
+  The sync is **best-effort by design**. If the guard is misconfigured the login still succeeds —
+  AuthKit's own cookie is written either way and its own routes keep working — and a warning is
+  logged rather than an exception thrown. Check your logs if `ctx.auth.user` is empty after a
+  successful console login: the warning names the guard.
+</Callout>
+
+## A relying party on the client kit
+
+A relying party does not authenticate anyone. The browser comes back from the IdP with a code,
+`@adonis-agora/authkit-client` exchanges it, and from then on the session is an OIDC token set.
+`authkitClientGuard` bridges that token set into `@adonisjs/auth`:
+
+```ts title="config/auth.ts"
+import { defineConfig } from '@adonisjs/auth'
+import { sessionUserProvider } from '@adonisjs/auth/session'
+import { authkitClientGuard } from '@adonis-agora/authkit-client/auth'
+import type { InferAuthenticators } from '@adonisjs/auth/types'
+
+const authConfig = defineConfig({
+  default: 'web',
+  guards: {
+    web: authkitClientGuard({
+      provider: sessionUserProvider({ model: () => import('#models/user') }),
+    }),
+  },
+})
+
+export default authConfig
+
+declare module '@adonisjs/auth/types' {
+  interface Authenticators extends InferAuthenticators<typeof authConfig> {}
+}
+```
+
+The same symbol is re-exported from the package root; the `/auth` subpath is the narrower entry,
+handy when you would rather not pull the whole client surface into `config/auth.ts`.
+
+### How it resolves a user
+
+The guard does **not** reimplement session resolution. It asks AuthKit for the request's
+`Identity` — through the resolver you configured in `config/authkit_client.ts`, so JWT, opaque and
+PAT sessions all work identically — takes the `sub` claim off it, and calls `provider.findById(sub)`,
+exactly as the native session guard would with the id it keeps in the session.
+
+That has one hard consequence worth stating plainly: **your model's primary key must be the IdP's
+`sub`**. That is precisely what [`lucidMirror`](/docs/client#lucidmirror--mirror-the-identity-into-a-local-table)
+writes, so the two are designed to be used together:
+
+```ts title="config/authkit_client.ts"
+resolveUser: lucidMirror(AppUser, { sync: (i) => ({ email: i.email }) })
+```
+
+If the identity resolves but no local row matches, the guard fails closed — a valid IdP session
+with no local account is treated as unauthenticated, not as a half-authenticated request.
+
+### Register the context middleware
+
+Handing `ctx.auth` to the framework means the AuthKit-specific surface has to live somewhere else.
+That is `ctx.authkit`, populated by `authkit_context_middleware`:
+
+```ts title="start/kernel.ts"
+router.use([
+  () => import('@adonisjs/session/session_middleware'),
+  () => import('@adonisjs/auth/initialize_auth_middleware'),
+  () => import('@adonis-agora/authkit-client/authkit_context_middleware'),
+  () => import('@adonis-agora/authkit-client/backchannel_revocation_middleware'),
+])
+```
+
+```ts
+const identity = await ctx.authkit.getIdentity() // the raw OIDC claims
+const isAdmin = ctx.authkit.hasGlobalRole('ADMIN') // the IdP's global roles
+const shared = await ctx.authkit.toSharedProps() // props for @adonis-agora/authkit-react
+```
+
+<Callout type="warn">
+  Replace `authkit_middleware` with `authkit_context_middleware` — do not register both. The old
+  one puts AuthKit's own authenticator on `ctx.auth`, which is the slot the framework guard now
+  owns; running the two together resolves the session twice into two objects that can disagree the
+  moment one refreshes the token set.
+</Callout>
+
+The context middleware and the guard share the same memoised authenticator, so the session is
+resolved — and the token refreshed — once per request no matter which of the two touches it first.
+Registering the middleware is what makes `ctx.authkit` available on **public** routes too, where
+the guard never runs.
+
+### `resolveUser` and the provider are separate surfaces
+
+With the guard in place there are two ways to get "the user", and they do not talk to each other:
+
+| Expression | Comes from | Configured in |
+| --- | --- | --- |
+| `ctx.auth.user` | the guard's `provider` | `config/auth.ts` |
+| `await ctx.authkit.getUser()` | `resolveUser` | `config/authkit_client.ts` |
+
+The guard never calls `resolveUser`. Keeping both means two lookups per request for the same
+person, so the usual move once you adopt the guard is to drop `resolveUser` and let the provider be
+the single answer — unless you were using `lucidMirror` for its write side, in which case keep it:
+it is what creates the row the provider then finds.
+
+## A relying party that owns its own session
+
+`oidcRpGuard` ships in `@adonis-agora/authkit-server` and solves a narrower problem: an app that
+performs the OIDC dance itself and stores the resulting **user id** in the session, rather than a
+token set. The guard reads that key and resolves the user; it verifies no token and holds no OIDC
+state of its own.
+
+```ts title="config/auth.ts"
+import { defineConfig } from '@adonisjs/auth'
+import { sessionUserProvider } from '@adonisjs/auth/session'
+import { oidcRpGuard } from '@adonis-agora/authkit-server'
+import type { InferAuthenticators } from '@adonisjs/auth/types'
+
+const authConfig = defineConfig({
+  default: 'web',
+  guards: {
+    web: oidcRpGuard({
+      provider: sessionUserProvider({ model: () => import('#models/user') }),
+      sessionKey: 'account_user_id', // optional
+    }),
+  },
+})
+
+export default authConfig
+
+declare module '@adonisjs/auth/types' {
+  interface Authenticators extends InferAuthenticators<typeof authConfig> {}
+}
+```
+
+Because the guard does not establish the session, your OIDC callback must — with the framework's
+own `login()`:
+
+```ts title="app/controllers/oidc_controller.ts"
+export default class OidcController {
+  async callback(ctx: HttpContext) {
+    const tokens = await exchangeCode({ /* ... */ })
+    const user = await User.updateOrCreate(/* ... */)
+
+    // This is what writes the session. The guard only reads it back.
+    await ctx.auth.use('web').login(user)
+    return ctx.response.redirect('/')
+  }
+
+  async logout(ctx: HttpContext) {
+    await ctx.auth.use('web').logout() // local session only
+    return ctx.response.redirect(buildEndSessionUrl({ /* ... */ }))
+  }
+}
+```
+
+`logout()` clears the local session and nothing else — the redirect to the IdP's end-session
+endpoint stays your controller's job, because only you know where the user should land afterwards.
+
+The guard emits four events you can subscribe to for audit logging:
+
+| Event | Payload | When |
+| --- | --- | --- |
+| `oidc_rp:login_succeeded` | `{ ctx, guardName, user }` | `login()` wrote the session. |
+| `oidc_rp:authentication_succeeded` | `{ ctx, guardName, user }` | A request authenticated from the session. |
+| `oidc_rp:authentication_failed` | `{ ctx, guardName }` | No session key, or the id resolved to nothing. |
+| `oidc_rp:logged_out` | `{ ctx, guardName, user }` | `logout()` cleared the session. |
+
+`sessionKey` defaults to the key AuthKit's own account console writes, which is why this guard is
+also a way for an app already embedding AuthKit's account routes to read that session through
+`@adonisjs/auth` without the sync switch.
+
+### Which of the two guards?
+
+Both exist because they read different things, and the packaging follows from that:
+
+- `authkitClientGuard` reads an **OIDC token set** resolved by `@adonis-agora/authkit-client`. If
+  your app uses the client kit — the normal relying-party setup — this is your guard. It ships in
+  the client package because it depends on the client's resolver.
+- `oidcRpGuard` reads a **user id string** you put in the session yourself. Pick it when you drive
+  the OIDC flow by hand and already depend on `@adonis-agora/authkit-server`; installing the server
+  package purely to obtain this guard is not worth it, and `authkitClientGuard` covers that case.
+
+## The payoff
+
+From here, everything is ordinary AdonisJS. All three configurations produce the same three
+capabilities.
+
+**`middleware.auth()`** — the framework's own auth middleware, scaffolded into your app by
+`@adonisjs/auth`, now guards routes over an AuthKit session:
+
+```ts title="start/routes.ts"
+router
+  .group(() => {
+    router.get('/dashboard', [DashboardController])
+    router.get('/invoices', [InvoicesController])
+  })
+  .use(middleware.auth())
+```
+
+**`ctx.auth.user`** — the authenticated user, typed from the provider you configured:
+
+```ts
+export default class InvoicesController {
+  async index({ auth }: HttpContext) {
+    const user = auth.getUserOrFail()
+    return Invoice.query().where('userId', user.id)
+  }
+}
+```
+
+**The Bouncer** — abilities and policies receive that user with no adapter in between:
+
+```ts title="app/abilities/main.ts"
+import { Bouncer } from '@adonisjs/bouncer'
+import type User from '#models/user'
+import type Invoice from '#models/invoice'
+
+export const viewInvoice = Bouncer.ability((user: User, invoice: Invoice) => {
+  return user.id === invoice.userId
+})
+```
+
+```ts
+async show({ bouncer, params }: HttpContext) {
+  const invoice = await Invoice.findOrFail(params.id)
+  await bouncer.authorize(viewInvoice, invoice)
+  return invoice
+}
+```
+
+## Error semantics
+
+Every one of these guards throws the framework's real `E_UNAUTHORIZED_ACCESS` when authentication
+fails — the same class the native session guard throws. That matters more than it sounds: it
+carries a `401` status and the framework's content-negotiated renderers, so a browser request gets
+a redirect to your login route and an API request gets a JSON body, all through your existing
+exception handler. No AuthKit-specific error handling is required anywhere.
+
+The failure cases are deliberately uniform:
+
+| Situation | Result |
+| --- | --- |
+| No session at all | `E_UNAUTHORIZED_ACCESS` |
+| Session resolves, but no local user matches | `E_UNAUTHORIZED_ACCESS` — fail closed |
+| Anything else (a database outage inside `findById`) | Rethrown as-is |
+
+That last row is the deliberate part. `check()` swallows **only** `E_UNAUTHORIZED_ACCESS` and
+rethrows everything else, so an infrastructure failure surfaces as a `500` in your logs instead of
+quietly turning every user into a logged-out visitor.
+
+### Swapping the exception
+
+Because `@adonisjs/auth` is an optional peer, neither package can import its error class
+statically. Both capture it at boot through a dynamic import and hold it as an
+`UnauthorizedAccessConstructor` — the exported type describing that constructor
+(`new (message, { guardDriverName, redirectTo? })`). The guard classes take it as a constructor
+argument, so a host that instantiates a guard itself can hand it a different exception class:
+
+```ts
+import { AuthkitClientGuard } from '@adonis-agora/authkit-client'
+import type { UnauthorizedAccessConstructor } from '@adonis-agora/authkit-client'
+
+class ApiUnauthorized extends Error {
+  static status = 401
+  constructor(message: string, _options: { guardDriverName: string; redirectTo?: string }) {
+    super(message)
+  }
+}
+
+const guard = new AuthkitClientGuard('web', ctx, provider, ApiUnauthorized as UnauthorizedAccessConstructor)
+```
+
+This is a genuine escape hatch, not a config key: the `authkitClientGuard()` and `oidcRpGuard()`
+factories always wire the framework's own class, which is what you want in almost every app.
+Reach for it only when the whole host has standardised on a different unauthorized exception.
+
+<Callout type="warn">
+  `authkitClientGuard` cannot support the `loginAs` helper in the framework's test plugins, and
+  says so with a clear runtime error rather than failing mysteriously: its session is an OIDC token
+  set signed by the IdP, and no guard can forge one from a user object. Use
+  `@adonis-agora/authkit-testing` to mint a test token and plant the token set in the session
+  instead. See [Testing](/docs/testing).
+</Callout>
+
+## Next
+
+<Cards>
+  <Card title="Client" href="/docs/client" description="The relying-party kit — resolvers, lucidMirror, routes, middleware." />
+  <Card title="Host Kit" href="/docs/host-kit" description="The IdP side: account console, routes, account store." />
+  <Card title="Testing" href="/docs/testing" description="Minting sessions in tests without a live IdP." />
+</Cards>

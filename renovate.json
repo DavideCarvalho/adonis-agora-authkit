@@ -4,6 +4,11 @@
   "rangeStrategy": "pin",
   "packageRules": [
     {
+      "description": "Never touch engines. With a global rangeStrategy of \"pin\", Renovate rewrites engines.node from a supported range into one exact version, which warns on install for every consumer on another Node and hard-fails under engine-strict.",
+      "matchDepTypes": ["engines"],
+      "enabled": false
+    },
+    {
       "matchDepTypes": ["dependencies", "devDependencies"],
       "matchUpdateTypes": ["patch", "minor"],
       "automerge": true

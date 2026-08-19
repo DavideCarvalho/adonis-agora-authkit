@@ -220,14 +220,23 @@ export interface AuthHostOptions {
    * Login social opt-in; quando presente, monta as rotas sociais (usam ctx.ally).
    * Necessário aqui (e não só no config) porque a decisão de montar as rotas é
    * tomada em tempo de registro, antes do config (lazy) resolver.
+   *
+   * POLÍTICA: se o `defineConfig` declarou `social`, ele vence e este argumento
+   * é IGNORADO (com `console.warn` + entrada em `overriddenByConfig`). NÃO
+   * espelhe o config aqui — omitir a chave já herda dele. Use este argumento só
+   * quando o config NÃO declara `social`.
    */
   social?: AuthSocialConfig;
   /**
    * Rate-limiting (anti-brute-force) das rotas sensíveis. Necessário aqui (e não
    * só no config) porque a aplicação do throttle acontece em tempo de registro de
-   * rota. Ligado por default (mesma resolução do config). Espelhe o `rateLimit` de
-   * config/authkit.ts. Se `@adonisjs/limiter` não estiver configurado no host
-   * (config/limiter.ts), o throttle vira no-op (fail-safe).
+   * rota. Ligado por default (mesma resolução do config). Se `@adonisjs/limiter`
+   * não estiver configurado no host (config/limiter.ts), o throttle vira no-op
+   * (fail-safe).
+   *
+   * POLÍTICA: se o `defineConfig` declarou `rateLimit`, ele vence e este
+   * argumento é IGNORADO (com `console.warn` + entrada em `overriddenByConfig`).
+   * NÃO espelhe o config aqui — omitir a chave já herda dele.
    */
   rateLimit?: RateLimitConfigInput;
   /**
@@ -241,7 +250,12 @@ export interface AuthHostOptions {
    *
    * Necessário aqui (e não só no config) porque a decisão de montar as rotas é
    * tomada em tempo de registro, antes do config (lazy) resolver.
-   * Espelhe o `admin.enabled` de config/authkit.ts.
+   *
+   * DOIS EIXOS: o LIGA/DESLIGA é POLÍTICA — se o `defineConfig` declarou
+   * `admin`, ele vence e o `true`/`false` daqui é IGNORADO (com `console.warn`
+   * + entrada em `overriddenByConfig`). O PREFIXO é ESTRUTURAL e o argumento
+   * sempre vence. Ou seja: com `admin` no config, passe no máximo
+   * `{ prefix: '...' }` aqui — nunca espelhe o `enabled`.
    *
    * @example
    * // Prefixo padrão
@@ -261,7 +275,11 @@ export interface AuthHostOptions {
    *
    * Necessário aqui (e não só no config) porque a decisão de montar as rotas é
    * tomada em tempo de registro, antes do config (lazy) resolver.
-   * Espelhe o `adminApi.enabled` de config/authkit.ts.
+   *
+   * DOIS EIXOS, como `admin`: o LIGA/DESLIGA é POLÍTICA (o `defineConfig`
+   * vence e o argumento é IGNORADO, com `console.warn`), o PREFIXO é
+   * ESTRUTURAL (o argumento vence). Com `adminApi` no config, passe no máximo
+   * `{ prefix: '...' }` aqui.
    *
    * @example
    * // Prefixo padrão (back-compat)
@@ -275,7 +293,10 @@ export interface AuthHostOptions {
    * Métodos de sudo cujas rotas devem ser montadas. Necessário aqui (e não só
    * no config) porque a decisão de MONTAR rotas acontece em tempo de registro,
    * antes de o config lazy resolver — mesma razão de `social`/`admin`/`rateLimit`.
-   * Espelhe o `sudo.methods` de config/authkit.ts.
+   *
+   * POLÍTICA: se o `defineConfig` declarou `sudo.methods`, ele vence e este
+   * argumento é IGNORADO (com `console.warn` + entrada em `overriddenByConfig`).
+   * NÃO espelhe o config aqui — omitir a chave já herda dele.
    *
    * SUBSTITUI os defaults, não acrescenta: a lista é do host. Quem quer manter
    * senha/passkey ao lado do método novo os inclui explicitamente

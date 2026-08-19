@@ -51,7 +51,7 @@ most often to feed [`fakeAuthenticator`](#fakeauthenticator) below.
 
 ## `fakeAuthenticator(options?)`
 
-Builds an object that satisfies the client's `Authenticator` surface — exactly what
+Builds an object that satisfies the client's `Authenticator` surface — the whole of what
 `ctx.auth` exposes — so controller tests can inject a logged-in (or anonymous) user without
 resolving real tokens.
 
@@ -60,8 +60,46 @@ resolving real tokens.
 | `identity` | `Identity \| null` | `createTestIdentity()` | The resolved identity. Pass `null` to simulate an anonymous request. |
 | `user` | `unknown` | the identity | The domain user returned by `getUser()`. |
 
-The fake implements `getIdentity()`, the `identity` getter, `authenticate()` (throws when
-anonymous), `check()`, `getUser()`, and `hasGlobalRole(role)`:
+Everything the fake does follows from one piece of state — whether an identity is present.
+That single switch decides all eight members of the surface, which is what makes an
+anonymous request a one-word change in a test. The returned object is typed as
+`FakeAuthenticatorLike`:
+
+| Member | Behaviour with an identity | Behaviour when `identity: null` |
+| --- | --- | --- |
+| `getIdentity()` | resolves the `Identity` | resolves `null` |
+| `identity` (getter) | the `Identity` | `null` |
+| `authenticate()` | resolves the `Identity` | **throws** |
+| `check()` | `true` | `false` |
+| `hasGlobalRole(role)` | `true` when the identity carries the role | `false` |
+| `getUser()` | resolves the `user` option (the identity by default) | resolves `null` |
+| `getUserOrFail()` | resolves the `user` | **throws** |
+| `toSharedProps()` | `{ user, globalRoles }` | `null` |
+
+Two of those deserve their own note, because they are the fail-closed and the
+frontend-facing halves of the surface:
+
+- **`getUserOrFail()`** is `getUser()` without the `null` branch: it throws when there is no
+  session *and* when there is a session but no user behind it (`user: null` or
+  `user: undefined`). It is what routes behind an auth middleware call, where a `null` user
+  means a misconfigured route rather than a visitor. Test both branches by flipping
+  `identity` to `null` and by passing `user: null` with an identity present.
+- **`toSharedProps()`** builds the object you hand to the frontend — it matches the
+  `AuthSharedProps` shape that [`@adonis-agora/authkit-react`](/docs/react) consumes, so an
+  Inertia share helper can be tested against it directly. It returns `null` for an
+  anonymous request, which is the signal the frontend reads as "no session"; with a session
+  it returns `{ user, globalRoles }`, where `globalRoles` comes from the identity and
+  defaults to an empty array.
+
+```ts
+const anonymous = fakeAuthenticator({ identity: null })
+
+await anonymous.check()          // false
+await anonymous.toSharedProps()  // null
+await anonymous.getUserOrFail()  // throws
+```
+
+A worked controller test:
 
 ```ts
 import { test } from '@japa/runner'
@@ -100,7 +138,7 @@ account-security capabilities are **opt-in** so you can exercise the server's `s
 | --- | --- | --- | --- |
 | `account` | `FakeAuthAccount` | `{ id: 'u1', email: 'a@b.com', globalRoles: ['ADMIN'] }` | Fixed account returned by `findById`/`findByEmail`/`verifyCredentials`. |
 | `withMfa` | `boolean` | `false` | Adds `getMfaState`/`enableMfa`/`disableMfa` (`supportsMfa → true`). |
-| `withPasskeys` | `boolean` | `false` | Adds `listPasskeys`/`registerPasskey`/`deletePasskey`. |
+| `withPasskeys` | `boolean` | `false` | Adds `listPasskeys`/`registerPasskey`/`deletePasskey` (`supportsPasskeys → true`). |
 | `withAccountSecurity` | `boolean` | `false` | Adds `changePassword`/`requestEmailChange`/`confirmEmailChange`. |
 | `overrides` | `Record<string, unknown>` | `{}` | Replace any individual method. |
 
@@ -116,6 +154,13 @@ const store = fakeAccountStore({
   },
 })
 ```
+
+<Callout type="info">
+  The capability flags exist to flip the [`supports*` guards](/docs/account-store), which
+  probe a single representative method each — they are not full implementations of the
+  capability interfaces. If the code under test calls further methods of a capability
+  (`startTotpEnrollment`, `verifyPasskeyRegistration`, …), supply them through `overrides`.
+</Callout>
 
 ## Minting real ID tokens
 
@@ -208,8 +253,10 @@ const bob = await mintTestIdToken({ issuer, clientId, key, claims: { sub: 'bob' 
 const jwks = await jwksFromKey(key) // public JWKS that validates both
 ```
 
-`testJwks(key)` is an alias of `jwksFromKey(key)`; both return `{ keys: JWK[] }` ready to
-feed `serveJwks` or a local `createLocalJWKSet`.
+`jwksFromKey(key)` is an alias of `testJwks(key)`; both resolve to `{ keys: JWK[] }`, ready
+to feed `serveJwks` or a local `createLocalJWKSet`. `generateTestKeyPair()` also takes an
+optional `kid` — pass one when a test asserts on the key id, otherwise a random one is
+generated for you.
 
 ## API summary
 
@@ -222,3 +269,8 @@ feed `serveJwks` or a local `createLocalJWKSet`.
 | `generateTestKeyPair` | function | Extractable RS256 keypair with a stable `kid`. |
 | `serveJwks` | function | In-process JWKS HTTP endpoint (`jwksUri`, `close`). |
 | `jwksFromKey` / `testJwks` | function | Public JWKS object from a keypair. |
+
+The package also exports the types behind those helpers, so a test file can annotate its
+own fixtures without redeclaring them: `FakeAuthenticatorLike` and
+`FakeAuthenticatorOptions`, `FakeAuthAccount` and `FakeAccountStoreOptions`, `TestKeyPair`,
+`MintTestIdTokenOptions`, `MintedToken`, and `ServedJwks`.

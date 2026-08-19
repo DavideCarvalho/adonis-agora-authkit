@@ -28,7 +28,7 @@ pnpm add @adonis-agora/authkit-vault-gcp @google-cloud/secret-manager
 Select the driver in your server config. AuthKit lazy-loads this package and calls its
 `createKeystoreVault` factory the first time it touches the keystore:
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 import { defineConfig } from '@adonis-agora/authkit-server'
 
 export default defineConfig({

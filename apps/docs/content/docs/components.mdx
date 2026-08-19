@@ -1,7 +1,7 @@
 ---
 icon: Blocks
 title: React Components
-description: Pre-built, themeable components — SignInButton, SignOutButton, UserButton, UserProfile, AuthorizedApps, Avatar, PasswordStrengthMeter, OrganizationSwitcher, OrganizationProfile.
+description: Pre-built, themeable components — buttons, profile and organization cards, the interaction forms, PasskeyButton, CanPermission, and KeyRotation.
 ---
 
 `@adonis-agora/authkit-react` exports three layers: auth-state primitives, a typed HTTP
@@ -29,6 +29,12 @@ import {
   PasswordStrengthMeter,
   OrganizationSwitcher,
   OrganizationProfile,
+  InteractionForm,
+  MagicLinkButton,
+  OAuthButton,
+  PasskeyButton,
+  CanPermission,
+  KeyRotation,
 } from '@adonis-agora/authkit-react'
 ```
 
@@ -133,57 +139,111 @@ function Me() {
 
 ## PasswordStrengthMeter
 
-A visual progress bar (0–4) for password strength feedback, built on
-[`usePasswordStrength`](/docs/passwords-and-migration#react-usepasswordstrength--passwordstrengthmeter).
+A visual meter (four segments plus a label) for password strength feedback. It is not a dumb
+bar: give it the **password** and it calls
+[`usePasswordStrength`](/docs/react#password-strength) itself, so the meter and the score can
+never drift apart.
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
-| `score` | `0 \| 1 \| 2 \| 3 \| 4` | — | Strength score from `usePasswordStrength`. |
-| `className` | `string` | — | Appended to `authkit-strength-meter`. |
+| `password` | `string` | — | The password to evaluate (required). |
+| `scorer` | `(password: string) => { score, feedback? }` | built-in heuristic | Custom scorer, e.g. zxcvbn. |
+| `showFeedback` | `boolean` | `true` | Render the tip list below the bar. |
+| `labels` | `[string, string, string, string, string]` | `['Very weak', 'Weak', 'Fair', 'Good', 'Strong']` | One label per score, for i18n. |
+| `className` | `string` | — | Appended to `authkit-strength`. |
 
 ```tsx
-import { usePasswordStrength, PasswordStrengthMeter } from '@adonis-agora/authkit-react'
+import { useState } from 'react'
+import { PasswordStrengthMeter } from '@adonis-agora/authkit-react'
 
 function PasswordField() {
   const [password, setPassword] = useState('')
-  const { score } = usePasswordStrength(password)
   return (
     <>
       <input type="password" value={password} onChange={e => setPassword(e.target.value)} />
-      <PasswordStrengthMeter score={score} />
+      <PasswordStrengthMeter password={password} />
     </>
   )
 }
 ```
 
+The bar is a `role="meter"` with `aria-valuemin=0`, `aria-valuemax=4`, `aria-valuenow` set to
+the score, and the matching label as its accessible name — a screen reader gets the same
+signal as the colour.
+
+Localise it with `labels`, hide the tips with `showFeedback={false}`, and swap the algorithm
+with `scorer`:
+
+```tsx
+import { zxcvbn } from '@zxcvbn-ts/core'
+
+// Module scope: a stable function identity keeps the memoisation working.
+const scorer = (password: string) => {
+  const { score, feedback } = zxcvbn(password)
+  return { score, feedback: feedback.suggestions }
+}
+
+<PasswordStrengthMeter
+  password={password}
+  scorer={scorer}
+  labels={['Muito fraca', 'Fraca', 'Razoável', 'Boa', 'Forte']}
+/>
+```
+
+CSS hooks: `.authkit-strength` (root), `.authkit-strength__bar` (carries `data-score="0…4"`),
+`.authkit-strength__segment` / `--filled`, `.authkit-strength__label`, and
+`.authkit-strength__feedback`. Colour per score is driven from the `data-score` attribute, so
+you can restyle the scale without touching the component.
+
 ## OrganizationSwitcher
 
-A dropdown to switch the active organization. Reads from `useOrganizations()` and calls
-`useSwitchOrganization()` on selection. Optionally shows a "create" button when
-`allowSelfCreate: true` is configured server-side.
+A dropdown to switch the active organization. It reads the list and the active id from
+`useOrganizations()` and calls `useSwitchOrganization()` on selection — selecting the personal
+account entry deactivates the current org, selecting another org activates it. Each row shows
+the org name and the user's role in it.
+
+It renders **nothing** when the user is unauthenticated, when the server reports that
+organizations are not supported, or when the provider is configured with `idp: 'external'`.
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
-| `allowCreate` | `boolean` | `false` | Show a "Create organization" option. |
-| `createLabel` | `string` | `'New organization'` | Label of the create option. |
-| `className` | `string` | — | Appended to `authkit-org-switcher`. |
+| `personalAccountLabel` | `string` | `'Conta pessoal'` | Label of the "no active org" entry. |
+| `className` | `string` | — | Appended to `authkit-orgswitcher`. |
 
 ```tsx
-<OrganizationSwitcher allowCreate={false} />
+<OrganizationSwitcher personalAccountLabel="Personal account" />
 ```
+
+Creating an organization is not part of this component — it is a server-side decision (see
+[Organizations](/docs/organizations)). Build the create flow with `useOrganizations()` and your
+own form when your deployment allows self-service creation.
+
+CSS hooks: `.authkit-orgswitcher`, `__trigger`, `__label`, `__chevron`, `__menu`, `__item`
+(with `--active`), `__item-name`, `__item-role`.
 
 ## OrganizationProfile
 
-A card showing the current organization's name, members, and pending invitations, with
-inline controls to invite members, change roles, and remove members.
+A card for the **active** organization: name and slug, the member list with each member's
+role, an invite form, and a "leave organization" button.
+
+There is no `orgId` prop, and that is the point — the component asks `useOrganizations()` for
+the active org id and loads its detail with `useOrganization()`. The active org is server-side
+session state, so a prop here could disagree with the session; instead, switching orgs (via
+`OrganizationSwitcher` or `useSwitchOrganization()`) is what changes what this card shows. It
+renders **nothing** when unauthenticated or when there is no active org, and degrades to
+`null` under `idp: 'external'`.
+
+The invite form only renders when the loaded org says the current member may manage it, so a
+plain member sees the roster without controls they cannot use.
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
-| `orgId` | `string` | — | The organization to display (required). |
+| `inviteLabel` | `string` | `'Convidar membro'` | Heading and submit label of the invite form. |
+| `leaveLabel` | `string` | `'Sair da organização'` | Label of the leave button. |
 | `className` | `string` | — | Appended to `authkit-card authkit-org-profile`. |
 
 ```tsx
-<OrganizationProfile orgId={activeOrg.id} />
+<OrganizationProfile inviteLabel="Invite member" leaveLabel="Leave organization" />
 ```
 
 ## InteractionForm
@@ -192,16 +252,25 @@ The composable primitive behind the login-page buttons. It renders a
 `<form method="POST">` pointing at the right AuthKit interaction endpoint (resolved from the
 `uid` via `interactionUrls`, so you never hand-concatenate `/auth/interaction/...`) plus the
 hidden `_csrf` field — you own the fields and the styling inside it. Use it directly when
-you want full control of a step's form; the pre-built buttons below are built on top of it.
+you want full control of a step's form; the pre-built buttons are built on top of it.
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
 | `uid` | `string` | — | The interaction `uid` (rendered by `authkit-server` into the login view). |
-| `step` | `'identifier' \| 'login' \| 'magic'` | — | Which POST endpoint to submit to. |
+| `step` | `'identifier' \| 'login' \| 'magic' \| 'otpVerify'` | — | Which POST endpoint to submit to. |
 | `csrfToken` | `string` | — | Becomes the hidden `_csrf` field. |
 | `basePath` | `string` | `'/auth/interaction'` | Mount prefix, if you changed it server-side. |
 | `children` | `ReactNode` | — | Your fields and submit button. |
 | `...rest` | `FormHTMLAttributes` | — | Forwarded to the `<form>` (minus `method`/`action`). |
+
+The four steps are the four POST endpoints of the login interaction:
+
+| `step` | What the form submits | Typical fields |
+| --- | --- | --- |
+| `identifier` | The email/username, moving the user to the credential step | `email` |
+| `login` | Password authentication | `email`, `password` |
+| `magic` | A request for a magic link or an emailed code | `email` (plus an optional `channel`) |
+| `otpVerify` | The six-digit code from the magic-link email | the field named by `OTP_CODE_FIELD` |
 
 ```tsx
 import { InteractionForm } from '@adonis-agora/authkit-react'
@@ -214,6 +283,33 @@ import { InteractionForm } from '@adonis-agora/authkit-react'
 </InteractionForm>
 ```
 
+For the OTP step, take the input's name from `OTP_CODE_FIELD` rather than typing `"code"` — the
+screen and your end-to-end test then read the same constant, and a typo breaks both together
+instead of drifting apart silently:
+
+```tsx
+import { InteractionForm, OTP_CODE_FIELD } from '@adonis-agora/authkit-react'
+
+<InteractionForm uid={uid} step="otpVerify" csrfToken={csrfToken}>
+  <input
+    name={OTP_CODE_FIELD}
+    inputMode="numeric"
+    autoComplete="one-time-code"
+    maxLength={6}
+  />
+  <button type="submit">Verify</button>
+</InteractionForm>
+```
+
+Every `InteractionForm` carries a **double-submit lock**, whatever children you put in it: on
+submit, its submit buttons are disabled and the form gets `aria-busy="true"`. These endpoints
+trigger expensive work — sending an email, starting a WebAuthn ceremony — and an impatient
+double click otherwise turns into a duplicate POST (and, on the magic step, into the host's
+rate limiter). The lock is applied after the browser has built the form's entry list, so a
+*named* submit button still contributes its value, and it never fires when a handler of yours
+called `preventDefault()` or when native validation blocked the submit. There is nothing to
+unlock: the response is a new document, so the state resets by itself.
+
 ## MagicLinkButton
 
 A drop-in magic-link button: an `InteractionForm` targeting the `magic` step with a single
@@ -224,11 +320,17 @@ submit button. Themeable via `className` (merged with `authkit-button`) and `chi
 | `uid` | `string` | — | The interaction `uid`. |
 | `csrfToken` | `string` | — | CSRF token for the form. |
 | `basePath` | `string` | `'/auth/interaction'` | Mount prefix, if changed. |
+| `channel` | `'code' \| 'link'` | — | Submits a hidden `channel` field, asking for only the emailed code or only the link. Omit it to let the server decide. |
 | `children` | `ReactNode` | `'Enviar link de login'` | Button label. |
 | `...rest` | `ButtonHTMLAttributes` | — | Forwarded to the `<button>` (minus `type`). |
 
 ```tsx
 <MagicLinkButton uid={uid} csrfToken={csrfToken}>Email me a login link</MagicLinkButton>
+
+{/* A "send me a code" button on a screen that then renders the otpVerify form */}
+<MagicLinkButton uid={uid} csrfToken={csrfToken} channel="code">
+  Email me a 6-digit code
+</MagicLinkButton>
 ```
 
 ## OAuthButton
@@ -254,11 +356,12 @@ icon/label as `children` and style it with `className`.
 
 ## PasskeyButton
 
-A drop-in passkey login button — the "does-everything" tier over the `usePasskeyLogin`
-hook (see [WebAuthn / passkeys](/docs/webauthn)). It renders the button, runs the
-WebAuthn ceremony on click (`options` → browser prompt → full-page `verify` POST), disables
-itself while busy, and shows an inline error on failure. Reach for the hook directly when
-you need full control of the flow.
+A drop-in passkey login button — the top tier of the
+[three-tier passkey API](/docs/react#9-passkeys-in-three-tiers). It renders the button, runs
+the WebAuthn ceremony on click (`options` → browser prompt → full-page `verify` POST),
+disables itself while busy, and shows an inline error on failure. Drop to
+[`usePasskeyLogin`](/docs/react#usepasskeylogin) when you want your
+own markup, and to the bare functions when your screen owns the state machine.
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -271,9 +374,10 @@ you need full control of the flow.
 | `...rest` | `ButtonHTMLAttributes` | — | Forwarded to the `<button>` (minus `onClick`). |
 
 ```tsx
-import { interactionUrls } from '@adonis-agora/authkit-react'
+import { PasskeyButton, interactionUrls } from '@adonis-agora/authkit-react'
 
 const urls = interactionUrls(uid)
+
 <PasskeyButton
   optionsUrl={urls.passkeyOptions}
   verifyUrl={urls.passkeyVerify}
@@ -283,17 +387,53 @@ const urls = interactionUrls(uid)
 </PasskeyButton>
 ```
 
+`@simplewebauthn/browser` is an optional peer dependency; without it the ceremony fails with
+an install instruction instead of reaching for a CDN. See
+[WebAuthn / passkeys](/docs/webauthn) for the server side.
+
+## Interaction URLs
+
+Every component on this page that talks to the login interaction takes URLs, not a `uid` plus
+string concatenation. `interactionUrls(uid, basePath?)` is the single typed source for them —
+if the server-side mount prefix changes, one argument moves instead of a dozen template
+literals breaking silently.
+
+```ts
+import { interactionUrls, oauthRedirectUrl, OTP_CODE_FIELD } from '@adonis-agora/authkit-react'
+
+const urls = interactionUrls(uid)
+// urls.identifier      POST — submit the email, advance to the credential step
+// urls.login           POST — password login
+// urls.magic           POST — send the magic link / code
+// urls.otpVerify       POST — verify the six-digit code
+// urls.passkeyOptions  POST — begin the passkey ceremony
+// urls.passkeyVerify   POST — finish it (full-page POST)
+// urls.signup          GET  — the account-creation screen
+// urls.switch          GET  — switch account (back to the identifier step)
+
+// A custom mount prefix, passed once:
+const urls = interactionUrls(uid, '/entrar/interaction')
+
+// Social login is a full-page navigation to the provider redirect:
+const google = oauthRedirectUrl('google', uid) // '/auth/google/redirect/{uid}'
+const github = oauthRedirectUrl('github', uid, '/entrar')
+```
+
+`OTP_CODE_FIELD` is the name of the six-digit-code input the server reads on the `otpVerify`
+step. Import it instead of typing the literal, so the screen and your tests cannot disagree.
+
 ## CanPermission
 
-Renders its `children` only when AuthKit's authz service grants `permission` (optionally on
-a `resource`), via `POST <canPath>`. Built on the [`useCan`](/docs/react#6-headless-hooks)
-hook.
+Renders its `children` only when the authz endpoint grants `permission` (optionally on a
+`resource`), via `POST <canPath>`. Built on the
+[`useCan`](/docs/react#permission-gating-with-usecan-and-canpermission) hook, which caches and
+dedupes the answers.
 
 <Callout type="info">
-  This gates on **database-backed permissions** evaluated by the authz service. It's
-  distinct from `<Can>` in `@adonis-agora/authz-react`, which gates on the roles/permissions
-  already carried in the client's auth state. Use `CanPermission` when the decision needs a
-  server round-trip (e.g. per-resource ownership).
+  This gates on **database-backed permissions**, which need a server round-trip — use it for
+  decisions that depend on the resource ("may they edit *this* post?"). For the global roles
+  already carried in the auth shared-prop, `useAuth().hasGlobalRole(...)` answers
+  synchronously, with no request at all.
 </Callout>
 
 | Prop | Type | Default | Description |
@@ -305,10 +445,19 @@ hook.
 | `fallback` | `ReactNode` | `null` | Rendered when denied. |
 
 ```tsx
-<CanPermission permission="posts.update" resource={post.id} fallback={<ReadOnlyBadge />}>
+<CanPermission
+  permission="posts.update"
+  resource={post.id}
+  loadingFallback={<Spinner />}
+  fallback={<ReadOnlyBadge />}
+>
   <EditPostButton post={post} />
 </CanPermission>
 ```
+
+The gate is fail-closed: if the check cannot be made, `children` are not rendered. Rendering
+`fallback` (rather than nothing) while a decision is pending is a common mistake — that is
+what `loadingFallback` is for.
 
 ## KeyRotation
 

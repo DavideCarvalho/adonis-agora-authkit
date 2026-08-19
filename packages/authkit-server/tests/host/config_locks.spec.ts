@@ -77,7 +77,16 @@ test.group('config_locks / RuntimeSettings enforcement', (group) => {
   test('setSetting de key travada lança SettingLockedError', async ({ assert }) => {
     setLockedSettingKeys([SETTING_KEYS.LOCKOUT]);
     const rs = new RuntimeSettings({} as any);
-    await assert.rejects(() => rs.setSetting(SETTING_KEYS.LOCKOUT, { enabled: false }), /travada/);
+    let caught: unknown;
+    try {
+      await rs.setSetting(SETTING_KEYS.LOCKOUT, { enabled: false });
+    } catch (err) {
+      caught = err;
+    }
+    // A classe e a `key` são o contrato; a mensagem é prosa e pode mudar.
+    assert.instanceOf(caught, SettingLockedError);
+    assert.equal((caught as SettingLockedError).key, SETTING_KEYS.LOCKOUT);
+    assert.equal((caught as SettingLockedError).code, 'E_SETTING_LOCKED');
   });
 
   test('deleteSetting de key travada lança SettingLockedError', async ({ assert }) => {

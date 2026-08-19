@@ -1,7 +1,7 @@
 ---
 icon: SlidersHorizontal
 title: Runtime Settings
-description: Database-driven runtime configuration — the canonical guide to the 18 known setting keys, precedence rules, CLI, and migration from static config.
+description: Database-driven runtime configuration — the setting-key catalogue, precedence and config locks, the table, the CLI, and org-scoped keys.
 ---
 
 AuthKit's **runtime settings** let you change operational behaviour without redeploying.
@@ -9,30 +9,57 @@ Settings are persisted as JSON rows in the `auth_settings` table and take effect
 request (with a 15-second in-process cache). When the table is absent every setting falls
 back to the static config — zero breaking change.
 
-<Callout type="info">
-  There are now **21 known setting keys** (up from 18). The three new keys are
-  `sudo_mode`, `otp_lockout`, and `account_expiration`.
-</Callout>
-
 ## Philosophy
 
 | Layer | Source of truth | When to use |
 | --- | --- | --- |
 | **Runtime setting** (DB) | `auth_settings` table | Business policy — things an operator changes while the app is running |
-| **Static config** (`defineConfig`) | `config/authkit_server.ts` | Infrastructure — secrets, adapters, mail transports, code hooks |
+| **Static config** (`defineConfig`) | `config/authkit.ts` | Infrastructure — secrets, adapters, mail transports, code hooks — plus any policy you want pinned in reviewed, version-controlled code |
 | **Library default** | Built into AuthKit | Sensible baseline when no runtime setting is present |
 
-**Single precedence rule:** `setting > lib default`. Static config (`defineConfig`) carries
-only infrastructure fields — the policy fields that used to live there have been removed.
+**Precedence depends on whether the config declares the policy at all**, and there are
+exactly two cases:
+
+- **The config does not declare it** — the runtime setting owns the key:
+  `setting > lib default`. This is the common case, and the one the console is built for.
+- **The config declares it** — the config wins and the setting is **locked out entirely**.
+  Reads of that key behave as if no row existed (so every resolver falls through to the
+  config value), and writes are rejected with `423 Locked`. Persisting a row for a locked
+  key is impossible, and a row that predates the lock sits inert until the lock is removed.
+
+Declaring `registration`, `authMethods`, `login.requireVerifiedEmail`, `lockout`,
+`rateLimit`, `trustedDevices`, `botProtection`, `organizations`, `admin.impersonation` or
+`ttl` in `defineConfig` locks the matching setting key. See
+[Config Locks](/docs/config-locks) for the full mapping, what an operator sees when a lock
+holds, and how to unlock.
+
 If the `auth_settings` table is absent or the DB call fails for any reason, the lib default
 takes over — the fail-safe is total.
 
 ## Setting up the table
 
 **You don't have to do anything.** AuthKit manages its own tables automatically: on boot it
-creates any of its tables that are missing — including `auth_settings` — and adds new
-columns introduced by library updates (additive only; it never drops or changes existing
-columns). Runtime settings are therefore active out of the box.
+creates any of its tables that are missing — including `auth_settings` — and adds any
+columns that are missing from tables that already exist (additive only; it never drops or
+changes existing columns). Runtime settings are therefore active out of the box.
+
+`ensureAuthkitSchema` covers eight tables:
+
+| Table | What it holds |
+| --- | --- |
+| `authkit_oidc_payloads` | The OIDC provider's own storage (grants, sessions, codes) when you use the Lucid adapter |
+| `auth_settings` | Runtime settings — the subject of this page |
+| `auth_password_history` | Previous password hashes, for reuse prevention |
+| `auth_mfa` | Enrolled MFA factors and recovery codes |
+| `auth_organizations` | Organizations |
+| `auth_organization_members` | Organization membership and per-org roles |
+| `auth_organization_invitations` | Pending organization invitations |
+| `auth_session_revocations` | Revocation markers for back-channel logout and single-session enforcement |
+
+There is a ninth table, `authkit_keystore`, that is **not** part of that set. The managed
+keystore loads while the config is being resolved — before boot, and therefore before
+schema management runs — so it cannot depend on the table existing. The Lucid keystore
+vault creates it on demand, on its first write. Nothing you do is required either way.
 
 Prefer to own your schema? Disable auto-management and run the same logic inside a
 migration you control:
@@ -56,7 +83,9 @@ export default class extends BaseSchema {
 ```
 
 `ensureAuthkitSchema` is idempotent and additive — safe to keep in a migration that runs on
-every deploy. For reference, the table it creates is:
+every deploy. It creates all eight tables listed above; `authkit_keystore` stays outside it
+and is still created on demand by the keystore vault. For reference, the shape of
+`auth_settings` is:
 
 ```sql
 CREATE TABLE auth_settings (
@@ -69,16 +98,23 @@ CREATE TABLE auth_settings (
 );
 ```
 
-AuthKit detects the table on first access (memoised per `RuntimeSettings` instance) and all
-runtime features activate.
+The `organization_id` column is what makes a row **org-scoped**: `NULL` means the row is
+global, and a value means it applies to that organization only. Only two keys are ever
+written with an organization — see [Org-scoped settings](#org-scoped-settings) below. Every
+other key is global, and the uniqueness constraint on `(key, organization_id)` is what lets
+a global row and a per-org row for the same key coexist.
+
+AuthKit detects the table on first access — with a real `SELECT` rather than a
+`hasTable` probe, so a schema reached through a Postgres `search_path` is found correctly —
+and memoises the result per `RuntimeSettings` instance.
 
 ## Complete setting catalog
 
-21 known keys, each with its JSON shape and library default:
+Each key with its JSON shape and library default:
 
 | Key | Shape | Lib default | Notes |
 | --- | --- | --- | --- |
-| `bot_protection` | `{ enabled: boolean; on?: ('login'\|'signup'\|'reset')[] }` | `{ enabled: false }` | Runtime CAPTCHA toggle. `on` filters flows; `verify` always comes from config. |
+| `bot_protection` | `{ enabled: boolean; on?: ('login'\|'signup'\|'reset')[] }` | `{ enabled: false }` | Runtime CAPTCHA toggle. `on` filters flows; `verify` always comes from config. Configuring `botProtection` at all locks this key on — see [Config Locks](/docs/config-locks). |
 | `registration` | `{ enabled: boolean }` | `{ enabled: true }` | Close/open public sign-up. Admin-create and org invites bypass this guard. |
 | `require_verified_email` | `{ enabled: boolean; graceDays?: number }` | `{ enabled: false, graceDays: 0 }` | Block unverified accounts. `graceDays`: days after signup account may still login. Capability-probed (`isEmailVerified`). |
 | `maintenance_mode` | `{ enabled: boolean; message?: string }` | `{ enabled: false }` | Block login/signup for non-admins. Admin API escape hatch bypasses. |
@@ -88,14 +124,16 @@ runtime features activate.
 | `password_history` | `{ enabled?: boolean; count?: number }` | `{ enabled: false, count: 5 }` | Reuse prevention. Requires `auth_password_history` table. |
 | `password_expiration` | `{ enabled?: boolean; maxAgeDays?: number }` | `{ enabled: false, maxAgeDays: 90 }` | Force password rotation. Requires `password_changed_at` column. |
 | `session_policy` | `{ rememberEnabled?: boolean; rememberDays?: number; defaultSessionHours?: number; singleSession?: boolean; idleTimeoutMinutes?: number }` | `{ rememberEnabled: true, rememberDays: 30, defaultSessionHours: 168, singleSession: false, idleTimeoutMinutes: 0 }` | Session duration, remember-me, single session, idle timeout. |
-| `lockout` | `{ enabled?: boolean; maxAttempts?: number; windowSec?: number; baseLockoutSec?: number; maxLockoutSec?: number }` | `{ enabled: true, maxAttempts: 5, windowSec: 900, baseLockoutSec: 60, maxLockoutSec: 3600 }` | Per-email lockout policy. `store` stays in config (infra). |
+| `lockout` | `{ enabled?: boolean; maxAttempts?: number; windowSec?: number; baseLockoutSec?: number; maxLockoutSec?: number }` | `{ enabled: true, maxAttempts: 5, windowSec: 900, baseLockoutSec: 60, maxLockoutSec: 3600 }` | Per-email lockout policy. The only `lockout` config field is `store` (which limiter store to use) — and declaring it locks this key. |
 | `rate_limit` | `{ login?: { points, duration }; introspection?: { points, duration } }` | `login: { points: 10, duration: '1 min' }; introspection: { points: 60, duration: '1 min' }` | Rate-limit buckets. See [known limitation](#rate_limit-limitation). |
 | `password_policy` | `{ minLength?: number; requireUppercase?: boolean; requireLowercase?: boolean; requireNumbers?: boolean; requireSymbols?: boolean; checkPwned?: boolean; blockCommon?: boolean }` | `{ minLength: 8, checkPwned: false, blockCommon: true, rest false }` | Password complexity, HIBP check, and offline common-password block. |
 | `notifications` | `{ newLoginEmail?: boolean; newDeviceEmail?: boolean }` | `{ newLoginEmail: true, newDeviceEmail: true }` | New-IP and new-device email alerts. |
-| `trusted_devices` | `{ enabled?: boolean; days?: number }` | `{ enabled: true, days: 30 }` | MFA skip via encrypted cookie. `secrets` stays in config (infra). |
+| `trusted_devices` | `{ enabled?: boolean; days?: number }` | `{ enabled: true, days: 30 }` | MFA skip via an encrypted cookie signed with the host's `APP_KEY` — no extra secret to configure and no new table. |
 | `token_ttl` | `{ accessTokenSec?: number; idTokenSec?: number; refreshTokenSec?: number }` | `{ accessTokenSec: 900, idTokenSec: 900, refreshTokenSec: 2592000 }` | Token lifetimes (seconds). Takes effect immediately via holder. Session TTL is in `session_policy`. |
 | `admin_impersonation` | `{ enabled?: boolean }` | `{ enabled: false }` | Show impersonation panel in admin console. |
-| `organizations_policy` | `{ allowSelfCreate?: boolean; invitationTtlHours?: number; roles?: string[] }` | `{ allowSelfCreate: false, invitationTtlHours: 168, roles: ['owner','admin','member'] }` | Org policies. `owner` is always preserved in `roles`. |
+| `organizations_policy` | `{ allowSelfCreate?: boolean; invitationTtlHours?: number; roles?: string[] }` | `{ allowSelfCreate: false, invitationTtlHours: 168, roles: ['owner','admin','member'] }` | Org policies. `owner` is always preserved in `roles`. Org-scopable. |
+| `roles_catalog` | `{ roles: { name: string; description?: string }[] }` | `{ roles: [{ name: 'ADMIN', description: 'Full access to the admin console' }] }` | The catalogue of **global** roles offered as checkboxes on the console's user page, instead of a free-text field. `ADMIN` is merged back in defensively whatever you store — it is the gate for the admin console itself — entries without a non-empty `name` are dropped, and the result is sorted by name. Org-scopable. Managed from the console's Roles page. |
+| `key_rotation` | `{ enabled?: boolean; maxAgeDays?: number; keep?: number }` | `{ enabled: false, maxAgeDays: 90, keep: 2 }` | Age-based rotation of the managed JWKS signing key. When enabled, a background scheduler rotates once the current key is older than `maxAgeDays`, keeping `keep` previous keys published so tokens signed with them still verify. Rotation takes a single-flight lock and re-checks the age inside it, so only one instance in a cluster rotates. Applies only when the keystore is managed with a store — see [Keystore Vaults](/docs/keystore-vaults). |
 | `sudo_mode` | `{ enabled?: boolean; graceMinutes?: number }` | `{ enabled: true, graceMinutes: 15 }` | Re-authentication gate for sensitive account actions. Emits `sudo.confirmed`. |
 | `otp_lockout` | `{ enabled?: boolean; maxAttempts?: number; unlockTtlHours?: number }` | `{ enabled: true, maxAttempts: 5, unlockTtlHours: 24 }` | Lock TOTP/recovery factor after N failures. Unlock via email link (`GET /auth/otp-unlock/:token`). Requires `@adonisjs/limiter`. |
 | `account_expiration` | `{ enabled?: boolean; inactiveDays?: number; warnDays?: number }` | `{ enabled: false, inactiveDays: 365, warnDays: 14 }` | Block inactive accounts at login. Last activity = last `login.success` in audit. Warn via `mail.onAccountExpirationWarning`. Run `authkit:accounts:expire-scan`. Requires queryable audit sink. |
@@ -105,26 +143,33 @@ runtime features activate.
 The `@adonisjs/limiter` middleware is **registered at boot time** with the static config
 values and cannot be changed at runtime. The `rate_limit` setting only affects the
 `AccountLockout` code path (per-email limiter calls). For true dynamic IP throttling,
-change the config and restart the server. `authkit:doctor` includes a warning about this.
+change the config and restart the server.
 
 ## Admin Console
 
-The settings page groups the 21 keys into sections:
+The console does not put every key on one page. Its **Settings** page carries the six
+policies an operator changes most often, one card each:
 
-| Section | Setting keys |
+| Card | Setting key |
 | --- | --- |
-| Security & Access | `bot_protection`, `registration`, `require_verified_email`, `maintenance_mode`, `auth_methods` |
-| Email Change | `email_change` |
-| Security Notifications | `security_notifications` |
-| Passwords | `password_history`, `password_expiration`, `password_policy` |
-| Sessions & Tokens | `session_policy`, `trusted_devices`, `notifications`, `token_ttl` |
-| Admin & Orgs | `admin_impersonation`, `organizations_policy`, `lockout`, `rate_limit` |
-| Account Security | `sudo_mode`, `otp_lockout`, `account_expiration` |
+| Login methods | `auth_methods` |
+| Signup | `registration` |
+| Email verification | `require_verified_email` |
+| Maintenance | `maintenance_mode` |
+| Lockout | `lockout` |
+| Token TTL | `token_ttl` |
 
-Each card shows a badge indicating whether the effective value comes from the runtime
-setting (`from setting`) or falls back to the lib default (`from default`). When the
-`auth_settings` table is absent, every card shows the `CREATE TABLE` snippet and submit
-buttons are disabled.
+Three more keys are edited from the page that owns the feature rather than from the generic
+settings list: `roles_catalog` from **Roles**, `key_rotation` from **Keys**, and
+`organizations_policy` (plus a per-org `roles_catalog`) from the organization drawer. The
+remaining keys have no console card at all — reach them with the Ace commands or the
+[Admin REST API](/docs/admin-api).
+
+Each card shows the setting key it writes, plus a badge for its state: **defined via config**
+when the key is [locked](/docs/config-locks) — in which case every input is disabled and
+there is nothing to submit — **custom** when a row exists in `auth_settings`, and **unsaved**
+while you have pending edits. When the `auth_settings` table is absent the page replaces
+itself with a message telling you to run the migration.
 
 Every save emits a `settings.updated` audit event. Every reset (delete) returns the key to
 the lib default and also emits `settings.updated`.
@@ -138,21 +183,27 @@ takes precedence over the lib default (`org → global → default`).
 The admin console surfaces this in the **organization drawer** (Edit org → Settings tab):
 only these two keys appear there. All other keys are global-only.
 
-### Setting an org-scoped value via SDK
-
-```ts
-await sdk.settings.set('organizations_policy', { allowSelfCreate: true }, { orgId: 'org_abc' })
-await sdk.settings.set('roles_catalog', { roles: ['owner', 'admin', 'contributor', 'viewer'] }, { orgId: 'org_abc' })
-```
-
 ### Setting via Admin REST API
 
-Append `?org_id=<id>` to scope the write:
+Append `?organizationId=<id>` to scope the read or the write. Omit it and you are operating
+on the global row:
 
 ```bash
-PUT /api/authkit/v1/settings/organizations_policy?org_id=org_abc
+PUT /api/authkit/v1/settings/organizations_policy?organizationId=org_abc
 { "value": { "allowSelfCreate": true } }
+
+PUT /api/authkit/v1/settings/roles_catalog?organizationId=org_abc
+{ "value": { "roles": [{ "name": "ADMIN" }, { "name": "EDITOR", "description": "Publishes content" }] } }
 ```
+
+The same query parameter works on `GET /settings` (list the org's rows) and on
+`DELETE /settings/:key` (drop the org override and fall back to the global row).
+
+<Callout type="info">
+  The [SDK](/docs/sdk)'s `settings` methods are global-only — `set(key, value)` takes no
+  organization argument. Use the Admin REST API directly, or `RuntimeSettings` in-process,
+  when you need an org-scoped write.
+</Callout>
 
 ### Reading the effective value in backend code
 
@@ -160,13 +211,17 @@ PUT /api/authkit/v1/settings/organizations_policy?org_id=org_abc
 import { RuntimeSettings } from '@adonis-agora/authkit-server'
 
 const settings = new RuntimeSettings(db)
-const effective = await settings.getEffective('organizations_policy', orgId)
-// resolves: org-row → global-row → lib-default
+const stored = await settings.getEffective('organizations_policy', orgId)
+// resolves the stored row: org-row → global-row → null
 ```
+
+`getEffective` answers "which row applies here", so it returns `null` when neither scope has
+one. Applying the library default on top of that is the job of the resolver for the key —
+call the resolver rather than re-implementing the fallback.
 
 ## Admin REST API
 
-All 21 keys are managed via the same CRUD endpoints:
+Every key is managed via the same CRUD endpoints:
 
 ```bash
 # Read all settings
@@ -193,24 +248,39 @@ curl -X PUT https://auth.acme.com/api/authkit/v1/settings/password_history \
   -d '{ "value": { "enabled": true, "count": 10 } }'
 ```
 
+Two responses are worth planning for. When the `auth_settings` table is absent every one of
+these endpoints answers `404` with `capability_unsupported` — an honest "this installation
+does not have runtime settings" rather than a silent success. And when the key is
+[locked by config](/docs/config-locks), `PUT` and `DELETE` answer `423 Locked` with
+`setting_locked`. The listing response carries a `locked` array beside `data` so a client
+can tell which keys will do that before it tries, and each returned row carries its own
+`locked` flag (plus `lockedBy: "config"` when it is set).
+
 ## SDK
 
 ```ts
 const authkit = await createAuthkit({ mode: 'remote', baseUrl, apiKey })
 
-// Read
+// Read — an envelope, not a bare value
 const setting = await authkit.settings.get('session_policy')
-// -> { rememberEnabled: true, rememberDays: 30, ... }
+setting.key       // 'session_policy'
+setting.value     // { rememberEnabled: true, rememberDays: 30, ... }
+setting.updatedAt // ISO string, or null
+setting.updatedBy // who wrote it — 'cli' for the Ace commands, null otherwise
 
 // Write
 await authkit.settings.set('session_policy', { singleSession: true })
 
-// Delete (reset to config)
-await authkit.settings.delete('session_policy')
+// Delete (reset to the lib default)
+await authkit.settings.delete('session_policy') // -> { key, deleted }
 
 // List all
-const all = await authkit.settings.list()
+const all = await authkit.settings.list() // -> { data: [...] }
 ```
+
+For "who changed this", read the `settings.updated` audit events rather than `updatedBy` —
+the console and the Admin API record the actor in the audit trail and leave the column
+`null`; only the Ace commands stamp it, with `'cli'`.
 
 ## Ace CLI
 
@@ -239,10 +309,9 @@ accepted with a warning. All write commands audit `settings.updated` with `updat
 
 ## Setting up policy for the first time
 
-Policy fields (lockout, rate-limit buckets, password rules, trusted devices, notifications,
-impersonation, organisations) live exclusively in runtime settings — there are no matching
-config fields. Use the Admin Console or the CLI to set initial values; the lib defaults apply
-until you do.
+There is nothing to seed. Until you write a row, every key resolves to its library default,
+and those defaults are chosen to be a sane production posture on their own. Set what you
+want to differ, from the Admin Console or the CLI, and leave the rest alone.
 
 ```bash
 # Example: tighten the lockout policy
@@ -257,8 +326,16 @@ node ace authkit:settings:set password_policy \
 node ace authkit:settings:set trusted_devices '{"enabled":true,"days":7}'
 ```
 
-Infra fields (`store`, `secrets`, `pepper`, `legacyVerifier`) continue to live in
-`defineConfig` — they are code or secrets and are never managed at runtime.
+Infrastructure that is code or secrets — the limiter `store`, the password `pepper`, a
+`legacyVerifier`, the `botProtection.verify` callback — lives in `defineConfig` and is never
+managed at runtime.
+
+<Callout type="warn">
+  Two of the commands above only work while the key is unlocked. `lockout` and
+  `trusted_devices` both have a `defineConfig` counterpart, so declaring either field —
+  even purely for infrastructure, as in `lockout: { store: 'redis' }` — locks the key and
+  the CLI write fails. See [Config Locks](/docs/config-locks).
+</Callout>
 
 ## Fail-safes
 
@@ -267,15 +344,31 @@ Infra fields (`store`, `secrets`, `pepper`, `legacyVerifier`) continue to live i
   lib default.
 - **Invalid shape** — if the stored JSON does not match the expected shape (e.g. `enabled`
   is not a boolean), the resolve function ignores it and falls back to the lib default.
-- **All-off for `auth_methods`** — if all login methods would be disabled, AuthKit reverts
-  to the lib defaults and logs a warning. An empty login screen is never surfaced.
+- **All-off for `auth_methods`** — if the config pins and the setting together would leave
+  no login method enabled, AuthKit reverts to the config-derived defaults and logs a
+  warning. An empty login screen is never surfaced.
+
+A [config lock](/docs/config-locks) rides the same read path: a locked key also reads as
+`null`, so the resolver falls through to the config value. It is not a fail-safe, but it is
+why locking needed no changes to the resolvers.
 
 ## `authkit:doctor` checks
 
-`authkit:doctor` runs `checkSettings` which:
+The settings-related checks in `authkit:doctor` are about the seams where a stored value and
+the config can disagree — the failures that are silent at runtime because every resolver
+degrades gracefully instead of throwing:
 
-- **Table absent** — silently ok (opt-in feature).
-- **`bot_protection` row present but `botProtection.verify` absent from config** — `warn`:
-  the row is an orphan.
-- **`require_verified_email: true` but `isEmailVerified` capability absent** — `warn`.
-- **`maintenance_mode` or `registration` rows present but table absent** — `warn`.
+- **The `auth_settings` table** — absent is silently fine, it is an opt-in feature. Present
+  but with no `botProtection.verify` in the config is a `warn`: any `bot_protection` row you
+  stored is an orphan with nothing to enforce it. Otherwise `ok`, and the message names the
+  connection when the account store uses a named one, which is the fastest way to spot a
+  `search_path` mix-up.
+- **The `auth_methods` row** — `warn` when the stored shape is not an object, when it turns
+  every login method off (the runtime fail-safe will quietly revert to the config defaults),
+  or when its `social` list names a provider that is not in `social.providers` (the
+  intersection rule filters it out silently).
+- **The `roles_catalog` row** — `warn` when the shape is not `{ roles: [...] }`, and `warn`
+  when `admin.roles` in the config names a role the catalogue does not contain: admin access
+  depends on that role and nobody can be granted it from the console.
+- **`login.requireVerifiedEmail`** — `warn` when it is on but the account store has no
+  `isEmailVerified` capability, because the check is then a no-op and nobody is blocked.

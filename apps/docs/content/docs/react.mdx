@@ -1,24 +1,24 @@
 ---
 icon: Component
 title: React (Frontend)
-description: useAuth, gating components, and role helpers for Inertia + React.
+description: useAuth, gating components, permission checks, headless hooks, and the passkey tiers of @adonis-agora/authkit-react.
 ---
 
-`@adonis-agora/authkit-react` is the complete frontend SDK for AuthKit. It exports
-three orthogonal layers:
+`@adonis-agora/authkit-react` is the frontend SDK for AuthKit. It exports three orthogonal
+layers:
 
-| Layer                                   | What it does                                                                                                                 |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| **Auth state**                          | `useAuth()`, gating components (`Authenticated`, `Can`), role helpers                                                        |
-| **Headless hooks**                      | `useProfile()`, `useSessions()`, `useOrganizations()`, … — plain `useState`/`useEffect`, no React Query                      |
-| **Typed client + TanStack Query hooks** | `createAuthkitClient()`, `useUsersQueryOptions()`, `useMutation(useCreateUserMutationOptions())`, … — for management screens |
+| Layer                                   | What it does                                                                                                            |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **Auth state**                          | `useAuth()`, gating components (`Authenticated`, `Guest`, `CanPermission`), pure role helpers                            |
+| **Headless hooks**                      | `useProfile()`, `useSessions()`, `useOrganizations()`, the passkey hooks … — plain `useState`/`useEffect`, no React Query |
+| **Typed client + TanStack Query hooks** | `createAuthkitClient()`, `useUsersQueryOptions()`, `useMutation(useCreateUserMutationOptions())` … — for management screens |
 
 The first two layers are covered here. The typed client and TanStack hooks have their own
 page: **[Typed Client & TanStack Query](/docs/data-fetching)**.
 
-The package does **not** authenticate — it consumes the auth state the AdonisJS host already
+The package does **not** authenticate. It consumes the auth state the AdonisJS host already
 resolved (via [`@adonis-agora/authkit-client`](/docs/client)) and shared as an Inertia
-shared-prop.
+shared-prop, and it talks to JSON endpoints the host exposes.
 
 ## Install
 
@@ -27,33 +27,68 @@ pnpm add @adonis-agora/authkit-react
 ```
 
 `react`, `react-dom`, and `@inertiajs/react` are peer dependencies (the app provides them).
+`@simplewebauthn/browser` is an **optional** peer dependency, needed only by the passkey
+flows.
 
 ## 1. Share the `authkit` prop (host)
 
-Populate the shared-prop (`AuthSharedProps`) from your `Authenticator`, typically in
-`config/inertia.ts`:
+The React side reads a single shared-prop named `authkit`. You do not have to assemble it:
+the request `Authenticator` from `@adonis-agora/authkit-client` builds exactly the object
+the frontend expects.
 
 ```ts title="config/inertia.ts"
 import { defineConfig } from "@adonisjs/inertia";
 
 export default defineConfig({
   sharedData: {
-    authkit: async (ctx) => {
-      const auth = ctx.auth; // the Authenticator from authkit_middleware
-      const user = await auth.getUser();
-      return {
-        user: user ?? null,
-        globalRoles: auth.identity?.globalRoles ?? [],
-        // appRoles?: optional, if the host resolves app roles
-      };
-    },
+    // `ctx.auth` is the Authenticator installed by authkit_middleware
+    authkit: (ctx) => ctx.auth.toSharedProps(),
   },
 });
 ```
 
-The `user` object must match `AuthUser`:
-`{ id, email, name?, avatarUrl?, globalRoles, appRoles? }` — the output of the client's
-`identityToUser` / `resolveUser`.
+`toSharedProps()` resolves the session and returns `{ user, globalRoles }` — where `user` is
+whatever your `resolveUser` produced and `globalRoles` are the roles carried in the validated
+OIDC claims. **It returns `null` when there is no session**, because for an anonymous request
+there is nothing to share.
+
+`useAuth()` treats a missing or `null` prop as "not authenticated" and never throws, so the
+one-liner above is safe as written. In development it does log a warning when the prop is
+absent — if you would rather be explicit about the anonymous case (and keep the console
+quiet), collapse `null` into an empty state yourself:
+
+```ts title="config/inertia.ts"
+sharedData: {
+  authkit: async (ctx) =>
+    (await ctx.auth.toSharedProps()) ?? { user: null, globalRoles: [] },
+},
+```
+
+The shared `user` must be serialisable and match `AuthUser`:
+
+```ts
+interface AuthUser {
+  id: string;
+  email: string;
+  name?: string;
+  avatarUrl?: string;
+  globalRoles: string[];
+  // escape hatch: the host may attach extra domain fields
+  [key: string]: unknown;
+}
+```
+
+Those five fields are the type boundary between backend and frontend — they mirror what
+`resolveUser` / `identityToUser` derive from the OIDC identity. The index signature is
+deliberate: attach your own domain fields (plan, tenant, locale…) and read them in your
+components; AuthKit ignores what it does not know.
+
+<Callout type="info">
+  `globalRoles` are the roles the **IdP** asserts about the person — they answer "who is
+  this?", not "may they do this in *this* app". Per-application authorization lives in
+  `@adonis-agora/authz` (see [Roles and authorization](/docs/react#10-roles-and-authorization));
+  in React, you ask it through `useCan`/`CanPermission`.
+</Callout>
 
 ## 2. useAuth()
 
@@ -74,13 +109,18 @@ function Header() {
 }
 ```
 
-`useAuth()` never throws when the prop is missing — it returns an unauthenticated state
-(`user: null`, empty role lists).
+`useAuth()` returns `AuthState`: `{ user, isAuthenticated, globalRoles, hasGlobalRole,
+hasAnyGlobalRole, hasAllGlobalRoles }`. The three predicates are bound to the current user,
+so components never have to pass `user` around. The value is memoised on the shared-prop
+object, so it is stable across re-renders.
 
 ## 3. Gating components
 
+`Authenticated` and `Guest` are the two session-level gates. Both take `children` and an
+optional `fallback` (default `null`), and both read `useAuth()` — nothing else to wire.
+
 ```tsx
-import { Authenticated, Guest, Can } from '@adonis-agora/authkit-react'
+import { Authenticated, Guest } from '@adonis-agora/authkit-react'
 
 <Authenticated fallback={<LoginButton />}>
   <Dashboard />
@@ -89,71 +129,113 @@ import { Authenticated, Guest, Can } from '@adonis-agora/authkit-react'
 <Guest>
   <MarketingBanner />
 </Guest>
-
-{/* single global role */}
-<Can role="ADMIN">
-  <AdminPanel />
-</Can>
-
-{/* require all roles */}
-<Can roles={['ADMIN', 'BILLING']} mode="all" fallback={<NoAccess />}>
-  <BillingSettings />
-</Can>
-
-{/* an app-specific role */}
-<Can role="EDITOR" appRole>
-  <EditButton />
-</Can>
 ```
 
-### Authz permission gating
+For a **role** check, there is no dedicated component: a role is a synchronous boolean on
+state you already have, so a plain conditional is both shorter and honest about the cost.
 
-`<Can>`/`useAuth` gate on the **global roles** carried in the auth shared-prop. To
-gate on **Authz DB permissions** instead, use `useCan`/`<CanPermission>`, which
-consult the Authz endpoint over HTTP.
+```tsx
+function AdminLink() {
+  const { hasGlobalRole, hasAllGlobalRoles } = useAuth()
 
-Contract (fixed): `POST <canPath>` with JSON `{ permission, resource? }` →
-`{ allowed: boolean }`. The request is sent with credentials (cookies). The path
-defaults to `/authz/can` and is configurable through `AuthkitProvider`
+  return (
+    <>
+      {hasGlobalRole('ADMIN') && <a href="/admin">Admin</a>}
+      {hasAllGlobalRoles(['ADMIN', 'BILLING']) && <a href="/billing">Billing</a>}
+    </>
+  )
+}
+```
+
+### Permission gating with useCan and CanPermission
+
+Roles in the shared-prop cannot answer per-resource questions ("may this user edit *post
+42*?"). Those decisions live in the database, behind the authz service, and require a
+round-trip. `useCan` and `CanPermission` make that round-trip for you.
+
+The contract is fixed: `POST <canPath>` with JSON `{ permission, resource? }` responding
+`{ allowed: boolean }`. The request is sent with credentials (cookies) and the configured
+CSRF token. The path defaults to `/authz/can` and is configurable on `AuthkitProvider`
 (`canPath`, or the more explicit `endpoints.can`).
 
 ```tsx
-import { useCan, CanPermission } from "@adonis-agora/authkit-react";
+import { CanPermission, useCan } from "@adonis-agora/authkit-react";
 
-{
-  /* component */
+// Component form — declarative, with both fallbacks.
+function PostActions({ post }: { post: Post }) {
+  return (
+    <CanPermission
+      permission="posts.update"
+      resource={post.id}
+      loadingFallback={<Spinner />}
+      fallback={<ReadOnlyBadge />}
+    >
+      <EditPostButton post={post} />
+    </CanPermission>
+  );
 }
-<CanPermission
-  permission="posts.update"
-  resource="post:42"
-  fallback={<NoAccess />}
->
-  <EditButton />
-</CanPermission>;
 
-{
-  /* hook */
-}
-function EditButton() {
-  const { allowed, loading } = useCan("posts.update", "post:42");
+// Hook form — when the answer drives more than one branch of your own markup.
+function EditButton({ post }: { post: Post }) {
+  const { allowed, loading, error } = useCan("posts.update", post.id);
   if (loading) return <Spinner />;
+  if (error) return <p role="alert">Could not check permissions.</p>;
   return allowed ? <button>Edit</button> : null;
 }
 ```
 
-Results are cached and concurrent checks deduped in memory per
-`(permission, resource)`, so many `<CanPermission>`/`useCan` for the same pair
-trigger a single request. Configure the endpoint once on the provider:
+The decision is **fail-closed**: a network or server failure leaves `allowed` as `false` and
+surfaces the failure on `error`. A legitimate denial (`allowed: false`) leaves `error`
+undefined, so you can distinguish "not allowed" from "could not ask".
 
-```tsx
-<AuthkitProvider config={{ canPath: "/api/authz/can" }}>
-  {/* … */}
-</AuthkitProvider>
+Answers are memoised in-process and concurrent checks for the same question are deduped, so
+a table with fifty `CanPermission` rows for the same `(permission, resource)` pair issues one
+request. The cache key folds in the **current principal** (`user.id`, or an anonymous
+sentinel when signed out): after a logout, a user switch, or an org switch that changes the
+user identity, the key changes and the old answer is simply never served again — no manual
+clearing in your sign-out path.
+
+#### `checkCan` and `invalidateCanCache`
+
+`checkCan` is the React-free function behind the hook — useful in an event handler, a router
+guard, or a test with a mocked `fetch`:
+
+```ts
+import { checkCan, useAuthkitConfig } from "@adonis-agora/authkit-react";
+
+const config = useAuthkitConfig();
+
+async function confirmThenDelete(postId: string) {
+  const allowed = await checkCan(
+    config.endpoints.can, // path
+    "posts.delete", // permission
+    postId, // resource (optional)
+    config.csrfToken, // CSRF token (optional)
+    user.id, // principal — discriminates the cache (optional)
+  );
+  if (!allowed) return;
+  // …
+}
 ```
 
-This is just an HTTP call to a known contract — it is not coupled to
-`@adonis-agora/authz`. The Authz global-role bridge can read the `globalRoles`
-that `@adonis-agora/authkit-client` writes into the Agora context.
+Pass the same `principal` you would expect the hook to use (`useAuth().user?.id`); omitting
+it stores the answer under the anonymous principal, which is correct only for anonymous
+checks.
+
+`invalidateCanCache()` drops every memoised answer. Reach for it when permissions change
+**without** the principal changing — an admin edits the signed-in user's roles, a resource
+changes owner, or a test needs a clean slate:
+
+```ts
+import { invalidateCanCache } from "@adonis-agora/authkit-react";
+
+await saveRoleAssignment(); // the same user now has different permissions
+invalidateCanCache(); // next render re-asks the server
+```
+
+This is plain HTTP against a known contract, so it is not coupled to any particular
+implementation — but `@adonis-agora/authz` is the intended peer, and its global-role bridge
+can read the `globalRoles` that `@adonis-agora/authkit-client` writes into the Agora context.
 
 ## 4. AuthProvider (optional)
 
@@ -168,12 +250,15 @@ import { AuthProvider } from "@adonis-agora/authkit-react";
 </AuthProvider>;
 ```
 
+`AuthContext` itself is exported too, for the rare case where you need to read or override
+the raw context value.
+
 ## 5. AuthkitProvider (config)
 
-Wrap your app once to configure the URLs and JSON endpoints the headless data hooks and
+Wrap your app once to configure the URLs and JSON endpoints the headless hooks and the
 pre-built components use. Every field is optional — the defaults point at the **host-kit's
 real routes**. In a _client-app_ topology (the app is not the IdP), point these at local app
-routes that redirect/proxy to the IdP.
+routes that redirect or proxy to the IdP.
 
 ```tsx
 import { AuthkitProvider } from "@adonis-agora/authkit-react";
@@ -184,11 +269,15 @@ import { AuthkitProvider } from "@adonis-agora/authkit-react";
     logoutUrl: "/account/logout", // default
     profileUrl: "/account/security", // default
     csrfToken: page.props.csrfToken, // sent as X-CSRF-TOKEN on JSON mutations
+    idp: "authkit", // default; 'external' for a third-party IdP
     endpoints: {
       profile: "/account/security/profile", // GET user / POST update
       sessions: "/account/security", // GET sessions / trusted devices
       apps: "/account/apps", // GET apps; revoke at `${apps}/:clientId/revoke`
-      passkeys: "/account/mfa/passkeys",
+      passkeys: "/account/mfa/passkeys", // GET passkeys
+      orgs: "/account/orgs/json", // GET the user's organizations
+      orgInvitations: "/account/orgs/invitations/json", // GET pending invitations
+      can: "/authz/can", // POST permission check
     },
   }}
 >
@@ -196,12 +285,51 @@ import { AuthkitProvider } from "@adonis-agora/authkit-react";
 </AuthkitProvider>;
 ```
 
-`AuthkitProvider` also accepts an optional `value` prop to inject the auth state directly
-(same as `AuthProvider`), if you are not using Inertia shared props.
+Overrides are merged one level deep: passing a single `endpoints.orgs` keeps the defaults for
+the other six. `canPath` is a shorthand for `endpoints.can`; if you pass both, `endpoints.can`
+wins.
+
+`AuthkitProvider` also accepts an optional `value` prop that injects the auth state directly
+(same shape as `AuthProvider`), for apps that do not use Inertia shared props.
+
+### `idp` — which IdP is behind the app
+
+`idp` (`AuthkitIdpMode`) tells the components how much of the AuthKit REST surface actually
+exists:
+
+| Value                 | Meaning                                                                                                                                                                        |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `'authkit'` (default) | Your backend runs `@adonis-agora/authkit-server`. Everything works: profile, organizations, authorized apps, passkeys.                                                          |
+| `'external'`          | Your backend authenticates against a third-party IdP (Keycloak, Auth0, Okta…). Components that need the AuthKit REST surface render `null` instead of calling routes that 404.  |
+
+In `'external'` mode, `UserProfile`, `OrganizationSwitcher`, `OrganizationProfile`, and
+`AuthorizedApps` degrade to `null`, while `useAuth`, `Avatar`, `SignInButton`, and
+`SignOutButton` keep working — they only need the shared-prop and the login/logout URLs. See
+[Bring your own IdP](/docs/byo-idp) for the full topology.
+
+### Reading and building config
+
+| Export                 | What it is                                                                                              |
+| ---------------------- | --------------------------------------------------------------------------------------------------------- |
+| `useAuthkitConfig()`   | Reads the resolved config (`ResolvedAuthkitConfig`) from the nearest provider, or the defaults.          |
+| `AuthkitConfigContext` | The context itself — for a custom provider or a test wrapper.                                            |
+| `resolveConfig(cfg?)`  | Pure merge of a partial `AuthkitConfig` with the defaults. Same function the provider uses.              |
+| `DEFAULT_CONFIG`       | The fully resolved defaults, as a value you can inspect or spread.                                       |
+| `buildAuthUrl(base, returnTo?)` | Appends an encoded `returnTo` query param, choosing `?` or `&`. SSR-safe (never touches `window`). |
+
+```tsx
+import { useAuthkitConfig, buildAuthUrl } from "@adonis-agora/authkit-react";
+
+function CustomLoginLink() {
+  const { loginUrl } = useAuthkitConfig();
+  return <a href={buildAuthUrl(loginUrl, "/dashboard")}>Sign in</a>;
+}
+```
 
 ## 6. Headless hooks
 
-Composable hooks with no UI and no `@tanstack/react-query` dependency (plain `useState`/`useEffect`).
+Composable hooks with no UI and no `@tanstack/react-query` dependency (plain `useState`/
+`useEffect`). Data hooks share one shape: `{ data, loading, error, actions }`.
 
 ```tsx
 import {
@@ -216,7 +344,6 @@ import {
   useSwitchOrganization,
   useOrgInvitations,
   usePasswordStrength,
-  usePasskeyAutofill,
 } from "@adonis-agora/authkit-react";
 
 // OIDC is redirect-based — these navigate the browser.
@@ -229,7 +356,6 @@ signOut({ returnTo: "/" });
 
 const { user, isAuthenticated } = useUser(); // alias over useAuth
 
-// Data hooks → { data, loading, error, actions }
 const profile = useProfile();
 await profile.actions.update({ name: "New name" });
 
@@ -241,32 +367,70 @@ const apps = useAuthorizedApps();
 await apps.actions.revoke(clientId);
 
 // Organizations (multi-tenancy) — see Organizations for the full API
-const orgs = useOrganizations();
-const org = useOrganization(orgId);
+const { data: orgs, activeOrgId, supported } = useOrganizations();
+const org = useOrganization(activeOrgId); // pass null to skip fetching
 const sw = useSwitchOrganization();
 await sw.activate(orgId);
 await sw.deactivate();
 
 const invitations = useOrgInvitations();
 await invitations.actions.accept(token);
-
-// Password strength (signup / change-password forms)
-const { score, feedback } = usePasswordStrength(password);
-// score: 0–4 (4 = very strong)
-// feedback: string[] | undefined (improvement tips)
 ```
 
-The password strength hook uses a built-in lightweight heuristic by default. Provide a custom
-`scorer` to plug in a library like zxcvbn. See [Passwords & Migration](/docs/passwords-and-migration#react-usepasswordstrength--passwordstrengthmeter).
-
 The data hooks fetch JSON against the endpoints configured in `AuthkitProvider`, with
-`credentials: 'same-origin'` and the optional `X-CSRF-TOKEN` header.
+`credentials: 'same-origin'` and the optional `X-CSRF-TOKEN` header. They only fetch inside an
+effect, so they are SSR-safe.
+
+### Password strength
+
+`usePasswordStrength(password, options?)` returns `{ score, feedback? }`, where `score` is
+`0`–`4` (4 = strongest) and `feedback` is an optional list of actionable tips. The result is
+memoised on `(password, scorer)`, so typing does not thrash.
+
+```tsx
+const { score, feedback } = usePasswordStrength(password);
+```
+
+The default scorer is `heuristicScorer`, exported so you can call it outside React (server-side
+validation messaging, tests) or wrap it. It scores length (8 / 12 / 16 characters) plus
+character-class variety (lower, upper, digit, symbol) and returns tips for what is missing — no
+dependencies, no word list. It is a fast visual signal, not a real strength estimator.
+
+Swap in a real one through `scorer`, a `(password: string) => { score, feedback? }` function:
+
+```tsx
+import { zxcvbn } from "@zxcvbn-ts/core";
+import { usePasswordStrength } from "@adonis-agora/authkit-react";
+
+// Define the scorer at module scope: a new function identity on every render
+// would defeat the memoisation.
+const scorer = (password: string) => {
+  const { score, feedback } = zxcvbn(password);
+  return { score, feedback: feedback.suggestions };
+};
+
+function PasswordField({ password }: { password: string }) {
+  const { score, feedback } = usePasswordStrength(password, { scorer });
+  // …
+}
+```
+
+The [`PasswordStrengthMeter`](/docs/components#passwordstrengthmeter) component takes the same
+`scorer` prop and does the hook call for you.
+
+### Building your own data hook
+
+Every headless data hook above is `useResource` plus a few actions built on `jsonRequest`.
+Both are exported, so a screen with an endpoint AuthKit does not know about does not need a
+different fetching style. See
+[Building your own hook with useResource](/docs/data-fetching#building-your-own-hook-with-useresource).
 
 ## 7. Pre-built components
 
 The kit also ships small, accessible, themeable components built on the hooks above —
 `SignInButton`, `SignOutButton`, `UserButton`, `UserProfile`, `AuthorizedApps`, `Avatar`,
-`PasswordStrengthMeter`, `OrganizationSwitcher`, and `OrganizationProfile` — with
+`PasswordStrengthMeter`, `OrganizationSwitcher`, `OrganizationProfile`, `InteractionForm`,
+`MagicLinkButton`, `OAuthButton`, `PasskeyButton`, `CanPermission`, and `KeyRotation` — with
 `--authkit-*` CSS-variable theming. They have their own page:
 **[React Components](/docs/components)**.
 
@@ -279,30 +443,28 @@ background. The browser shows passkey suggestions directly inside an `<input>` e
 called with the serialised assertion.
 
 ```tsx
-import { usePasskeyAutofill } from "@adonis-agora/authkit-react";
+import { usePasskeyAutofill, interactionUrls, submitClassicForm } from "@adonis-agora/authkit-react";
 
 function LoginForm({ uid, csrfToken }: { uid: string; csrfToken: string }) {
+  const urls = interactionUrls(uid);
+
   usePasskeyAutofill({
-    optionsUrl: `/auth/interaction/${uid}/passkey/options`,
-    verifyUrl: `/auth/interaction/${uid}/passkey/verify`,
+    optionsUrl: urls.passkeyOptions,
+    verifyUrl: urls.passkeyVerify,
     csrfToken,
     onSuccess: (assertion) => {
-      // Submit the assertion to the verify endpoint and let the server redirect
-      const form = document.createElement("form");
-      form.method = "POST";
-      form.action = `/auth/interaction/${uid}/passkey/verify`;
-      const input = document.createElement("input");
-      input.type = "hidden";
-      input.name = "assertion";
-      input.value = assertion;
-      form.appendChild(input);
-      document.body.appendChild(form);
-      form.submit();
+      // The verify endpoint answers with a redirect, so it needs a real
+      // full-page POST — not a fetch.
+      submitClassicForm({
+        action: urls.passkeyVerify,
+        fields: { response: assertion, _csrf: csrfToken },
+      });
     },
   });
 
   return (
-    <form method="POST" action={`/auth/interaction/${uid}/login`}>
+    <form method="POST" action={urls.login}>
+      <input type="hidden" name="_csrf" value={csrfToken} />
       {/* autocomplete="username webauthn" is the key for conditional mediation */}
       <input
         type="email"
@@ -323,9 +485,11 @@ function LoginForm({ uid, csrfToken }: { uid: string; csrfToken: string }) {
 | ------------ | ----------------------------- | ------- | --------------------------------------------------------------------------------------------------------- |
 | `optionsUrl` | `string`                      | —       | `POST` endpoint that returns discoverable assertion options (server must support `allowCredentials: []`). |
 | `verifyUrl`  | `string`                      | —       | `POST` endpoint that verifies the assertion.                                                              |
-| `onSuccess`  | `(assertion: string) => void` | —       | Called with `JSON.stringify(assertion)` after the user selects a passkey.                                 |
-| `csrfToken`  | `string?`                     | —       | Sent as `X-CSRF-TOKEN` header on the options fetch.                                                       |
+| `onSuccess`  | `(assertion: string) => void` | —       | Called with the serialised assertion after the user selects a passkey.                                    |
+| `csrfToken`  | `string?`                     | —       | Sent as `x-csrf-token` header on the options fetch.                                                       |
 | `enabled`    | `boolean`                     | `true`  | Set to `false` to disable the hook (e.g. when `auth_methods.passkeyAutofill` is off).                     |
+
+The hook returns nothing: it is an effect, and `onSuccess` is the only output.
 
 ### Fail-safes
 
@@ -334,30 +498,248 @@ function LoginForm({ uid, csrfToken }: { uid: string; csrfToken: string }) {
 - **No conditional mediation support** — `PublicKeyCredential.isConditionalMediationAvailable()` is checked before starting; exits silently on older browsers.
 - **Unmount** — the in-flight ceremony is aborted via `AbortController` automatically.
 - **Any error** — swallowed; the standard password form is always available.
-- **`@simplewebauthn/browser` absent** — `@simplewebauthn/browser` is an *optional peer
-  dependency*: install it in your app (`npm i @simplewebauthn/browser@^13`) to enable passkeys.
-  There is no CDN fallback — a public CDN in the authentication path is a third party that can
-  take over your login. Autofill is silently skipped when the package is missing (it is
-  progressive enhancement); the explicit `usePasskeyLogin` flow throws with install instructions.
+- **`@simplewebauthn/browser` absent** — it is an *optional peer dependency*: install it in
+  your app (`npm i @simplewebauthn/browser@^13`) to enable passkeys. There is no CDN fallback —
+  a public CDN in the authentication path is a third party that can take over your login.
+  Autofill is silently skipped when the package is missing (it is progressive enhancement);
+  the explicit flows below throw with install instructions instead.
 
 The server-side counterpart is the `passkeyAutofill` field in the `auth_methods` runtime
 setting (default `true` when passkeys are configured). See
 [Settings](/docs/settings#complete-setting-catalog) for details.
 
-## Pure helpers
+## 9. Passkeys in three tiers
 
-For use outside components, the role functions are exported and React-free:
+Every passkey ceremony is the same three beats: `POST` the options, hand them to
+`@simplewebauthn/browser`, then submit the result as a **full-page form POST** (the AuthKit
+endpoints answer with a redirect, and `fetch` resolves redirects into a Response instead of
+navigating the browser). The package exposes that pipeline at three levels, and you pick by
+how much of it you want to own:
+
+<Cards>
+  <Card title="Component" description="A ready button for the default login screen. Renders, runs, disables itself, shows an error." />
+  <Card title="Hook" description="Your own button and layout inside a React screen; the hook owns the ceremony and the busy/error state." />
+  <Card title="Function" description="A screen that owns its own state machine (a wizard, a reducer, a non-React shell)." />
+</Cards>
+
+### Tier 1 — the component
+
+[`PasskeyButton`](/docs/components#passkeybutton) is the does-everything tier: give it the two
+interaction URLs and the CSRF token, and it renders the button, runs the ceremony on click,
+disables itself while busy, and shows an inline error on failure.
+
+```tsx
+import { PasskeyButton, interactionUrls } from "@adonis-agora/authkit-react";
+
+const urls = interactionUrls(uid);
+
+<PasskeyButton
+  optionsUrl={urls.passkeyOptions}
+  verifyUrl={urls.passkeyVerify}
+  csrfToken={csrfToken}
+>
+  Sign in with a passkey
+</PasskeyButton>;
+```
+
+### Tier 2 — the hooks
+
+Same flow, your markup. Each hook returns a trigger plus state, and none of them render
+anything.
+
+#### usePasskeyLogin
+
+Login by explicit click — the hook behind `PasskeyButton`. It fetches the options, runs `startAuthentication`, and then
+does the full-page POST to `verifyUrl` for you.
+
+```tsx
+import { usePasskeyLogin, interactionUrls } from "@adonis-agora/authkit-react";
+
+function PasskeyLogin({ uid, csrfToken }: { uid: string; csrfToken: string }) {
+  const urls = interactionUrls(uid);
+  const { authenticate, busy, failed } = usePasskeyLogin({
+    optionsUrl: urls.passkeyOptions,
+    verifyUrl: urls.passkeyVerify,
+    csrfToken,
+  });
+
+  return (
+    <>
+      <button type="button" onClick={authenticate} disabled={busy} className="my-button">
+        {busy ? "Waiting for your passkey…" : "Use a passkey"}
+      </button>
+      {failed && <p role="alert">That did not work. Try again or use your password.</p>}
+    </>
+  );
+}
+```
+
+`busy` stays `true` after a successful ceremony on purpose: the page is navigating away, and
+re-enabling the button would invite a second submit into a dying document. `failed` resets on
+the next attempt.
+
+Pass `onSuccess` to take over the verification step — the hook then hands you the serialised
+assertion, submits nothing, and clears `busy` (this is the same contract as
+`usePasskeyAutofill`, which makes it easy to route both entry points through one handler):
+
+```tsx
+const { authenticate, busy } = usePasskeyLogin({
+  optionsUrl: urls.passkeyOptions,
+  verifyUrl: urls.passkeyVerify,
+  csrfToken,
+  onSuccess: (assertion) => myOwnVerificationFlow(assertion),
+});
+```
+
+#### usePasskeyAssertion
+
+Confirming identity again (sudo). Sensitive account actions ask the user to prove who they are again. The endpoint answers with
+a redirect back to where they were, so the flow is a classic-form submit carrying `response`,
+`_csrf`, and an optional `return_to`.
+
+```tsx
+import { usePasskeyAssertion } from "@adonis-agora/authkit-react";
+
+function ConfirmWithPasskey({ csrfToken, returnTo }: { csrfToken: string; returnTo: string }) {
+  const { run, running, error } = usePasskeyAssertion({
+    optionsUrl: "/account/confirm/passkey/options",
+    actionUrl: "/account/confirm/passkey",
+    csrfToken,
+    returnTo,
+  });
+
+  return (
+    <>
+      <button type="button" onClick={run} disabled={running}>
+        {running ? "Confirming…" : "Confirm with a passkey"}
+      </button>
+      {error && <p role="alert">Could not confirm. Try again.</p>}
+    </>
+  );
+}
+```
+
+If the options request fails, the hook throws **before** touching the DOM: nothing navigates,
+`error` is set, and the button becomes clickable again.
+
+#### usePasskeyRegistration
+
+Enrolling a new passkey — the twin of `usePasskeyAssertion`, running the registration ceremony instead. Same
+`{ run, running, error }` result, same classic-form submit.
+
+```tsx
+import { usePasskeyRegistration } from "@adonis-agora/authkit-react";
+
+function AddPasskey({ csrfToken }: { csrfToken: string }) {
+  const { run, running, error } = usePasskeyRegistration({
+    optionsUrl: "/account/mfa/passkeys/options",
+    actionUrl: "/account/mfa/passkeys/verify",
+    csrfToken,
+  });
+
+  return (
+    <>
+      <button type="button" onClick={run} disabled={running}>
+        {running ? "Registering…" : "Add a passkey"}
+      </button>
+      {error && <p role="alert">Could not register that passkey.</p>}
+    </>
+  );
+}
+```
+
+### Tier 3 — the functions
+
+Nothing here touches React. Reach for this tier when your screen already owns the state — a
+reducer, a multi-step wizard, a test — or when you need to interleave your own steps between
+the ceremony and the submit.
+
+| Function                                     | What it does                                                                                                          |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `authenticatePasskey(options, deps?)`        | `POST`s the options, runs `startAuthentication`, resolves with the **serialised assertion**. Does not submit anything.  |
+| `registerPasskey(options, deps?)`            | Same, for registration; resolves with the serialised attestation.                                                      |
+| `submitPasskeyVerification(options)`         | Full-page POST of an assertion to a `verifyUrl` (`response` + optional `_csrf`).                                       |
+| `runPasskeyAssertion(options, deps?)`        | `authenticatePasskey` + classic-form submit to `actionUrl` (`response`, `_csrf`, `return_to`). The body of the sudo hook. |
+| `runPasskeyRegistration(options, deps?)`     | `registerPasskey` + the same submit. The body of the registration hook.                                                |
+| `submitClassicForm(options, deps?)`          | Builds a hidden `<form>` with your fields and submits it — a real navigation.                                          |
+| `loadStartAuthentication()`                  | Lazily imports `startAuthentication` from the app's `@simplewebauthn/browser`.                                          |
+| `loadStartRegistration()`                    | The same for `startRegistration`.                                                                                      |
+
+A screen that owns its own state machine:
+
+```tsx
+import {
+  authenticatePasskey,
+  submitPasskeyVerification,
+  interactionUrls,
+} from "@adonis-agora/authkit-react";
+
+async function signInWithPasskey(uid: string, csrfToken: string, signal: AbortSignal) {
+  const urls = interactionUrls(uid);
+
+  // 1. Ceremony only — you decide what happens between the beats.
+  const assertion = await authenticatePasskey(
+    { optionsUrl: urls.passkeyOptions, csrfToken, signal },
+    // deps are injection points for tests: { fetch, loadStartAuthentication }
+  );
+
+  await recordAnalytics("passkey.ceremony.completed");
+
+  // 2. Full-page POST — the server answers with a redirect.
+  submitPasskeyVerification({ verifyUrl: urls.passkeyVerify, assertion, csrfToken });
+}
+```
+
+`submitClassicForm` is the generic version of that last step, and the reason it exists is
+worth stating plainly: sudo, passkey verification, and passkey registration all answer with a
+`302`. Only a real form POST makes the browser follow it as a navigation.
+
+```ts
+import { submitClassicForm } from "@adonis-agora/authkit-react";
+
+submitClassicForm({
+  action: "/account/confirm/passkey",
+  fields: { response: assertion, _csrf: csrfToken, return_to: "/account/security" },
+});
+```
+
+Field insertion order is preserved, `method` defaults to `POST`, and the call is a silent
+no-op without a DOM — so an SSR pass never explodes on it.
+
+`loadStartAuthentication()` and `loadStartRegistration()` are the lazy loaders for the
+optional peer. Both reject with an install instruction when `@simplewebauthn/browser` is
+missing, which is what lets the autofill path stay silent while the explicit paths fail loudly:
+
+```ts
+import { loadStartAuthentication } from "@adonis-agora/authkit-react";
+
+const startAuthentication = await loadStartAuthentication(); // throws if the peer is absent
+```
+
+## 10. Roles and authorization
+
+The role helpers are pure functions over an `AuthUser`, exported for use outside components
+(route guards, selectors, tests):
 
 ```ts
 import {
   hasGlobalRole,
   hasAnyGlobalRole,
   hasAllGlobalRoles,
-  hasAppRole,
-  hasAnyAppRole,
-  hasAllAppRoles,
 } from "@adonis-agora/authkit-react";
 
 hasGlobalRole(user, "ADMIN");
 hasAnyGlobalRole(user, ["ADMIN", "TEACHER"]);
+hasAllGlobalRoles(user, ["ADMIN", "BILLING"]);
 ```
+
+All three accept `null`/`undefined` and answer `false`, so there is no null-check dance at the
+call site. `useAuth()` returns the same three predicates already bound to the current user.
+
+These read **global** roles — the ones the IdP asserts. That is the whole authorization
+surface AuthKit carries, and deliberately so: AuthKit authenticates, and per-application
+authorization (application roles, permissions, resource ownership) belongs to
+`@adonis-agora/authz`, which owns its own tables and policies. In React, that means:
+
+- **"Who is this, broadly?"** → `useAuth().hasGlobalRole(...)`, synchronous, free.
+- **"May they do this, here, to this thing?"** → [`useCan`/`CanPermission`](#permission-gating-with-usecan-and-canpermission), one cached round-trip to the authz endpoint.

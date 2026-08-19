@@ -12,7 +12,7 @@ Server is its own deployment or lives inside one of your product apps.
 A dedicated identity provider app — nothing but AuthKit. Product apps are all relying
 parties pointing at it. This is a dedicated `auth` app.
 
-```ts title="config/authkit_server.ts (standalone IdP)"
+```ts title="config/authkit.ts (standalone IdP)"
 const authServerConfig = defineConfig({
   issuer: env.get('AUTHKIT_ISSUER'), // https://auth.acme.com/oidc
   adapter: adapters.database({ connection: 'auth' }),
@@ -50,7 +50,7 @@ The provider runs **inside** an existing product app, and that app is also one o
 clients (host-is-its-own-client). This is the `acme-web` example: the same process
 serves the product *and* the OIDC endpoints.
 
-```ts title="config/authkit_server.ts (embedded)"
+```ts title="config/authkit.ts (embedded)"
 const authServerConfig = defineConfig({
   issuer: env.get('AUTHKIT_ISSUER'),
   adapter: adapters.database({ connection: 'auth' }),

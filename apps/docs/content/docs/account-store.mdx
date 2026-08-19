@@ -1,7 +1,7 @@
 ---
 icon: Container
 title: Account Store
-description: The AccountStore contract, the Lucid default, and the model mixins.
+description: The AccountStore contract, its twelve optional capabilities, the Lucid default, and the model mixins.
 ---
 
 The **`AccountStore`** is AuthKit's primary identity contract. `defineConfig` derives
@@ -11,10 +11,10 @@ directly — only the `AuthAccount` DTO the store returns.
 
 ## The contract
 
-As of **v0.3.0** the store is decomposed into a mandatory **core** plus three **optional
-capabilities**. The `AccountStore` type used by the config is the core intersected with a
-`Partial<>` of every capability, so existing configs that reference `AccountStore` keep
-compiling unchanged.
+The store is a mandatory **core** plus a set of **optional capabilities**. The
+`AccountStore` type used by the config is the core intersected with a `Partial<>` of every
+capability, so a store that implements nothing but the core still type-checks as an
+`AccountStore`.
 
 ```ts
 interface AuthAccount {
@@ -26,7 +26,7 @@ interface AuthAccount {
 }
 
 // Always present. Identity, signup, password reset, email verification, and admin.
-interface CoreAccountStore {
+interface CoreAccountStore extends AdminCapability {
   // Provider-facing
   findById(id: string): Promise<AuthAccount | null>
   verifyCredentials(email: string, password: string): Promise<AuthAccount | null>
@@ -36,78 +36,505 @@ interface CoreAccountStore {
   // Password reset
   issuePasswordResetToken(email: string): Promise<{ token: string; account: AuthAccount } | null>
   consumePasswordResetToken(token: string, newPassword: string): Promise<boolean>
-  // Email verification
+  // Email verification (writes the state)
   issueEmailVerificationToken(email: string): Promise<{ token: string; account: AuthAccount } | null>
   consumeEmailVerificationToken(token: string): Promise<boolean>
-  // Admin console (B6)
-  listAccounts(params: ListAccountsParams): Promise<Paginated<AuthAccount>>
-  setGlobalRoles(accountId: string, roles: string[]): Promise<void>
 }
 
-// Optional capabilities — implement the whole interface, or omit it entirely.
-interface MfaCapability { /* getMfaState, startTotpEnrollment, confirmTotpEnrollment, … */ }
-interface WebauthnCapability { /* generatePasskeyRegistrationOptions, listPasskeys, … */ }
-interface ProviderIdentityCapability { /* findByProviderIdentity, linkProviderIdentity */ }
-interface AccountSecurityCapability { /* changePassword, requestEmailChange, confirmEmailChange */ }
-interface AccountStatusCapability { /* disableAccount, enableAccount, isDisabled */ }
-interface ProfileCapability { /* updateProfile({ name?, avatarUrl? }) */ }
+// Folded into the core: the admin console and the Admin REST API call these directly.
+interface AdminCapability {
+  listAccounts(params: ListAccountsParams): Promise<Paginated<AuthAccount>>
+  setGlobalRoles(accountId: string, roles: string[]): Promise<void>
+  /** Optional fast path — see below. */
+  countByGlobalRole?(role: string): Promise<number>
+}
+```
 
-// What the config consumes.
+`countByGlobalRole` is the one optional member of the core. AuthKit cannot write a generic
+count query for it, because the shape of `globalRoles` is yours — a JSON column, a join
+table, a claim from somewhere else. Implement it if you know how to count efficiently in
+your own schema (the "last admin" invariant is the caller that asks); leave it out and the
+caller falls back to paging through `listAccounts`.
+
+Everything else is a **capability**: a named interface that a store either implements in
+full or omits entirely.
+
+```ts
 type AccountStore = CoreAccountStore &
   Partial<
     MfaCapability & WebauthnCapability & ProviderIdentityCapability &
-    AccountSecurityCapability & AccountStatusCapability & ProfileCapability
+    AccountSecurityCapability & AccountStatusCapability & ProfileCapability &
+    MagicLinkCapability & OtpLoginCapability & EmailVerificationStatusCapability &
+    AccountDeletionCapability & AccountImportCapability & OrganizationsCapability
   >
 ```
 
 A capability is **all-or-nothing**: a store either implements every method of
 `MfaCapability` or omits the capability completely — there are no half-present methods that
-throw. Narrow at runtime with the exported type guards:
+throw. That rule is what makes the whole design work, because AuthKit decides at runtime
+which features exist by **probing for a method**, not by reading a flag you set.
+
+## The capability probe
+
+Every optional capability ships an exported **type guard**. Each guard checks one
+representative method and narrows the store type on the true branch:
 
 ```ts
-import { supportsMfa, supportsPasskeys, supportsProviderIdentity, supportsAccountSecurity, supportsAccountStatus, supportsProfile } from '@adonis-agora/authkit-server'
+import { supportsMfa } from '@adonis-agora/authkit-server'
 
 if (supportsMfa(store)) {
-  await store.getMfaState(accountId) // typed as MfaCapability here
+  await store.getMfaState(accountId) // typed as AccountStore & MfaCapability here
 }
 ```
 
-- `supportsMfa(store)` → `store is AccountStore & MfaCapability` (checks `getMfaState`)
-- `supportsPasskeys(store)` → `store is AccountStore & WebauthnCapability` (checks `listPasskeys`)
-- `supportsProviderIdentity(store)` → `store is AccountStore & ProviderIdentityCapability` (checks `findByProviderIdentity`)
-- `supportsAccountSecurity(store)` → `store is AccountStore & AccountSecurityCapability` (checks `changePassword`); powers the `/account/security` page (change password / email)
-- `supportsAccountStatus(store)` → `store is AccountStore & AccountStatusCapability` (checks `disableAccount`); powers the admin **Disable / Enable** buttons and makes both login paths reject disabled accounts
-- `supportsProfile(store)` → `store is AccountStore & ProfileCapability` (checks `updateProfile`); powers the **Profile** section (name / avatar) on `/account/security`
+This is why a missing capability must mean *missing methods* rather than *methods that
+throw*. If you stub `getMfaState` with a placeholder that throws, `supportsMfa` returns
+`true`, AuthKit renders the MFA challenge, and the flow breaks at request time instead of
+degrading quietly.
 
-The Lucid store mounts `AccountStatusCapability` only when your model has a **`disabled_at`**
-column, and `ProfileCapability` only when it has a `full_name` and/or `avatar_url` column —
-probed via `Model.$columnsDefinitions`. Add the columns with your own migration; when they're
-absent the capability is genuinely missing and the corresponding UI is hidden.
+**Degradation is the point.** When a capability is absent AuthKit does not error — it
+removes the feature: the UI hides the section, the flow skips the step, and the REST/admin
+surfaces answer with an explicit "unsupported" status. The table below is the full map from
+guard to feature; each capability is detailed underneath.
 
-A store that omits MFA simply has it disabled (the interaction flow treats the absent
-capability as "no MFA"). The UI hides the passkeys section when `supportsPasskeys` is false.
-See [MFA](/docs/mfa) and [WebAuthn](/docs/webauthn).
+| Guard | Capability | Probes | Lights up | With `lucidAccountStore` |
+| --- | --- | --- | --- | --- |
+| `supportsMfa` | `MfaCapability` | `getMfaState` | TOTP second factor at login and enrollment on `/account/security` | always |
+| `supportsPasskeys` | `WebauthnCapability` | `listPasskeys` | Passkey registration and passkey login | needs `webauthnCredentialModel` |
+| `supportsProviderIdentity` | `ProviderIdentityCapability` | `findByProviderIdentity` | Social account linking, plus identity cascade on delete/export | needs `providerIdentityModel` |
+| `supportsAccountSecurity` | `AccountSecurityCapability` | `changePassword` | Change password / change email on `/account/security` | always |
+| `supportsAccountStatus` | `AccountStatusCapability` | `disableAccount` | Admin **Disable / Enable**; both login paths reject disabled accounts | needs a `disabled_at` column |
+| `supportsProfile` | `ProfileCapability` | `updateProfile` | The **Profile** section (name / avatar) | needs `full_name` and/or `avatar_url` |
+| `supportsMagicLink` | `MagicLinkCapability` | `issueMagicLinkToken` | Passwordless "email me a link" login | always |
+| `supportsOtpLogin` | `OtpLoginCapability` | `issueMagicLinkWithCode` + `verifyLoginCode` | The typable one-time code that rides along with the magic link | always |
+| `supportsEmailVerificationStatus` | `EmailVerificationStatusCapability` | `isEmailVerified` | The `login.requireVerifiedEmail` gate | needs an `email_verified_at` column |
+| `supportsAccountDeletion` | `AccountDeletionCapability` | `deleteAccount` | The account **danger zone**, `DELETE /users/:id`, and the LGPD/GDPR cascade | always |
+| `supportsAccountImport` | `AccountImportCapability` | `importAccount` | The `authkit:users:import` command | always |
+| `supportsOrganizations` | `OrganizationsCapability` | `createOrg` | Multi-tenancy: orgs, members, invitations, org claims | needs `organizationModels` |
+
+<Callout type="info">
+  "always" means the Lucid store mounts the capability for **any** model composed from the
+  AuthKit mixins — no extra models, no extra columns, no configuration. The three
+  column-probed rows are detected through `Model.$columnsDefinitions`, so adding the column
+  in your own migration is all it takes.
+</Callout>
+
+## The capabilities in detail
+
+<Accordions>
+
+<Accordion title="MfaCapability — supportsMfa">
+
+TOTP as a second factor. When the capability is absent the interaction flow treats it as
+"MFA off": nobody is ever challenged, and the enrollment UI is hidden. See [MFA](/docs/mfa).
+
+```ts
+interface MfaCapability {
+  getMfaState(accountId: string): Promise<{ enabled: boolean; enabledAt?: number | null }>
+  startTotpEnrollment(accountId: string): Promise<{ secret: string; otpauthUri: string } | null>
+  confirmTotpEnrollment(accountId: string, code: string): Promise<{ ok: boolean; recoveryCodes?: string[] }>
+  verifyTotp(accountId: string, code: string): Promise<boolean>
+  consumeRecoveryCode(accountId: string, code: string): Promise<boolean>
+  disableMfa(accountId: string): Promise<void>
+}
+```
+
+`enabledAt` (epoch ms) is the moment MFA was last enrolled. Trusted-device cookies issued
+before that instant are rejected, so re-enrolling MFA revokes every remembered device.
+
+</Accordion>
+
+<Accordion title="WebauthnCapability — supportsPasskeys">
+
+Passkeys as an alternative second factor. Absent → the passkeys section disappears from the
+account console and passkey login is not offered. See [WebAuthn](/docs/webauthn).
+
+```ts
+interface WebauthnCapability {
+  generatePasskeyRegistrationOptions(accountId: string): Promise<{ options: Record<string, unknown>; challenge: string } | null>
+  verifyPasskeyRegistration(accountId: string, response: unknown, expectedChallenge: string): Promise<boolean>
+  generatePasskeyAuthenticationOptions(accountId: string): Promise<{ options: Record<string, unknown>; challenge: string } | null>
+  verifyPasskeyAuthentication(accountId: string, response: unknown, expectedChallenge: string): Promise<boolean>
+  listPasskeys(accountId: string): Promise<PasskeySummary[]>
+  removePasskey(accountId: string, credentialId: string): Promise<void>
+}
+```
+
+The store holds no challenge state between the two halves of a ceremony: the `challenge`
+returned by a `generate*` call is the controller's to stash in the session and hand back as
+`expectedChallenge`.
+
+</Accordion>
+
+<Accordion title="ProviderIdentityCapability — supportsProviderIdentity">
+
+Account linking by `(provider, providerUserId)` — the stable key an OAuth provider gives
+you, independent of the email address. Absent → social sign-in cannot attach to an existing
+account, and the deletion cascade and data export skip the identity step. See
+[Account Linking](/docs/account-linking).
+
+```ts
+interface ProviderIdentityCapability {
+  findByProviderIdentity(provider: string, providerUserId: string): Promise<AuthAccount | null>
+  linkProviderIdentity(data: LinkProviderIdentityInput): Promise<void>
+  unlinkAllProviderIdentities(accountId: string): Promise<number>
+  listProviderIdentities(accountId: string): Promise<ProviderIdentitySummary[]>
+}
+```
+
+`listProviderIdentities` returns `provider`, `providerUserId` and an optional `email` — it
+never exposes provider tokens or secrets, because its consumer is the LGPD/GDPR data export.
+
+</Accordion>
+
+<Accordion title="AccountSecurityCapability — supportsAccountSecurity">
+
+Self-service password and email changes. Absent → the corresponding cards on
+`/account/security` are hidden.
+
+```ts
+interface AccountSecurityCapability {
+  changePassword(accountId: string, newPassword: string): Promise<boolean>
+  requestEmailChange(accountId: string, newEmail: string): Promise<{ token: string; account: AuthAccount; newEmail: string } | null>
+  confirmEmailChange(token: string): Promise<
+    | { ok: true; account: AuthAccount; oldEmail: string; newEmail: string }
+    | { ok: false }
+  >
+}
+```
+
+The email change is confirmed **on the new address**: `requestEmailChange` returns a token
+you mail there, and `confirmEmailChange` applies it. It also hands back `oldEmail` so you
+can send a security notice to the address that just lost the account. `requestEmailChange`
+returns `null` when the new address already belongs to somebody else. See
+[Compliance](/docs/compliance).
+
+</Accordion>
+
+<Accordion title="AccountStatusCapability — supportsAccountStatus">
+
+Suspending an account without deleting it. Absent → the admin console hides
+**Disable / Enable** and the Admin REST API answers `409` on those routes.
+
+```ts
+interface AccountStatusCapability {
+  disableAccount(accountId: string): Promise<void>
+  enableAccount(accountId: string): Promise<void>
+  isDisabled(accountId: string): Promise<boolean>
+}
+```
+
+When present, both login paths — the OIDC interaction and the account console — refuse a
+disabled account. See [Account Lockout](/docs/account-lockout).
+
+</Accordion>
+
+<Accordion title="ProfileCapability — supportsProfile">
+
+Editing one's own display name and avatar.
+
+```ts
+interface ProfileCapability {
+  updateProfile(
+    accountId: string,
+    patch: { name?: string | null; avatarUrl?: string | null },
+  ): Promise<AuthAccount | null>
+}
+```
+
+`undefined` fields are left untouched; `null` clears the value. That distinction is what
+lets a form submit a partial patch without wiping the field it did not render.
+
+</Accordion>
+
+<Accordion title="MagicLinkCapability — supportsMagicLink">
+
+Passwordless login by a single-use, short-lived link. The login screen offers "email me a
+link" only when `passwordless.magicLink` is on **and** the store implements this — with the
+capability absent the button never appears, whatever the config says. See
+[Passwordless](/docs/passwordless).
+
+```ts
+interface MagicLinkCapability {
+  issueMagicLinkToken(email: string): Promise<{ token: string; account: AuthAccount } | null>
+  consumeMagicLinkToken(token: string): Promise<AuthAccount | null>
+}
+```
+
+`issueMagicLinkToken` returns `null` for an unknown email, and the controller still renders
+"link sent" — the store's job is to say what happened, the controller's job is to not leak
+whether the account exists. Consuming a magic link authenticates; it never changes the
+password.
+
+</Accordion>
+
+<Accordion title="OtpLoginCapability — supportsOtpLogin">
+
+The typable code that goes out in the same email as the magic link, for people reading mail
+on another device. Absent (or `login.otp.enabled` off) → the login flow is exactly the
+magic-link flow, with no code field.
+
+```ts
+type OtpLoginVerifyResult =
+  | { status: 'ok'; account: AuthAccount }
+  | { status: 'invalid' }   // wrong code, attempt counted, not locked yet
+  | { status: 'locked' }    // attempts exhausted — code killed, link still valid
+  | { status: 'expired' }   // the code's TTL ran out
+  | { status: 'no_code' }   // nothing pending for this interaction
+
+interface OtpLoginCapability {
+  issueMagicLinkWithCode(
+    email: string,
+    uid: string,
+    opts: { digits: number; ttlMinutes: number },
+  ): Promise<{ token: string; code: string; account: AuthAccount } | null>
+  verifyLoginCode(
+    email: string,
+    uid: string,
+    code: string,
+    opts: { maxAttempts: number },
+  ): Promise<OtpLoginVerifyResult>
+}
+```
+
+One call issues both credentials: the `token` goes in the link, the `code` in the body of
+the message. Both are bound to `uid`, the OIDC interaction — a code minted for one login
+attempt is useless in another. The attempt counter lives with the code in the store, so
+lockout is fail-closed and does not depend on a rate limiter being reachable.
+
+</Accordion>
+
+<Accordion title="EmailVerificationStatusCapability — supportsEmailVerificationStatus">
+
+Reading whether an account's email is verified, as opposed to
+`consumeEmailVerificationToken`, which *writes* that state.
+
+```ts
+interface EmailVerificationStatusCapability {
+  isEmailVerified(accountId: string): Promise<boolean>
+}
+```
+
+This is the capability behind `login.requireVerifiedEmail`. Absent, the gate degrades to a
+no-op — **nobody is blocked**, because a store that cannot answer the question must not be
+allowed to lock everyone out. `authkit:doctor` reports exactly that combination (gate on,
+capability missing) as a warning, so the silent no-op is never a silent surprise. See
+[Compliance](/docs/compliance).
+
+</Accordion>
+
+<Accordion title="AccountDeletionCapability — supportsAccountDeletion">
+
+The "right to be forgotten" — deleting the account row itself.
+
+```ts
+interface AccountDeletionCapability {
+  deleteAccount(accountId: string): Promise<boolean>
+}
+```
+
+Absent → the account console hides its danger zone (`deletionSupported: false` reaches the
+page), the admin console hides the delete action, and the Admin REST API refuses
+`DELETE /users/:id`. Deleting the row is only the last step: sessions, grants, PATs,
+passkeys, provider identities, MFA material, the avatar and audit anonymisation are
+orchestrated around it. See [Compliance](/docs/compliance).
+
+</Accordion>
+
+<Accordion title="AccountImportCapability — supportsAccountImport">
+
+Bulk import from a system you are migrating off.
+
+```ts
+interface ImportAccountInput {
+  email: string
+  passwordHash?: string | null
+  fullName?: string | null
+  globalRoles?: string[]
+  emailVerified?: boolean
+}
+
+interface AccountImportCapability {
+  importAccount(input: ImportAccountInput): Promise<AuthAccount | null>
+}
+```
+
+It differs from `create` in two deliberate ways: the `passwordHash` is inserted **as-is**
+in whatever format the old system used — no re-hash — and the password policy is not
+applied to legacy data. The lazy rehash on first successful login migrates each account to
+your current hasher. `importAccount` returns `null` when the email already exists, which
+the importer counts as a skip rather than an error. Without this capability the
+`authkit:users:import` command reports every row as "store does not support account
+import". See [Passwords & Migration](/docs/passwords-and-migration).
+
+</Accordion>
+
+<Accordion title="OrganizationsCapability — supportsOrganizations">
+
+Multi-tenancy: organizations, members, invitations, and the active-org claims on the token.
+Absent → the account console's org page renders an "unsupported" state (`supported: false`),
+every write route on it refuses, the Admin REST API answers `404 capability_unsupported`
+on every `/organizations` route, and the deletion cascade skips org membership cleanup. See
+[Organizations](/docs/organizations).
+
+```ts
+interface OrgSummary {
+  id: string
+  name: string
+  slug: string
+  logoUrl?: string | null
+  metadata?: Record<string, unknown> | null
+  createdAt: string
+}
+
+interface OrgMember {
+  accountId: string
+  email?: string | null
+  role: string
+  joinedAt: string
+}
+
+interface OrgInvitation {
+  id: string
+  organizationId: string
+  email: string
+  role: string
+  invitedBy: string
+  expiresAt: string
+  acceptedAt?: string | null
+  createdAt: string
+}
+
+/** What the token minter needs to stamp org claims. */
+interface ActiveOrgInfo {
+  orgId: string
+  orgSlug: string
+  orgRole: string
+}
+```
+
+The capability itself is the largest in the contract — org CRUD, membership, invitations,
+and one cascade hook:
+
+```ts
+interface OrganizationsCapability {
+  // Org CRUD
+  createOrg(input: {
+    name: string
+    slug: string
+    logoUrl?: string | null
+    metadata?: Record<string, unknown> | null
+    ownerAccountId: string
+  }): Promise<OrgSummary>
+  findOrgById(orgId: string): Promise<OrgSummary | null>
+  findOrgBySlug(slug: string): Promise<OrgSummary | null>
+  listOrgsForAccount(accountId: string): Promise<Array<OrgSummary & { role: string }>>
+  updateOrg(
+    orgId: string,
+    patch: { name?: string; logoUrl?: string | null; metadata?: Record<string, unknown> | null },
+  ): Promise<OrgSummary | null>
+  deleteOrg(orgId: string): Promise<boolean>
+
+  // Members
+  listOrgMembers(orgId: string): Promise<OrgMember[]>
+  addOrgMember(orgId: string, accountId: string, role: string): Promise<void>
+  removeOrgMember(orgId: string, accountId: string): Promise<{ ok: boolean; reason?: 'not_found' | 'last_owner' }>
+  updateOrgMemberRole(orgId: string, accountId: string, newRole: string): Promise<{ ok: boolean; reason?: 'not_found' | 'last_owner' }>
+  getOrgMembership(orgId: string, accountId: string): Promise<{ role: string } | null>
+
+  // Invitations
+  createOrgInvitation(input: {
+    organizationId: string
+    email: string
+    role: string
+    invitedBy: string
+    ttlHours: number
+  }): Promise<{ invitation: OrgInvitation; token: string }>
+  findInvitationByTokenHash(tokenHash: string): Promise<OrgInvitation | null>
+  listPendingInvitationsForOrg(orgId: string): Promise<OrgInvitation[]>
+  listPendingInvitationsForEmail(email: string): Promise<OrgInvitation[]>
+  acceptInvitation(
+    invitationId: string,
+    accountId: string,
+  ): Promise<{ ok: boolean; reason?: 'not_found' | 'expired' | 'email_mismatch' | 'already_member' }>
+  revokeInvitation(organizationId: string, invitationId: string): Promise<boolean>
+
+  // Cascade (LGPD/GDPR)
+  removeAccountFromAllOrgs(accountId: string): Promise<{ memberships: number; invitations: number }>
+}
+```
+
+Two invariants are enforced inside the store rather than left to callers.
+`removeOrgMember` and `updateOrgMemberRole` refuse with `reason: 'last_owner'` rather than
+leaving an organization ownerless. And `revokeInvitation` is **scoped by org**: it takes
+the organization id as well as the invitation id and reports not-found when the invitation
+belongs to a different org, so knowing an invitation id is not enough to revoke it from
+outside.
+
+</Accordion>
+
+</Accordions>
 
 ## The Lucid default
 
-`lucidAccountStore(Model, options?)` implements the whole contract against a Lucid model:
+`lucidAccountStore(Model, options?)` implements the contract against a Lucid model:
 
-```ts
+```ts title="config/authkit.ts"
 import AuthUser from '#models/auth_user'
 import { lucidAccountStore } from '@adonis-agora/authkit-server'
 
 accountStore: lucidAccountStore(AuthUser, { mfaIssuer: 'Acme' })
 ```
 
-The `mfaIssuer` option is the label shown in authenticator apps; the store uses it to
-build the TOTP `otpauth` URI / QR keyuri.
+The `mfaIssuer` option is the label shown in authenticator apps; the store uses it to build
+the TOTP `otpauth` URI.
 
-`lucidAccountStore` assembles the store from per-capability builders
-(`accounts/lucid_store/`): the core is always present, and the MFA, WebAuthn, and
-provider-identity capabilities are **only spread onto the returned object when their
-options/columns are configured**. If you don't enable a capability, its methods are
-genuinely absent (not present-but-throwing), so the `supports*` type guards report the
-real shape of the store.
+The store is assembled per capability. The core, MFA, account security, magic link, OTP
+login, account import and account deletion are mounted for every model. The rest are
+conditional, and when a condition is not met the methods are genuinely absent from the
+returned object — which is precisely what makes the `supports*` guards tell the truth:
+
+| Capability | Mounted when |
+| --- | --- |
+| `WebauthnCapability` | you pass `webauthnCredentialModel` |
+| `ProviderIdentityCapability` | you pass `providerIdentityModel` |
+| `OrganizationsCapability` | you pass all three `organizationModels` |
+| `AccountStatusCapability` | the model has a `disabled_at` column |
+| `ProfileCapability` | the model has `full_name` and/or `avatar_url` |
+| `EmailVerificationStatusCapability` | the model has an `email_verified_at` column |
+
+Columns are probed through `Model.$columnsDefinitions`, so you add them with your own
+migration and the capability appears on the next boot. Nothing else changes.
+
+### `lucidStores` — the same wiring, declared once
+
+`lucidStores` builds the account store plus the PAT store and audit sink from one map of
+models, so `mfaIssuer` / `webauthn` / `encrypter` are declared a single time:
+
+```ts title="config/authkit.ts"
+import { lucidStores } from '@adonis-agora/authkit-server'
+
+const { accountStore, patStore, audit } = lucidStores(
+  {
+    account: AuthUser,
+    pat: PersonalAccessToken,
+    audit: AuditLog,
+    providerIdentity: ProviderIdentity,
+    webauthnCredential: WebauthnCredential,
+    organizations: {
+      OrgModel: Organization,
+      MemberModel: OrganizationMember,
+      InvitationModel: OrganizationInvitation,
+    },
+  },
+  { mfaIssuer: 'Acme' },
+)
+```
+
+It delegates to `lucidAccountStore`, so the capability rules are identical: pass the
+`webauthnCredential` model and passkeys light up, leave `organizations` out and
+`supportsOrganizations` is false. `patStore` and `audit` are returned only when their
+models are supplied.
 
 ## The model mixins
 
@@ -137,7 +564,35 @@ export default class AuthUser extends compose(
 
 If your users don't live in a Lucid model — or you need custom logic — implement
 `CoreAccountStore` yourself and pass it to `accountStore`. As long as the core methods
-fulfil the contract above, every host-kit flow keeps working. To add a capability, spread
-its full interface onto the same object; to keep it off, simply omit those methods — don't
-stub them with throwing placeholders, since the `supports*` guards (and the UI) rely on
-method presence to detect the capability.
+fulfil the contract above, every host-kit flow keeps working; you simply start with the
+smallest AuthKit and add features by adding capabilities.
+
+```ts title="app/auth/directory_account_store.ts"
+import type { AccountStore, AuthAccount } from '@adonis-agora/authkit-server'
+
+export function directoryAccountStore(): AccountStore {
+  return {
+    async findById(id) { /* … */ },
+    async findByEmail(email) { /* … */ },
+    async verifyCredentials(email, password) { /* … */ },
+    async create(input) { /* … */ },
+    async issuePasswordResetToken(email) { /* … */ },
+    async consumePasswordResetToken(token, newPassword) { /* … */ },
+    async issueEmailVerificationToken(email) { /* … */ },
+    async consumeEmailVerificationToken(token) { /* … */ },
+    async listAccounts(params) { /* … */ },
+    async setGlobalRoles(accountId, roles) { /* … */ },
+
+    // One capability, implemented whole. Now `supportsProfile(store)` is true and
+    // the Profile card appears on /account/security.
+    async updateProfile(accountId, patch) { /* … */ },
+  }
+}
+```
+
+<Callout type="warn">
+  Never stub a capability method with a throwing placeholder to "satisfy the interface".
+  The `supports*` guards — and therefore the UI, the REST responses and the login flow —
+  read method presence. A present-but-throwing method advertises a feature you do not have,
+  and the failure surfaces to a user mid-flow instead of never being offered.
+</Callout>

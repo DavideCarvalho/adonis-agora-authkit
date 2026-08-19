@@ -17,7 +17,7 @@ degrades to a no-op (fail-safe).
 The `lockout` block in `defineConfig` carries only the **infrastructure** `store` field.
 Policy is managed via the `lockout` runtime setting:
 
-```ts title="config/authkit_server.ts"
+```ts title="config/authkit.ts"
 defineConfig({
   // ...
   lockout: {

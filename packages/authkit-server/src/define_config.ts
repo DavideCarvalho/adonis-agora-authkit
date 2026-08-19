@@ -166,6 +166,19 @@ export interface MailHooks {
     token: string;
   }) => Promise<void>;
   /**
+   * Disparado pelo `authkit:expire-scan` quando uma conta está prestes a ser
+   * desativada por inatividade. Substitui o e-mail default de aviso quando
+   * fornecido. Best-effort, fire-and-forget; deduplicado pela janela de
+   * `warnDays` da setting `account_expiration`, então cada conta recebe no
+   * máximo um aviso por janela.
+   */
+  onAccountExpirationWarning?: (data: {
+    /** E-mail da conta que será desativada. */
+    email: string;
+    /** Dias restantes até a desativação. */
+    expiresInDays: number;
+  }) => Promise<void>;
+  /**
    * Disparado após um evento de segurança (senha alterada, MFA habilitado/desabilitado,
    * passkey adicionada/removida, e-mail alterado). Substitui o e-mail default quando
    * fornecido. Best-effort, fire-and-forget. Quando ausente, o host-kit envia o e-mail
@@ -1160,15 +1173,21 @@ export interface AuthServerConfigInput {
    */
   accessTokens?: AccessTokensConfig;
   /**
-   * Console admin do IdP (B6). Default: desligado. Quando ligado, o host também
-   * deve passar `admin: true` em {@link AuthHostOptions} no registro de rotas
-   * (a montagem das rotas acontece antes do config resolver).
+   * Console admin do IdP (B6). Default: desligado.
+   *
+   * Declarar esta chave TRAVA o liga/desliga: `registerAuthHost(router, { admin })`
+   * passa a ser ignorado (ver `deriveLockedRouteOptions`). Não repita o
+   * `enabled` no `start/routes.ts` — no máximo passe `admin: { prefix }`, que é
+   * estrutural e continua valendo.
    */
   admin?: AdminConfigInput;
   /**
-   * Admin REST API (R6). Default: desligada. Quando ligada, o host também deve
-   * passar `adminApi: true` em {@link AuthHostOptions} no registro de rotas (a
-   * montagem das rotas acontece antes do config resolver). Autenticação por API key.
+   * Admin REST API (R6). Default: desligada. Autenticação por API key.
+   *
+   * Declarar esta chave TRAVA o liga/desliga: `registerAuthHost(router, { adminApi })`
+   * passa a ser ignorado (ver `deriveLockedRouteOptions`). Não repita o
+   * `enabled` no `start/routes.ts` — no máximo passe `adminApi: { prefix }`, que
+   * é estrutural e continua valendo.
    */
   adminApi?: AdminApiConfigInput;
   /**
@@ -1185,8 +1204,16 @@ export interface AuthServerConfigInput {
    */
   resolveGeo?: ResolveGeo;
   /**
-   * Gestão automática do schema das tabelas do authkit (`authkit_oidc_payloads`,
-   * `auth_settings`, `auth_password_history` e as três de organizations).
+   * Gestão automática do schema das OITO tabelas do authkit:
+   * `authkit_oidc_payloads`, `auth_settings`, `auth_password_history`,
+   * `auth_mfa`, `auth_session_revocations` e as três de organizations
+   * (`auth_organizations`, `auth_organization_members`,
+   * `auth_organization_invitations`). Ver `TABLES` em `schema/ensure.ts` — a
+   * lista aqui existe para o leitor, mas quem manda é aquele array.
+   *
+   * FORA desta gestão: `authkit_keystore`, criada sob demanda pelo
+   * `LucidKeystoreVault` na primeira escrita, e as tabelas do MODEL do host
+   * (`auth_users` etc.), que são migrations do app.
    *
    * - `autoManage` (default `true`): no boot, cria as tabelas que faltam e
    *   adiciona colunas novas (aditivo — nunca dropa nem altera tipos).

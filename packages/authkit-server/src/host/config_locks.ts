@@ -97,7 +97,7 @@ export class SettingLockedError extends Error {
   readonly key: string;
   constructor(key: string) {
     super(
-      `A setting "${key}" foi definida via defineConfig() e está travada — não pode ser alterada em runtime (console/Admin API). Remova-a do defineConfig para liberar a edição pela UI.`,
+      `The setting "${key}" is declared in defineConfig() and is therefore locked — it cannot be changed at runtime through the console or the Admin API. Remove it from defineConfig to hand the key back to the UI.`,
     );
     this.name = 'SettingLockedError';
     this.key = key;
