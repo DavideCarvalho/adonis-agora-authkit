@@ -100,6 +100,23 @@ function verify(rawBody: string, header: string, secret: string): boolean {
 Every `AuditEvent` carries `accountId`, `email`, `clientId`, `actorId` (impersonation),
 `ip`, and free-form `metadata`. The timestamp is set by the sink.
 
+`AuditEventType` is derived from `AUDIT_EVENT_TYPES`, a `const` array exported from
+`@adonis-agora/authkit-server`. Import it when you need the set at runtime — to seed a
+filter UI, to validate stored rows, or to assert your own `switch` still covers
+everything:
+
+```ts
+import { AUDIT_EVENT_TYPES, type AuditEventType } from '@adonis-agora/authkit-server'
+
+const SECURITY_CRITICAL: AuditEventType[] = AUDIT_EVENT_TYPES.filter(
+  (type) => type.startsWith('impersonation') || type.startsWith('mfa.'),
+)
+```
+
+The union being derived from a value, rather than written out by hand, is what lets the
+library check itself: a spec scans every `audit.record()` call site and fails when an
+event is emitted that the list does not declare.
+
 | Event type | When |
 | --- | --- |
 | `login.success` | A login completed successfully. |
@@ -119,8 +136,8 @@ Every `AuditEvent` carries `accountId`, `email`, `clientId`, `actorId` (imperson
 | `pat.issued` | A Personal Access Token was created. |
 | `pat.revoked` | A PAT was revoked. |
 | `pat.used` | A PAT was used in an introspection request. |
-| `impersonation` | Impersonation was performed (RFC 8693 token exchange). |
-| `impersonation.started` | An admin viewed the impersonation panel for a user. |
+| `impersonation` | An identity was actually assumed — the RFC 8693 token exchange succeeded. This is the event that says an impersonation happened. |
+| `impersonation.panel_viewed` | An admin opened the console's impersonation panel and revealed the exchange parameters for a target user. Nothing was assumed: the exchange still has to be run with the admin's own access token, and it may never be. Emitted only once a usable panel exists, so a request that fails leaves no trail. |
 | `mfa.enabled` | TOTP was enrolled. |
 | `mfa.disabled` | TOTP was disabled. |
 | `account.locked` | An account was locked out after repeated login failures. |
@@ -133,6 +150,10 @@ Every `AuditEvent` carries `accountId`, `email`, `clientId`, `actorId` (imperson
 | `email_change.confirmed` | An email address change was confirmed (new address is now active). |
 | `security_notice.sent` | A security notification email was dispatched. `metadata.kind` contains the event kind (`password_changed`, `mfa_enabled`, etc.). |
 | `session.single_enforced` | Other sessions were revoked after a login when `session_policy.singleSession` is `true`. `metadata.revokedSessions` contains the count. |
+| `session.revoked` | A single session was revoked. |
+| `account.signed_out_all` | An account was signed out of every device. |
+| `client.secret_regenerated` | An OIDC client's secret was regenerated. |
+| `roles_catalog.updated` | The `roles_catalog` setting was changed. |
 | `password.expired_change_forced` | Login was interrupted to force a password change because `password_expiration` is enabled and the password exceeded `maxAgeDays`. |
 | `client.created` | An OIDC client was created. |
 | `client.updated` | An OIDC client was updated. |
