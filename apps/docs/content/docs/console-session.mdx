@@ -1,7 +1,7 @@
 ---
 icon: MonitorCog
 title: Console session & sudo mode
-description: Use the AuthKit console account session to protect any route, integrate third-party packages, and enforce step-up (sudo) authentication on sensitive operations.
+description: Reuse the console account session outside the console, and gate sensitive operations behind sudo mode and its pluggable confirmation methods.
 ---
 
 The AuthKit console (`/account/*`, `/auth/admin`) keeps its own account
@@ -9,13 +9,14 @@ session. Sometimes you want to reuse that session **outside** the
 console: protecting an admin route of your own, or gating a third-party
 package's dashboard to signed-in users only.
 
-For that, `@adonis-agora/authkit-server` exports public helpers — use
-them instead of reading `ctx.session` with the internal key
-(`account_user_id`), which is an implementation detail and may change:
+For that, `@adonis-agora/authkit-server` exports public helpers. Use them instead of
+reaching into `ctx.session` yourself: how the session records the account is an
+implementation detail, and the helpers keep working if it changes.
 
 ```ts
 import {
-  getAccountId,       // string | null — id of the signed-in account
+  getAccountId,       // string | null — the account this request is acting as
+  realAccountId,      // string | null — the human behind the request (see below)
   hasAccountSession,  // boolean
   consoleLoginUrl,    // login URL with an optional return_to
 } from '@adonis-agora/authkit-server'
@@ -67,76 +68,308 @@ export default defineConfig({
 
 ## Restricting by role
 
-`getAccountId()` returns the account id — combine it with your
-`accountStore` to check roles before granting access:
+Use `realAccountId()` for the check, not `getAccountId()`. The two differ during an
+impersonation: `getAccountId()` answers "which account is this request acting as", which is
+the impersonated user, while `realAccountId()` answers "who is actually driving this
+session" — the admin behind it. A role check asked of the impersonated account hands the
+admin's privileges to whoever is being impersonated, and strips the real admin of their own
+access.
 
 ```ts
+import { realAccountId, consoleLoginUrl } from '@adonis-agora/authkit-server'
+
 authorize: async (ctx) => {
-  const accountId = getAccountId(ctx)
+  const accountId = realAccountId(ctx)
   if (!accountId) return { redirectTo: consoleLoginUrl('/telescope') }
 
   const store = await ctx.containerResolver.make('authkit.accountStore')
   const account = await store.findById(accountId)
-  return account?.role === 'ADMIN'
+  return account?.globalRoles?.includes('admin') ?? false
 }
 ```
 
 ## Sudo mode (step-up authentication)
 
-Some operations should require recent re-authentication even when the user already has a
-valid session. AuthKit ships a **sudo mode** — after the user confirms their identity (password
-or passkey), a timestamp is stored in the session and remains valid for a configurable grace
-period (default 15 minutes). The `sudo_mode` runtime setting controls both `enabled` and
-`graceMinutes`.
-
-`@adonis-agora/authkit-server` exports the helpers you need in your own controllers:
+Some operations should require a fresh proof of identity even when the user already has a
+perfectly valid session: deleting an account, exporting personal data, minting a Personal
+Access Token, disabling MFA, changing an email address. AuthKit ships **sudo mode** for
+exactly that. The user confirms their identity on the console's confirmation screen, the
+grant is stamped on the session, and it stays valid for a grace window — 15 minutes by
+default. The `sudo_mode` runtime setting carries both knobs (`enabled` and `graceMinutes`)
+and has its own card in the admin console, so the policy can change without a redeploy — see
+[Runtime settings](/docs/settings).
 
 ```ts
 import {
-  requireSudo,        // redirects/401s when sudo grace has expired
-  isSudoActive,       // boolean check (no side-effects)
-  markSudo,           // stamp the session after a successful confirmation
-  SUDO_SESSION_KEY,   // raw session key ('authkit_sudo_at')
+  requireSudo,            // gate: returns true, or the redirect to the confirmation screen
+  isSudoActive,           // boolean check, no side effects
+  resolveEffectiveSudoMode, // reads the `sudo_mode` runtime setting
+  SUDO_SESSION_KEY,       // session key holding the grant timestamp
+  SUDO_ACCOUNT_SESSION_KEY, // session key binding the grant to one account
+  SUDO_MODE_DEFAULTS,     // { enabled: true, graceMinutes: 15 }
 } from '@adonis-agora/authkit-server'
 ```
 
-### Protecting a sensitive route
+### Gating one of your own routes
 
-```ts
-// app/settings/controllers/delete_account_controller.ts
+`requireSudo` takes two arguments: the HTTP context and a settings capability to read the
+`sudo_mode` policy from. It returns `true` when sudo is active (or disabled), and otherwise
+returns the redirect to the confirmation screen, with the current URL preserved as
+`return_to`.
+
+```ts title="app/settings/controllers/delete_account_controller.ts"
 import type { HttpContext } from '@adonisjs/core/http'
-import { requireSudo } from '@adonis-agora/authkit-server'
+import db from '@adonisjs/lucid/services/db'
+import { RuntimeSettings, requireSudo } from '@adonis-agora/authkit-server'
 
 export default class DeleteAccountController {
   async handle(ctx: HttpContext) {
-    // Redirects to /account/confirm when sudo grace has expired.
-    // Respects the `sudo_mode` runtime setting (enabled + graceMinutes).
-    await requireSudo(ctx)
+    const settings = new RuntimeSettings(db)
 
-    // ... proceed with deletion
+    const gate = await requireSudo(ctx, settings)
+    if (gate !== true) return gate
+
+    // ... proceed with the deletion
   }
 }
 ```
 
+`RuntimeSettings` is the bundled implementation of `SettingsCapability` over the optional
+`auth_settings` table — the same class the package uses internally, exported for this. If
+your AuthKit tables live on a named Lucid connection, pass it:
+`new RuntimeSettings(db, { connection: 'auth' })`. If the table does not exist, every read
+returns `null` and the defaults apply, so there is nothing to install before this works.
+
+Passing `null` instead is legitimate and means "do not consult the runtime setting": the
+gate runs against `SUDO_MODE_DEFAULTS` — enabled, 15-minute grace. Use it when you have no
+settings store at hand, and be aware of the consequence: turning sudo mode off in the admin
+console will not turn *your* gate off.
+
+Resolving the setting is fail-safe by design. A settings store that is down, a malformed
+value, a migration in flight — all of those fall back to the defaults instead of throwing,
+because the question being asked here is "is this policy switched on?", not "is this person
+who they claim to be". The identity half of the decision, in `isSudoActive`, is fail-closed.
+
 ### Checking without redirecting
 
-```ts
-import { isSudoActive } from '@adonis-agora/authkit-server'
+For an API route, an XHR endpoint or anything that must answer with JSON, read the policy
+and check the mark yourself:
 
-const active = isSudoActive(ctx, graceMinutes)
-if (!active) {
+```ts
+import db from '@adonisjs/lucid/services/db'
+import { RuntimeSettings, isSudoActive, resolveEffectiveSudoMode } from '@adonis-agora/authkit-server'
+
+const { enabled, graceMinutes } = await resolveEffectiveSudoMode(new RuntimeSettings(db))
+
+if (enabled && !isSudoActive(ctx, graceMinutes)) {
   return ctx.response.unauthorized({ error: 'sudo_required' })
 }
 ```
 
-### Marking sudo after a confirmation step
+### The grant is bound to one account
 
-If you add a custom confirmation screen, call `markSudo` after verifying the user's
-credentials:
+A timestamp on its own only says "somebody in this session proved their identity recently" —
+it does not say *who*. That matters because an Adonis session survives an account switch:
+`regenerate()` swaps the cookie id and **migrates** the data rather than dropping it. So the
+grant is stored together with the id of the account that produced it, and `isSudoActive`
+checks that binding **before** it looks at the grace window: a mark with no binding is
+refused, and a mark bound to a different account than the one currently signed in is refused
+too. Only then is the timestamp compared against the window.
+
+The ordering is deliberate. A mark from another account is not "expired sudo", it is sudo
+that never applied here. And the guarantee is structural rather than a cleanup someone has
+to remember: any path that changes the session's account — a shared browser where one person
+signs out and another signs in, starting or stopping an impersonation — invalidates the
+grant without new code. The cost is that the user reconfirms, which is cheap.
+
+### Confirmation methods
+
+What the confirmation screen offers is a pluggable list. Four methods ship with the package,
+exposed through the `sudoMethods` factory object:
+
+| Method | Factory | What it needs | How the screen renders it |
+| --- | --- | --- | --- |
+| Password | `sudoMethods.password()` | An account with a usable password, and a store that implements `verifyCredentials`. | A password field, posted to the confirmation screen. |
+| Passkey | `sudoMethods.passkey()` | A store that supports passkeys, and at least one passkey registered on the account. | A WebAuthn handshake in the browser, then a POST of the assertion. Requires JavaScript. |
+| Magic link | `sudoMethods.magicLink()` | An email address on the account. Delivery goes through the `mail.onSudoLink` hook when you declare one, and through the host kit's default mailer otherwise. | A single button that emails a confirmation link. |
+| OIDC step-up | `sudoMethods.oidcStepUp({ url })` | A route of your own that re-authenticates the user against your IdP, and a callback that grants the sudo. | A redirect to your URL. |
+
+Two availability details are worth knowing. The password method asks the store "does this
+account have a password hash?", which is not the same question as "does this user know a
+password" — a host that fills a `NOT NULL` column with a random unusable hash will see the
+method offered and the field unfillable; the fix is a nullable column, or leaving `password()`
+out of the list. And the sudo magic link is a **sudo-scoped** credential, never the login
+magic link: it grants sudo and never authenticates, it is single-use, it expires in five
+minutes, it only works in the browser session that requested it, and it is bound to the
+account that requested it.
+
+### Configuring the method list
+
+The list lives in `config/authkit.ts`. Array order is display order, and the method the user
+succeeded with last time is promoted to the top on the next visit:
+
+```ts title="config/authkit.ts"
+import { defineConfig, sudoMethods } from '@adonis-agora/authkit-server'
+
+export default defineConfig({
+  // ...
+  sudo: {
+    methods: [
+      sudoMethods.oidcStepUp({ url: '/auth/step-up' }),
+      sudoMethods.magicLink(),
+      sudoMethods.passkey(),
+    ],
+  },
+})
+```
+
+**Leaving the key out is not the same as writing the default list.** When `sudo.methods` is
+absent, the effective list is *derived* against the rest of your config:
+
+- a host with passwords gets `[password, passkey]`;
+- a host that declared `authMethods: { password: false }` gets `[passkey, magicLink]`, since
+  in that deployment a password field is an option that cannot succeed, and the magic link is
+  the one method an account with no pre-registered credential can satisfy.
+
+Route mounting and offering are two different decisions, taken at two different times.
+`registerAuthHost` mounts the endpoints for `[password, passkey, magicLink]` before the
+config resolves — mounting is not offering — and the derivation above then decides which of
+them the screen offers and which the handlers accept. Both sides read the same function, so
+they cannot drift: the screen never offers a method whose endpoint 404s, and never hides one
+that works.
+
+**Declaring the key turns the derivation off.** The list becomes yours, taken literally, in
+both directions. That is the promise of the option — it replaces the defaults rather than
+adding to them — and it is also the trap:
+
+<Callout type="error">
+  A passwordless host that declares `sudo.methods` without `oidcStepUp()` or `magicLink()`
+  leaves its users with no way to satisfy sudo at all. Both remaining built-ins require a
+  credential registered **beforehand**, which is precisely what such an account does not
+  have — and enrolling a passkey is itself behind sudo. The result is a lockout from every
+  operation gated by `requireSudo`: exporting and deleting one's own data, MFA, Personal
+  Access Tokens, changing an email address.
+</Callout>
+
+That is what the boot-time satisfiability warning shouts about. It fires when all four of
+these hold: you declared `sudo.methods` explicitly; the deployment has accounts without a
+usable password (`authMethods: { password: false }`, or `passwordless: { signup: true }`,
+whose public signup creates accounts with no usable password); none of the declared methods
+is one of the two that need no pre-registered credential; and every declared method is a
+built-in, so the package can actually *prove* the list is unsatisfiable. It warns rather than
+throwing: the failure mode is degradation that already fails closed, the fix is not always a
+one-line config change, and a heuristic that refuses to boot would eventually take down a
+correct host.
+
+<Callout type="info">
+  `sudo.methods` is a **policy** option. Declaring it in `defineConfig` locks the
+  `sudoMethods` argument of `registerAuthHost`: the config value wins, and the ignored
+  argument is reported through `AuthHostRouteMap.overriddenByConfig` and a boot warning. See
+  [Config locks](/docs/config-locks) and [Host Kit](/docs/host-kit).
+</Callout>
+
+### Granting sudo from your own callback
+
+`oidcStepUp` registers no routes at all — the flow leaves the package. The user is redirected
+to your URL, your code re-authenticates them against your IdP, and the grant happens in your
+callback. Three exports make that possible:
 
 ```ts
-import { markSudo } from '@adonis-agora/authkit-server'
-
-// After verifying password / passkey:
-markSudo(ctx) // stamps authkit_sudo_at = Date.now()
+import { sudoContextFrom, completeSudo, failSudo } from '@adonis-agora/authkit-server'
 ```
+
+- `sudoContextFrom(ctx)` builds the `SudoContext` — `{ ctx, cfg, accountId, account, returnTo }`
+  — by resolving the AuthKit service, loading the signed-in account (which can legitimately
+  be `null` for a live session whose account was deleted or anonymised) and **validating**
+  the `return_to`, accepting internal paths only. Hand-rolling the context means hand-rolling
+  that validation, which is an open redirect waiting to happen.
+- `completeSudo(context, methodId)` is the single point in the package that grants sudo. It
+  refuses when the account could not be loaded, stamps the mark bound to the account, records
+  the method so the screen can promote it next time, writes a `sudo.confirmed` audit event
+  with the method in its metadata, and redirects to the validated `return_to` (or to
+  `accountHome`). Reaching for `markSudo` instead grants the privilege with none of that —
+  no audit trail, no remembered method, no redirect.
+- `failSudo(context, messageKey)` flashes a localized error and sends the user back to the
+  confirmation screen with the destination preserved.
+
+`buildAuthorizeUrl` and `exchangeAndValidate` below are your own OIDC client — the package
+has no opinion about how you talk to your IdP.
+
+```ts title="start/routes.ts"
+router.get('/auth/step-up', async (ctx) => {
+  const accountId = getAccountId(ctx)
+  if (!accountId) return ctx.response.redirect(consoleLoginUrl(ctx.request.url()))
+
+  // The flag lives in the SESSION and carries the account id.
+  ctx.session.put('step_up', { accountId })
+  return ctx.response.redirect(await buildAuthorizeUrl({ prompt: 'login' }))
+})
+
+router.get('/auth/callback', async (ctx) => {
+  // Consume the flag FIRST, before any branch that can fail.
+  const pending = ctx.session.get('step_up') as { accountId: string } | undefined
+  ctx.session.forget('step_up')
+
+  const c = await sudoContextFrom(ctx)
+  if (!pending || pending.accountId !== c.accountId) {
+    return failSudo(c, 'account.confirm.error')
+  }
+
+  // Your OIDC client: validate state, PKCE and nonce before anything else.
+  const grant = await exchangeAndValidate(ctx)
+  if (!grant) return failSudo(c, 'account.confirm.error')
+
+  return completeSudo(c, 'oidc-step-up')
+})
+```
+
+Four rules that callback has to follow, and none of them can be enforced for you — the flag
+is written by your code and the package never sees it:
+
+1. **The flag lives in the session, never in the query string.** On the URL, anyone could
+   forge a callback that grants sudo.
+2. **Grant only after the grant is fully validated.** It is `prompt=login` that guarantees
+   the provider actually re-authenticated the user instead of reusing the existing session.
+3. **Consume the flag at the top of the callback**, before any branch that can fail — not
+   only on the success path. A flag that survives a failed callback turns the user's next
+   ordinary login into a silent sudo grant. Treat it as single-use.
+4. **The flag carries the account id, and the callback refuses when it does not match the
+   account signed in on return.** A bare boolean is not enough: rule 3 limits the flag to one
+   use, not to one account, and that one use can be the wrong person's. A missing flag is a
+   refusal too — tolerating `undefined` reopens the same hole from the other side.
+
+### Writing your own method
+
+A `SudoMethod` is a small object: a stable `id` (it lands in the audit metadata and in the
+remembered preference), `isAvailable(context)`, `describe(context)` returning how the screen
+should render the step (`kind` is `'form'`, `'action'`, `'redirect'` or `'webauthn'`, plus an
+`endpoint` and optional `fields`), and an optional `register(router, helpers)` for methods
+that need endpoints of their own.
+
+The central rule: **a method never grants sudo.** It decides only whether it verified
+something, and calls `helpers.completeSudo(context, id)` to let the runtime grant, audit and
+redirect. Spreading the grant across N methods would multiply by N the chances of someone
+granting without having verified.
+
+The router handed to `register` is wrapped. Every route the method registers is
+automatically refused when `sudo.methods` does not include the method — a config that only
+hid the option from the screen while the endpoint kept granting sudo would be worse than no
+config — and every route also gets the sudo rate-limit bucket, which is deliberately separate
+from the login bucket. The wrapper can only do that to **function** handlers, so registering
+a `[Controller, 'method']` tuple, or calling `router.resource()`, throws at boot with the
+fix: wrap the controller in a one-line function.
+
+### Why the SPI exists
+
+It exists to keep a passwordless host out of a sudo deadlock. Such a user has no password,
+and no passkey either until they enroll one — but enrolling a passkey is itself an operation
+behind sudo. The only methods that need no pre-registered credential are a link sent by
+email and a re-authentication against the host's own IdP, and neither can be a
+take-it-or-leave-it detail: if the email delivery depended on a mail hook someone had to
+write by hand, the emergency exit would be opt-in, and a host that never wrote the hook
+would ship the deadlock.
+
+So the pieces fit together: delivery of the sudo link falls back to the host kit's own
+mailer, the derived default list carries that method exactly on the hosts that need it, the
+boot-time check warns when an explicitly declared list closes the exit again, and a host that
+prefers re-authentication over email plugs in `oidcStepUp` — or writes a method of its own.
