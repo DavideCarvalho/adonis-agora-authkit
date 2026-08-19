@@ -166,6 +166,19 @@ export interface MailHooks {
     token: string;
   }) => Promise<void>;
   /**
+   * Disparado pelo `authkit:expire-scan` quando uma conta está prestes a ser
+   * desativada por inatividade. Substitui o e-mail default de aviso quando
+   * fornecido. Best-effort, fire-and-forget; deduplicado pela janela de
+   * `warnDays` da setting `account_expiration`, então cada conta recebe no
+   * máximo um aviso por janela.
+   */
+  onAccountExpirationWarning?: (data: {
+    /** E-mail da conta que será desativada. */
+    email: string;
+    /** Dias restantes até a desativação. */
+    expiresInDays: number;
+  }) => Promise<void>;
+  /**
    * Disparado após um evento de segurança (senha alterada, MFA habilitado/desabilitado,
    * passkey adicionada/removida, e-mail alterado). Substitui o e-mail default quando
    * fornecido. Best-effort, fire-and-forget. Quando ausente, o host-kit envia o e-mail
