@@ -1,5 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http';
 import type { NextFn } from '@adonisjs/core/types/http';
+import { ctxAuth } from '../host/ctx_auth.js';
 
 /**
  * Resolve a identidade da sessão (popula `ctx.auth`) SEM exigir login — útil em
@@ -11,7 +12,7 @@ import type { NextFn } from '@adonisjs/core/types/http';
  */
 export default class AuthkitSilentAuthMiddleware {
   async handle(ctx: HttpContext, next: NextFn) {
-    await ctx.auth.check();
+    await ctxAuth(ctx).check();
     return next();
   }
 }

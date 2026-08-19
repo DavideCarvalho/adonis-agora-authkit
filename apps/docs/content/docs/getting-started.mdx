@@ -409,6 +409,16 @@ declare module '@adonisjs/core/http' {
 
 That single declaration is what makes the examples below read as cleanly as they do.
 
+<Callout type="info">
+  **Only declare it once.** The library ships the same declaration, unparameterised, at
+  `@adonis-agora/authkit-client/types` — but nothing imports it on your behalf. Two
+  declarations of `HttpContext.auth` with different types do not merge: TypeScript keeps
+  whichever it reached first and reports the conflict inside a `.d.ts`, where
+  `skipLibCheck` discards it. So pick one. Declare your own as above when you want
+  `getUser()` typed as your model, or `import '@adonis-agora/authkit-client/types'` if you
+  are happy with the default and want no app-level file — never both.
+</Callout>
+
 **Identity vs User.** Two distinct things come out of the authenticator:
 
 - **Identity** — the OIDC claims, app-agnostic (`userId` = `sub`, `email`, `globalRoles`,
