@@ -1,8 +1,8 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
+import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { apiError } from '../admin_api/dto.js';
 import { roleCreateValidator, roleUpdateValidator } from '../admin_validators.js';
-import { ACCOUNT_SESSION_KEY } from '../middleware/account_auth.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import {
   type RoleCatalogEntry,

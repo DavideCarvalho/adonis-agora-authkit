@@ -1,5 +1,6 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
+import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { AdminOrgsService } from '../admin_api/admin_orgs_service.js';
 import { apiError, orgDetailDto, orgDto } from '../admin_api/dto.js';
 import {
@@ -9,7 +10,6 @@ import {
   orgMemberRoleValidator,
   orgUpdateValidator,
 } from '../admin_validators.js';
-import { ACCOUNT_SESSION_KEY } from '../middleware/account_auth.js';
 import { authkitOrigin } from '../origin.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import type { SettingsCapability } from '../runtime_settings.js';

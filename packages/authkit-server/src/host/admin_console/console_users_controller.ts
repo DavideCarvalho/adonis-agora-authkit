@@ -1,11 +1,11 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import { supportsAccountDeletion, supportsAccountStatus } from '../../accounts/account_store.js';
+import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { AdminUsersService } from '../admin_api/admin_users_service.js';
 import { apiError, grantDto, sessionDto, userDto } from '../admin_api/dto.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
 import { adminUserCreateValidator, adminUserRolesValidator } from '../admin_validators.js';
-import { ACCOUNT_SESSION_KEY } from '../middleware/account_auth.js';
 import type { RuntimeSettings } from '../runtime_settings.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { resolveEffectiveRolesCatalog } from '../runtime_toggles.js';

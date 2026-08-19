@@ -1,9 +1,9 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
+import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { apiError, grantDto, sessionDto } from '../admin_api/dto.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
 import { sessionAccountValidator } from '../admin_validators.js';
-import { ACCOUNT_SESSION_KEY } from '../middleware/account_auth.js';
 import { enrichSessionsWithContext } from '../session_context.js';
 
 /**

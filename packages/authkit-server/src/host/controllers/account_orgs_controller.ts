@@ -3,13 +3,13 @@ import type { HttpContext } from '@adonisjs/core/http';
 import { supportsOrganizations } from '../../accounts/account_store.js';
 import { getAccountLoginUrl } from '../account_login_url.js';
 import { accountPath } from '../account_paths.js';
+import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import {
   ACTIVE_ORG_COOKIE,
   ACTIVE_ORG_COOKIE_TTL,
   encodeActiveOrgCookie,
 } from '../active_org_cookie.js';
 import { sendOrgInvitationEmail } from '../default_mailer.js';
-import { ACCOUNT_SESSION_KEY } from '../middleware/account_auth.js';
 import { authkitOrigin } from '../origin.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { isRoleInCatalog } from '../runtime_toggles.js';

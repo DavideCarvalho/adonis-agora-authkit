@@ -1,5 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http';
-import { ACCOUNT_SESSION_KEY } from './middleware/account_auth.js';
+import { ACCOUNT_SESSION_KEY } from './account_session_key.js';
 
 /**
  * Ergonômico de SESSÃO de browser no RP para "personificar" (impersonate) um

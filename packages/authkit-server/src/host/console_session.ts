@@ -1,7 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http';
 import { getAccountLoginUrl } from './account_login_url.js';
+import { ACCOUNT_SESSION_KEY } from './account_session_key.js';
 import { impersonationState } from './impersonation_session.js';
-import { ACCOUNT_SESSION_KEY } from './middleware/account_auth.js';
 
 /**
  * Helpers públicos para integrar a sessão do console do AuthKit com

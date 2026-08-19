@@ -13,6 +13,7 @@ import {
   setAccountPaths,
 } from './account_paths.js';
 import { resolveAccountRoles } from './account_roles.js';
+import { ACCOUNT_SESSION_KEY } from './account_session_key.js';
 import { adminApiGuard } from './admin_api/admin_api_guard.js';
 import {
   normalizeAdminApiPrefix,
@@ -26,7 +27,6 @@ import {
   wasAuthHostAutoMounted,
 } from './auth_host_config.js';
 import type { PolicyRouteOption } from './config_locks.js';
-import { ACCOUNT_SESSION_KEY } from './middleware/account_auth.js';
 import { createAuthThrottles } from './rate_limit.js';
 import { resolveRuntimeSettings } from './runtime_settings.js';
 import { resolveEffectiveSessionPolicy } from './runtime_toggles.js';

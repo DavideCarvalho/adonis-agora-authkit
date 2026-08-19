@@ -12,6 +12,7 @@ import { AccountExportService } from '../account_export_service.js';
 import { getAccountLoginUrl } from '../account_login_url.js';
 import { accountPath } from '../account_paths.js';
 import type { AccountEmailConfirmedProps, AccountSecurityProps } from '../account_screen_props.js';
+import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
 import { syncAdonisAuthLogout } from '../adonis_auth_sync.js';
 import { AvatarUploadError, isAvatarUploadSupported, storeAvatar } from '../avatar_storage.js';
@@ -21,7 +22,6 @@ import {
   sendEmailChangedCompletedEmail,
 } from '../default_mailer.js';
 import { translate } from '../i18n.js';
-import { ACCOUNT_SESSION_KEY } from '../middleware/account_auth.js';
 import { authkitOrigin } from '../origin.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import {

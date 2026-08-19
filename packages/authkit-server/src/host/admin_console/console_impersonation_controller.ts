@@ -1,9 +1,9 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
+import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { apiError } from '../admin_api/dto.js';
 import { AdminClientsService } from '../admin_clients_service.js';
 import { type ImpersonationClientLike, buildImpersonationPanel } from '../impersonation.js';
-import { ACCOUNT_SESSION_KEY } from '../middleware/account_auth.js';
 import { resolveRuntimeSettingsOrNoop } from '../runtime_settings.js';
 import { resolveEffectiveAdminImpersonation } from '../runtime_toggles.js';
 
