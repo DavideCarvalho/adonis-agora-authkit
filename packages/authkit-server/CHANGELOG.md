@@ -1,5 +1,146 @@
 # @adonis-agora/authkit-server
 
+## 0.58.0
+
+### Minor Changes
+
+- 8f23a85: Derive `AuditEventType` from a runtime list, and declare the five events that
+  were missing from it.
+
+  The union was hand-written, and nothing checked it against the
+  `audit.record({ type: … })` call sites. Five event types shipped without ever
+  entering it — `login.magic_link_sent`, `session.revoked`, `account.signed_out_all`,
+  `client.secret_regenerated` and `roles_catalog.updated`. A consumer writing an
+  exhaustive `switch` over `AuditEventType` silently dropped all five, and
+  TypeScript could not say so: the events exist only as string literals inside the
+  library.
+
+  `AUDIT_EVENT_TYPES` is now exported as a `const` array and the union is
+  `(typeof AUDIT_EVENT_TYPES)[number]`. Because the list exists at runtime, a spec
+  can scan `src/` for audit emissions and fail when one is not declared — which is
+  what now stops the two from drifting apart again.
+
+- 8f23a85: The roles claim no longer disappears on hosts without a `branding` block.
+
+  The gate deciding who receives the authorization claims — `<globalRolesClaim>`,
+  `org_id`, `org_slug`, `org_role` — read `config.branding ? isFirstParty(…) : false`.
+  So the absence of a **theming** block meant "nobody is first-party": on any host
+  that had not customised its look, every relying party received `globalRoles: []`.
+  Silently, and asymmetrically, because the admin console reads roles from the
+  account session rather than from a token and kept working — which is what made it
+  so hard to see, on the very feature positioned as "authz is the single authority
+  on roles".
+
+  An authorization decision must not depend on whether the host picked a colour.
+  The allowlist now has its own key, `firstPartyClients: string[]`, and **not
+  declaring one means every registered client is first-party**. That is not a
+  free-for-all: the claims are bound to the `roles` scope in the provider, so a
+  client still has to be registered by an admin _and_ ask for `scope=roles`. The
+  allowlist is a third, optional barrier for hosts that register third-party
+  clients. `branding.firstParty` is still read as a fallback, so hosts that already
+  declared it keep exactly the restriction they have today, and an explicitly empty
+  list still means "nobody".
+
+  `authkit:doctor` gains `checkFirstPartyClients`, which warns when no allowlist is
+  declared and reports the list when it is. New export: `isFirstPartyClient`.
+
+- 8f23a85: Fix the admin console's "Impersonate" button, both halves of it.
+
+  **It could never have worked.** The panel was built from `cfg.clients`, which is
+  always `[]` in a real installation — clients live in the OIDC adapter, created
+  through the console, the Admin API or `authkit:clients:create`, and the resolved
+  config never carries them. So the endpoint answered `404 no_token_exchange_client`
+  on every host that had not kept legacy static clients. Only the test suite, which
+  declared static clients, ever saw it succeed. `buildImpersonationPanel` now takes
+  the candidate clients as an argument and the controller reads them from the
+  adapter, falling back to static config clients for legacy hosts and for adapters
+  that cannot enumerate. A confidential runtime client renders a `<CLIENT_SECRET>`
+  placeholder rather than an empty secret, because the adapter cannot hand back a
+  secret that was shown once at creation.
+
+  **And the audit trail lied about it.** The endpoint recorded
+  `impersonation.started` before the UI had done anything — so a request that then
+  404'd, or that the admin abandoned, left a record claiming an impersonation had
+  begun. Viewing the exchange parameters is not assuming an identity. The console
+  now records `impersonation.panel_viewed`, emitted only once a usable panel
+  exists; `impersonation` still belongs to the token-exchange handler, which is
+  where an identity is actually assumed. `impersonation.started` is gone from
+  `AuditEventType` — nothing emitted it under a truthful reading.
+
+  **The UI opened a field that never existed.** `result.data.url` type-checked only
+  because `ImpersonationPanel` in `@adonis-agora/authkit-react` carried an
+  `[key: string]: unknown` index signature; at runtime it was always
+  `window.open(undefined)`. The type is now closed over the real response, so that
+  line no longer compiles, and the console renders the exchange parameters with a
+  copyable request instead of trying to navigate somewhere.
+
+- 8f23a85: Organization invitations send an email even without a `mail.onOrgInvitation` hook.
+
+  `onOrgInvitation` was the only hook in `MailHooks` with no default-mailer
+  fallback. Every other one degrades to a branded, translated email the host kit
+  sends itself; this one was guarded by a bare `if (cfg.mail?.onOrgInvitation)`
+  with no `else`, so a host that had not written the hook created the invitation
+  row and sent nothing. The invited person was never told they had been invited,
+  and nothing anywhere reported a problem.
+
+  `sendOrgInvitationEmail` now exists alongside the other `send*Email` functions,
+  with `mail.org_invitation.*` messages in both the English and pt-BR tables, and
+  both HTTP call sites — the account-facing controller and the admin service — use
+  the host hook when present and the library default otherwise. Delivery stays
+  best-effort: a mail failure never breaks invitation creation.
+
+  The SDK's embedded driver reached the same service through a third door and had
+  to be fixed with it. Its out-of-band context now carries the container resolver
+  and a logger, which is all the default mailer reads, so an invitation created
+  through `authkit.organizations.invitations.create()` reaches an inbox too rather
+  than reproducing the original silent failure one layer down.
+
+  One latent bug fell out of the rework: the account controller resolved the
+  organization and the issuer origin _outside_ its `try`, so a config with an
+  unresolvable issuer would have thrown out of a path that must never break
+  invitation creation. Both are inside the guarded block now.
+
+### Patch Changes
+
+- 8f23a85: Ship the module augmentations so they actually reach a consuming app.
+
+  **The client.** `HttpContext.auth` was declared in the package's root `types.ts`,
+  and nothing reachable from `build/index.d.ts` referenced that file — so TypeScript
+  never loaded it in a host app and `ctx.auth` came back as `Property 'auth' does
+not exist on type 'HttpContext'`, no matter what the app imported. Verified
+  against packed tarballs in a scratch AdonisJS app across five wiring variants; a
+  `/// <reference path>` straight at the built `types.d.ts` type-checked cleanly,
+  which isolates it to reachability rather than to the declarations. The
+  augmentation is now pulled in by a bare side-effect import from
+  `authkit_middleware` — the middleware that actually assigns `ctx.auth`, and the
+  one `configure` registers.
+
+  Putting that import in `index.ts` was considered and rejected: apps that hand
+  `ctx.auth` to `@adonisjs/auth` through `authkitClientGuard` would then load two
+  competing `HttpContext.auth` declarations, and because `skipLibCheck` is on in
+  every AdonisJS app the conflict is not reported — one simply wins by include
+  order. Anchoring on the middleware keeps the two owners of `ctx.auth` mutually
+  exclusive, the same way `@adonisjs/auth` does with its own
+  `initialize_auth_middleware`.
+
+  **The server** was a smaller problem than it first looked. Hosts _were_ getting
+  `app.container.make('authkit.server')` typed all along, because the service
+  provider carried its own copy of the `ContainerBindings` declaration and every
+  host registers the provider. What was broken is that `exports["./types"]` pointed
+  at the barrel rather than at the built `types.js`, so importing
+  `@adonis-agora/authkit-server/types` gave `Property 'authkit.server' does not
+exist on type 'ContainerBindings'`.
+
+  Retargeting that subpath exposed a second problem: the root `types.ts` declared
+  one binding while the provider declared four, so the newly-live subpath was a
+  partial view. Two binding tables with nothing checking they agree is how they
+  drifted in the first place, so there is one table now — in `types.ts`, with the
+  provider reaching it through a side-effect import.
+
+  **`adonisjs.types` covers neither package.** No version of `@adonisjs/core`,
+  `@adonisjs/assembler` or `@adonisjs/application` in this repo's dependency tree
+  reads that package.json field. It is an AdonisJS 5 leftover, left alone.
+
 ## 0.57.1
 
 ### Patch Changes
