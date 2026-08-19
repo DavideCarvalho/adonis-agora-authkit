@@ -93,8 +93,8 @@ import AuthOrganization from '#models/auth_organization'
 import AuthOrganizationMember from '#models/auth_organization_member'
 import AuthOrganizationInvitation from '#models/auth_organization_invitation'
 
-accountStore: lucidAccountStore({
-  // …your existing model config…
+accountStore: lucidAccountStore(AuthUser, {
+  // …your existing options (mfaIssuer, password, …)…
   organizationModels: {
     OrgModel: AuthOrganization,
     MemberModel: AuthOrganizationMember,
@@ -121,6 +121,65 @@ these claims are added to every id_token, userinfo response, and JWT access toke
   Org claims are only emitted when the user has an active org. A new login or token refresh
   is required to see claims for a newly joined organization.
 </Callout>
+
+## Consuming the tenant in a relying party
+
+On the client side (`@adonis-agora/authkit-client`) the org claims are promoted to
+first-class fields on the resolved `Identity` — you do not have to reach into `identity.raw`:
+
+```ts
+const identity = await ctx.auth.getIdentity()
+identity.orgId    // 'org-9'  | null
+identity.orgSlug  // 'acme'   | null
+identity.orgRole  // 'owner'  | null
+```
+
+The derivation also accepts the tenant claims other IdPs emit (`active_organization_id`,
+`organization_id`, `tenant_id`, `tid`), so an app behind a third-party IdP (see
+[BYO IdP](/docs/byo-idp)) reads the same field. `active_organization_id` wins when several
+are present.
+
+That same value is published to `@adonis-agora/context` as `tenantId`, which is what lets
+`@adonis-agora/authz` scope roles and queries per tenant automatically:
+
+```ts title="config/authz.ts"
+import { tenantFromContext } from '@adonis-agora/authz'
+
+defineConfig({ resolveTenant: tenantFromContext })
+```
+
+### Requiring an active organization
+
+Authenticated is not the same as *inside a tenant*. A logged-in user with no active org
+reaches your controller with an undefined tenant — and a tenant-scoped authz check then
+falls back to the **global** scope, which is the worst place to land by accident. The
+`requireOrg` middleware closes that:
+
+```ts title="start/kernel.ts"
+export const middleware = router.named({
+  auth: () => import('@adonis-agora/authkit-client/auth_middleware'),
+  requireOrg: () => import('@adonis-agora/authkit-client/require_org_middleware'),
+})
+```
+
+```ts title="start/routes.ts"
+// Web: redirects to the org picker (default `/account/orgs`).
+router.group(() => { /* … */ }).use([middleware.auth(), middleware.requireOrg()])
+
+// API: 403 `no_active_organization` instead of a redirect.
+router.group(() => { /* … */ }).use([middleware.auth(), middleware.requireOrg({ mode: 'api' })])
+
+// Restrict to a known set of tenants.
+router.get('/internal', [C, 'x']).use(middleware.requireOrg({ oneOf: ['org-9'] }))
+```
+
+| Option | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `redirectTo` | `string` | `/account/orgs` | Where `web` mode sends a user with no active org. |
+| `mode` | `'web' \| 'api'` | `'web'` | `api` responds `403` with a JSON body. |
+| `oneOf` | `string[]` | — | Only these org ids pass. |
+
+It is fail-closed: no session, or no active org, means no pass.
 
 ## Account console — `/account/orgs`
 
@@ -167,6 +226,41 @@ mail: {
   },
 }
 ```
+
+## Reacting to organization events
+
+Every organization operation is audited, and each audit event carries `orgId` as a
+**first-class field**. Wire `events.onEvent` (or a webhook) to keep your own tables in sync
+without depending on any other Agora library — see
+[Events → Provisioning your own database](/docs/events#provisioning-your-own-database):
+
+```ts title="config/authkit_server.ts"
+events: {
+  onEvent: async (event) => {
+    if (event.type === 'organization.created') {
+      await Company.create({ authOrgId: event.orgId! })
+    }
+  },
+}
+```
+
+If you *do* use `@adonis-agora/authz`, its event-driven provisioning subscribes to the same
+events off the diagnostics bus and can assign tenant-scoped roles directly:
+
+```ts
+await defineAuthzProvisioning({
+  store,
+  on: {
+    'organization.created': (event, store) =>
+      store.assignRole({ type: 'user', id: event.accountId! }, 'org:owner', {
+        tenantId: event.orgId!,
+      }),
+  },
+})
+```
+
+Read `event.orgId` from the top level. The diagnostics bus strips `metadata` (it may contain
+PII), so `event.metadata.orgId` is `undefined` on that path.
 
 ## Governance invariants
 

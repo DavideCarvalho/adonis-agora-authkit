@@ -171,6 +171,7 @@ export class AdminOrgsService {
         accountId: input.ownerAccountId,
         actorId: actor.actorId,
         ip: actor.ip,
+        orgId: org.id,
         metadata: { slug: org.slug, ...(actor.source ? { actor: actor.source } : {}) },
       });
 
@@ -206,6 +207,7 @@ export class AdminOrgsService {
         type: 'organization.updated',
         actorId: actor.actorId,
         ip: actor.ip,
+        orgId,
         metadata: { orgId, ...(actor.source ? { actor: actor.source } : {}) },
       });
 
@@ -232,6 +234,7 @@ export class AdminOrgsService {
       type: 'organization.deleted',
       actorId: actor.actorId,
       ip: actor.ip,
+      orgId,
       metadata: { orgId, slug: existing.slug, ...(actor.source ? { actor: actor.source } : {}) },
     });
 
@@ -271,6 +274,7 @@ export class AdminOrgsService {
       type: 'organization.member_added',
       actorId: actor.actorId,
       ip: actor.ip,
+      orgId,
       metadata: {
         orgId,
         accountId: input.accountId,
@@ -310,6 +314,7 @@ export class AdminOrgsService {
       type: 'organization.member_removed',
       actorId: actor.actorId,
       ip: actor.ip,
+      orgId,
       metadata: {
         orgId,
         targetAccountId: accountId,
@@ -356,6 +361,7 @@ export class AdminOrgsService {
       type: 'organization.member_role_changed',
       actorId: actor.actorId,
       ip: actor.ip,
+      orgId,
       metadata: {
         orgId,
         targetAccountId: accountId,
@@ -433,6 +439,7 @@ export class AdminOrgsService {
       type: 'organization.invitation_sent',
       actorId: actor.actorId,
       ip: actor.ip,
+      orgId,
       metadata: {
         orgId,
         email: input.email,
@@ -470,6 +477,7 @@ export class AdminOrgsService {
       type: 'organization.invitation_revoked',
       actorId: actor.actorId,
       ip: actor.ip,
+      orgId,
       metadata: {
         orgId,
         invitationId,

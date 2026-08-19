@@ -42,6 +42,7 @@
     "./authkit_context_middleware": "./build/src/middleware/authkit_context_middleware.js",
     "./backchannel_revocation_middleware": "./build/src/middleware/backchannel_revocation_middleware.js",
     "./auth_middleware": "./build/src/middleware/auth_middleware.js",
+    "./require_org_middleware": "./build/src/middleware/require_org_middleware.js",
     "./silent_auth_middleware": "./build/src/middleware/silent_auth_middleware.js",
     "./commands": "./build/commands/configure.js"
   },

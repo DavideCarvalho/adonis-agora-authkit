@@ -208,6 +208,8 @@ test.group('events/dispatcher — composeAuditSink', () => {
       accountId: 'acc-1',
       actorId: 'admin-1',
       clientId: 'app1',
+      // `orgId` faz parte da projeção (id opaco); null quando o evento não é de org.
+      orgId: null,
     });
     // garantia explícita: chaves de PII ausentes (não apenas null/undefined).
     assert.notProperty(redacted, 'email');
@@ -297,5 +299,43 @@ test.group('events — resolveEvents + define_config wiring', () => {
     assert.notStrictEqual(resolved.audit, original);
     await resolved.audit!.record({ type: 'login.success', email: 'a@b.c' });
     assert.lengthOf(persisted, 1);
+  });
+});
+
+test.group('events/dispatcher — orgId no barramento de diagnostics', () => {
+  test('buildWebhookBody inclui o orgId (integração externa escopa por tenant)', ({ assert }) => {
+    const body = JSON.parse(
+      buildWebhookBody({
+        type: 'organization.member_added',
+        accountId: 'acc-1',
+        orgId: 'org-9',
+        metadata: { role: 'member' },
+      }),
+    );
+    assert.equal(body.orgId, 'org-9');
+  });
+
+  test('buildWebhookBody devolve orgId null em evento sem org', ({ assert }) => {
+    const body = JSON.parse(buildWebhookBody({ type: 'login.success', accountId: 'acc-1' }));
+    assert.isNull(body.orgId);
+  });
+
+  test('redactAuditEventForDiagnostics preserva orgId (id opaco, não-PII)', ({ assert }) => {
+    const redacted = redactAuditEventForDiagnostics({
+      type: 'organization.created',
+      accountId: 'acc-1',
+      orgId: 'org-9',
+      email: 'a@b.c',
+      ip: '1.2.3.4',
+      metadata: { slug: 'acme', invitedEmail: 'x@y.z' },
+    });
+
+    // O provisioning do authz escuta `agora:authkit:organization.created` e
+    // precisa saber QUAL org — sem isso o hook é inútil.
+    assert.equal(redacted.orgId, 'org-9');
+    // A redação de PII continua valendo.
+    assert.notProperty(redacted, 'email');
+    assert.notProperty(redacted, 'ip');
+    assert.notProperty(redacted, 'metadata');
   });
 });

@@ -116,6 +116,16 @@ export interface AuditEvent {
   clientId?: string | null;
   /** Impersonation: quem agiu (o admin). */
   actorId?: string | null;
+  /**
+   * Organização (tenant) a que o evento pertence, quando houver. Campo de
+   * PRIMEIRA CLASSE — e não uma chave de `metadata` — de propósito: `metadata`
+   * é livre e por isso é DROPADO na projeção que vai para o barramento de
+   * diagnostics (ver `redactAuditEventForDiagnostics`), enquanto os ids internos
+   * opacos (`accountId`/`actorId`/`clientId`/`orgId`) são preservados. É esse
+   * campo que permite a um consumidor do barramento — p.ex. o provisioning do
+   * `@adonis-agora/authz` — saber QUAL tenant provisionar sem receber PII.
+   */
+  orgId?: string | null;
   ip?: string | null;
   metadata?: Record<string, unknown>;
 }

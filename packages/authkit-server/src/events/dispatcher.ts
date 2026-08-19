@@ -50,6 +50,7 @@ export function buildWebhookBody(event: AuditEvent): string {
     accountId: event.accountId ?? null,
     email: event.email ?? null,
     clientId: event.clientId ?? null,
+    orgId: event.orgId ?? null,
     ip: event.ip ?? null,
     metadata: event.metadata ?? {},
     ts: new Date().toISOString(),
@@ -82,9 +83,13 @@ export function signWebhookBody(body: string, secret: string): string {
  *     e-mail). Nenhum data provider do dashboard lê `metadata`, então dropá-lo é
  *     seguro;
  *   - MANTÉM `type` (a família do evento — o que os providers agregam) e os ids
- *     internos opacos `accountId`/`actorId`/`clientId` (correlação de subject/actor
- *     no dashboard; NÃO são PII direta e, sem `email`/`ip`/`metadata` e com a linha
- *     da conta já deletada, não são reidentificáveis).
+ *     internos opacos `accountId`/`actorId`/`clientId`/`orgId` (correlação de
+ *     subject/actor/tenant no dashboard; NÃO são PII direta e, sem `email`/`ip`/
+ *     `metadata` e com a linha da conta já deletada, não são reidentificáveis).
+ *     O `orgId` está aqui porque é o que torna o barramento UTILIZÁVEL para
+ *     provisioning multi-tenant (o `@adonis-agora/authz` escuta
+ *     `agora:authkit:organization.*` e precisa saber qual tenant escopar) —
+ *     sem ele o consumidor recebia o tipo do evento e mais nada.
  *
  * Assim o Telescope nunca armazena PII bruta e a deleção de conta não precisa de uma
  * etapa de purge cross-lib. Os ramos `onEvent`/`webhook` (integrações que o host
@@ -97,6 +102,7 @@ export function redactAuditEventForDiagnostics(event: AuditEvent): AuditEvent {
     accountId: event.accountId ?? null,
     actorId: event.actorId ?? null,
     clientId: event.clientId ?? null,
+    orgId: event.orgId ?? null,
   };
 }
 

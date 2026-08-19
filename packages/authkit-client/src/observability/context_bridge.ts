@@ -1,3 +1,4 @@
+import { deriveOrgId } from '@adonis-agora/authkit-core';
 import type { Identity } from '@adonis-agora/authkit-core';
 
 /**
@@ -16,25 +17,14 @@ type SetFn = (patch: {
 }) => void;
 
 /**
- * Claims OIDC candidatas a "organização/tenant ativo". A primeira presente (e
- * string não vazia) vira o `tenantId`. Não falha se nenhuma existir.
+ * Deriva o tenant ativo da identidade. Prefere o `orgId` já resolvido (o caminho
+ * normal — `buildIdentityFromClaims` o preenche); cai para as claims cruas
+ * quando a `Identity` veio de um `SessionResolver` customizado que não o
+ * populou. A tabela de claims aceitas vive em `@adonis-agora/authkit-core`
+ * (`ORG_ID_CLAIMS`) para não divergir entre a identidade e esta ponte.
  */
-const TENANT_CLAIMS = [
-  'active_organization_id',
-  'org_id',
-  'organization_id',
-  'tenant_id',
-  'tid',
-] as const;
-
-/** Deriva o tenant ativo das claims cruas, ou `undefined` quando ausente. */
-function deriveTenant(raw: Record<string, unknown> | undefined): string | undefined {
-  if (!raw) return undefined;
-  for (const claim of TENANT_CLAIMS) {
-    const value = raw[claim];
-    if (typeof value === 'string' && value.length > 0) return value;
-  }
-  return undefined;
+function deriveTenant(identity: Identity): string | undefined {
+  return identity.orgId ?? deriveOrgId(identity.raw) ?? undefined;
 }
 
 /**
@@ -47,7 +37,7 @@ export function populateContext(identity: Identity): void {
   try {
     const set = (globalThis as Record<symbol, unknown>)[SET_SLOT] as SetFn | undefined;
     if (!set) return;
-    const tenant = deriveTenant(identity.raw);
+    const tenant = deriveTenant(identity);
     set({
       userRef: { type: 'user', id: identity.userId },
       globalRoles: identity.globalRoles,

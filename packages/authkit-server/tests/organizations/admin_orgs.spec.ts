@@ -298,6 +298,19 @@ test.group('AdminOrgsService', (group) => {
     assert.isNotNull(ev);
   });
 
+  test('createOrg audita organization.created COM o orgId da org criada', async ({ assert }) => {
+    const svc = new AdminOrgsService(cfg);
+    const actor = { actorId: null, ip: null, source: 'admin-api' as const };
+    const org: any = await svc.createOrg(
+      { name: 'Acme', slug: 'acme', ownerAccountId: 'owner-1' },
+      actor,
+    );
+    const ev = cfg.audit.events.find((e: any) => e.type === 'organization.created');
+    // O `slug` sozinho não serve para provisionar: quem consome o evento
+    // (authz, webhook, banco do host) precisa da chave estável da org.
+    assert.equal(ev.orgId, org.id);
+  });
+
   test('createOrg retorna slug_taken quando slug duplicado', async ({ assert }) => {
     const svc = new AdminOrgsService(cfg);
     const actor = { actorId: null, ip: null, source: 'admin-api' as const };

@@ -1,4 +1,10 @@
 export type { Identity, SessionResolver } from './src/types/identity.js';
+export {
+  ORG_ID_CLAIMS,
+  deriveOrgId,
+  deriveOrgSlug,
+  deriveOrgRole,
+} from './src/types/identity.js';
 export type {
   ClientConfig,
   TtlConfig,

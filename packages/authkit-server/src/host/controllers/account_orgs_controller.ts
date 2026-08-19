@@ -92,8 +92,13 @@ export default class AccountOrgsController {
     if (!name || !slug) return response.redirect(accountPath('orgs'));
 
     try {
-      await store.createOrg!({ name, slug, ownerAccountId: accountId });
-      await cfg.audit?.record({ type: 'organization.created', accountId, metadata: { slug } });
+      const org = await store.createOrg!({ name, slug, ownerAccountId: accountId });
+      await cfg.audit?.record({
+        type: 'organization.created',
+        accountId,
+        orgId: org.id,
+        metadata: { slug },
+      });
     } catch {
       // slug duplicado ou outro erro — redireciona sem mensagem de erro específica
     }
@@ -134,6 +139,7 @@ export default class AccountOrgsController {
     await cfg.audit?.record({
       type: 'organization.switched',
       accountId,
+      orgId,
       metadata: { orgId, orgSlug: org.slug },
     });
     return response.redirect(accountPath('orgs'));
@@ -166,6 +172,7 @@ export default class AccountOrgsController {
       await cfg.audit?.record({
         type: 'organization.member_removed',
         accountId,
+        orgId: params.id,
         metadata: { orgId: params.id, self: true },
       });
     }
@@ -253,6 +260,7 @@ export default class AccountOrgsController {
     await cfg.audit?.record({
       type: 'organization.invitation_sent',
       accountId,
+      orgId: params.id,
       metadata: { orgId: params.id, email, role },
     });
     return response.redirect(accountPath('orgs'));
@@ -315,6 +323,7 @@ export default class AccountOrgsController {
       await cfg.audit?.record({
         type: 'organization.invitation_accepted',
         accountId,
+        orgId: invitation.organizationId,
         metadata: { orgId: invitation.organizationId, invitationId: invitation.id },
       });
     }
@@ -344,6 +353,7 @@ export default class AccountOrgsController {
       await cfg.audit?.record({
         type: 'organization.member_removed',
         actorId,
+        orgId: params.id,
         metadata: { orgId: params.id, targetAccountId: params.accountId },
       });
     }
@@ -373,6 +383,7 @@ export default class AccountOrgsController {
     await cfg.audit?.record({
       type: 'organization.invitation_revoked',
       actorId,
+      orgId: params.id,
       metadata: { orgId: params.id, invitationId: params.invId },
     });
     return response.redirect(accountPath('orgs'));

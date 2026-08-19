@@ -1,3 +1,4 @@
+import { deriveOrgId, deriveOrgRole, deriveOrgSlug } from '@adonis-agora/authkit-core';
 import type { Identity } from '@adonis-agora/authkit-core';
 
 type FetchImpl = (url: string, init: any) => Promise<{ ok: boolean; json: () => Promise<any> }>;
@@ -7,7 +8,9 @@ type FetchImpl = (url: string, init: any) => Promise<{ ok: boolean; json: () => 
  * resolvers `jwt`, `pat` e `opaque`. Espelha exatamente o que o `JwtResolver`
  * produzia (a referência canônica): `sub`→userId, `email`, papéis na
  * `globalRolesClaim`, `name`/`picture`→profile, `sid`→sessionId, `iat`/`exp`
- * (segundos→ms, fallback 0) e as claims cruas em `raw`.
+ * (segundos→ms, fallback 0), a org/tenant ativo (`orgId`/`orgSlug`/`orgRole`,
+ * ver `deriveOrgId` — vale para o authkit E para IdPs de terceiros) e as claims
+ * cruas em `raw`.
  */
 export function buildIdentityFromClaims(
   claims: Record<string, unknown>,
@@ -23,6 +26,9 @@ export function buildIdentityFromClaims(
       avatarUrl: typeof claims.picture === 'string' ? claims.picture : undefined,
     },
     sessionId: typeof claims.sid === 'string' ? claims.sid : undefined,
+    orgId: deriveOrgId(claims),
+    orgSlug: deriveOrgSlug(claims),
+    orgRole: deriveOrgRole(claims),
     issuedAt: typeof claims.iat === 'number' ? claims.iat * 1000 : 0,
     expiresAt: typeof claims.exp === 'number' ? claims.exp * 1000 : 0,
     raw: claims,

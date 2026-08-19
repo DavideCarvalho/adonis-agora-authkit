@@ -60,11 +60,16 @@ The body is JSON:
   "accountId": "user-1",
   "email": "user@example.com",
   "clientId": "app1",
+  "orgId": null,
   "ip": "203.0.113.7",
   "metadata": { "mfa": "totp" },
   "ts": "2026-06-04T12:00:00.000Z"
 }
 ```
+
+`orgId` is the organization (tenant) the event belongs to, or `null`. It is a **first-class
+field**, not a `metadata` key — see [Provisioning your own database](#provisioning-your-own-database)
+for why that distinction matters.
 
 Sent with `content-type: application/json`. The request has a **5s timeout** (via
 `AbortSignal`) and is never awaited by the request that triggered it.
@@ -189,3 +194,53 @@ event is emitted that the list does not declare.
 | `otp.unlock_failed` | An OTP unlock was attempted with an invalid or expired token. |
 | `account.expired_login_blocked` | A login attempt was blocked because the account has exceeded `account_expiration.inactiveDays`. |
 | `account.expiration_warned` | An expiration warning email was dispatched by the `expire-scan` command (used as a dedup anchor). |
+
+
+## Provisioning your own database
+
+You do not need any other Agora library to react to what the IdP does. Both `onEvent` and
+the webhook receive the **complete** event, so a host can keep its own tables in sync —
+create a `companies` row when an organization is created, revoke an app-side membership
+when a member is removed, and so on:
+
+```ts title="config/authkit_server.ts"
+defineConfig({
+  // …
+  events: {
+    onEvent: async (event) => {
+      if (event.type === 'organization.created') {
+        await Company.create({ authOrgId: event.orgId!, slug: event.metadata?.slug as string })
+      }
+      if (event.type === 'organization.member_removed') {
+        await Membership.query()
+          .where('company_id', event.orgId!)
+          .where('user_id', event.metadata?.targetAccountId as string)
+          .delete()
+      }
+    },
+  },
+})
+```
+
+Use `event.orgId` — not `event.metadata.orgId` — as the tenant key. Both are populated on
+organization events, but only the first-class field is guaranteed across every delivery
+channel:
+
+| Channel | Gets `email`/`ip`/`metadata` | Gets `orgId` |
+| --- | --- | --- |
+| `audit` sink (your DB) | yes | yes |
+| `events.onEvent` | yes | yes |
+| `events.webhook` | yes | yes |
+| Agora diagnostics bus | **no** — redacted | yes |
+
+The last row is the reason `orgId` is promoted: the diagnostics bus mirrors every audit event
+for Telescope and any `onDiagnostic('authkit', …)` subscriber, and that mirror is **stripped of
+PII** (`email`, `ip`, and the free-form `metadata`, which may carry an invitee's address). Only
+the opaque internal ids survive — `accountId`, `actorId`, `clientId`, `orgId`. That keeps a
+bus subscriber able to answer *which tenant* without ever seeing personal data.
+
+<Callout type="info">
+  Handlers are best-effort and fire-and-forget: AuthKit swallows their errors so a failing
+  write never breaks a login. If your provisioning must not be lost, write to a queue/outbox
+  from the handler rather than doing the work inline.
+</Callout>

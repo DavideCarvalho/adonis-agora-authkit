@@ -48,6 +48,8 @@ export {
 } from './src/host/dashboard_guard.js';
 export type { DashboardGuardOptions } from './src/host/dashboard_guard.js';
 export { default as AuthkitContextMiddleware } from './src/middleware/authkit_context_middleware.js';
+export { default as RequireOrgMiddleware } from './src/middleware/require_org_middleware.js';
+export type { RequireOrgMiddlewareOptions } from './src/middleware/require_org_middleware.js';
 export { lucidMirror } from './src/lucid_mirror.js';
 export type { LucidMirrorOptions } from './src/lucid_mirror.js';
 export { registerOidcClient } from './src/register_oidc_client.js';
