@@ -1,6 +1,6 @@
 {
   "name": "@adonis-agora/authkit-sdk",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "Backend SDK for the AuthKit Admin API with one typed interface and two drivers: remote (HTTP/Bearer) and embedded (in-process when the IdP runs in the same AdonisJS app).",
   "license": "MIT",
   "author": "dudousxd",
