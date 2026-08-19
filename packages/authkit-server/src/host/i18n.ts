@@ -386,7 +386,7 @@ export const DEFAULT_MESSAGES = {
     'Token Exchange (RFC 8693) lets an admin act as this user. There is no auth bypass: you exchange YOUR OWN admin access token for one scoped to the target.',
   'admin.impersonation.curl_label': 'Ready-to-run request',
   'admin.impersonation.note':
-    'Replace <ADMIN_ACCESS_TOKEN> with a current admin access token. The resulting id_token carries act={sub: admin}; the event is audited as impersonation.started.',
+    'Replace <ADMIN_ACCESS_TOKEN> with a current admin access token. The resulting id_token carries act={sub: admin}; the exchange is audited as impersonation.',
   'admin.impersonation.no_client':
     'No client has the token-exchange grant enabled. Add "urn:ietf:params:oauth:grant-type:token-exchange" to a client to enable impersonation.',
 
@@ -762,6 +762,16 @@ export const DEFAULT_MESSAGES = {
   'mail.security_notice.kind_passkey_added': 'passkey added',
   'mail.security_notice.kind_passkey_removed': 'passkey removed',
   'mail.security_notice.kind_email_changed': 'email address changed',
+
+  // E-mail de convite para organização (fallback quando o host não define o
+  // hook `mail.onOrgInvitation`).
+  'mail.org_invitation.subject': 'You have been invited to join {org}',
+  'mail.org_invitation.heading': 'You have been invited to join {org}',
+  'mail.org_invitation.intro':
+    'You have been invited to join the organization {org} as {role}. Accept the invitation to get access.',
+  'mail.org_invitation.cta': 'Accept invitation',
+  'mail.org_invitation.fallback':
+    'If you were not expecting this invitation, you can ignore this email.',
 
   // E-mail de desbloqueio do fator OTP.
   'mail.otp_unlock.subject': 'Two-factor authentication unlock',
@@ -1417,7 +1427,7 @@ export const PT_BR_MESSAGES = {
     'O Token Exchange (RFC 8693) permite que um admin aja como este usuário. Não há bypass de auth: você troca o SEU PRÓPRIO access token de admin por um escopado ao alvo.',
   'admin.impersonation.curl_label': 'Requisição pronta para rodar',
   'admin.impersonation.note':
-    'Troque <ADMIN_ACCESS_TOKEN> por um access token de admin válido. O id_token resultante carrega act={sub: admin}; o evento é auditado como impersonation.started.',
+    'Troque <ADMIN_ACCESS_TOKEN> por um access token de admin válido. O id_token resultante carrega act={sub: admin}; o exchange é auditado como impersonation.',
   'admin.impersonation.no_client':
     'Nenhum client tem o grant token-exchange habilitado. Adicione "urn:ietf:params:oauth:grant-type:token-exchange" a um client para habilitar a personificação.',
 
@@ -1780,6 +1790,14 @@ export const PT_BR_MESSAGES = {
   'admin.settings.sudo_mode_from_config': 'Fonte: padrão',
   'admin.settings.sudo_mode_from_setting': 'Fonte: setting em runtime',
   'admin.settings.sudo_mode_grace_label': 'Período de graça (minutos)',
+
+  // E-mail de convite para organização (pt-BR).
+  'mail.org_invitation.subject': 'Você foi convidado para {org}',
+  'mail.org_invitation.heading': 'Você foi convidado para {org}',
+  'mail.org_invitation.intro':
+    'Você foi convidado para participar da organização {org} como {role}. Aceite o convite para ter acesso.',
+  'mail.org_invitation.cta': 'Aceitar convite',
+  'mail.org_invitation.fallback': 'Se você não esperava este convite, pode ignorar este e-mail.',
 
   // E-mail de desbloqueio do fator OTP (pt-BR).
   'mail.otp_unlock.subject': 'Desbloqueio da verificação em duas etapas',

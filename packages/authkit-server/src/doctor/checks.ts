@@ -899,6 +899,44 @@ export function checkPasskeyAutofill(input: DoctorInput): Finding | null {
 }
 
 /**
+ * Allowlist de clients first-party — quem recebe as claims de autorização
+ * (`<globalRolesClaim>`, `org_id`, `org_slug`, `org_role`).
+ *
+ * Informativa quando declarada. `warn` quando NÃO declarada, porque aí todo
+ * client registrado recebe as claims ao pedir `scope=roles` — o que é o default
+ * certo (o oposto apagava as roles de todo RP), mas um host que registra clients
+ * de TERCEIROS precisa saber que existe uma lista para fechar.
+ */
+export function checkFirstPartyClients(input: DoctorInput): Finding | null {
+  const cfg = input.authkitConfig;
+  if (!cfg) return null;
+
+  const allowlist = cfg.firstPartyClients as string[] | undefined;
+  if (allowlist === undefined) {
+    return {
+      level: 'warn',
+      message:
+        'firstPartyClients is not declared: every registered client that requests `scope=roles` ' +
+        'receives the roles and organization claims. That is the default on purpose — the claims ' +
+        'are already gated by client registration and by the requested scope. Declare ' +
+        '`firstPartyClients: [...]` in config/authkit.ts to restrict them to your own apps.',
+    };
+  }
+  if (allowlist.length === 0) {
+    return {
+      level: 'ok',
+      message:
+        'firstPartyClients is an empty list: NO client receives the roles/organization claims. ' +
+        'Remove the key entirely if you meant "no restriction".',
+    };
+  }
+  return {
+    level: 'ok',
+    message: `firstPartyClients: ${allowlist.length} client(s) receive the roles/organization claims (${allowlist.join(', ')}).`,
+  };
+}
+
+/**
  * Finding da idade da chave de assinatura managed. `ageDays === null` (sem
  * keystore em arquivo/cofre) → no-op `ok`. Acima de `maxAgeDays` → `warn`.
  */
@@ -972,6 +1010,8 @@ export function runAllChecks(input: DoctorInput): Finding[] {
   if (accountExpiration) findings.push(accountExpiration);
   const passkeyAutofill = checkPasskeyAutofill(input);
   if (passkeyAutofill) findings.push(passkeyAutofill);
+  const firstPartyClients = checkFirstPartyClients(input);
+  if (firstPartyClients) findings.push(firstPartyClients);
   return findings;
 }
 

@@ -249,20 +249,36 @@ from the claim named by its **own** `globalRolesClaim` in `config/authkit_client
 two names diverge, the roles arrive but land nowhere and every `hasGlobalRole` check quietly
 answers `false`. Keep them equal, or you have a silent failure rather than an error.
 
-One more gate sits in front of both: the roles claim (and the org claims) are emitted to
-**first-party clients only** — those listed in `branding.firstParty`. A third-party client
-never receives roles even when it asks for the `roles` scope, and `resolveTokenRoles` is not
-even called for it. Roles are internal authorization data; least privilege is the default.
+### The roles claim
 
-<Callout type="warn">
-  That gate is closed by default. If your config has **no `branding` block at all**, no
-  client is first-party, and the roles claim is emitted to nobody — `identity.globalRoles`
-  arrives empty at every relying party and every `hasGlobalRole` check answers `false`. If
-  you rely on global roles in a client app, declare `branding` with the client ids listed
-  under `firstParty`, as in the [per-client UI recipe](#recipe-per-client-auth-ui-one-idp-a-face-per-product)
-  below. Note that the admin console is unaffected: its guard reads roles from the account
-  directly, not from a token, so the console can let you in while your app sees no roles at
-  all — which is exactly the sort of asymmetry that costs an afternoon.
+Two gates already stand in front of the roles claim before any allowlist is involved. The
+client has to have been **registered by an admin**, and it has to **ask for `scope=roles`**
+— the claim group is bound to that scope in the provider, so a client that does not request
+it never sees roles no matter what else is configured.
+
+`firstPartyClients` is a third gate, for hosts that register clients they do not own:
+
+```ts
+// config/authkit.ts
+export default defineConfig({
+  // Only these two receive `roles`, `org_id`, `org_slug` and `org_role`.
+  firstPartyClients: ['acme-web', 'acme-admin'],
+  // …
+})
+```
+
+Omit the key and every registered client is first-party, which is the right default: the
+two gates above already stand, and the alternative is a config file that silently decides
+your relying parties get no roles. Declare it and the list is taken literally — a client
+outside it never receives roles even when it asks for the scope, and `resolveTokenRoles` is
+not even called for it. An explicitly empty list means nobody.
+
+<Callout type="info">
+  `branding.firstParty` is still read as a fallback, so a host that already declared it
+  keeps exactly the restriction it has today. Prefer `firstPartyClients` in new configs:
+  who may receive authorization data is not a theming decision, and keeping it inside a
+  theming block meant a host that never customised its look got a policy it never chose.
+  `node ace authkit:doctor` tells you which of the two is in effect.
 </Callout>
 
 ## Map the Identity to your own User model
@@ -745,8 +761,9 @@ than crashing. In a monorepo, promote each product's shells to its own package s
 works in its own area; the IdP just imports and registers them.
 
 <Callout type="info">
-  `branding.firstParty` is doing double duty in that config. Beyond branding, it is the
-  allowlist that decides which clients receive the roles and organization claims at all —
-  see [Where roles come from](#where-roles-come-from-resolvetokenroles). Adding a product to
-  `clients` without adding it to `firstParty` gives it your branding but no roles.
+  `branding.firstParty` does double duty here. Beyond skipping the consent screen, it is
+  read as a fallback allowlist for the roles and organization claims — see
+  [The roles claim](#the-roles-claim). Adding a product to `clients` without adding it to
+  `firstParty` gives it your branding but no roles. Declare `firstPartyClients` to keep the
+  two decisions apart.
 </Callout>

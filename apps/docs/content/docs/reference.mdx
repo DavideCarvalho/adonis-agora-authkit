@@ -16,7 +16,7 @@ description: The full defineConfig option tables for server and client.
 | `jwks` | `JwksConfig` | — | `{ source: 'managed' \| 'jwks', algorithm?, rotationDays?, keys? }`. |
 | `ttl` | `TtlConfig` | see below | Token/session lifetimes; accepts `'15m'`, `'30d'`, or seconds. **Declaring this key locks the `token_ttl` setting.** |
 | `globalRolesClaim` | `string` | `'roles'` | Claim name where global roles are emitted. |
-| `resolveTokenRoles` | `(account, ctx) => string[] \| Promise<string[]>` | `account.globalRoles ?? []` | The pluggable seam for role **emission** — see [Customizing auth](/docs/customizing-auth#resolvetokenroles). Called at mint time for first-party clients, on token-exchange, and on the admin-console gate; `ctx` carries `{ clientId?, activeOrg? }`. This is what lets an external authority (typically `@adonis-agora/authz`) own roles instead of a column on the account model. |
+| `resolveTokenRoles` | `(account, ctx) => string[] \| Promise<string[]>` | `account.globalRoles ?? []` | The pluggable seam for role **emission** — see [Customizing auth](/docs/customizing-auth#resolvetokenroles). Called at mint time for first-party clients (see `firstPartyClients`), on token-exchange, and on the admin-console gate; `ctx` carries `{ clientId?, activeOrg? }`. This is what lets an external authority (typically `@adonis-agora/authz`) own roles instead of a column on the account model. |
 | `cookieKeys` | `string[]` | `[]` | Cookie signing keys. |
 | `observability` | `ObservabilityConfig` | `{}` | `{ metrics?, jsonRoutes?, dashboard? }`. |
 | `accountStore` | `AccountStore` | — | Primary identity contract; derives `findAccount`/`verifyCredentials`. `AccountStore = CoreAccountStore & Partial<Mfa/Webauthn/ProviderIdentity capabilities>`; narrow with `supportsMfa`/`supportsPasskeys`/`supportsProviderIdentity`. See [Account Store](/docs/account-store). |
@@ -26,7 +26,8 @@ description: The full defineConfig option tables for server and client.
 | `accountHome` | `string` | `'/account/security'` | Default destination for the account area: post-login at `/account/login` (without `return_to`), e-mail confirmations, and non-admin redirects away from the console. Point it at your app's home to land users straight in the product. |
 | `render` | `AuthHostRenderer` | `edgeRenderer` | `inertiaRenderer` to render the screens as Inertia pages, or `edgeRenderer` for the bundled Edge templates. |
 | `interactionRecovery` | `{ mode?: 'screen' \| 'redirect'; redirectTo?: string }` | `{ mode: 'screen' }` | What happens when the OIDC interaction session is lost or expired: render the themeable `session-expired` screen, or 302 to the login. See [Host Kit](/docs/host-kit#interaction-recovery). |
-| `branding` | `BrandingConfig` | — | Per-client theming + first-party list. |
+| `branding` | `BrandingConfig` | — | Per-client theming. Its `firstParty` list is also read as a fallback allowlist for the authorization claims, but prefer `firstPartyClients` for that — an authorization decision should not live in a theming block. |
+| `firstPartyClients` | `string[]` | — (no allowlist) | Which clients receive the authorization claims (`<globalRolesClaim>`, `org_id`, `org_slug`, `org_role`). Omit it and **every registered client is first-party** — the claims are still gated by client registration and by the client asking for `scope=roles`. Declare it to restrict them to your own apps; an explicitly empty list means nobody. See [Customizing auth](/docs/customizing-auth#the-roles-claim). |
 | `social` | `AuthSocialConfig` | — | `{ providers: string[] }`; opt-in social login. |
 | `patIntrospectionSecret` | `string` | — | Shared secret authenticating PAT introspection. |
 | `rateLimit` | `RateLimitConfigInput` | disabled | Opt-in anti-brute-force throttles. **Declaring this key locks the `rate_limit` runtime setting** — see [Config locks](/docs/config-locks). Leave it out to let the console own the buckets. |
@@ -276,7 +277,7 @@ Commands provided by `@adonis-agora/authkit-server`:
 
 ### `authkit:doctor` — the full check list
 
-The doctor runs thirty checks and prints each one at `ok`, `warn` or `error`. Most are
+The doctor runs thirty-one checks and prints each one at `ok`, `warn` or `error`. Most are
 informational: they tell you which optional capability is actually reachable, given the
 config, the account store and the tables that exist. A check stays silent when the feature
 it covers is switched off — an opt-in feature you never enabled is not a finding.
@@ -313,6 +314,7 @@ it covers is switched off — an opt-in feature you never enabled is not a findi
 | `checkRolesCatalog` | Warns when `admin.roles` names a role outside the catalogue, which would leave the console gate unreachable. |
 | `checkAccountExpiration` | The audit sink can be queried (otherwise the feature is unavailable) and the setting's fields cohere. |
 | `checkPasskeyAutofill` | Conditional mediation can actually be offered — it never appears without WebAuthn configured. |
+| `checkFirstPartyClients` | Whether a first-party allowlist is declared. Without one, every registered client that asks for `scope=roles` receives the roles and organization claims. |
 
 ### `authkit:users:import`
 

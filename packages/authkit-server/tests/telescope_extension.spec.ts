@@ -75,7 +75,7 @@ test.group('observability/telescope — data providers', () => {
     entry('mfa.enabled', { accountId: 'a' }),
     entry('account.locked', { accountId: 'c' }),
     entry('pat.issued', { accountId: 'a' }),
-    entry('impersonation.started', { accountId: 'b', actorId: 'admin' }),
+    entry('impersonation.panel_viewed', { accountId: 'b', actorId: 'admin' }),
   ];
 
   test('authkit.eventCount counts a metric group within the window', async ({ assert }) => {
@@ -147,9 +147,9 @@ test.group('observability/telescope — data providers', () => {
       rows: Array<{ event: string; subject: string; actor: string }>;
     };
     const events = res.rows.map((r) => r.event);
-    assert.includeMembers(events, ['pat.issued', 'impersonation.started']);
+    assert.includeMembers(events, ['pat.issued', 'impersonation.panel_viewed']);
     assert.notInclude(events, 'login.success');
-    const imp = res.rows.find((r) => r.event === 'impersonation.started');
+    const imp = res.rows.find((r) => r.event === 'impersonation.panel_viewed');
     assert.equal(imp?.actor, 'admin');
     assert.equal(imp?.subject, 'b');
   });

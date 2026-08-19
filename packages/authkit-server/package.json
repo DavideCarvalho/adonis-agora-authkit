@@ -34,7 +34,7 @@
   "files": ["build", "stubs"],
   "exports": {
     ".": "./build/index.js",
-    "./types": "./build/index.js",
+    "./types": "./build/types.js",
     "./services/main": "./build/services/main.js",
     "./durable": "./build/src/host/durable/index.js",
     "./telescope": "./build/src/observability/telescope/index.js",

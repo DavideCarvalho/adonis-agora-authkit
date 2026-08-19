@@ -32,7 +32,7 @@
   "files": ["build", "stubs"],
   "exports": {
     ".": "./build/index.js",
-    "./types": "./build/index.js",
+    "./types": "./build/types.js",
     "./services/main": "./build/services/main.js",
     "./authkit_client_provider": "./build/providers/authkit_client_provider.js",
     "./auth": "./build/src/host/authkit_client_guard.js",

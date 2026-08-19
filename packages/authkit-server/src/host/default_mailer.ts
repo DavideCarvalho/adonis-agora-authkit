@@ -609,6 +609,64 @@ export async function sendOtpUnlockEmail(
 }
 
 /**
+ * Sends the organization invitation email through the host default mailer.
+ *
+ * WHY IT EXISTS. `mail.onOrgInvitation` used to be the ONLY hook without a
+ * default-mailer fallback: without it the invitation row was created and NO
+ * email was ever sent — a silent failure where the invited person never learned
+ * about the invitation. This restores the same posture as every other email of
+ * the library: the host hook wins when present, otherwise the host-kit itself
+ * sends a branded/translated email; with no mailer at all, the link is logged (dev).
+ *
+ * Best-effort: never throws — invitation creation must not depend on delivery.
+ */
+export async function sendOrgInvitationEmail(
+  ctx: HttpContext,
+  data: {
+    email: string;
+    invitationId: string;
+    orgName: string;
+    orgSlug: string;
+    role: string;
+    acceptUrl: string;
+    token: string;
+  },
+): Promise<void> {
+  try {
+    const brand = resolveBrand(ctx);
+    const { messages: t, locale } = resolveMailMessages(ctx);
+    const content = renderTransactionalEmail({
+      brand,
+      locale,
+      linkFallback: translate(t, 'mail.common.link_fallback'),
+      subject: translate(t, 'mail.org_invitation.subject', { org: data.orgName }),
+      heading: translate(t, 'mail.org_invitation.heading', { org: data.orgName }),
+      intro: translate(t, 'mail.org_invitation.intro', { org: data.orgName, role: data.role }),
+      ctaLabel: translate(t, 'mail.org_invitation.cta'),
+      ctaUrl: data.acceptUrl,
+      footnote: translate(t, 'mail.org_invitation.fallback'),
+    });
+    const sent = await sendEmail(ctx, data.email, content);
+    if (!sent) {
+      ctx.logger?.info(
+        {
+          acceptUrl: data.acceptUrl,
+          email: data.email,
+          orgSlug: data.orgSlug,
+          invitationId: data.invitationId,
+        },
+        'authkit: convite de organização (dev — @adonisjs/mail ausente)',
+      );
+    }
+  } catch (error) {
+    ctx.logger?.error(
+      { err: error, email: data.email, orgSlug: data.orgSlug },
+      'authkit: falha ao enviar convite de organização',
+    );
+  }
+}
+
+/**
  * Envia o e-mail de verificação pelo mailer default do host.
  * Best-effort: no fallback (sem mail) loga o link; nunca lança.
  */

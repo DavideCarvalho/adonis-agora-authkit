@@ -57,6 +57,12 @@ const ACTOR = { actorId: null, ip: null, source: 'admin-api' as const };
  * services that only touch `request.protocol()`/`request.host()` (used when
  * composing the password-reset URL) and `request.ip()`. We deliberately do NOT
  * import `@adonisjs/core/http` here — out-of-band SDK calls have no real request.
+ *
+ * It also carries `containerResolver.app` and `logger`, which is all the server's
+ * default mailer reads (host config for the sender, branding and locale; the
+ * logger for the dev fallback). Without them, an SDK-created organization
+ * invitation reached the database and no inbox — the same silent failure the
+ * missing `onOrgInvitation` fallback caused on the HTTP path.
  */
 function fakeCtx(app: ApplicationService): any {
   const origin = (app.config.get<string>('authkit.issuer', '') || '').replace(/\/+$/, '');
@@ -76,6 +82,16 @@ function fakeCtx(app: ApplicationService): any {
       protocol: () => protocol,
       host: () => host,
       ip: () => null,
+    },
+    containerResolver: { app },
+    // Pino-shaped shim. `ApplicationService` exposes no logger synchronously (it
+    // is a container binding), and the only thing the server's default mailer
+    // does with it is the dev-time "no @adonisjs/mail installed, here is the
+    // link" notice. Dropping the field would make that notice vanish, which is
+    // the one case where an SDK caller most needs to be told nothing was sent.
+    logger: {
+      info: (...args: unknown[]) => console.info(...args),
+      error: (...args: unknown[]) => console.error(...args),
     },
   };
 }
@@ -500,7 +516,16 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
             orgId: string,
             input: CreateOrgInvitationInput,
           ): Promise<AuthkitOrgInvitation> {
-            const result = await orgsService.createInvitation(orgId, input, ACTOR, origin);
+            // `ctx` is what lets the server fall back to its own invitation email
+            // when the host defines no `mail.onOrgInvitation` hook.
+            const result = await orgsService.createInvitation(
+              orgId,
+              input,
+              ACTOR,
+              origin,
+              null,
+              ctx,
+            );
             if (!result.ok) throw new Error('Organização não encontrada.');
             return invitationDto(result.invitation);
           },

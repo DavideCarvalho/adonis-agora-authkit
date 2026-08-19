@@ -80,7 +80,10 @@ const LOGIN_FAILURE: readonly AuditEventType[] = ['login.failure', 'bot_protecti
 const MFA_ENROLLMENTS: readonly AuditEventType[] = ['mfa.enabled', 'passkey.registered'];
 const LOCKOUTS: readonly AuditEventType[] = ['account.locked', 'otp.locked'];
 const PAT_EVENTS: readonly AuditEventType[] = ['pat.issued', 'pat.revoked', 'pat.used'];
-const IMPERSONATION_EVENTS: readonly AuditEventType[] = ['impersonation', 'impersonation.started'];
+const IMPERSONATION_EVENTS: readonly AuditEventType[] = [
+  'impersonation',
+  'impersonation.panel_viewed',
+];
 
 /**
  * A stat (`{ value, delta?, spark? }`) over a window for a set of event types.

@@ -1,11 +1,22 @@
+// Side-effect import, and it is load-bearing: the `ContainerBindings`
+// augmentation for this package's four bindings lives in the root `types.ts`,
+// and this is the module that carries it into a host app's declaration graph —
+// every host registers this provider in `adonisrc.ts`.
+//
+// The declaration used to be duplicated here as well. One copy typed the hosts
+// and the other backed the `./types` subpath, and the two had drifted: this one
+// declared four bindings, `types.ts` declared one. There is a single table now.
+//
+// It must be a bare side-effect import — the `import type {} from` form is erased
+// from the emitted `.d.ts` and would drop the augmentation. `build/types.js`
+// compiles down to `export {}`, so the runtime cost is nil.
+import '../types.js';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import type { MetricsRecorder } from '@adonis-agora/authkit-core';
 import { configProvider } from '@adonisjs/core';
 import { RuntimeException } from '@adonisjs/core/exceptions';
 import type { ApplicationService } from '@adonisjs/core/types';
 import { setBootedApp } from '../services/booted_app.js';
-import type { AccountStore } from '../src/accounts/account_store.js';
 import { type ResolvedServerConfig, defaultEncryptForStore } from '../src/define_config.js';
 import { resolveAppKey } from '../src/host/app_key.js';
 import { resolveEffectiveKeyRotation } from '../src/host/key_rotation.js';
@@ -13,20 +24,10 @@ import { RuntimeSettings } from '../src/host/runtime_settings.js';
 import { KeystoreCodec } from '../src/keys/keystore_codec.js';
 import { loadEncryptionService } from '../src/keys/keystore_crypto.js';
 import { KeystoreManager, resolveKeystoreVault } from '../src/keys/keystore_manager.js';
-import type { PatStore } from '../src/pat/pat_store.js';
 import { KeyRotationScheduler } from '../src/provider/key_rotation_scheduler.js';
 import { KeystoreReloadPoller } from '../src/provider/keystore_reload.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { makeSingleFlightLock } from '../src/provider/single_flight_lock.js';
-
-declare module '@adonisjs/core/types' {
-  interface ContainerBindings {
-    'authkit.server': OidcService;
-    'authkit.metrics': MetricsRecorder;
-    'authkit.accountStore': AccountStore;
-    'authkit.patStore': PatStore;
-  }
-}
 
 export default class AuthkitServerProvider {
   constructor(protected app: ApplicationService) {}

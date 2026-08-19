@@ -8,6 +8,7 @@ import {
   ACTIVE_ORG_COOKIE_TTL,
   encodeActiveOrgCookie,
 } from '../active_org_cookie.js';
+import { sendOrgInvitationEmail } from '../default_mailer.js';
 import { ACCOUNT_SESSION_KEY } from '../middleware/account_auth.js';
 import { authkitOrigin } from '../origin.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
@@ -225,23 +226,28 @@ export default class AccountOrgsController {
       ttlHours: cfg.organizations.invitationTtlHours,
     });
 
-    // Dispara e-mail via mail hook (best-effort)
-    if (cfg.mail?.onOrgInvitation) {
+    // Sends the invitation email (best-effort). The host hook wins when present;
+    // otherwise the host-kit sends its own branded/translated email, like every
+    // other email of the library. Delivery NEVER breaks invitation creation.
+    try {
       const org = await store.findOrgById!(params.id);
       const acceptUrl = `${authkitOrigin(cfg)}${accountPath('orgs')}/invitations/${token}/accept`;
-      try {
-        await cfg.mail.onOrgInvitation({
-          email,
-          invitationId: invitation.id,
-          orgName: org?.name ?? params.id,
-          orgSlug: org?.slug ?? params.id,
-          role,
-          acceptUrl,
-          token,
-        });
-      } catch {
-        // best-effort
+      const payload = {
+        email,
+        invitationId: invitation.id,
+        orgName: org?.name ?? params.id,
+        orgSlug: org?.slug ?? params.id,
+        role,
+        acceptUrl,
+        token,
+      };
+      if (cfg.mail?.onOrgInvitation) {
+        await cfg.mail.onOrgInvitation(payload);
+      } else {
+        await sendOrgInvitationEmail(ctx, payload);
       }
+    } catch {
+      // best-effort
     }
 
     await cfg.audit?.record({

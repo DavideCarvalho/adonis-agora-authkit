@@ -353,8 +353,14 @@ A user's detail drawer can hand you the exact RFC 8693 token-exchange parameters
 assume that user's identity, served by `GET {prefix}/api/impersonation/:userId`. The
 response carries the token endpoint, the `grant_type`, the `subject_token_type`, the
 `requested_subject`, the client id used in the example, and a ready-to-run `curl` snippet.
-It does **not** perform the exchange — it composes the request you (or your tooling) then
-make with a real admin access token.
+It does **not** perform the exchange, and there is no link to follow: the exchange has to
+be signed with your own admin access token as the `subject_token`, and the console
+authenticates with a session cookie rather than an OAuth token. So the drawer shows the
+parameters and a copyable request, which you run from wherever that token already lives.
+
+The panel offers whichever of your registered clients carries the token-exchange grant. A
+confidential client's secret is not recoverable — it is shown once at creation — so the
+snippet leaves a `<CLIENT_SECRET>` placeholder for you to fill in.
 
 Availability is decided in two layers, deliberately asymmetric:
 
@@ -386,27 +392,27 @@ node ace authkit:settings:set admin_impersonation '{"enabled":false}'
 ```
 
 A third condition is structural rather than configurable: the panel needs a client carrying
-the `urn:ietf:params:oauth:grant-type:token-exchange` grant to build its example against,
-and it looks for one in the **clients declared on the resolved server config**. When it
-finds none, the endpoint answers 404 with `no_token_exchange_client` — there is no exchange
-to describe.
+the `urn:ietf:params:oauth:grant-type:token-exchange` grant to build its example against. It
+looks for one among the clients your OIDC adapter holds — the ones created through the
+[Client CRUD](#client-crud) page, the Admin API or `authkit:clients:create` — and falls back
+to any static clients still declared on the config. When no client anywhere carries the
+grant, the endpoint answers 404 with `no_token_exchange_client`: there is no exchange to
+describe. Give an existing client the grant, or create one, and the panel appears.
 
-<Callout type="warn">
-  Clients created at runtime — through the [Client CRUD](#client-crud) page, the Admin API,
-  or `authkit:clients:create` — live in the OIDC adapter, not on the config object, so they
-  do not satisfy that lookup. On an IdP that manages all of its clients at runtime the panel
-  answers `no_token_exchange_client` even though a perfectly good token-exchange client
-  exists. The exchange itself is unaffected: the grant works against any adapter-stored
-  client that carries it. Only the console's parameter helper needs the client to be visible
-  on the config.
+<Callout type="info">
+  An adapter that cannot enumerate its clients leaves only the config fallback. Every
+  adapter this library ships can enumerate; a custom adapter without a `list` method cannot,
+  and the panel will report `no_token_exchange_client` on such a host even though the
+  exchange itself works fine — the grant runs against any adapter-stored client that carries
+  it, enumerable or not.
 </Callout>
 
 <Callout type="warn">
   The exchange itself requires a valid admin access token as the `subject_token`; the token
   endpoint validates the caller's admin role independently of anything the console does. The
-  panel only shows the parameters. Requesting it is treated as intent to impersonate and
-  emits an `impersonation.started` audit event with `channel: "admin-console"`, before any
-  exchange has happened.
+  panel only shows the parameters, so opening it records `impersonation.panel_viewed` with
+  `channel: "admin-console"` — not `impersonation`, which belongs to the exchange and is
+  written by the token endpoint when an identity is actually assumed.
 </Callout>
 
 See [Impersonation](/docs/impersonation) for the grant itself, the `act` claim, and how the

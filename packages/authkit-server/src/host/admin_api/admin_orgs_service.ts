@@ -1,7 +1,9 @@
+import type { HttpContext } from '@adonisjs/core/http';
 import { supportsOrganizations } from '../../accounts/account_store.js';
 import type { OrgInvitation, OrgMember, OrgSummary } from '../../accounts/account_store.js';
 import type { ResolvedServerConfig } from '../../define_config.js';
 import { accountPath } from '../account_paths.js';
+import { sendOrgInvitationEmail } from '../default_mailer.js';
 import type { SettingsCapability } from '../runtime_settings.js';
 import { isRoleInCatalog, resolveRoleCatalogList } from '../runtime_toggles.js';
 import type { AdminActor } from './admin_users_service.js';
@@ -365,13 +367,20 @@ export class AdminOrgsService {
     return { ok: true };
   }
 
-  /** Cria um convite por e-mail. Dispara o mail hook quando configurado. */
+  /**
+   * Cria um convite por e-mail. Dispara o mail hook quando configurado.
+   *
+   * `ctx` is optional only for back-compat with callers that have no request in
+   * hand; when given (both HTTP call sites do), the library default invitation
+   * email is sent whenever the host defines no `mail.onOrgInvitation` hook.
+   */
   async createInvitation(
     orgId: string,
     input: CreateInvitationInput,
     actor: AdminActor,
     origin: string,
     settings: SettingsCapability | null = null,
+    ctx?: HttpContext,
   ): Promise<
     | { ok: true; invitation: OrgInvitation; token: string }
     | OrgNotSupportedResult
@@ -397,22 +406,27 @@ export class AdminOrgsService {
       ttlHours: this.cfg.organizations.invitationTtlHours,
     });
 
-    // Dispara mail hook (best-effort)
-    if (this.cfg.mail?.onOrgInvitation) {
+    // Sends the invitation email (best-effort). The host hook wins when present;
+    // otherwise the host-kit sends its own branded/translated email, like every
+    // other email of the library. Delivery NEVER breaks invitation creation.
+    try {
       const acceptUrl = `${origin}${accountPath('orgs')}/invitations/${token}/accept`;
-      try {
-        await this.cfg.mail.onOrgInvitation({
-          email: input.email,
-          invitationId: invitation.id,
-          orgName: org.name,
-          orgSlug: org.slug,
-          role: input.role,
-          acceptUrl,
-          token,
-        });
-      } catch {
-        // best-effort
+      const payload = {
+        email: input.email,
+        invitationId: invitation.id,
+        orgName: org.name,
+        orgSlug: org.slug,
+        role: input.role,
+        acceptUrl,
+        token,
+      };
+      if (this.cfg.mail?.onOrgInvitation) {
+        await this.cfg.mail.onOrgInvitation(payload);
+      } else if (ctx) {
+        await sendOrgInvitationEmail(ctx, payload);
       }
+    } catch {
+      // best-effort
     }
 
     await this.cfg.audit?.record({

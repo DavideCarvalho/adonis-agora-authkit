@@ -202,7 +202,7 @@ export type {
   AccountEmailConfirmedProps,
 } from './src/host/account_screen_props.js';
 export { edgeRenderer } from './src/host/renderers/edge_renderer.js';
-export { brandFor, isFirstParty } from './src/host/branding.js';
+export { brandFor, isFirstParty, isFirstPartyClient } from './src/host/branding.js';
 export type { BrandingConfig, ClientBrand } from './src/host/branding.js';
 export {
   resolveMessages,
@@ -311,7 +311,7 @@ export { computeAdminStats } from './src/host/admin_stats_service.js';
 export type { AdminStats, DailyPoint } from './src/host/admin_stats_service.js';
 export { barChartSvg } from './src/host/svg_chart.js';
 export { buildImpersonationPanel } from './src/host/impersonation.js';
-export type { ImpersonationPanel } from './src/host/impersonation.js';
+export type { ImpersonationPanel, ImpersonationClientLike } from './src/host/impersonation.js';
 
 // Organizations (multi-tenancy)
 export {

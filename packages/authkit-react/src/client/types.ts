@@ -263,11 +263,28 @@ export interface SettingListResult {
 // Admin – Impersonation
 // ---------------------------------------------------------------------------
 
+/**
+ * Parâmetros RFC 8693 que o console devolve para o admin assumir a identidade de
+ * um usuário. NÃO é uma sessão pronta e NÃO carrega URL de redirect: o exchange
+ * exige um access token do próprio admin como `subject_token`, coisa que o
+ * console (autenticado por sessão) não tem. A UI mostra os parâmetros e o curl.
+ *
+ * FECHADO de propósito. O `[key: string]: unknown` que existia aqui deixava
+ * `panel.url` type-checkar contra um campo que o servidor nunca devolveu — e foi
+ * exatamente assim que o botão "Impersonate" abriu `about:blank` por releases a
+ * fio, sem um único erro de compilação.
+ */
 export interface ImpersonationPanel {
   targetUserId: string;
   targetEmail: string;
+  /** Client habilitado ao grant token-exchange usado no exemplo. */
   clientId: string;
-  [key: string]: unknown;
+  tokenEndpoint: string;
+  grantType: string;
+  subjectTokenType: string;
+  requestedSubject: string;
+  /** Comando curl pronto (o `subject_token` fica como placeholder). */
+  curl: string;
 }
 
 // ---------------------------------------------------------------------------

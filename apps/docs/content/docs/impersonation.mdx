@@ -89,8 +89,9 @@ curl -X PATCH https://auth.acme.com/api/authkit/v1/clients/acme-admin \
       }'
 ```
 
-The admin console's impersonation panel looks for a client with this grant enabled and
-reports that none exists rather than handing you parameters that cannot work.
+The admin console's impersonation panel looks for a client with this grant enabled —
+among the clients your adapter actually holds, which is where clients live — and reports
+that none exists rather than handing you parameters that cannot work.
 
 ## What the IdP validates
 
@@ -444,4 +445,4 @@ Two [audit events](/docs/security) are emitted:
 | Event | When |
 | --- | --- |
 | `impersonation` | A token exchange succeeded. `actorId` is the admin, `accountId` the target, `metadata.scope` the granted scope. |
-| `impersonation.started` | The admin console's impersonation panel was opened for a target — the intent, recorded before any exchange happens. |
+| `impersonation.panel_viewed` | An admin opened the console panel and revealed the exchange parameters for a target. `metadata.clientId` is the client the example uses, `metadata.channel` is `admin-console`. Nothing was assumed: the exchange still has to be run with the admin's own access token, and it may never be — which is why this is a separate event and not `impersonation`. It is written only once a usable panel exists, so a request that is refused leaves no trail. |

@@ -150,7 +150,11 @@ POST /account/orgs/invitations/:token/accept   → accept the invitation
 The token is validated against the hash, TTL, and the authenticated account's email before
 creating the membership.
 
-#### Wire up the invitation email
+#### Customize the invitation email
+
+Wiring `mail.onOrgInvitation` is optional. Without it the host kit sends the invitation
+itself through the host's default `@adonisjs/mail` mailer, branded and translated like every
+other AuthKit email. Provide the hook only to take the message over:
 
 ```ts title="config/authkit.ts"
 mail: {

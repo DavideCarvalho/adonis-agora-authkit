@@ -639,13 +639,6 @@ that is a development convenience, not the normal path.
 Every hook is best-effort and fire-and-forget: a throwing hook never breaks the flow that
 triggered it.
 
-<Callout type="warn">
-  `onOrgInvitation` is the one exception to tier two. Organization invitations have no
-  bundled template, so **no email is sent at all** unless you provide the hook. Enabling
-  [organizations](/docs/organizations) without wiring `onOrgInvitation` produces invitations
-  that exist in the database and never reach an inbox.
-</Callout>
-
 ```ts title="config/authkit.ts"
 import mail from '@adonisjs/mail/services/main'
 
@@ -692,7 +685,7 @@ mail: {
 | `onMagicLink` | `{ email, magicUrl, token, code?, channel? }` | A [magic link](/docs/passwordless#magic-link) was issued. `code` is present only when [email login codes](/docs/passwordless#email-login-codes-otp) are enabled; `channel` (`'code'` or `'link'`) carries the user's choose-first selection so you can render a code-only or link-only email. Both are absent in the plain magic-link flow. |
 | `onSudoLink` | `{ email, sudoUrl }` | A [sudo-mode](#sudo-mode) confirmation link was requested. Distinct from `onMagicLink` on purpose: a magic link **authenticates**, a sudo link only grants sudo to someone already signed in, and the two tokens share nothing. |
 | `onNewDeviceLogin` | `{ account, ip, userAgent, timestamp }` | A login succeeded from a device with no valid [trusted-device](/docs/mfa#trusted-devices) cookie. |
-| `onOrgInvitation` | `{ email, invitationId, orgName, orgSlug, role, acceptUrl, token }` | An [organization](/docs/organizations) invitation was created, from the account console or the Admin API. **No bundled fallback** — without this hook nothing is sent. |
+| `onOrgInvitation` | `{ email, invitationId, orgName, orgSlug, role, acceptUrl, token }` | An [organization](/docs/organizations) invitation was created, from the account console or the Admin API. Without the hook the bundled mailer sends the invitation, carrying the org name, the role being offered, and the accept link. |
 | `onEmailChangeConfirm` | `{ email, confirmUrl, token, oldEmail }` | An email change was requested; the confirmation link goes to the **new** address. `oldEmail` is the current one, for context in the template. |
 | `onEmailChangeNotice` | `{ email, newEmail }` | The same request, notifying the **current** address that a change was asked for. |
 | `onOtpUnlock` | `{ email, unlockUrl, token }` | The TOTP/recovery factor was locked; the unlock link was issued. |
