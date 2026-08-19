@@ -1,6 +1,6 @@
 {
   "name": "@adonis-agora/authkit-server",
-  "version": "0.58.1",
+  "version": "0.58.2",
   "description": "AdonisJS OIDC/OAuth2 provider (Identity Provider) toolkit: ejectable auth server with sessions, rate-limiting, MFA/TOTP, audit log, federated logout and OpenTelemetry metrics.",
   "license": "MIT",
   "author": "dudousxd",
