@@ -1,0 +1,430 @@
+---
+icon: Lock
+title: Config Locks
+description: Declaring a policy in config/authkit.ts locks it against runtime edits — how the lock works, which keys it covers, and what an operator sees when it holds.
+---
+
+AuthKit has two places a policy decision can live: the config file, `config/authkit.ts`,
+and the database, in the `auth_settings` table that the admin console and the
+[Admin REST API](/docs/admin-api) write to. Both are legitimate. They answer different
+questions.
+
+`config/authkit.ts` is code. It is reviewed, it is version-controlled, it is diffable, and
+you can read a deployment's whole authentication posture out of a single file without
+logging into anything. A runtime setting is none of those things — it is a row someone
+with console access typed at 2am, and reconstructing why it says what it says means
+digging through the audit log.
+
+**Config locks** are the mechanism that lets you choose, per policy, which of the two is
+authoritative. The rule is one sentence:
+
+<Callout type="info">
+  Declaring a policy field in `defineConfig` **locks** the matching runtime setting. The
+  config value wins, and the console and Admin API can no longer change it. Leave the field
+  out and the runtime setting owns the policy.
+</Callout>
+
+Putting a field in the file is therefore not just "set an initial value" — it is a
+deliberate statement that this policy is not negotiable at runtime, and the library
+enforces that statement rather than trusting everyone to remember it.
+
+## How the lock actually works
+
+No resolver knows that locks exist. There are roughly twenty `resolveEffective*` functions
+across the server, each with the same shape: read the runtime setting, and if it is absent
+or malformed, fall back to the config default. The lock lives entirely inside
+`RuntimeSettings` and works by steering that fallback:
+
+- **Reads.** `getSetting()` returns `null` for a locked key, before it looks at the cache
+  and before it touches the database. Every resolver sees "no setting present" and falls
+  through to the config default — which is exactly the config value. Config wins, and the
+  resolvers stay oblivious.
+- **Writes.** `setSetting()` and `deleteSetting()` throw `SettingLockedError` for a locked
+  key. The write path in the console and in the Admin API catches it and answers
+  **HTTP 423 Locked**.
+- **Discovery.** The settings endpoints return the list of locked keys alongside the data,
+  so the console can render the control read-only instead of letting an admin fill in a
+  form that will be rejected on submit.
+
+The lock registry is process-wide and set once, at boot: `defineConfig` derives the locked
+key list while resolving your config, and the service provider installs it before any
+request is served. Locks come from static config, so they cannot change while the process
+is alive.
+
+## The lockable setting keys
+
+Ten of the [runtime setting keys](/docs/settings) have a config counterpart, and only those
+ten can be locked. A key with no matching config field — `password_policy`,
+`session_policy`, `maintenance_mode`, and the rest — is always owned by the console.
+
+| Config field | Locks the setting key |
+| --- | --- |
+| `registration` | `registration` |
+| `authMethods` | `auth_methods` |
+| `login.requireVerifiedEmail` | `require_verified_email` |
+| `lockout` | `lockout` |
+| `rateLimit` | `rate_limit` |
+| `trustedDevices` | `trusted_devices` |
+| `botProtection` | `bot_protection` |
+| `organizations` | `organizations_policy` |
+| `admin.impersonation` | `admin_impersonation` |
+| `ttl` | `token_ttl` |
+
+What triggers a lock is the field being **explicitly present** in the object you hand to
+`defineConfig`. Presence is what counts, not truthiness — `registration: { enabled: true }`
+and `registration: { enabled: false }` both lock the key.
+
+<Callout type="warn">
+  Locks are per **key**, not per field. `defineConfig({ authMethods: { password: false } })`
+  locks the whole `auth_methods` setting, not just its `password` field. The fields you
+  declared are pinned to what you wrote; the fields you did not declare fall back to the
+  config-and-capability defaults (social providers come from `social.providers`, passkey
+  and magic link from what the account store supports). They do **not** keep whatever an
+  admin had previously stored — the row is invisible while the lock holds.
+</Callout>
+
+### Four keys where the config field is infrastructure only
+
+Read the mapping table one more time, because four of those config fields carry **no policy
+values at all** — they exist to point AuthKit at a limiter store, hand it a CAPTCHA
+verifier, or switch a subsystem on. Declaring one for that infrastructural reason still
+locks the whole matching setting key, and since the config has no policy values to
+contribute, the policy freezes at the library baseline:
+
+| Config field | What it actually carries | Consequence of declaring it |
+| --- | --- | --- |
+| `lockout` | `store` — which limiter store to use | `lockout` locks at the library policy: 5 attempts, 900s window, 60s→3600s backoff |
+| `rateLimit` | `enabled`, `store` | `rate_limit` locks at the library buckets |
+| `trustedDevices` | reserved for cookie parameters | `trusted_devices` locks at enabled, 30 days |
+| `organizations` | `enabled`, `claimStrategy` | `organizations_policy` locks at the library policy |
+
+`botProtection` is a fifth case with a different flavour: its `verify` callback is required,
+so there is no way to configure bot protection without declaring the field — and declaring
+it locks `bot_protection` on. That is the intended reading. A host that wires up a CAPTCHA
+verifier has decided bot protection is mandatory, and no console toggle can switch it off.
+
+<Callout type="warn">
+  If you need a named limiter store *and* a console-tunable lockout policy, you cannot have
+  both — `lockout: { store: 'redis' }` locks the key. Pick the one that matters more: the
+  store, or the runtime tunability.
+</Callout>
+
+## Choosing, per policy
+
+The decision is small and local, so make it key by key rather than picking a side globally.
+
+**Leave the key out of `defineConfig`** when the policy is genuinely operational — the kind
+of thing you want an on-call operator or a support lead to tune at 3am without a deploy.
+Password complexity, session duration, and the maintenance-mode switch usually belong here.
+The console owns them, every change is audited as `settings.updated`, and the file stays
+quiet about them.
+
+**Put the key in `defineConfig`** when the policy is a security commitment you do not want
+anyone talking themselves out of under pressure. Which login methods exist, whether public
+signup is open, whether admins can impersonate users: these are the answers you want an
+auditor to find by reading one reviewed file, and the ones you want a pull request to
+change. The console will show them, read-only, and say where they come from.
+
+## What an operator sees when a lock holds
+
+### In the admin console
+
+The settings card for a locked key renders with a **defined via config** badge and the note
+*"Locked in `defineConfig()` — the config takes priority over runtime. Remove it there to
+edit it here."* Every input in the card is disabled and the save and reset buttons are gone,
+so there is no form to fill in and nothing to submit. The console is not where you read the
+effective value of a locked key — `config/authkit.ts` is.
+
+### Through the Admin REST API
+
+Both the write endpoints answer `423 Locked` before touching the database:
+
+```bash
+curl -i -X PUT https://auth.acme.com/api/authkit/v1/settings/auth_methods \
+  -H "Authorization: Bearer $ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "value": { "password": true } }'
+```
+
+The status is `423 Locked` and the body names both the key and where the lock came from:
+
+```json
+{
+  "error": {
+    "code": "setting_locked",
+    "message": "...",
+    "details": { "key": "auth_methods", "lockedBy": "config" }
+  }
+}
+```
+
+`DELETE /api/authkit/v1/settings/:key` behaves identically — you cannot delete your way out
+of a lock. The listing endpoint, `GET /api/authkit/v1/settings`, carries a `locked` array
+next to `data` so a client can tell locked keys apart without probing them:
+
+```json
+{
+  "data": [
+    {
+      "key": "session_policy",
+      "organizationId": null,
+      "value": { "singleSession": true },
+      "updatedAt": "2026-03-04T11:22:03.000Z",
+      "updatedBy": "cli",
+      "locked": false
+    }
+  ],
+  "locked": ["auth_methods", "registration"]
+}
+```
+
+Each row carries its own `locked` flag too, and gains `"lockedBy": "config"` when it is set —
+so a client that walks the rows does not have to cross-reference the top-level array.
+
+Note that `locked` lists every locked key, including keys with no row in `auth_settings` at
+all — a config-only policy never persists a row, and a client that inferred the locked set
+from the rows would miss most of them.
+
+### Through the Ace commands
+
+`authkit:settings:set` goes through the same `RuntimeSettings` write path, so it fails on a
+locked key with `SettingLockedError` rather than writing. `authkit:settings:unset` reads
+first, and since a locked key reads as absent it reports that there is nothing to unset — a
+locked key cannot be reset from the CLI either.
+
+## The second axis: locked route options
+
+The same rule applies to a second boundary — config versus the argument you pass to
+`registerAuthHost` in `start/routes.ts`. The [host kit](/docs/host-kit) splits its options
+in two:
+
+- **Structural** options — `mountPath`, the console prefixes, which account screens to
+  mount — decide *where things live*. The call-site argument wins; it is a call-site
+  decision by nature, and only a function call can express mounting the same host twice
+  under two prefixes.
+- **Policy** options — `social`, `rateLimit`, `sudoMethods`, and the on/off switch for
+  `admin` and `adminApi` — decide *what is allowed*. When `defineConfig` declares one of
+  these, the argument does not change it.
+
+The config fields that lock them are `social`, `rateLimit`, `sudo.methods`, `admin` and
+`adminApi` respectively — note that the option is `sudoMethods` while the config field it
+mirrors is nested as `sudo.methods`.
+
+Without that second rule, `config/authkit.ts` would stop being auditable. `start/routes.ts`
+could quietly loosen everything the config declared: turn rate-limiting off, mount social
+login the config never mentions, swap out the list of sudo methods. Anyone auditing the
+deployment would have to read both files in every app, and reason about which one won.
+
+The divergence is never silent. A policy option that was passed and ignored is reported two
+ways: a `console.warn` at boot naming the key, and an entry in `overriddenByConfig` on the
+returned route map.
+
+```ts title="start/routes.ts"
+import router from '@adonisjs/core/services/router'
+import { registerAuthHost } from '@adonis-agora/authkit-server'
+
+const routes = registerAuthHost(router, {
+  mountPath: '/sso',        // structural — this wins
+  rateLimit: { enabled: false }, // policy — ignored if the config declares rateLimit
+})
+
+routes.overriddenByConfig // -> ['rateLimit'] when the config declared it
+```
+
+<Callout type="info">
+  For `admin` and `adminApi` the two axes cross inside one option: the **enable/disable**
+  half is policy and the config wins, while the **prefix** half is structural and the
+  argument wins. Passing `{ admin: { prefix: '/backoffice' } }` moves the console; it cannot
+  turn a console on that the config turned off.
+</Callout>
+
+An option the config does not declare is never locked — the argument stays free, so an app
+that configures its host entirely from `start/routes.ts` keeps working exactly as before.
+
+## Unlocking
+
+There is no runtime unlock, by design — a lock you could lift from the console would not be
+a lock. To hand a key back to the console: **delete the field from `defineConfig` and
+restart the process.**
+
+What happens to a row that was already in `auth_settings` for that key is worth being
+precise about, because it surprises people:
+
+<Steps>
+<Step>
+  While the lock holds, the row is **inert, not deleted**. `getSetting()` short-circuits to
+  `null` before it queries, so nothing reads it, and `deleteSetting()` throws, so nothing can
+  remove it either.
+</Step>
+<Step>
+  Remove the field from `defineConfig` and restart. The key is no longer in the locked set.
+</Step>
+<Step>
+  The next read finds the row again and it becomes **live immediately** — with the value it
+  had before the lock was ever introduced. If that stale value is not what you want, reset
+  the key (`node ace authkit:settings:unset <key>`, or `DELETE` it through the Admin API)
+  right after the restart.
+</Step>
+</Steps>
+
+## A worked example
+
+A host that treats login methods and signup as reviewed security decisions, while leaving
+password rules and session duration to whoever is on call:
+
+```ts title="config/authkit.ts"
+import { defineConfig } from '@adonis-agora/authkit-server'
+
+export default defineConfig({
+  issuer: 'https://auth.acme.com',
+  // adapter, jwks, accountStore ... — infrastructure, omitted here
+
+  // LOCKED: passwordless-only, and no public signup. Changing either of these
+  // is a pull request, not a toggle someone flips in the console.
+  authMethods: {
+    password: false,
+    magicLink: true,
+    passkey: true,
+  },
+  registration: { enabled: false },
+
+  // Not declared here: `password_policy` and `session_policy` have no config
+  // field at all, so the console owns them outright — see the note below.
+})
+```
+
+Boot this and the console's **Login methods** and **Signup** cards render read-only with the
+*defined via config* badge, while every other card stays editable. An operator tightening the
+password policy still works normally:
+
+```bash
+node ace authkit:settings:set password_policy \
+  '{"minLength":12,"requireUppercase":true,"checkPwned":true}'
+
+node ace authkit:settings:set session_policy \
+  '{"defaultSessionHours":24,"idleTimeoutMinutes":30}'
+```
+
+An operator trying to re-enable password login does not:
+
+```bash
+node ace authkit:settings:set auth_methods '{"password":true}'
+# fails — auth_methods is locked by defineConfig({ authMethods })
+```
+
+`password_policy` and `session_policy` are in the second category for a structural reason,
+not an arbitrary one: they have no `defineConfig` counterpart, so there is nothing to lock
+them with. Only the ten keys in the table above can ever be locked.
+
+## The programmatic surface
+
+Most hosts never call any of this. The lock set is derived by `defineConfig` and installed
+by the service provider automatically, and the console and Admin API consume it on your
+behalf. These exports exist for a host that builds its **own** settings UI or its **own**
+admin surface and needs to reproduce the same behaviour.
+
+All of them come from `@adonis-agora/authkit-server`:
+
+```ts
+import {
+  SettingLockedError,
+  isSettingLocked,
+  lockedSettingKeys,
+  setLockedSettingKeys,
+  deriveLockedSettingKeys,
+  resetLockedSettingKeys,
+  POLICY_ROUTE_OPTIONS,
+  type PolicyRouteOption,
+} from '@adonis-agora/authkit-server'
+```
+
+<Accordions>
+<Accordion title="isSettingLocked(key) → boolean">
+Is this key locked? The check a custom write path should run **before** it attempts the
+write, so it can answer 423 without burning a database round-trip — which is exactly what
+the bundled controllers do.
+
+```ts
+if (isSettingLocked(key)) {
+  return response.status(423).send({ error: { code: 'setting_locked', key } })
+}
+```
+</Accordion>
+
+<Accordion title="lockedSettingKeys() → string[]">
+A snapshot of every locked key. This is the read path for a settings UI: send it down with
+the settings payload and disable the matching controls. It includes keys with no persisted
+row, which is why you cannot infer the locked set from the rows alone.
+
+```ts
+return { data: rows.map(settingDto), locked: lockedSettingKeys() }
+```
+</Accordion>
+
+<Accordion title="SettingLockedError">
+Thrown by `RuntimeSettings.setSetting()` and `deleteSetting()` when the key is locked. It
+carries `code: 'E_SETTING_LOCKED'` and the offending `key`. Catch it in any custom write
+path that calls `RuntimeSettings` directly — the two guards are belt and braces, and the
+error is the one that cannot be bypassed.
+
+```ts
+try {
+  await settings.setSetting(key, value, actorId)
+} catch (err) {
+  if (err instanceof SettingLockedError) {
+    return response.status(423).send({ error: { code: 'setting_locked', key: err.key } })
+  }
+  throw err
+}
+```
+</Accordion>
+
+<Accordion title="deriveLockedSettingKeys(config) → string[]">
+Maps a raw `defineConfig` input to the setting keys it locks. `defineConfig` calls it for
+you; call it yourself only to answer "what would this config lock?" outside of a running
+app — a config linter, a deployment diff, a test that asserts a policy is pinned.
+</Accordion>
+
+<Accordion title="setLockedSettingKeys(keys)">
+Installs the process-wide lock set. The service provider calls this once at boot with the
+keys `defineConfig` derived. Call it yourself only if you are bootstrapping AuthKit outside
+the normal provider path; calling it in a live app replaces the whole set rather than adding
+to it.
+</Accordion>
+
+<Accordion title="resetLockedSettingKeys()">
+Clears the lock set. **Tests only.** The registry is module-level and survives between test
+cases in the same process, so a test that locks a key must clear it again or it will leak
+into the next one.
+
+```ts
+test.group('settings', (group) => {
+  group.each.teardown(() => resetLockedSettingKeys())
+})
+```
+</Accordion>
+
+<Accordion title="POLICY_ROUTE_OPTIONS and PolicyRouteOption">
+The route options governed by the second axis: `social`, `rateLimit`, `sudoMethods`,
+`admin`, `adminApi`. `PolicyRouteOption` is the union of those five and is the element type
+of `AuthHostRouteMap.overriddenByConfig`. Use the constant when you want to reason about
+policy options generically instead of hard-coding the list — for instance, surfacing the
+override warnings in your own boot diagnostics.
+
+```ts
+const surprises = routes.overriddenByConfig
+if (surprises.length) {
+  logger.warn({ surprises }, 'route policy options ignored — config wins')
+}
+```
+</Accordion>
+</Accordions>
+
+## See also
+
+<Cards>
+  <Card title="Runtime Settings" href="/docs/settings" description="The setting catalogue, precedence, CLI, and org-scoped keys." />
+  <Card title="Host Kit" href="/docs/host-kit" description="registerAuthHost, the structural-vs-policy split, and the route map." />
+  <Card title="Admin REST API" href="/docs/admin-api" description="The machine-to-machine settings CRUD that answers 423." />
+  <Card title="Admin Console" href="/docs/admin-console" description="Where locked keys render read-only." />
+</Cards>
