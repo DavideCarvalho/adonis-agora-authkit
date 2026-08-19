@@ -62,7 +62,7 @@ test.group('token-exchange (impersonation)', (group) => {
         }),
       }),
     );
-    service = new OidcService(cfg!, 'a'.repeat(32));
+    service = new OidcService(cfg as any, 'a'.repeat(32));
     server = createServer(service.callback);
     await new Promise<void>((r) => server.listen(PORT, r));
     return async () => new Promise<void>((r) => server.close(() => r()));
@@ -96,7 +96,7 @@ test.group('token-exchange (impersonation)', (group) => {
       scope: 'openid profile email',
     });
     assert.equal(res.status, 200);
-    const json = await res.json();
+    const json: any = await res.json();
     assert.isString(json.access_token);
     assert.isString(json.id_token);
     const payload = decodeJwtPayload(json.id_token);
@@ -121,7 +121,7 @@ test.group('token-exchange (impersonation)', (group) => {
       requested_subject: 'target-1',
     });
     assert.equal(res.status, 400);
-    const json = await res.json();
+    const json: any = await res.json();
     assert.equal(json.error, 'invalid_grant');
   });
 
@@ -133,7 +133,7 @@ test.group('token-exchange (impersonation)', (group) => {
       subject_token_type: ACCESS_TOKEN_TYPE,
     });
     assert.equal(res.status, 400);
-    const json = await res.json();
+    const json: any = await res.json();
     assert.equal(json.error, 'invalid_request');
   });
 
@@ -145,7 +145,7 @@ test.group('token-exchange (impersonation)', (group) => {
       requested_subject: 'target-1',
     });
     assert.equal(res.status, 400);
-    const json = await res.json();
+    const json: any = await res.json();
     assert.equal(json.error, 'invalid_grant');
   });
 
@@ -162,7 +162,7 @@ test.group('token-exchange (impersonation)', (group) => {
       requested_subject: 'target-1',
     });
     assert.equal(res.status, 400);
-    const json = await res.json();
+    const json: any = await res.json();
     assert.equal(json.error, 'invalid_grant');
   });
 
@@ -183,7 +183,7 @@ test.group('token-exchange (impersonation)', (group) => {
         // Pede MAIS do que o client tem permissão.
         scope: 'openid profile email roles',
       });
-      const json = await res.json();
+      const json: any = await res.json();
       assert.equal(res.status, 200, JSON.stringify(json));
       // Só os scopes na interseção (com a allowlist do client) saem; `profile` e
       // `roles` (pedidos mas não permitidos) são descartados.
@@ -209,7 +209,7 @@ test.group('token-exchange (impersonation)', (group) => {
       audience: 'https://evil.example/api',
     });
     assert.equal(res.status, 400);
-    const json = await res.json();
+    const json: any = await res.json();
     assert.equal(json.error, 'invalid_target');
   });
 });
@@ -241,7 +241,7 @@ test.group('token-exchange — roles do ator fora do globalRoles (resolveTokenRo
         ],
         // O caso do app: roles vivem num store PRÓPRIO (ex.: @adonis-agora/authz),
         // não no `globalRoles` do authkit. `admin` minúsculo + hook resolve.
-        admin: { roles: ['admin'] },
+        admin: { enabled: false, roles: ['admin'] },
         resolveTokenRoles: async (account: any) =>
           account.id === 'authz-admin-1' ? ['admin'] : (account.globalRoles ?? []),
         accountStore: fakeAccountStore({
@@ -255,7 +255,7 @@ test.group('token-exchange — roles do ator fora do globalRoles (resolveTokenRo
         }),
       }),
     );
-    service = new OidcService(cfg!, 'a'.repeat(32));
+    service = new OidcService(cfg as any, 'a'.repeat(32));
     server = createServer(service.callback);
     await new Promise<void>((r) => server.listen(PORT3, r));
     return async () => new Promise<void>((r) => server.close(() => r()));
@@ -288,7 +288,7 @@ test.group('token-exchange — roles do ator fora do globalRoles (resolveTokenRo
       requested_subject: 'target-1',
     });
     assert.equal(res.status, 200);
-    const json = await res.json();
+    const json: any = await res.json();
     assert.equal(json.issued_token_type, ACCESS_TOKEN_TYPE);
     const payload = decodeJwtPayload(json.id_token);
     assert.equal(payload.sub, 'target-1');
@@ -305,7 +305,7 @@ test.group('token-exchange — roles do ator fora do globalRoles (resolveTokenRo
       requested_subject: 'target-1',
     });
     assert.equal(res.status, 400);
-    const json = await res.json();
+    const json: any = await res.json();
     assert.equal(json.error, 'invalid_grant');
   });
 });

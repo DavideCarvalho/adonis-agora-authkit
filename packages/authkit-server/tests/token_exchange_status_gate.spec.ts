@@ -251,7 +251,7 @@ test.group('token-exchange — o gate de status está WIRED no OidcService', (gr
           },
         ],
         accountStore: baseAccountStore({
-          findById: async (sub) => {
+          findById: async (sub: string) => {
             if (sub === 'admin-1')
               return { id: sub, email: 'admin@x.com', globalRoles: ['ADMIN'], name: 'Admin' };
             if (sub === 'disabled-1')
@@ -267,7 +267,7 @@ test.group('token-exchange — o gate de status está WIRED no OidcService', (gr
         } as any),
       }),
     );
-    service = new OidcService(cfg!, 'a'.repeat(32));
+    service = new OidcService(cfg as any, 'a'.repeat(32));
     server = createServer(service.callback);
     await new Promise<void>((r) => server.listen(WIRING_PORT, r));
     return async () => new Promise<void>((r) => server.close(() => r()));
@@ -302,7 +302,7 @@ test.group('token-exchange — o gate de status está WIRED no OidcService', (gr
   }) => {
     const subjectToken = await mintSubjectToken('admin-1');
     const res = await exchangeFor(subjectToken, 'disabled-1');
-    const json = await res.json();
+    const json: any = await res.json();
     assert.equal(
       res.status,
       400,
@@ -318,7 +318,7 @@ test.group('token-exchange — o gate de status está WIRED no OidcService', (gr
   }) => {
     const subjectToken = await mintSubjectToken('admin-1');
     const res = await exchangeFor(subjectToken, 'healthy-1');
-    const json = await res.json();
+    const json: any = await res.json();
     assert.equal(res.status, 200, JSON.stringify(json));
     assert.isString(json.access_token);
     assert.isString(json.id_token);
