@@ -1,5 +1,95 @@
 # @adonis-agora/authkit-server
 
+## 0.59.0
+
+### Minor Changes
+
+- ed83a01: Adoção brownfield: `sub` string com id INTEGER, check de colunas no doctor, e a página que faltava
+
+  Ao seguir o caminho de quem "já tem uma tabela `users` com gente dentro" — a
+  pergunta mais comum de quem avalia o AuthKit — apareceram três problemas:
+
+  **1. Id inteiro vazava como número no `sub`.** `toAccount` fazia `id: row.id`
+  sem coerção. `AuthAccount.id` é tipado `string` e vira o claim `sub`, que a spec
+  OIDC exige que seja string — mas tabela legada quase sempre tem `id` INTEGER
+  auto-increment, e nesse caso o número ia direto para o token (e para todo
+  call-site tipado como string). Provado contra sqlite real: `findById`,
+  `verifyCredentials` e `findByEmail` devolviam `1`, não `'1'`. Agora coagido nos
+  dois `toAccount`. Efeito colateral bom: adotar o AuthKit não exige migrar para
+  UUID.
+
+  **2. Coluna faltando só quebrava em produção.** O `authkit:doctor` não olhava o
+  model por trás do account store. Faltando `password_reset_token`, o app subia
+  normalmente e a falha aparecia quando o primeiro usuário clicava em "esqueci
+  minha senha". Novo `checkAccountStoreColumns` (roteado no `runAllChecks`) lê
+  `$columnsDefinitions` e reporta as propriedades ausentes agrupadas pelo FLUXO
+  que quebra — citando também o `columnName` real, porque em brownfield a
+  propriedade `password` costuma morar numa coluna `senha`. Colunas opcionais
+  (`fullName`/`avatarUrl`/`disabledAt`/`passwordChangedAt`) são reportadas como
+  capability desligada, nunca erro. Store não-Lucid (sem `__model`) → silencioso.
+  Para isso o `lucidAccountStore` passou a expor `__model`, no mesmo idioma de
+  `__mfaIssuer`/`__webauthn`/`connectionName`.
+
+  **3. O caminho existia mas era invisível.** Nova página **Adopting an Existing
+  User Table**: o mapa exato de propriedades por fluxo, a migration aditiva (sem
+  drop/rename/cópia), mapeamento por `columnName` para schema em outra língua,
+  `legacyVerifier` por origem (Laravel `$2y$` / Rails `$2a$` / Django
+  `pbkdf2_sha256$` / node `$2b$`) com a distinção entre devolver `null` ("não é
+  meu formato") e `false` ("senha errada"), e como o lazy rehash migra a base
+  sozinha conforme as pessoas logam. Inclui o aviso de backfill de
+  `email_verified_at` — sem ele, uma política `requireVerifiedEmail` tranca a base
+  inteira no primeiro login.
+
+  Corrigido também um snippet que quebrava em runtime em duas páginas
+  (`passwords-and-migration`, `organizations`): mostravam
+  `lucidAccountStore({ model: () => import('#models/user'), … })`, assinatura que
+  não existe — a real é `lucidAccountStore(Model, options)`, sem overload de
+  objeto.
+
+- 813a321: Multi-tenancy: `orgId` de primeira classe no evento, `orgId`/`orgSlug`/`orgRole` na `Identity`, e o middleware `requireOrg`
+
+  Três buracos no caminho de multi-tenancy por organização, achados ao seguir o
+  fluxo inteiro (org criada → claim → contexto → RBAC escopado):
+
+  **1. O barramento de diagnostics não dizia QUAL org.** `redactAuditEventForDiagnostics`
+  dropa `metadata` inteiro por LGPD (é campo livre e carrega PII — o e-mail do
+  convidado, por exemplo). Só que o `orgId` dos eventos de organização vivia
+  justamente ali. Resultado: um assinante de `agora:authkit:organization.created`
+  — o provisioning do `@adonis-agora/authz`, entre outros — recebia o tipo do
+  evento e nada mais, o que torna o hook inútil na prática. Além disso o
+  `organization.created` self-service auditava só `{ slug }`, sem id nenhum.
+
+  `orgId` agora é campo de primeira classe do `AuditEvent`, preenchido nos 15
+  call-sites de eventos de organização (`organization.deactivated` não tem org, é
+  a limpeza), preservado na projeção de diagnostics junto dos demais ids opacos
+  (`accountId`/`actorId`/`clientId`) e incluído no corpo do webhook. A redação de
+  PII continua intacta: `email`, `ip` e `metadata` seguem fora do barramento.
+
+  **2. A `Identity` não expunha a org.** O tenant ativo só existia em
+  `identity.raw.org_id`, sem tipo, e cada app reescrevia a derivação. Agora
+  `identity.orgId`, `identity.orgSlug` e `identity.orgRole` são campos da
+  `Identity`, preenchidos por `buildIdentityFromClaims` (portanto nos três
+  resolvers: jwt, pat e opaque). A tabela de claims aceitas — que já existia
+  duplicada dentro da ponte de contexto — virou `ORG_ID_CLAIMS` +
+  `deriveOrgId`/`deriveOrgSlug`/`deriveOrgRole` no `authkit-core`, e a ponte
+  passou a consumi-la. Os aliases de IdPs de terceiros (`tid`,
+  `organization_id`, `tenant_id`, `active_organization_id`) continuam valendo,
+  agora num lugar só.
+
+  **3. Não havia como exigir org ativa.** `RequireOrgMiddleware`
+  (`@adonis-agora/authkit-client/require_org_middleware`) barra request
+  autenticada mas sem tenant. Isso importa porque "logado" e "dentro de um
+  tenant" são coisas distintas: sem a barreira, a request chega no controller com
+  tenant indefinido e a checagem escopada do authz cai no escopo GLOBAL — o pior
+  lugar para se cair por acidente. Fail-closed, com `mode: 'api'` (403
+  `no_active_organization` em vez de redirect) e `oneOf` para restringir a um
+  conjunto conhecido de orgs.
+
+### Patch Changes
+
+- Updated dependencies [813a321]
+  - @adonis-agora/authkit-core@0.8.0
+
 ## 0.58.3
 
 ### Patch Changes

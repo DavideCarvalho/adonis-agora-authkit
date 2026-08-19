@@ -1,6 +1,6 @@
 {
   "name": "@adonis-agora/authkit-testing",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Test helpers for apps built on AuthKit: mint real signed ID tokens with a local JWKS, fake authenticators and account stores, and build valid identities — so host apps can test auth flows without booting an IdP.",
   "license": "MIT",
   "author": "dudousxd",
