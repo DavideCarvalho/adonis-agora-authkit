@@ -1,5 +1,12 @@
 # @adonis-agora/authkit-testing
 
+## 0.5.1
+
+### Patch Changes
+
+- Updated dependencies [813a321]
+  - @adonis-agora/authkit-core@0.8.0
+
 ## 0.5.0
 
 ### Minor Changes
