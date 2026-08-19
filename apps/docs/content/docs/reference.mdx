@@ -69,6 +69,11 @@ description: The full defineConfig option tables for server and client.
   Five more — `social`, `rateLimit`, `sudo.methods`, `admin` and `adminApi` — lock the
   matching `registerAuthHost` argument the same way. Read
   [Config locks](/docs/config-locks) before you decide where a policy belongs.
+
+  Watch the keys whose config type carries only infrastructure: declaring
+  `lockout: { store: 'redis' }`, `rateLimit`, `trustedDevices` or `organizations` for
+  plumbing reasons still locks the whole setting key, freezing its policy at the library
+  defaults rather than at anything you wrote.
 </Callout>
 
 ### `ttl` defaults
@@ -378,9 +383,9 @@ See [Console session & sudo mode](/docs/console-session) for recipes.
 
 | Export | Purpose |
 | --- | --- |
-| `requireSudo(ctx, settings)` | Redirects to the confirmation screen (or returns `403`) when the sudo grace period has expired. Both arguments are required: `settings` is a `SettingsCapability` or `null`, and passing `null` means "no runtime settings available", so the lib defaults apply. |
+| `requireSudo(ctx, settings)` | Returns `true` when the caller already holds sudo, and otherwise returns a redirect to the confirmation screen with a `return_to`. Guard with `if (gate !== true) return gate`. Both arguments are required: `settings` is a `SettingsCapability` or `null`, and `null` means "no runtime settings here", so `SUDO_MODE_DEFAULTS` applies. Fail-safe — a settings error lets the request through. |
 | `isSudoActive(ctx, graceMinutes)` | Pure boolean check — `true` when the step-up timestamp is within the grace window **and** belongs to the account currently signed in. |
-| `markSudo(ctx)` | Stamps the step-up timestamp (call after a successful credential confirmation). |
+| `markSudo(ctx)` | Stamps the step-up timestamp, bound to the current account. Deprecated as a way to *grant* sudo — it records no `sudo.confirmed` audit event, no remembered method and no redirect. Use `completeSudo(sudoContextFrom(ctx), methodId)` instead. |
 | `SUDO_SESSION_KEY` | Raw session key for the timestamp. |
 | `SUDO_ACCOUNT_SESSION_KEY` | Raw session key for the account the grace was earned by — checked before the grace window, so a sudo grant cannot survive a switch to another account. |
 | `SUDO_MODE_DEFAULTS` | `{ enabled: true, graceMinutes: 15 }` |
