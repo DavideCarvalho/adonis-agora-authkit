@@ -1,7 +1,7 @@
 ---
 icon: Database
 title: Typed Client & TanStack Query
-description: createAuthkitClient, AuthkitClientProvider, query/mutation hooks, query keys, and error handling for the admin and account APIs.
+description: useResource, createAuthkitClient, AuthkitClientProvider, query/mutation hooks, query keys, and error handling for the admin and account APIs.
 ---
 
 `@adonis-agora/authkit-react` ships a **typed HTTP client** and a full set of
@@ -32,6 +32,76 @@ is for **management screens** (admin UIs, account pages) that need rich, reactiv
 ```bash
 pnpm add @adonis-agora/authkit-react @tanstack/react-query
 ```
+
+## Building your own hook with useResource
+
+Before the typed client, there is a smaller escape hatch. Every headless hook in
+[`@adonis-agora/authkit-react`](/docs/react#6-headless-hooks) — `useProfile`, `useSessions`,
+`useOrganizations`, and the rest — is `useResource` plus a couple of actions built on
+`jsonRequest`. Both are exported, so a screen that needs an endpoint AuthKit knows nothing
+about does not have to switch fetching styles (or pull in React Query for one list).
+
+```ts
+function useResource<T>(url: string, csrfToken?: string): {
+  data: T | null
+  loading: boolean
+  error: Error | null
+  refetch: () => Promise<void>
+}
+
+function jsonRequest<T>(url: string, init?: RequestInit & { csrfToken?: string }): Promise<T>
+```
+
+`jsonRequest` is the one-shot primitive: it always sends `credentials: 'same-origin'` and
+`Accept: application/json`, adds `Content-Type: application/json` when there is a body and
+`X-CSRF-TOKEN` when you pass `csrfToken`, throws an `Error` on any non-2xx response (using the
+server's `message` field when the error body has one), and resolves to `null` on an empty
+`204`. `useResource` wraps it in a GET-on-mount effect: it only fetches inside the effect, so
+it is SSR-safe, and it refetches whenever the URL or the token changes.
+
+Building your own hook is then mostly naming things:
+
+```ts title="app/hooks/use_api_keys.ts"
+import { useCallback } from 'react'
+import { jsonRequest, useResource, useAuthkitConfig } from '@adonis-agora/authkit-react'
+
+interface ApiKey {
+  id: string
+  label: string
+  createdAt: string
+}
+
+export function useApiKeys() {
+  const { csrfToken } = useAuthkitConfig()
+  const { data, loading, error, refetch } = useResource<ApiKey[]>('/api/keys', csrfToken)
+
+  const revoke = useCallback(
+    async (id: string) => {
+      await jsonRequest(`/api/keys/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        csrfToken,
+      })
+      await refetch()
+    },
+    [csrfToken, refetch],
+  )
+
+  return { data, loading, error, actions: { refetch, revoke } }
+}
+```
+
+Two details worth copying from the built-in hooks: read `csrfToken` from
+`useAuthkitConfig()` instead of threading it through props, and return mutations under an
+`actions` object so the hook keeps the `{ data, loading, error, actions }` shape the rest of
+the kit uses. When a mutation needs to be reflected in the UI, `await refetch()` after it —
+there is no cache to invalidate at this layer, which is exactly the trade-off you accept for
+not needing a `QueryClient`.
+
+<Callout type="info">
+  Reach for the typed client and the TanStack hooks below when a screen has many interlocking
+  queries, needs shared caching across components, or wants optimistic updates. Reach for
+  `useResource` when a screen needs one list and a refresh.
+</Callout>
 
 ## Provider setup
 
@@ -134,11 +204,18 @@ const client = createAuthkitClient({
 | `admin.orgs.create(data)` | `POST /orgs` | — |
 | `admin.orgs.update(id, data)` | `PATCH /orgs/:id` | — |
 | `admin.orgs.remove(id)` | `DELETE /orgs/:id` | — |
+| `admin.orgs.addMember(orgId, { accountId, role })` | `POST /orgs/:id/members` | Adds an existing account to the org |
+| `admin.orgs.removeMember(orgId, accountId)` | `DELETE /orgs/:id/members/:accountId` | — |
+| `admin.orgs.updateMemberRole(orgId, accountId, role)` | `PATCH /orgs/:id/members/:accountId` | Sends `{ role }` |
+| `admin.orgs.createInvitation(orgId, { email, role })` | `POST /orgs/:id/invitations` | For someone who has no account yet |
+| `admin.orgs.revokeInvitation(orgId, invitationId)` | `DELETE /orgs/:id/invitations/:invitationId` | — |
 | `admin.audit.list(params?)` | `GET /audit` | `{ type?, page?, limit?, subject? }` |
-| `admin.settings.list()` | `GET /settings` | — |
-| `admin.settings.set(key, value)` | `PUT /settings/:key` | — |
-| `admin.settings.remove(key)` | `DELETE /settings/:key` | — |
+| `admin.settings.list(orgId?)` | `GET /settings` | `orgId` scopes to one org; omitted = global |
+| `admin.settings.set(key, value, orgId?)` | `PUT /settings/:key` | Same scoping |
+| `admin.settings.remove(key, orgId?)` | `DELETE /settings/:key` | Resets to the library default |
 | `admin.impersonation.get(userId)` | `GET /impersonation/:userId` | Panel data |
+| `admin.keys.status()` | `GET /keys` | Signing-key age, policy, next-rotation ETA |
+| `admin.keys.rotate(input?)` | `POST /keys/rotate` | `{ retire?, keep? }` |
 
 All methods under `admin.*` hit `{adminBase}/api/*` — the prefix is derived from
 `window.__AUTHKIT__.endpoints.api` or `opts.baseUrl`.
@@ -225,8 +302,9 @@ const { data } = useQuery(useUsersQueryOptions({ search: 'alice', page: 1 }))
 | `useOrgsQueryOptions()` | `authkitKeys.admin.orgs()` | — |
 | `useOrgQueryOptions(id)` | `authkitKeys.admin.org(id)` | — |
 | `useAuditQueryOptions(params?)` | `authkitKeys.admin.audit(params)` | `{ type?, page?, limit?, subject? }` |
-| `useSettingsQueryOptions()` | `authkitKeys.admin.settings()` | — |
+| `useSettingsQueryOptions(orgId?)` | `authkitKeys.admin.settings(orgId)` | `orgId` scopes to one org; omitted/`null` = global |
 | `useImpersonationQueryOptions(userId)` | `authkitKeys.admin.impersonation(userId)` | — |
+| `useKeysQueryOptions()` | `authkitKeys.admin.keys()` | Signing-key status |
 
 ### Account query hooks
 
@@ -277,8 +355,14 @@ full control.
 | `useCreateOrgMutationOptions()` | `CreateOrgInput` | — |
 | `useUpdateOrgMutationOptions(id)` | `UpdateOrgInput` | — |
 | `useDeleteOrgMutationOptions(id)` | `void` | — |
-| `useSetSettingMutationOptions()` | `{ key: string; value: unknown }` | — |
-| `useRemoveSettingMutationOptions()` | `string` (key) | Resets to lib default |
+| `useAddOrgMemberMutationOptions(orgId)` | `{ accountId: string; role: string }` | Adds an existing account |
+| `useRemoveOrgMemberMutationOptions(orgId, accountId)` | `void` | Both ids bound at hook call |
+| `useUpdateOrgMemberRoleMutationOptions(orgId, accountId)` | `string` (role) | — |
+| `useCreateOrgInvitationMutationOptions(orgId)` | `{ email: string; role: string }` | Returns the created invitation |
+| `useRevokeOrgInvitationMutationOptions(orgId, invitationId)` | `void` | — |
+| `useSetSettingMutationOptions(orgId?)` | `{ key: string; value: unknown }` | `orgId` writes in the org scope |
+| `useRemoveSettingMutationOptions(orgId?)` | `string` (key) | Resets to lib default |
+| `useRotateKeysMutationOptions()` | `KeysRotateInput?` | `{ retire?, keep? }` |
 
 ### Account mutation hooks
 
@@ -366,6 +450,146 @@ export default function UsersPage() {
 }
 ```
 
+## Organization membership
+
+Membership is where the hook-per-argument style pays off: the ids are bound when you call the
+hook, so the mutation function itself takes only what changes. That also means a hook bound to
+a specific member belongs in a component that renders that member — bind it in a row
+component, not once at the top of the page with a piece of state you have to remember to set.
+
+```tsx title="app/admin/ui/pages/org_members.tsx"
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  authkitKeys,
+  useOrgQueryOptions,
+  useAddOrgMemberMutationOptions,
+  useCreateOrgInvitationMutationOptions,
+  useRemoveOrgMemberMutationOptions,
+  useUpdateOrgMemberRoleMutationOptions,
+} from '@adonis-agora/authkit-react'
+
+function MemberRow({ orgId, accountId, role }: { orgId: string; accountId: string; role: string }) {
+  const queryClient = useQueryClient()
+  const removeMember = useMutation(useRemoveOrgMemberMutationOptions(orgId, accountId))
+  const updateRole = useMutation(useUpdateOrgMemberRoleMutationOptions(orgId, accountId))
+
+  const refresh = () => queryClient.invalidateQueries({ queryKey: authkitKeys.admin.org(orgId) })
+
+  return (
+    <tr>
+      <td>{accountId}</td>
+      <td>
+        <select
+          value={role}
+          onChange={async (e) => {
+            await updateRole.mutateAsync(e.target.value)
+            refresh()
+          }}
+        >
+          <option value="member">member</option>
+          <option value="admin">admin</option>
+        </select>
+      </td>
+      <td>
+        <button
+          onClick={async () => {
+            await removeMember.mutateAsync()
+            refresh()
+          }}
+        >
+          Remove
+        </button>
+      </td>
+    </tr>
+  )
+}
+
+function OrgMembers({ orgId }: { orgId: string }) {
+  const queryClient = useQueryClient()
+  const { data: org } = useQuery(useOrgQueryOptions(orgId)) // org.members, org.pendingInvitations
+  const addMember = useMutation(useAddOrgMemberMutationOptions(orgId))
+  const invite = useMutation(useCreateOrgInvitationMutationOptions(orgId))
+
+  async function handleAdd(accountId: string) {
+    await addMember.mutateAsync({ accountId, role: 'member' })
+    queryClient.invalidateQueries({ queryKey: authkitKeys.admin.org(orgId) })
+  }
+
+  async function handleInvite(email: string) {
+    const { invitation } = await invite.mutateAsync({ email, role: 'member' })
+    queryClient.invalidateQueries({ queryKey: authkitKeys.admin.org(orgId) })
+    return invitation
+  }
+
+  return (
+    <table>
+      <tbody>
+        {org?.members.map((m) => (
+          <MemberRow key={m.accountId} orgId={orgId} accountId={m.accountId} role={m.role} />
+        ))}
+      </tbody>
+    </table>
+  )
+}
+```
+
+Add a member when the person already has an account; create an invitation when they do not —
+`createInvitation` takes an email, `addMember` takes an `accountId`. Revoking an invitation
+(`useRevokeOrgInvitationMutationOptions(orgId, invitationId)`) is the mirror of creating one.
+All five mutations touch the org detail, so `authkitKeys.admin.org(orgId)` is the key to
+invalidate; add `authkitKeys.admin.orgs()` when the change alters the list (member counts, for
+example).
+
+## Signing keys
+
+`client.admin.keys` exposes the JWKS signing key: `status()` returns the current key age, the
+rotation policy (`{ enabled, maxAgeDays, keep }`), how many days until the next rotation, and
+the list of managed keys with their `kid`, algorithm, age, and which one is active.
+`rotate(input?)` mints a new key, optionally retiring the old ones (`retire`) and capping how
+many are kept (`keep`).
+
+```tsx
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  authkitKeys,
+  useKeysQueryOptions,
+  useRotateKeysMutationOptions,
+} from '@adonis-agora/authkit-react'
+
+function KeysPanel() {
+  const queryClient = useQueryClient()
+  const { data } = useQuery(useKeysQueryOptions())
+  const rotate = useMutation(useRotateKeysMutationOptions())
+
+  async function handleRotate() {
+    const result = await rotate.mutateAsync({ retire: false })
+    console.log(result.newKid, result.retiredKids, result.keptKids)
+    queryClient.invalidateQueries({ queryKey: authkitKeys.admin.keys() })
+  }
+
+  if (!data) return null
+
+  return (
+    <div>
+      <p>Current key is {data.ageDays} days old.</p>
+      <p>
+        {data.policy.enabled
+          ? `Rotates automatically every ${data.policy.maxAgeDays} days.`
+          : 'Automatic rotation is off.'}
+      </p>
+      <button onClick={handleRotate} disabled={rotate.isPending}>
+        Rotate now
+      </button>
+    </div>
+  )
+}
+```
+
+Rotating with `retire: false` keeps the previous keys published in the JWKS so tokens signed
+with them still validate — retire them once those tokens have expired. The
+[`KeyRotation`](/docs/components#keyrotation) component is this panel, already built; see
+[Signing key rotation](/docs/security#signing-key-rotation) for what happens server-side.
+
 ## Query key reference
 
 `authkitKeys` provides stable, hierarchical cache keys. Use them when calling
@@ -404,8 +628,9 @@ authkitKeys.admin.roles()
 authkitKeys.admin.orgs()
 authkitKeys.admin.org(id)
 authkitKeys.admin.audit(params?)
-authkitKeys.admin.settings()
+authkitKeys.admin.settings(orgId?)  // ['authkit','admin','settings'] or [...,'settings', orgId]
 authkitKeys.admin.impersonation(userId)
+authkitKeys.admin.keys()            // ['authkit', 'admin', 'keys']
 
 authkitKeys.account.all
 authkitKeys.account.me()
