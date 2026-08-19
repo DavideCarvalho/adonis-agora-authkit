@@ -1,5 +1,16 @@
+import type { Authenticator } from '@adonis-agora/authkit-client';
 import { test } from '@japa/runner';
 import { createTestIdentity, fakeAccountStore, fakeAuthenticator } from '../index.js';
+
+/**
+ * Compile-time guard: the fake has to stand in for a `ctx.auth` typed as the
+ * client's `Authenticator`. Whenever `Authenticator` grows a method, this
+ * assignment stops compiling until `FakeAuthenticatorLike` grows it too — which
+ * is the only thing that keeps the fake honest.
+ */
+type CtxAuthSurface = {
+  [K in keyof Authenticator]: Authenticator[K];
+};
 
 test.group('fakeAuthenticator', () => {
   test('checagens de role e identidade funcionam', async ({ assert }) => {
@@ -24,6 +35,25 @@ test.group('fakeAuthenticator', () => {
   test('getUser retorna o user de domínio fornecido', async ({ assert }) => {
     const auth = fakeAuthenticator({ user: { id: 7, name: 'Z' } });
     assert.deepEqual(await auth.getUser(), { id: 7, name: 'Z' });
+  });
+
+  test('stands in for a ctx.auth typed as the real Authenticator', async ({ assert }) => {
+    const auth = fakeAuthenticator({ user: { id: 7, name: 'Z' } });
+    const ctxAuth: CtxAuthSurface = auth;
+
+    assert.deepEqual(await ctxAuth.getUserOrFail(), { id: 7, name: 'Z' });
+    assert.deepEqual(await ctxAuth.toSharedProps(), {
+      user: { id: 7, name: 'Z' },
+      globalRoles: createTestIdentity().globalRoles,
+    });
+  });
+
+  test('getUserOrFail throws for an anonymous session, toSharedProps returns null', async ({
+    assert,
+  }) => {
+    const auth = fakeAuthenticator({ identity: null });
+    await assert.rejects(() => auth.getUserOrFail());
+    assert.isNull(await auth.toSharedProps());
   });
 });
 

@@ -12,6 +12,8 @@ export interface FakeAuthenticatorLike {
   check(): Promise<boolean>;
   hasGlobalRole(role: string): boolean;
   getUser(): Promise<unknown>;
+  getUserOrFail(): Promise<unknown>;
+  toSharedProps(): Promise<{ user: unknown; globalRoles: string[] } | null>;
 }
 
 export interface FakeAuthenticatorOptions {
@@ -38,7 +40,7 @@ export function fakeAuthenticator(options: FakeAuthenticatorOptions = {}): FakeA
       return identity;
     },
     async authenticate() {
-      if (!identity) throw new Error('Não autenticado');
+      if (!identity) throw new Error('Not authenticated');
       return identity;
     },
     async check() {
@@ -50,6 +52,16 @@ export function fakeAuthenticator(options: FakeAuthenticatorOptions = {}): FakeA
     async getUser() {
       if (!identity) return null;
       return user;
+    },
+    async getUserOrFail() {
+      if (!identity || user === null || user === undefined) {
+        throw new Error('Not authenticated: no user for the current session');
+      }
+      return user;
+    },
+    async toSharedProps() {
+      if (!identity) return null;
+      return { user: user ?? null, globalRoles: identity.globalRoles ?? [] };
     },
   };
 }
