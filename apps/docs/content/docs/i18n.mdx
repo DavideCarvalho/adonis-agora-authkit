@@ -34,9 +34,10 @@ export default defineConfig({
 })
 ```
 
-<Callout type="warn">
-  As of the English-default release, hosts that relied on the previous pt-BR default must
-  set `i18n: { locale: 'pt-BR' }` explicitly to keep Portuguese screens.
+<Callout type="info">
+  `locale` is the only thing that switches the screens to Portuguese. There is no
+  request-header negotiation and no per-user preference: the catalog is resolved once, from
+  the config, and every screen and transactional email renders in it.
 </Callout>
 
 ## Overriding keys / adding locales

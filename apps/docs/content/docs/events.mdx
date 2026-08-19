@@ -106,6 +106,11 @@ Every `AuditEvent` carries `accountId`, `email`, `clientId`, `actorId` (imperson
 | `login.failure` | A login attempt failed (wrong credentials). |
 | `login.new_ip_notified` | New-IP email sent after a successful login. |
 | `login.new_device` | New-device notification email sent (no trusted-device cookie). |
+| `login.magic_link_sent` | A magic-link login email was issued and sent. |
+| `login.otp_sent` | An [email login code](/docs/passwordless#email-login-codes-otp) was issued alongside the magic link. Emitted together with `login.magic_link_sent`, never on its own. |
+| `login.otp_verified` | A login completed by typing the emailed code. Carries the `accountId` of the account that signed in. |
+| `login.otp_failed` | A submitted login code was rejected. `metadata.reason` says why: `invalid` (wrong code, attempt counted), `expired` (past the code's TTL), or `no_code` (nothing pending for this interaction). Carries the submitted `email`, not an `accountId`. |
+| `login.otp_invalidated` | The attempt counter was exhausted, so the code was disabled. The magic link in the same email **stays valid** — this is not a lockout of the account. |
 | `signup` | A new account was created. |
 | `password_reset.issued` | A password-reset token was generated and emailed. |
 | `password_reset.consumed` | A password was reset using the token. |
@@ -144,12 +149,14 @@ Every `AuditEvent` carries `accountId`, `email`, `clientId`, `actorId` (imperson
 | `account.exported` | A user downloaded their data export. |
 | `bot_protection.rejected` | A bot-protection check returned `false`. |
 | `keys.rotated` | Signing keys were rotated via `authkit:keys:rotate`. |
+| `settings.updated` | A [runtime setting](/docs/settings) was written or cleared, from the admin console or the Admin REST API. `metadata` identifies the key. |
+| `trusted_device.revoked` | A user cleared the [trusted-device](/docs/mfa#trusted-devices) cookie for the current browser. |
 | `organization.created` | An organization was created. |
 | `organization.updated` | Organization metadata was updated. |
 | `organization.deleted` | An organization was deleted. |
 | `organization.member_added` | A member was added to an organization. |
 | `organization.member_removed` | A member was removed from an organization. |
-| `organization.member_role_updated` | A member's role was changed. |
+| `organization.member_role_changed` | A member's role within an organization was changed. |
 | `organization.switched` | A user switched their active organization. |
 | `organization.deactivated` | A user deactivated their active org. |
 | `organization.invitation_sent` | An org invitation was sent by email. |
