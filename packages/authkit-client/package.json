@@ -59,7 +59,7 @@
     "@adonisjs/core": "catalog:adonisPeers",
     "@adonisjs/session": "catalog:adonisPeers",
     "@adonisjs/lucid": "catalog:adonisPeers",
-    "@adonis-agora/resilience": "^0.1.0"
+    "@adonis-agora/resilience": ">=0.1.0 <1.0.0"
   },
   "peerDependenciesMeta": {
     "@adonisjs/auth": {
