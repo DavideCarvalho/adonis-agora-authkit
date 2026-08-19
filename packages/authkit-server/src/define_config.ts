@@ -1173,15 +1173,21 @@ export interface AuthServerConfigInput {
    */
   accessTokens?: AccessTokensConfig;
   /**
-   * Console admin do IdP (B6). Default: desligado. Quando ligado, o host também
-   * deve passar `admin: true` em {@link AuthHostOptions} no registro de rotas
-   * (a montagem das rotas acontece antes do config resolver).
+   * Console admin do IdP (B6). Default: desligado.
+   *
+   * Declarar esta chave TRAVA o liga/desliga: `registerAuthHost(router, { admin })`
+   * passa a ser ignorado (ver `deriveLockedRouteOptions`). Não repita o
+   * `enabled` no `start/routes.ts` — no máximo passe `admin: { prefix }`, que é
+   * estrutural e continua valendo.
    */
   admin?: AdminConfigInput;
   /**
-   * Admin REST API (R6). Default: desligada. Quando ligada, o host também deve
-   * passar `adminApi: true` em {@link AuthHostOptions} no registro de rotas (a
-   * montagem das rotas acontece antes do config resolver). Autenticação por API key.
+   * Admin REST API (R6). Default: desligada. Autenticação por API key.
+   *
+   * Declarar esta chave TRAVA o liga/desliga: `registerAuthHost(router, { adminApi })`
+   * passa a ser ignorado (ver `deriveLockedRouteOptions`). Não repita o
+   * `enabled` no `start/routes.ts` — no máximo passe `adminApi: { prefix }`, que
+   * é estrutural e continua valendo.
    */
   adminApi?: AdminApiConfigInput;
   /**
