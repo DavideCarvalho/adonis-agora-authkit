@@ -11,9 +11,11 @@ import {
   useUserSessionsQueryOptions,
   useUsersQueryOptions,
 } from '@adonis-agora/authkit-react';
+import type { ImpersonationPanel } from '@adonis-agora/authkit-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import React, { useState, useEffect } from 'react';
 import { Drawer } from '../components/Drawer';
+import { Modal } from '../components/Modal';
 import { Pagination } from '../components/Pagination';
 import { QueryBoundary } from '../components/QueryBoundary';
 import { SkeletonDrawerSection, SkeletonPanelTable } from '../components/Skeleton';
@@ -153,6 +155,7 @@ export function UserInfoContainer({ userId, onMutated, onClose }: UserInfoContai
     ...useImpersonationQueryOptions(userId),
     enabled: false,
   });
+  const [impersonationPanel, setImpersonationPanel] = useState<ImpersonationPanel | null>(null);
 
   async function handleToggleDisable() {
     if (!user) return;
@@ -212,19 +215,37 @@ export function UserInfoContainer({ userId, onMutated, onClose }: UserInfoContai
     }
   }
 
+  /**
+   * Impersonation is an RFC 8693 token exchange, and the exchange needs the
+   * ADMIN'S OWN access token as `subject_token` — something this console, which
+   * authenticates with a session cookie, does not hold. So there is no URL to
+   * open: the endpoint returns the exchange parameters, and we show them.
+   *
+   * The previous version opened `result.data.url`, a field the server has never
+   * returned. It type-checked only because the panel type carried an index
+   * signature, and it always landed on `window.open(undefined)`.
+   */
   async function handleImpersonate() {
+    const result = await impersonationQuery.refetch();
+    if (result.error) {
+      toast.error(
+        result.error instanceof Error ? result.error.message : 'Impersonation not available',
+      );
+      return;
+    }
+    if (!result.data) {
+      toast.error('Impersonation not available');
+      return;
+    }
+    setImpersonationPanel(result.data);
+  }
+
+  async function copyToClipboard(value: string, what: string) {
     try {
-      const result = await impersonationQuery.refetch();
-      if (result.data) {
-        const url = result.data.url;
-        if (typeof url === 'string') {
-          window.open(url, '_blank');
-        } else {
-          toast.error('Impersonation URL not available');
-        }
-      }
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Impersonation not available');
+      await navigator.clipboard.writeText(value);
+      toast.success(`${what} copied`);
+    } catch {
+      toast.error('Could not copy to the clipboard');
     }
   }
 
@@ -351,9 +372,81 @@ export function UserInfoContainer({ userId, onMutated, onClose }: UserInfoContai
               </button>
             </div>
           </div>
+
+          <Modal
+            open={impersonationPanel !== null}
+            onClose={() => setImpersonationPanel(null)}
+            title={`Impersonate ${impersonationPanel?.targetEmail ?? ''}`}
+            large
+            footer={
+              <button className="btn btn-sm" onClick={() => setImpersonationPanel(null)}>
+                Close
+              </button>
+            }
+          >
+            {impersonationPanel && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <p style={{ margin: 0, fontSize: 13, color: 'var(--faint)' }}>
+                  Impersonation runs through the RFC 8693 token exchange. The exchange has to be
+                  signed with <strong>your own admin access token</strong> as the{' '}
+                  <code>subject_token</code>, which this console does not hold — so run the request
+                  below from wherever you already have that token. The issued <code>id_token</code>{' '}
+                  carries <code>act</code> with your subject, and the exchange is audited.
+                </p>
+
+                <div style={{ display: 'grid', gap: 6 }}>
+                  <PanelRow label="Token endpoint" value={impersonationPanel.tokenEndpoint} />
+                  <PanelRow label="Client" value={impersonationPanel.clientId} />
+                  <PanelRow label="Grant type" value={impersonationPanel.grantType} />
+                  <PanelRow
+                    label="Subject token type"
+                    value={impersonationPanel.subjectTokenType}
+                  />
+                  <PanelRow label="Requested subject" value={impersonationPanel.requestedSubject} />
+                </div>
+
+                <div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: 6,
+                    }}
+                  >
+                    <span style={{ fontSize: 12, color: 'var(--faint)' }}>Request</span>
+                    <button
+                      className="btn btn-sm"
+                      onClick={() => copyToClipboard(impersonationPanel.curl, 'Command')}
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <pre
+                    className="code"
+                    style={{ fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}
+                  >
+                    {impersonationPanel.curl}
+                  </pre>
+                </div>
+              </div>
+            )}
+          </Modal>
         </div>
       )}
     </QueryBoundary>
+  );
+}
+
+/** One label/value line of the impersonation panel. */
+function PanelRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', gap: 10, fontSize: 12 }}>
+      <span style={{ color: 'var(--faint)', minWidth: 140 }}>{label}</span>
+      <span className="code" style={{ fontSize: 11, padding: '2px 6px', wordBreak: 'break-all' }}>
+        {value}
+      </span>
+    </div>
   );
 }
 

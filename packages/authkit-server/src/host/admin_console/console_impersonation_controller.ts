@@ -1,7 +1,8 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import { apiError } from '../admin_api/dto.js';
-import { buildImpersonationPanel } from '../impersonation.js';
+import { AdminClientsService } from '../admin_clients_service.js';
+import { type ImpersonationClientLike, buildImpersonationPanel } from '../impersonation.js';
 import { ACCOUNT_SESSION_KEY } from '../middleware/account_auth.js';
 import { resolveRuntimeSettingsOrNoop } from '../runtime_settings.js';
 import { resolveEffectiveAdminImpersonation } from '../runtime_toggles.js';
@@ -64,7 +65,12 @@ export default class ConsoleImpersonationController {
       return ctx.response.notFound(apiError('not_found', 'Usuário não encontrado.'));
     }
 
-    const panel = buildImpersonationPanel(cfg, targetId);
+    // Clients de RUNTIME. `cfg.clients` é sempre `[]` num host real — clients
+    // vivem no adapter, criados pelo console/Admin API/`authkit:clients:create`.
+    // Ler só o config fazia o painel devolver 404 SEMPRE, que é por que o botão
+    // do console nunca funcionou. O fallback para o config cobre hosts legados
+    // com clients estáticos e adapters que não enumeram.
+    const panel = buildImpersonationPanel(cfg, targetId, await listRuntimeClients(service));
     if (!panel) {
       return ctx.response.notFound(
         apiError(
@@ -74,9 +80,17 @@ export default class ConsoleImpersonationController {
       );
     }
 
-    // Auditoria: acessar o painel é uma intenção de impersonation.
+    // Auditoria: o admin REVELOU os parâmetros de impersonation do alvo. Não é
+    // `impersonation` — nenhuma identidade foi assumida aqui; quem registra isso
+    // é o handler do token-exchange, quando o exchange de fato acontece
+    // (`provider/token_exchange.ts`). Registrar "impersonation.started" neste
+    // ponto fazia a trilha de auditoria afirmar uma impersonação que podia
+    // nunca ocorrer — e, com o painel quebrado, NUNCA ocorria.
+    //
+    // Emitido DEPOIS de o painel existir: um evento antes do sucesso audita uma
+    // intenção que a própria lib então recusa.
     await cfg.audit?.record({
-      type: 'impersonation.started',
+      type: 'impersonation.panel_viewed',
       accountId: targetId,
       actorId: (ctx.session?.get(ACCOUNT_SESSION_KEY) as string) ?? null,
       ip: ctx.request.ip?.() ?? null,
@@ -88,5 +102,26 @@ export default class ConsoleImpersonationController {
       targetEmail: account.email,
       ...panel,
     };
+  }
+}
+
+/**
+ * Clients persistidos que podem hospedar o token-exchange. Best-effort: um
+ * adapter sem `list` (ou que falhe) devolve lista vazia e o
+ * `buildImpersonationPanel` cai no `cfg.clients`.
+ */
+async function listRuntimeClients(service: {
+  config: unknown;
+}): Promise<ImpersonationClientLike[]> {
+  try {
+    const clients = new AdminClientsService(service as never);
+    if (!clients.canList) return [];
+    return (await clients.list()).map((c) => ({
+      clientId: c.clientId,
+      grants: c.grants,
+      confidential: c.confidential,
+    }));
+  } catch {
+    return [];
   }
 }
