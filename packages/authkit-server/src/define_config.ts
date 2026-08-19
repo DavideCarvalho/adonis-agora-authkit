@@ -1198,8 +1198,16 @@ export interface AuthServerConfigInput {
    */
   resolveGeo?: ResolveGeo;
   /**
-   * Gestão automática do schema das tabelas do authkit (`authkit_oidc_payloads`,
-   * `auth_settings`, `auth_password_history` e as três de organizations).
+   * Gestão automática do schema das OITO tabelas do authkit:
+   * `authkit_oidc_payloads`, `auth_settings`, `auth_password_history`,
+   * `auth_mfa`, `auth_session_revocations` e as três de organizations
+   * (`auth_organizations`, `auth_organization_members`,
+   * `auth_organization_invitations`). Ver `TABLES` em `schema/ensure.ts` — a
+   * lista aqui existe para o leitor, mas quem manda é aquele array.
+   *
+   * FORA desta gestão: `authkit_keystore`, criada sob demanda pelo
+   * `LucidKeystoreVault` na primeira escrita, e as tabelas do MODEL do host
+   * (`auth_users` etc.), que são migrations do app.
    *
    * - `autoManage` (default `true`): no boot, cria as tabelas que faltam e
    *   adiciona colunas novas (aditivo — nunca dropa nem altera tipos).
