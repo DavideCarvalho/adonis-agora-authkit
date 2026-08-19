@@ -121,7 +121,14 @@ export interface MailHooks {
     userAgent?: string | null;
     timestamp: string;
   }) => Promise<void>;
-  /** Disparado ao criar um convite de organização. */
+  /**
+   * Disparado ao criar um convite de organização.
+   *
+   * OPTIONAL, like every other mail hook here: without it the host-kit itself
+   * sends the invitation email through the default mailer (`@adonisjs/mail`),
+   * branded and translated. Best-effort — a delivery failure never breaks the
+   * invitation.
+   */
   onOrgInvitation?: (data: {
     email: string;
     invitationId: string;
@@ -1062,6 +1069,28 @@ export interface AuthServerConfigInput {
   interactionRecovery?: InteractionRecoveryConfigInput;
   /** Configuração de branding por cliente. */
   branding?: BrandingConfig;
+  /**
+   * Allowlist dos clients FIRST-PARTY: quem recebe as claims de AUTORIZAÇÃO
+   * (`<globalRolesClaim>`, `org_id`, `org_slug`, `org_role`) nos tokens.
+   *
+   * Ausente (default) → TODO client registrado é first-party. Isso NÃO é
+   * "qualquer um vê as roles": a claim está amarrada ao escopo `roles` (ver
+   * `claims` em `provider/build_provider.ts`), então o client precisa (a) ter
+   * sido registrado por um admin e (b) pedir `scope=roles`. A allowlist é uma
+   * terceira barreira, opcional, para quem hospeda clients de terceiros.
+   *
+   * Declarada → só os clients listados recebem; os demais nunca, nem pedindo
+   * `scope=roles`.
+   *
+   * Por que existe separado de `branding.firstParty`: aquele campo vive num
+   * bloco de TEMA. Quem não personalizava a aparência não declarava `branding`,
+   * e o gate lia isso como "ninguém é first-party" — todo RP recebia
+   * `globalRoles: []` enquanto o console admin seguia funcionando (ele lê roles
+   * da sessão, não do token). Uma decisão de autorização não pode depender de o
+   * host ter ou não escolhido uma cor. `branding.firstParty` continua sendo lido
+   * como fallback para quem já o declarou.
+   */
+  firstPartyClients?: string[];
   /** Internacionalização das telas. Default: pt-BR embutido (zero config). */
   i18n?: I18nConfig;
   /** Configuração de providers sociais. */
@@ -1299,6 +1328,12 @@ export interface ResolvedServerConfig {
   /** Recuperação de sessão de interaction perdida resolvida (default `{ mode: 'screen' }`). */
   interactionRecovery: ResolvedInteractionRecoveryConfig;
   branding?: BrandingConfig;
+  /**
+   * Allowlist resolvida de clients first-party, ou `undefined` quando o host não
+   * declarou nenhuma — caso em que todo client registrado é first-party. Ver
+   * {@link AuthServerConfigInput.firstPartyClients}.
+   */
+  firstPartyClients?: string[];
   social?: AuthSocialConfig;
   patIntrospectionSecret?: string;
   rateLimit: ResolvedRateLimitConfig;
@@ -1533,6 +1568,9 @@ export function defineConfig(config: AuthServerConfigInput) {
         redirectTo: config.interactionRecovery?.redirectTo,
       },
       branding: config.branding,
+      // `firstPartyClients` manda; `branding.firstParty` é o fallback de
+      // back-compat. Nenhum dos dois declarado → `undefined` = sem allowlist.
+      firstPartyClients: config.firstPartyClients ?? config.branding?.firstParty,
       social: config.social,
       patIntrospectionSecret: config.patIntrospectionSecret,
       rateLimit: resolveRateLimit(config.rateLimit),
