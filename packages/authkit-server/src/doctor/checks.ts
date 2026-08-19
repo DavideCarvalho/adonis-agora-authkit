@@ -661,9 +661,11 @@ export function checkSecurityNotifications(input: DoctorInput): Finding | null {
 }
 
 /**
- * Verifica a capability de histórico de senhas.
- * - Informa se a tabela `auth_password_history` está presente.
- * - Avisa quando pepper está configurado como string (não array) — rotation recomendada.
+ * Verifica o pepper de senha (`accountStore.password.pepper`).
+ * - Silencioso quando não há pepper configurado.
+ * - Reporta o pepper como string e sugere a forma `[novo, antigo]`, que permite
+ *   rotação sem downtime (lazy re-hash no verify).
+ * - Reporta quantos peppers a rotação tem quando já é array.
  */
 export function checkPasswordPepper(input: DoctorInput): Finding | null {
   const store = input.authkitConfig?.accountStore;
