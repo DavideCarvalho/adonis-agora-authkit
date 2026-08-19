@@ -59,9 +59,9 @@
     "build:host-css": "node scripts/build_host_css.mjs"
   },
   "peerDependencies": {
-    "@adonis-agora/durable": "^0.22.0",
-    "@adonis-agora/media": "^0.1.0",
-    "@adonis-agora/telescope": "^0.1.0",
+    "@adonis-agora/durable": ">=0.7.0 <1.0.0",
+    "@adonis-agora/media": ">=0.5.0 <1.0.0",
+    "@adonis-agora/telescope": ">=0.1.0 <1.0.0",
     "@adonisjs/ally": "catalog:adonisPeers",
     "@adonisjs/auth": "catalog:adonisPeers",
     "@adonisjs/core": "catalog:adonisPeers",

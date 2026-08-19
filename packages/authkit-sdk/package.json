@@ -32,7 +32,7 @@
   },
   "peerDependencies": {
     "@adonisjs/core": "catalog:adonisPeers",
-    "@adonis-agora/authkit-server": ">=0.10.0"
+    "@adonis-agora/authkit-server": ">=0.10.0 <1.0.0"
   },
   "peerDependenciesMeta": {
     "@adonisjs/core": {
