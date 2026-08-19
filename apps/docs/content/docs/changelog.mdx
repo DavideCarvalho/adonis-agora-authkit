@@ -4,31 +4,81 @@ title: Changelog
 description: Where to find release notes and per-package changelogs.
 ---
 
+import { Step, Steps } from 'fumadocs-ui/components/steps'
+
 AuthKit is versioned and published with [Changesets](https://github.com/changesets/changesets).
-Each published package has its own changelog and semantic version.
+It is a monorepo of independently versioned packages: a change to
+`@adonis-agora/authkit-server` does not bump `@adonis-agora/authkit-client`, and each
+package carries its own semantic version and its own `CHANGELOG.md`. That is deliberate —
+most apps depend on a subset of the packages, and a shared version number would force
+upgrades that carry no changes for them.
 
 ## GitHub releases
 
-All tagged releases (with aggregated notes) are published here:
+All tagged releases (with aggregated notes across the packages published in that run) are
+here:
 
-- [GitHub Releases](https://github.com/DavideCarvalho/streaming-educacao/releases)
+- [GitHub Releases](https://github.com/DavideCarvalho/adonis-agora-authkit/releases)
 
 ## Per-package changelogs
 
-Every package keeps a `CHANGELOG.md` next to its source, generated from the
-changesets merged into `main`:
+Every package keeps a `CHANGELOG.md` next to its source, generated from the changesets
+merged into `main`. These are the authoritative notes for an upgrade — read the changelog
+of the package you are bumping, not the aggregate release.
 
-- [`@adonis-agora/authkit-core`](https://github.com/DavideCarvalho/streaming-educacao/blob/main/packages/authkit-core/CHANGELOG.md)
-- [`@adonis-agora/authkit-server`](https://github.com/DavideCarvalho/streaming-educacao/blob/main/packages/authkit-server/CHANGELOG.md)
-- [`@adonis-agora/authkit-client`](https://github.com/DavideCarvalho/streaming-educacao/blob/main/packages/authkit-client/CHANGELOG.md)
-- [`@adonis-agora/authkit-react`](https://github.com/DavideCarvalho/streaming-educacao/blob/main/packages/authkit-react/CHANGELOG.md)
-- [`@adonis-agora/authkit-testing`](https://github.com/DavideCarvalho/streaming-educacao/blob/main/packages/authkit-testing/CHANGELOG.md)
+| Package | Current version | Changelog |
+| --- | --- | --- |
+| `@adonis-agora/authkit-core` | 0.7.0 | [CHANGELOG.md](https://github.com/DavideCarvalho/adonis-agora-authkit/blob/main/packages/authkit-core/CHANGELOG.md) |
+| `@adonis-agora/authkit-server` | 0.57.0 | [CHANGELOG.md](https://github.com/DavideCarvalho/adonis-agora-authkit/blob/main/packages/authkit-server/CHANGELOG.md) |
+| `@adonis-agora/authkit-client` | 0.17.0 | [CHANGELOG.md](https://github.com/DavideCarvalho/adonis-agora-authkit/blob/main/packages/authkit-client/CHANGELOG.md) |
+| `@adonis-agora/authkit-sdk` | 0.6.1 | [CHANGELOG.md](https://github.com/DavideCarvalho/adonis-agora-authkit/blob/main/packages/authkit-sdk/CHANGELOG.md) |
+| `@adonis-agora/authkit-react` | 0.18.0 | [CHANGELOG.md](https://github.com/DavideCarvalho/adonis-agora-authkit/blob/main/packages/authkit-react/CHANGELOG.md) |
+| `@adonis-agora/authkit-testing` | 0.4.0 | [CHANGELOG.md](https://github.com/DavideCarvalho/adonis-agora-authkit/blob/main/packages/authkit-testing/CHANGELOG.md) |
+| `@adonis-agora/authkit-vault-aws` | 0.3.0 | [CHANGELOG.md](https://github.com/DavideCarvalho/adonis-agora-authkit/blob/main/packages/authkit-vault-aws/CHANGELOG.md) |
+| `@adonis-agora/authkit-vault-azure` | 0.3.0 | [CHANGELOG.md](https://github.com/DavideCarvalho/adonis-agora-authkit/blob/main/packages/authkit-vault-azure/CHANGELOG.md) |
+| `@adonis-agora/authkit-vault-gcp` | 0.3.0 | [CHANGELOG.md](https://github.com/DavideCarvalho/adonis-agora-authkit/blob/main/packages/authkit-vault-gcp/CHANGELOG.md) |
+
+<Callout type="info">
+  The version column is a snapshot of the packages at the time this page was written. npm
+  is the live answer — `npm view @adonis-agora/authkit-server version` — and the linked
+  changelog always leads with the newest entry.
+</Callout>
+
+## Reading a version bump
+
+Every package is still in `0.x`, which changes what a bump means:
+
+- **Minor (`0.56.0 → 0.57.0`)** — the range that carries breaking changes. In semver's
+  `0.x` rules the minor is the major. Read the changelog before upgrading.
+- **Patch (`0.6.0 → 0.6.1`)** — bug fixes and additive changes that do not move an
+  existing contract.
+
+Because the packages are versioned independently but peer-depend on each other, a minor
+bump in `authkit-server` or `authkit-core` frequently widens or re-pins the peer range in
+the packages built on top of it. When an install reports an unmet peer dependency, bump the
+whole family to the versions listed in the same release rather than upgrading one package
+in isolation.
 
 ## How releases work
 
-1. A PR that changes a published package includes a changeset (`pnpm changeset`).
-2. On merge to `main`, the Release workflow opens a **Version Packages** PR that
-   bumps versions and updates the changelogs.
-3. Merging that PR publishes the affected packages to npm — with
-   [provenance](https://docs.npmjs.com/generating-provenance-statements) so the
-   build origin is verifiable.
+<Steps>
+
+<Step>
+**A PR that changes a published package includes a changeset** (`pnpm changeset`), which
+records which packages changed, at which bump level, and the prose that lands in their
+changelogs.
+</Step>
+
+<Step>
+**On merge to `main`, the Release workflow opens a "Version Packages" PR.** It applies the
+pending changesets: versions are bumped in each `package.json`, the changeset files are
+consumed, and each affected `CHANGELOG.md` gets its new section.
+</Step>
+
+<Step>
+**Merging that PR publishes the affected packages to npm** — with
+[provenance](https://docs.npmjs.com/generating-provenance-statements), so the build origin
+of each tarball is verifiable against the workflow run that produced it.
+</Step>
+
+</Steps>
