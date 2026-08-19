@@ -35,7 +35,7 @@ login/consent screens — **`edge` | `react` | `headless`** (pass `--ui=react` t
 prompt) — and then:
 
 - Publishes **`config/authkit.ts`** — a starter config (Redis adapter, managed JWKS,
-  `findAccount` / `verifyCredentials` callbacks). Edit it to taste.
+  `lucidAccountStore(AuthUser)`). Edit it to taste.
 - Publishes the **`app/models/auth_user.ts`** model, composed from the `withAuthUser()` +
   `withCredentials()` mixins.
 - Registers the **provider** in `adonisrc.ts` and the bundled **ace commands** (including
@@ -127,7 +127,7 @@ composes the mixins the Lucid store needs; add columns to it as your domain grow
   reading the token set from the session.
 - Publishes the **`app/controllers/oidc_session_controller.ts`** stub — the
   login / callback / logout flow over the client helpers.
-- Registers the **provider** in `adonisrc.ts` and the bundled **ace commands**.
+- Registers the **provider** in `adonisrc.ts`.
 - Registers **`authkit_middleware` as a router-global middleware** automatically — this is
   what makes `ctx.auth` exist on every request. No manual kernel edit needed.
 - Adds **env validations** for `AUTHKIT_ISSUER`, `AUTHKIT_CLIENT_ID`,
@@ -188,10 +188,14 @@ registerAuthHost(router, {
 })
 ```
 
-<Callout type="warn">
-  Pass the **same** `mountPath` to both `defineConfig` and `registerAuthHost`. A few
-  switches — `social` and `rateLimit` — must also be mirrored here because route mounting
-  happens before the (lazy) config resolves.
+<Callout type="info">
+  `registerAuthHost` reads the resolved `config/authkit.ts` that the provider stashed at
+  boot, so `registerAuthHost(router)` with no options already picks up your `mountPath`,
+  `social`, `rateLimit`, `admin` and `adminApi`. The options argument exists to override
+  **structural** choices — where things mount. Policy switches you declared in
+  `defineConfig` are **locked**: passing them here is ignored and warned about at boot, so
+  `config/authkit.ts` stays auditable without reading `start/routes.ts`. See
+  [Config locks](/docs/config-locks).
 </Callout>
 
 ## The client middleware (already registered)
@@ -233,6 +237,10 @@ export const middleware = router.named({
 router.get('/dashboard', [DashboardController]).use(middleware.authkit())
 ```
 
+Don't confuse this middleware with the one that *enforces* a login. `authkit_middleware`
+only makes `ctx.auth` available; requiring a session is a separate, opt-in middleware
+covered under [Protecting a route group](#protecting-a-route-group).
+
 ## Login, callback, logout
 
 Login is OIDC authorization-code + PKCE. The bundled `OidcSessionController` stub was
@@ -270,14 +278,16 @@ export default class OidcSessionController {
     const cfg = manager.clientConfig
     const { code, state } = ctx.request.qs()
     const pkce = ctx.session.get('authkit_pkce')
-    if (!pkce || pkce.state !== state) return ctx.response.badRequest({ error: 'state inválido' })
+    if (!pkce || pkce.state !== state) return ctx.response.badRequest({ error: 'invalid state' })
     const tokenSet = await exchangeCode({
       issuer: cfg.issuer, clientId: cfg.clientId, clientSecret: cfg.clientSecret,
       redirectUri: cfg.redirectUri, code, codeVerifier: pkce.verifier,
     })
-    // Persist the token set under the configured sessionKey — this is what
+    // Persist the token set as a FRESH session — this is what
     // resolvers.jwt({ tokenSource: 'session' }) reads on later requests.
-    ctx.session.put(cfg.sessionKey, tokenSet)
+    // Prefer startSession over a raw session.put: it also clears any credential
+    // parked by a previous login in the same cookie jar.
+    manager.startSession(ctx, tokenSet)
     ctx.session.forget('authkit_pkce')
     return ctx.response.redirect('/')
   }
@@ -315,10 +325,18 @@ router.post('/auth/logout', [OidcSessionController, 'logout']).as('auth.logout')
 The sequence: `login` redirects the browser to the IdP's `/authorize`; the user
 authenticates there and is bounced back to `redirectUri` with `code` + `state`; `callback`
 verifies `state`, swaps the code for a token set via `exchangeCode`, and stores it with
-`session.put(cfg.sessionKey, tokenSet)`. **The stored token set is the login** — there's
+`manager.startSession(ctx, tokenSet)`. **The stored token set is the login** — there's
 nothing else to persist on the RP. For the simpler local-only logout and the full
 end-session details, see [Security](/docs/security#logout) and
 [Back-Channel Logout](/docs/back-channel-logout) for IdP-initiated termination.
+
+<Callout type="info">
+  If you don't need to customise any of that, `registerOidcClient(router)` registers the
+  same three routes (plus back-channel logout) with this exact flow already implemented,
+  and adds post-login redirects by global role. Keep the scaffolded controller when you
+  want to own the flow; drop it for `registerOidcClient` when you don't. See
+  [Client](/docs/client).
+</Callout>
 
 ## Registering your first client
 
@@ -372,10 +390,24 @@ AUTHKIT_REDIRECT_URI=http://localhost:3333/auth/callback
 ## Using it in controllers
 
 This is the part you'll use every day. After the middleware runs, `ctx.auth` is an
-`Authenticator`; destructure it from the context. You don't have to import or declare
-anything — the client package ships a module augmentation
-(`interface HttpContext { auth: Authenticator }`) via its `adonisjs.types` entry, so once
-configured `ctx.auth` is typed everywhere.
+`Authenticator`; destructure it from the context.
+
+`Authenticator` is generic over *your* user type, and it defaults to `unknown` because the
+library cannot know your model. Fix it once, in an app-level type declaration, and every
+`getUser()` call site is typed without a cast:
+
+```ts title="types/authkit.ts"
+import type { Authenticator } from '@adonis-agora/authkit-client'
+import type AppUser from '#models/app_user'
+
+declare module '@adonisjs/core/http' {
+  interface HttpContext {
+    auth: Authenticator<AppUser>
+  }
+}
+```
+
+That single declaration is what makes the examples below read as cleanly as they do.
 
 **Identity vs User.** Two distinct things come out of the authenticator:
 
@@ -403,16 +435,34 @@ export default class DashboardController {
 ### Get your user — `getUser()`
 
 `getUser()` returns whatever `resolveUser` produced (or `null` if not authenticated) — the
-usual entry point, since you almost always want your model rather than raw claims. It
-returns `unknown`, so pass a type argument:
+usual entry point, since you almost always want your model rather than raw claims. With the
+declaration above it is already typed as `AppUser | null`:
 
 ```ts
 async handle({ auth, response }: HttpContext) {
-  const user = await auth.getUser<AppUser>()
-  if (!user) return response.unauthorized({ message: 'Não autenticado' })
+  const user = await auth.getUser()
+  if (!user) return response.unauthorized({ message: 'Not authenticated' })
   return user
 }
 ```
+
+The result is memoised per request: `resolveUser` runs at most once no matter how many
+times you call `getUser()` in a request, so there's no reason to thread the user through
+your own locals.
+
+Behind a route that is already guarded by the auth middleware, `null` is not a visitor —
+it's a misconfigured route. `getUserOrFail()` says that out loud: same resolution, but it
+throws instead of handing you a `null` you'd only have to re-check:
+
+```ts
+async handle({ auth }: HttpContext) {
+  const user = await auth.getUserOrFail() // AppUser, never null
+  return user
+}
+```
+
+`authenticate()` and `getUserOrFail()` are the same idea at the two levels: the first
+guarantees an `Identity`, the second guarantees *your* user.
 
 ### Optional auth — `check()`
 
@@ -422,7 +472,7 @@ vs. members:
 ```ts
 async handle({ auth, inertia }: HttpContext) {
   if (await auth.check()) {
-    return inertia.render('home', { user: await auth.getUser<AppUser>() })
+    return inertia.render('home', { user: await auth.getUser() })
   }
   return inertia.render('home', { user: null })
 }
@@ -438,45 +488,74 @@ const identity = await auth.getIdentity()
 if (identity) console.log(identity.userId, identity.sessionId, identity.raw)
 ```
 
-### Roles — `hasGlobalRole` / `hasAppRole`
+### Hand the session to the frontend — `toSharedProps()`
 
-Two role surfaces, mirroring Identity vs User:
+If your UI uses `@adonis-agora/authkit-react`, its `useAuth()` reads a single Inertia shared
+prop named `authkit`. `toSharedProps()` builds exactly that object — `{ user, globalRoles }`,
+or `null` when there is no session — so the two halves stay in sync without you re-deriving
+the shape by hand:
 
-- **`hasGlobalRole(role)`** is synchronous and checks `identity.globalRoles` (IdP claims).
-  It only sees roles after the identity is resolved — call `authenticate()` / `check()` /
-  `getIdentity()` first.
-- **`hasAppRole(role)`** is `async`, consults `resolveAppRoles(identity)` (your app-local
-  roles), and resolves the identity for you.
+```ts title="config/inertia.ts"
+sharedData: {
+  authkit: (ctx) => ctx.auth.toSharedProps(),
+},
+```
+
+[React](/docs/react) covers the frontend half and the anonymous-request nuance.
+
+### Global roles — `hasGlobalRole`
+
+The authenticator exposes exactly one role check, and it is deliberately narrow.
+`hasGlobalRole(role)` is **synchronous** and reads `identity.globalRoles` — the roles the
+IdP asserted in the token, under the claim named by `globalRolesClaim`. Being synchronous,
+it reads the identity that has *already* been resolved; it does not resolve one for you. So
+call `authenticate()`, `check()` or `getIdentity()` first, otherwise it always answers
+`false`:
 
 ```ts
 async handle({ auth, response }: HttpContext) {
-  await auth.authenticate()                 // ensure identity is resolved
-  if (!auth.hasGlobalRole('admin')) {       // sync, from claims
-    return response.forbidden({ message: 'Acesso negado' })
+  await auth.authenticate()                 // ensure the identity is resolved
+  if (!auth.hasGlobalRole('ADMIN')) {       // sync, straight from the claims
+    return response.forbidden({ message: 'Access denied' })
   }
-  if (await auth.hasAppRole('billing.manager')) {
-    // app-local capability
-  }
+  // ...
 }
 ```
 
+<Callout type="info">
+  **AuthKit authenticates; it does not authorize.** A global role is a coarse,
+  IdP-wide fact — "this person is a platform admin" — carried in the token so every relying
+  party sees the same answer. It is not a permission model: there is no per-app role, no
+  resource-scoped check, and no policy engine on `ctx.auth`, by design. For
+  "can this user update *this* post", use
+  [`@adonis-agora/authz`](https://www.npmjs.com/package/@adonis-agora/authz), which owns
+  roles, permissions and resource checks in your own database, or AdonisJS Bouncer
+  directly. The two compose cleanly: AuthKit answers *who*, authz answers *may they*.
+
+  The connection runs the other way too — an external role authority can become the source
+  of the `globalRoles` claim itself, via `resolveTokenRoles` on the server. See
+  [Customizing auth](/docs/customizing-auth#where-roles-come-from-resolvetokenroles).
+</Callout>
+
+<Callout type="warn">
+  **`globalRoles` arrives empty until you declare first-party clients.** The provider emits
+  the roles claim only to clients listed in `branding.firstParty` — roles are internal
+  authorization data, so the default is to send them to nobody. The config above has no
+  `branding` block, which means `hasGlobalRole` answers `false` for everyone. Add one, with
+  your client id under `firstParty`, before you rely on roles in a relying party. The admin
+  console is not affected: its guard reads roles off the account rather than off a token.
+</Callout>
+
 ### Protecting a route group
 
-For browser routes you usually want a redirect to login, not a 500. Centralize the check in
-a small middleware and apply it to a group:
+For browser routes you usually want a redirect to login, not a 500. Don't write that
+middleware — the client package ships it. Register it as a **named** middleware:
 
-```ts title="app/middleware/require_auth_middleware.ts"
-import type { HttpContext } from '@adonisjs/core/http'
-import type { NextFn } from '@adonisjs/core/types/http'
-
-export default class RequireAuthMiddleware {
-  async handle(ctx: HttpContext, next: NextFn) {
-    if (!(await ctx.auth.check())) {
-      return ctx.response.redirect().toRoute('auth.login')
-    }
-    return next()
-  }
-}
+```ts title="start/kernel.ts"
+export const middleware = router.named({
+  // ...existing named middleware
+  auth: () => import('@adonis-agora/authkit-client/auth_middleware'),
+})
 ```
 
 ```ts title="start/routes.ts"
@@ -487,8 +566,19 @@ router
   })
   .prefix('/app')
   .as('app')
-  .use(middleware.requireAuth())
+  .use(middleware.auth({ redirectTo: '/auth/login' }))
 ```
+
+It calls `ctx.auth.check()` and redirects anonymous visitors to `redirectTo`
+(default `/auth/login`) instead of letting `authenticate()` throw. Note that this is a
+*different* middleware from `authkit_middleware`: that one runs router-globally and creates
+`ctx.auth` on every request; this one is opt-in per route and enforces that a session
+exists. You need both, and they stack in that order.
+
+There is a companion for the other half of the problem —
+`@adonis-agora/authkit-client/silent_auth_middleware` resolves the identity without
+requiring it, for public pages that render differently once someone is logged in. Both are
+covered in detail in [Client](/docs/client) and [AdonisJS auth](/docs/adonis-auth).
 
 That's the whole single-app setup — provider, relying party, and `ctx.auth` all wired.
 Continue with [Topologies](/docs/topologies) to decide how to deploy it,

@@ -8,10 +8,17 @@ The client's `resolver` decides how an incoming request is turned into an `Ident
 AuthKit ships three factories under `resolvers`, picked by your token model and your
 revocation needs.
 
+Every resolver is a *factory*: it does not receive the issuer, the client id, or the
+session key from you. `defineConfig` already knows those, and the client manager passes
+them down when it builds the resolver on first use. That is why the samples below only
+carry the handful of options that are genuinely resolver-specific — everything else is
+inherited from the surrounding client config.
+
 ## resolvers.jwt
 
 For browser / user sessions. Validates the OIDC token **locally** against the IdP's JWKS,
-checking `issuer` and `audience` (your `clientId`). No network call per request.
+checking `issuer` and `audience` (your `clientId`). No network call per request beyond the
+JWKS fetch, which `jose` caches.
 
 ```ts title="config/authkit_client.ts"
 import { resolvers } from '@adonis-agora/authkit-client'
@@ -21,17 +28,22 @@ resolver: resolvers.jwt({ tokenSource: 'session' })
 
 | Option | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `tokenSource` | `'session' \| 'bearer'` | `'session'` | Where to read the token. `'session'` reads the token set from the login flow; `'bearer'` reads the `Authorization` header. |
-| `jwksUri` | `string` | `${issuer}/jwks` | Explicit JWKS endpoint; defaults to the provider's standard route. |
+| `tokenSource` | `'session' \| 'bearer'` | `'session'` | Where to read the token. `'session'` reads the **ID token** out of the token set the login flow stored under `sessionKey`; `'bearer'` reads the raw JWT from the `Authorization` header. |
+| `jwksUri` | `string` | `${issuer}/jwks` | Explicit JWKS endpoint. The default is the AuthKit provider's standard route — point it at `endpoints.jwksUri` from `discoverEndpoints` for a third-party IdP. |
+
+Signature algorithms are restricted to the asymmetric set (RS/PS/ES/EdDSA), so an IdP
+cannot downgrade a token to a symmetric algorithm you'd then verify with a public key. A
+token without a `sub` claim is rejected even if the signature checks out.
 
 Because validation is stateless, a JWT resolver does **not** see revocation until the
 token expires. If you need immediate revocation, use `resolvers.opaque`.
 
 ## resolvers.pat
 
-For machine-to-machine callers presenting a Personal Access Token. Validates by calling
-the IdP's PAT introspection endpoint with a shared secret. See
-[Personal Access Tokens](/docs/personal-access-tokens).
+For machine-to-machine callers presenting a Personal Access Token in the `Authorization`
+header. There is no local validation to do — the token is opaque — so the resolver calls
+the IdP's PAT introspection endpoint with a shared secret and builds the `Identity` from
+the response. See [Personal Access Tokens](/docs/personal-access-tokens).
 
 ```ts
 resolver: resolvers.pat({
@@ -42,16 +54,18 @@ resolver: resolvers.pat({
 
 | Option | Type | Notes |
 | --- | --- | --- |
-| `introspectionUrl` | `string` | The IdP's `/authkit/pat/introspect` endpoint. |
-| `introspectionSecret` | `string` | Shared secret authenticating the introspection call. |
+| `introspectionUrl` | `string` | The IdP's PAT introspection endpoint. |
+| `introspectionSecret` | `string` | Shared secret authenticating the introspection call (sent as a bearer credential, not as the token being introspected). |
+
+Roles for a PAT always come from the literal `roles` claim of the introspection response —
+a PAT is minted by the IdP itself, so there is no per-client claim name to negotiate.
 
 ## resolvers.opaque
 
-For **opaque OIDC access tokens** introspected on every request (RFC 7662). Unlike `jwt`
-(stateless, no revocation check) and `pat` (a `pat_` token with a shared secret), the
-opaque access token issued by the OIDC flow is introspected at the IdP per request — so a
-revocation at the IdP drops the app session **immediately** (on the next request, or after
-`cacheTtlMs`).
+For **opaque OIDC access tokens** introspected on every request (RFC 7662). Unlike `jwt`,
+which is stateless and cannot see a revocation, the access token issued by the OIDC flow is
+introspected at the IdP per request — so revoking at the IdP drops the app session
+**immediately** (on the next request, or after `cacheTtlMs`).
 
 ```ts
 resolver: resolvers.opaque({ tokenSource: 'session' })
@@ -59,7 +73,7 @@ resolver: resolvers.opaque({ tokenSource: 'session' })
 
 | Option | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `tokenSource` | `'session' \| 'bearer'` | `'session'` | `'session'` introspects the access token stored in the token set; `'bearer'` introspects the `Authorization` header token (APIs). |
+| `tokenSource` | `'session' \| 'bearer'` | `'session'` | `'session'` introspects the **access token** stored in the token set (not the ID token, which is what `resolvers.jwt` reads); `'bearer'` introspects the `Authorization` header token (APIs). |
 | `introspectionUrl` | `string` | `${issuer}/token/introspection` | The provider's standard introspection endpoint. |
 | `cacheTtlMs` | `number` | `0` | In-memory TTL (ms) for `active: true` responses. `0` introspects every request (revocation is immediate); raise it to trade immediacy for fewer round-trips. |
 
@@ -68,6 +82,10 @@ resolver: resolvers.opaque({ tokenSource: 'session' })
   introspection call authenticates with HTTP Basic (`clientId:clientSecret`). It throws at
   resolve time if no secret is configured.
 </Callout>
+
+The cache is keyed by the token itself and lives in the process, so a rolling deploy or a
+multi-instance topology gives each instance its own window. Treat `cacheTtlMs` as an upper
+bound on how stale a revocation decision can be, not as a shared cache.
 
 ## The Identity
 
@@ -88,14 +106,25 @@ interface Identity {
 }
 ```
 
-Whatever resolver you pick, `resolveUser` and `resolveAppRoles` (see [Client](/docs/client))
-are unchanged — the rest of your app never knows which token model produced the identity.
+All three resolvers build that object through the same claim mapping: `sub` → `userId`,
+`name` → `profile.name`, `picture` → `profile.avatarUrl`, `sid` → `sessionId`, `iat`/`exp`
+converted from seconds to milliseconds, and the untouched claim set in `raw`. So
+`resolveUser` can rely on `identity.profile?.avatarUrl` and `identity.sessionId` regardless
+of which token model produced the identity — the rest of your app never knows which
+resolver ran.
 
-As of **v0.3.0** the `pat` and `opaque` resolvers populate `profile.avatarUrl` (from the
-introspection response's `picture`) and `sessionId` (from `sid`), matching what the `jwt`
-resolver already derives from the ID token. All three resolvers now yield the same fully
-populated `Identity` shape — `resolveUser` can rely on `identity.profile?.avatarUrl` and
-`identity.sessionId` regardless of token model.
+The one thing that *does* vary is the claim the roles are read from: `jwt` and `opaque`
+honour the `globalRolesClaim` you set on the client config (default `'roles'`), and it must
+match the `globalRolesClaim` the server mints under. See
+[Customizing auth](/docs/customizing-auth#where-roles-come-from-resolvetokenroles)
+for the emission side of that contract.
+
+<Callout type="info">
+  `globalRoles` is what the **IdP** asserted about the person. It is authentication data
+  carried across the wire, not your application's permission model. For per-app roles,
+  permissions, and resource-level checks, use `@adonis-agora/authz` — AuthKit deliberately
+  stops at "who is this".
+</Callout>
 
 ## Choosing a resolver
 
@@ -104,3 +133,8 @@ populated `Identity` shape — `resolveUser` can rely on `identity.profile?.avat
 | Browser session, low latency | `resolvers.jwt` | On token expiry only |
 | Browser session, must honour immediate revocation | `resolvers.opaque` | Immediate (or after `cacheTtlMs`) |
 | CI / scripts / integrations | `resolvers.pat` | Immediate (introspected) |
+
+A client config carries exactly one `resolver`, and the client manager builds it once and
+caches it. The choice is therefore per application, not per route — there is no
+"jwt for the browser, pat for the API" switch inside a single config. Pick the model that
+matches how the app is actually called, and let a separate service own the other one.
