@@ -1,6 +1,6 @@
 {
   "name": "@adonis-agora/authkit-core",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Shared core types and utilities for AuthKit — the AdonisJS OIDC/OAuth2 server and client toolkits.",
   "license": "MIT",
   "author": "dudousxd",

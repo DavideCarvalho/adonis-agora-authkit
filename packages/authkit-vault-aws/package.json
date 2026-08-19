@@ -1,6 +1,6 @@
 {
   "name": "@adonis-agora/authkit-vault-aws",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "AWS Secrets Manager keystore vault for the AuthKit JWKS keystore (createKeystoreVault).",
   "license": "MIT",
   "author": "dudousxd",

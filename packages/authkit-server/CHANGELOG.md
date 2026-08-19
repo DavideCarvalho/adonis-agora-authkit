@@ -1,5 +1,63 @@
 # @adonis-agora/authkit-server
 
+## 0.57.1
+
+### Patch Changes
+
+- 1f15367: Point `homepage` and `bugs.url` at the repository's current name.
+
+  The repository was renamed to `adonis-agora-authkit`; `repository.url` followed,
+  `homepage` and `bugs.url` did not. Every package therefore shipped a manifest
+  that disagreed with itself, and the "Repository"/"Homepage" links on npm leaned
+  on GitHub's rename redirect — which lasts only until someone claims the old
+  name. All three fields now name the same repository.
+
+- 1f15367: Declare `onAccountExpirationWarning` in the `MailHooks` interface.
+
+  `authkit:expire-scan` has always called `mail.onAccountExpirationWarning({ email, expiresInDays })`
+  before deactivating an inactive account, but the hook was never declared on
+  `MailHooks` — the call site reads the config through `Record<string, any>`, so
+  nothing checked it. A host that supplied the hook got no type for its payload,
+  and a host that mistyped the key got no error; the docs, having no type to read,
+  documented a different payload entirely.
+
+  The hook is now part of the interface with its real payload, so editors complete
+  it and a wrong shape fails the build.
+
+- 1f15367: Stop the `AuthHostOptions` docblocks telling hosts to mirror policy options.
+
+  `social`, `rateLimit`, `sudoMethods` and the on/off of `admin`/`adminApi` are
+  policy: once `defineConfig` declares one, `registerAuthHost` ignores the matching
+  argument, warns on boot, and lists the key in `AuthHostRouteMap.overriddenByConfig`.
+  The docblocks still said "mirror `rateLimit` from config/authkit.ts" and "when
+  enabled, the host must also pass `admin: true`" — advice that now produces a
+  boot warning and an argument with no effect.
+
+  Each affected docblock now states the real precedence, and the `admin`/`adminApi`
+  entries spell out the two axes: the on/off is policy (config wins and locks),
+  the prefix is structural (the argument still wins).
+
+- 1f15367: Fix the `schema` docblock, which under-counted the auto-managed tables.
+
+  It listed six (`authkit_oidc_payloads`, `auth_settings`, `auth_password_history`
+  "and the three organization ones"), while `TABLES` in `schema/ensure.ts` has
+  eight — `auth_mfa` and `auth_session_revocations` were missing. A reader sizing
+  up what `autoManage: false` puts on their plate got the wrong answer. The
+  docblock now names all eight and points at the array that actually decides,
+  and calls out `authkit_keystore` as created on demand by `LucidKeystoreVault`
+  rather than by this mechanism.
+
+- 1f15367: `SettingLockedError`'s message is in English.
+
+  The message is not an internal log line: the Admin API's write path turns the
+  error into a `423 Locked` response and puts the text in the JSON body, where an
+  operator or an integrator reads it. It was Portuguese, in an otherwise
+  English-facing API. The `code` (`E_SETTING_LOCKED`) and the `key` property are
+  unchanged, so anything matching on those is unaffected.
+
+- Updated dependencies [1f15367]
+  - @adonis-agora/authkit-core@0.7.1
+
 ## 0.57.0
 
 ### Minor Changes
