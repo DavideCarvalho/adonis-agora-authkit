@@ -5,8 +5,9 @@ description: One typed interface, two drivers — remote (HTTP Admin API) and em
 ---
 
 `@adonis-agora/authkit-sdk` is a **backend SDK** for managing AuthKit from server-side
-code: users, sessions, OIDC clients, the audit log, and token verification. It exposes a
-single typed interface backed by two interchangeable drivers:
+code: users, sessions, OIDC clients, organizations, runtime settings, the audit log, token
+verification, and signing-key rotation. It exposes a single typed interface backed by two
+interchangeable drivers:
 
 - **`remote`** — HTTP against the [Admin REST API](/docs/admin-api) (`/api/authkit/v1`),
   authenticated with a Bearer API key. Use it from any backend service, even one that has
@@ -68,6 +69,58 @@ export async function makeAuthkit(app: ApplicationService) {
 The embedded driver derives the password-reset link origin from your `authkit.issuer`
 config when sending invite/reset e-mails.
 
+### The drivers directly — `createRemoteAuthkit` / `createEmbeddedAuthkit`
+
+`createAuthkit` is a dispatcher, nothing more: it reads `mode` and calls one of the two
+driver factories, both of which are exported from the package root and can be called
+directly.
+
+```ts
+import { createRemoteAuthkit, createEmbeddedAuthkit } from '@adonis-agora/authkit-sdk'
+import type { RemoteOptions, EmbeddedOptions } from '@adonis-agora/authkit-sdk'
+
+// Synchronous — a typed fetch wrapper, nothing to load.
+const remote = createRemoteAuthkit({
+  baseUrl: 'https://idp.example.com',
+  apiKey: process.env.AUTHKIT_ADMIN_API_KEY!,
+})
+
+// Async — lazily imports @adonis-agora/authkit-server on first call.
+const embedded = await createEmbeddedAuthkit({ app })
+```
+
+The two differ in exactly one way that matters at the call site: **`createRemoteAuthkit`
+returns an `Authkit`, while `createEmbeddedAuthkit` returns a `Promise<Authkit>`**. The
+embedded driver has to reach into `@adonis-agora/authkit-server`, and it imports it lazily
+so that remote-only consumers never need the server package installed at all. `createAuthkit`
+papers over the difference by always returning a promise, which is why `await` works
+regardless of the mode you pass it.
+
+`RemoteOptions` is the option table above minus `mode`; `EmbeddedOptions` is just
+`{ app: ApplicationService }`.
+
+**Which should you reach for?**
+
+- **`createAuthkit({ mode })`** when the driver is a *deployment* decision — the same
+  service runs alongside the IdP in one environment and across the network in another, and
+  the mode comes from config. One call site, one `await`, both topologies.
+- **`createRemoteAuthkit` / `createEmbeddedAuthkit`** when the driver is fixed and known at
+  the call site. You get a narrower type, you drop the `mode` discriminant, and in the
+  remote case you skip the pointless promise:
+
+  ```ts title="services/authkit.ts"
+  import { createRemoteAuthkit } from '@adonis-agora/authkit-sdk'
+
+  // No top-level await needed — this is a plain value.
+  export const authkit = createRemoteAuthkit({
+    baseUrl: env.get('AUTHKIT_URL'),
+    apiKey: env.get('AUTHKIT_ADMIN_API_KEY'),
+  })
+  ```
+
+Either way you end up with the same `Authkit` interface, so nothing downstream cares which
+door you came through.
+
 ## Methods
 
 | Resource | Method | Returns |
@@ -105,9 +158,38 @@ config when sending invite/reset e-mails.
 | `settings` | `get(key)` | `AuthkitSetting` — `404` / `Error` when absent |
 | `settings` | `set(key, value)` | `AuthkitSetting` — upserts the row |
 | `settings` | `delete(key)` | `{ key, deleted: true }` |
+| `keys` | `status()` | `{ ageDays, policy, nextRotationInDays }` |
+| `keys` | `rotate(input?)` | `{ rotated: true, newKid, retiredKids, keptKids }` |
 
 The `clientSecret` from `create`/`regenerateSecret` is the **only** time the secret is
 returned in clear text — store it immediately.
+
+### `keys`
+
+Managed signing-key operations, so rotation can live in a deploy script or a scheduled job
+instead of a browser session.
+
+```ts
+const status = await authkit.keys.status()
+// status.ageDays             — age of the current signing key, in days
+// status.policy              — { enabled, maxAgeDays, keep }, the effective rotation policy
+// status.nextRotationInDays  — days until the policy is due; null while rotation is off
+
+if (status.policy.enabled && status.nextRotationInDays === 0) {
+  const result = await authkit.keys.rotate({ keep: 2 })
+  console.log(result.newKid, result.keptKids)
+}
+```
+
+`rotate(input?)` accepts `{ retire?, keep? }`. `keep` is how many keys stay published in
+the JWKS (default `2`); `retire: true` overrides it and keeps only the new key, dropping
+every predecessor into `retiredKids`. Rotation takes effect live — the next token is signed
+with `newKid`.
+
+Both methods are unavailable when the IdP's JWKS is not a managed keystore: the remote
+driver throws `AuthkitApiError` with status `501`, the embedded driver throws a plain
+`Error`. See [Admin REST API — signing keys](/docs/admin-api#signing-keys) for the wire
+contract.
 
 ### `settings`
 
