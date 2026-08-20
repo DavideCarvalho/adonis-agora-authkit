@@ -1,0 +1,50 @@
+name: Notify Agora
+
+# O site agregador (`DavideCarvalho/agora`) puxa as docs desta lib no build. Ele
+# já se re-sincroniza sozinho por cron a cada 3h, então isto NÃO é o que faz a doc
+# chegar lá — é só o atalho para não esperar até 3h por uma correção.
+#
+# O workflow do agora aceita `repository_dispatch` do tipo `lib-docs-updated`
+# exatamente para isso; até aqui ninguém o disparava.
+#
+# Precisa de um PAT com `contents: write` no repo `agora`, guardado como o
+# secret `AGORA_DISPATCH_TOKEN` — o `GITHUB_TOKEN` do run não vale, porque só
+# tem escopo neste repositório. Enquanto o secret não existir, o job é pulado e o
+# cron continua sendo o caminho: nada quebra por causa da ausência.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/docs/**'
+      - '.github/workflows/notify-agora.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    # `secrets` não pode ser lido em `if:` de job diretamente; passa por env.
+    steps:
+      - name: Disparar rebuild do Agora
+        env:
+          TOKEN: ${{ secrets.AGORA_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "AGORA_DISPATCH_TOKEN ausente — pulando." >> "$GITHUB_STEP_SUMMARY"
+            echo "O Agora se re-sincroniza pelo cron (a cada 3h) de qualquer forma." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          code=$(curl -sS -o /tmp/resp.txt -w '%{http_code}' \
+            -X POST https://api.github.com/repos/DavideCarvalho/agora/dispatches \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -d '{"event_type":"lib-docs-updated","client_payload":{"repo":"${{ github.repository }}","sha":"${{ github.sha }}"}}')
+          if [ "$code" != "204" ]; then
+            echo "dispatch falhou (HTTP $code):" && cat /tmp/resp.txt
+            exit 1
+          fi
+          echo "Rebuild do Agora disparado." >> "$GITHUB_STEP_SUMMARY"
