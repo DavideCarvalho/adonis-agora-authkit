@@ -479,7 +479,7 @@ notice rather than erroring.
 ## Organizations
 
 When the three organization tables are present, an **Organizations** view appears at
-`?view=orgs`. See [Organizations](/docs/organizations#admin-console----adminorgs) for
+`?view=orgs`. See [Organizations](/docs/organizations#admin-console--adminorgs) for
 the full route table and behaviour.
 
 ### Organization management
@@ -578,7 +578,7 @@ A few notes on the fields that are not self-explanatory:
 - **`require_verified_email.graceDays`** lets newly-registered accounts sign in without a
   verified email for N days (`0` disables the grace window). It is a no-op when the account
   store does not implement the `isEmailVerified` capability. See
-  [Compliance — Email verification gate](/docs/compliance#verified-email-grace).
+  [Compliance — Email verification gate](/docs/compliance#verified-email-change-flow).
 - **`maintenance_mode`** blocks login, sign-up, and forgot-password for everyone whose
   roles do not match `admin.roles`, so an operator can still get in and turn it back off.
   Leaving `message` blank falls back to the built-in translated string. See

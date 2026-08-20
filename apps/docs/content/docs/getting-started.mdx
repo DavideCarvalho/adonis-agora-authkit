@@ -327,7 +327,7 @@ authenticates there and is bounced back to `redirectUri` with `code` + `state`; 
 verifies `state`, swaps the code for a token set via `exchangeCode`, and stores it with
 `manager.startSession(ctx, tokenSet)`. **The stored token set is the login** — there's
 nothing else to persist on the RP. For the simpler local-only logout and the full
-end-session details, see [Security](/docs/security#logout) and
+end-session details, see [Security](/docs/security#rp-initiated-logout) and
 [Back-Channel Logout](/docs/back-channel-logout) for IdP-initiated termination.
 
 <Callout type="info">

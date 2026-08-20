@@ -16,16 +16,16 @@ description: The full defineConfig option tables for server and client.
 | `jwks` | `JwksConfig` | — | `{ source: 'managed' \| 'jwks', algorithm?, rotationDays?, keys? }`. |
 | `ttl` | `TtlConfig` | see below | Token/session lifetimes; accepts `'15m'`, `'30d'`, or seconds. **Declaring this key locks the `token_ttl` setting.** |
 | `globalRolesClaim` | `string` | `'roles'` | Claim name where global roles are emitted. |
-| `resolveTokenRoles` | `(account, ctx) => string[] \| Promise<string[]>` | `account.globalRoles ?? []` | The pluggable seam for role **emission** — see [Customizing auth](/docs/customizing-auth#resolvetokenroles). Called at mint time for first-party clients (see `firstPartyClients`), on token-exchange, and on the admin-console gate; `ctx` carries `{ clientId?, activeOrg? }`. This is what lets an external authority (typically `@adonis-agora/authz`) own roles instead of a column on the account model. |
+| `resolveTokenRoles` | `(account, ctx) => string[] \| Promise<string[]>` | `account.globalRoles ?? []` | The pluggable seam for role **emission** — see [Customizing auth](/docs/customizing-auth#where-roles-come-from-resolvetokenroles). Called at mint time for first-party clients (see `firstPartyClients`), on token-exchange, and on the admin-console gate; `ctx` carries `{ clientId?, activeOrg? }`. This is what lets an external authority (typically `@adonis-agora/authz`) own roles instead of a column on the account model. |
 | `cookieKeys` | `string[]` | `[]` | Cookie signing keys. |
 | `observability` | `ObservabilityConfig` | `{}` | `{ metrics?, jsonRoutes?, dashboard? }`. |
 | `accountStore` | `AccountStore` | — | Primary identity contract; derives `findAccount`/`verifyCredentials`. `AccountStore = CoreAccountStore & Partial<Mfa/Webauthn/ProviderIdentity capabilities>`; narrow with `supportsMfa`/`supportsPasskeys`/`supportsProviderIdentity`. See [Account Store](/docs/account-store). |
 | `patStore` | `PatStore` | — | Optional; required only for PAT flows. |
 | `mountPath` | `string` | `'/oidc'` | Where the host kit mounts the OIDC routes. |
-| `routes` | `boolean \| AuthHostOptions` | absent (no auto-mount) | Mount the host kit from the config instead of calling `registerAuthHost` in `start/routes.ts`. `true` mounts with config defaults, an object supplies **structural** defaults (`accountRoutes`, `account`, `accountLoginUrl`, `mountPath`). Calling `registerAuthHost` afterwards throws — see [Host Kit](/docs/host-kit#route-mounting). |
+| `routes` | `boolean \| AuthHostOptions` | absent (no auto-mount) | Mount the host kit from the config instead of calling `registerAuthHost` in `start/routes.ts`. `true` mounts with config defaults, an object supplies **structural** defaults (`accountRoutes`, `account`, `accountLoginUrl`, `mountPath`). Calling `registerAuthHost` afterwards throws — see [Host Kit](/docs/host-kit#mounting-the-host). |
 | `accountHome` | `string` | `'/account/security'` | Default destination for the account area: post-login at `/account/login` (without `return_to`), e-mail confirmations, and non-admin redirects away from the console. Point it at your app's home to land users straight in the product. |
 | `render` | `AuthHostRenderer` | `edgeRenderer` | `inertiaRenderer` to render the screens as Inertia pages, or `edgeRenderer` for the bundled Edge templates. |
-| `interactionRecovery` | `{ mode?: 'screen' \| 'redirect'; redirectTo?: string }` | `{ mode: 'screen' }` | What happens when the OIDC interaction session is lost or expired: render the themeable `session-expired` screen, or 302 to the login. See [Host Kit](/docs/host-kit#interaction-recovery). |
+| `interactionRecovery` | `{ mode?: 'screen' \| 'redirect'; redirectTo?: string }` | `{ mode: 'screen' }` | What happens when the OIDC interaction session is lost or expired: render the themeable `session-expired` screen, or 302 to the login. See [Host Kit](/docs/host-kit#recovering-a-lost-interaction-session). |
 | `branding` | `BrandingConfig` | — | Per-client theming. Its `firstParty` list is also read as a fallback allowlist for the authorization claims, but prefer `firstPartyClients` for that — an authorization decision should not live in a theming block. |
 | `firstPartyClients` | `string[]` | — (no allowlist) | Which clients receive the authorization claims (`<globalRolesClaim>`, `org_id`, `org_slug`, `org_role`). Omit it and **every registered client is first-party** — the claims are still gated by client registration and by the client asking for `scope=roles`. Declare it to restrict them to your own apps; an explicitly empty list means nobody. See [Customizing auth](/docs/customizing-auth#the-roles-claim). |
 | `social` | `AuthSocialConfig` | — | `{ providers: string[] }`; opt-in social login. |
@@ -33,14 +33,14 @@ description: The full defineConfig option tables for server and client.
 | `rateLimit` | `RateLimitConfigInput` | disabled | Opt-in anti-brute-force throttles. **Declaring this key locks the `rate_limit` runtime setting** — see [Config locks](/docs/config-locks). Leave it out to let the console own the buckets. |
 | `lockout` | `LockoutConfigInput` | enabled | Progressive per-email lockout. `store` is infra. **Declaring this key locks the `lockout` runtime setting.** See [Account Lockout](/docs/account-lockout). |
 | `mail` | `MailHooks` | — | Pluggable email hooks: `onPasswordReset`, `onEmailVerification`, `onMagicLink`, `onSudoLink`, `onNewDeviceLogin`, `onOrgInvitation`, `onEmailChangeConfirm`, `onEmailChangeNotice`, `onOtpUnlock`, `onSecurityNotice`, `onAccountExpirationWarning`, plus `from` and `origin`. Every hook is optional — without one the host kit sends its own branded, translated email. See [Security — Mail hooks](/docs/security#mail-hooks). |
-| `sudo` | `{ methods?: SudoMethod[] }` | derived from the rest of the config | The identity-confirmation methods offered on `/account/confirm`. Omitting it derives a satisfiable list; declaring it turns derivation **off** and the list is taken literally. **Declaring `sudo.methods` locks the `sudoMethods` route option.** See [Console session & sudo](/docs/console-session#sudo-methods). |
+| `sudo` | `{ methods?: SudoMethod[] }` | derived from the rest of the config | The identity-confirmation methods offered on `/account/confirm`. Omitting it derives a satisfiable list; declaring it turns derivation **off** and the list is taken literally. **Declaring `sudo.methods` locks the `sudoMethods` route option.** See [Console session & sudo](/docs/console-session#confirmation-methods). |
 | `audit` | `AuditSink` | no-op | Best-effort audit sink. |
 | `events` | `EventsConfigInput` | — | `{ onEvent?, webhook? }` — observe every audit event in-process or via an HMAC-signed webhook. See [Events & Webhooks](/docs/events). |
 | `mfaIssuer` | `string` | `'AuthKit'` | TOTP issuer label shown in authenticator apps. |
 | `webauthn` | `WebauthnConfigInput` | derived from `issuer` | Passkey RP params. See [WebAuthn](/docs/webauthn). |
 | `i18n` | `I18nConfig` | English (`en`); pt-BR built in | Host-kit screen translations. See [Internationalization](/docs/i18n). |
 | `dynamicRegistration` | `DynamicRegistrationConfigInput` | disabled | RFC 7591/7592. See [Dynamic Registration](/docs/dynamic-registration). |
-| `admin` | `AdminConfigInput` | disabled | The `/admin` console: `{ enabled, roles?, impersonation? }`. `impersonation: false` unregisters the RFC 8693 grant outright and 404s the console panel — see [Impersonation](/docs/impersonation#kill-switch). **Declaring this key locks the `admin_impersonation` setting and the `admin` route option** (the prefix stays overridable). See [Admin Console](/docs/admin-console). |
+| `admin` | `AdminConfigInput` | disabled | The `/admin` console: `{ enabled, roles?, impersonation? }`. `impersonation: false` unregisters the RFC 8693 grant outright and 404s the console panel — see [Impersonation](/docs/impersonation#the-kill-switch). **Declaring this key locks the `admin_impersonation` setting and the `admin` route option** (the prefix stays overridable). See [Admin Console](/docs/admin-console). |
 | `adminApi` | `true \| { prefix?: string }` | disabled | The Admin REST API (API-key auth). `true` mounts at the default `/api/authkit/v1`; `{ prefix: '/custom/path' }` overrides it (normalised: leading `/`, no trailing slash). Must match `apiPrefix` in the SDK's remote driver. **Declaring this key locks the `adminApi` route option.** See [Admin REST API](/docs/admin-api). |
 | `deviceFlow` | `{ enabled: boolean }` | disabled | Device Authorization Grant (RFC 8628). See [Device Flow](/docs/device-flow). |
 | `dpop` | `{ enabled: boolean }` | disabled | DPoP sender-constrained tokens (RFC 9449). See [Security](/docs/security#dpop). |
@@ -50,7 +50,7 @@ description: The full defineConfig option tables for server and client.
 | `uploads` | `{ avatars?: { disk?: string; directory?: string; maxSizeMb?: number } }` | app's default drive disk, `authkit/avatars`, 5MB | Avatar upload via the app's `@adonisjs/drive`; degrades to URL input when drive is absent. See [Host Kit](/docs/host-kit#avatar-uploads). |
 | `passwordless` | `PasswordlessConfigInput` | all disabled | Magic-link email login, passkey-first login, and password-free public sign-up. See [Passwordless](/docs/passwordless). |
 | `authMethods` | `AuthMethodsConfigInput` | `{}` | Pin login methods in the file. Each field you declare wins over the `auth_methods` runtime setting and the console shows it read-only. **Declaring this key locks the `auth_methods` setting.** See [Config locks](/docs/config-locks). |
-| `login` | `LoginConfigInput` | all off | Login policy: `requireVerifiedEmail` (capability-probed) and `otp` (six-digit email codes — see [Passwordless](/docs/passwordless#otp-login)). **Declaring `login.requireVerifiedEmail` locks the `require_verified_email` setting.** |
+| `login` | `LoginConfigInput` | all off | Login policy: `requireVerifiedEmail` (capability-probed) and `otp` (six-digit email codes — see [Passwordless](/docs/passwordless#email-login-codes-otp)). **Declaring `login.requireVerifiedEmail` locks the `require_verified_email` setting.** |
 | `registration` | `{ enabled?: boolean }` | `{ enabled: true }` | Allow public sign-up. **Declaring this key locks the `registration` setting** — the console can no longer open or close sign-up. Leave it out to keep that switch in the console. |
 | `accessTokens` | `AccessTokensConfig` | `{ format: 'opaque' }` | JWT access tokens (RFC 9068) and per-resource config. See [Security](/docs/security#jwt-access-tokens-rfc-9068). |
 | `botProtection` | `BotProtectionConfigInput` | disabled | Pluggable CAPTCHA/challenge for login, signup, reset; the host supplies `verify`. Fail-safe: a `verify` error or timeout lets the request through. **Declaring this key locks the `bot_protection` setting.** See [Security](/docs/security#bot-protection). |
@@ -58,7 +58,7 @@ description: The full defineConfig option tables for server and client.
 | `resolveGeo` | `(ip: string) => Promise<string \| null>` | — | Pluggable IP → location lookup for session context. See [Admin Console](/docs/admin-console#session-context). |
 | `organizations` | `OrganizationsConfigInput` | auto (on when the three org tables exist) | Multi-tenancy. **Declaring this key locks the `organizations_policy` setting.** See [Organizations](/docs/organizations). |
 | `schema` | `{ autoManage?: boolean; connection?: string }` | `{ autoManage: true }` | Auto-creation of the eight tables AuthKit owns. `autoManage: false` hands you the job — call `ensureAuthkitSchema(db)` from a migration. See [Runtime Settings — Schema](/docs/settings). |
-| `accountLifecycle` | `{ durable?: boolean }` | `{ durable: false }` | `durable: true` enqueues account deletion and export as durable workflows instead of running the cascade in-process. See [Compliance — Durable workflows](/docs/compliance#durable-workflows). |
+| `accountLifecycle` | `{ durable?: boolean }` | `{ durable: false }` | `durable: true` enqueues account deletion and export as durable workflows instead of running the cascade in-process. See [Compliance — Durable workflows](/docs/compliance#durable-account-lifecycle-workflows). |
 | `adonisAuth` | `{ guard: string }` | absent | Opt-in `@adonisjs/auth` integration: the account console's login/logout also drive `ctx.auth.use(guard)`, so `middleware.auth()`, `ctx.auth.user` and the Bouncer work natively. Pair with `authkitUserProvider` in `config/auth.ts`. See [AdonisJS Auth integration](/docs/adonis-auth). |
 
 <Callout type="warn">
@@ -117,7 +117,7 @@ Infrastructure fields only. Bucket policy (`login`, `introspection`) is managed 
 | `clientSecret` | `string?` | — | For confidential clients. |
 | `redirectUri` | `string` | — | This client's callback URI. |
 | `resolver` | `ResolverFactory` | — | `resolvers.jwt(...)` or `resolvers.pat(...)`. |
-| `resolveUser` | `(identity, ctx) => Promise<unknown>` | — | Map the IdP identity onto your own user. `lucidMirror(...)` is the ready-made implementation for a Lucid model — see [Client](/docs/client#lucidmirror). |
+| `resolveUser` | `(identity, ctx) => Promise<unknown>` | — | Map the IdP identity onto your own user. `lucidMirror(...)` is the ready-made implementation for a Lucid model — see [Client](/docs/client#lucidmirror--mirror-the-identity-into-a-local-table). |
 | `sessionKey` | `string` | `'authkit'` | Session key for the token set. |
 | `scopes` | `string[]` | `['openid','profile','email','offline_access','roles']` | Requested scopes. Keep `offline_access` — without it the IdP issues no refresh token, and [impersonation](/docs/impersonation) breaks the moment the admin's access token expires. |
 | `globalRolesClaim` | `string` | `'roles'` | Claim to read global roles from. |
@@ -138,7 +138,7 @@ Infrastructure fields only. Bucket policy (`login`, `introspection`) is managed 
 
 | Export | Purpose |
 | --- | --- |
-| `registerOidcClient(router, options)` | Registers `/auth/login`, the callback, `/auth/logout` and the back-channel endpoint in one call, with PKCE, state, and role-based post-login redirects. The path most relying parties want — see [Client](/docs/client#registeroidcclient). |
+| `registerOidcClient(router, options)` | Registers `/auth/login`, the callback, `/auth/logout` and the back-channel endpoint in one call, with PKCE, state, and role-based post-login redirects. The path most relying parties want — see [Client](/docs/client#the-login--callback--logout-flow). |
 | `authkitClientGuard` / `AuthkitClientGuard` | `@adonisjs/auth` guard backed by the AuthKit session, so `ctx.auth.user` and `middleware.auth()` work natively. See [AdonisJS Auth integration](/docs/adonis-auth). |
 | `getAuthkit(ctx)` | Read the request's `Authenticator` without going through the container. |
 | `AuthkitContextMiddleware` | Populates the per-request identity. |
@@ -236,13 +236,13 @@ migration from static config.
 | --- | --- | --- | --- |
 | `bot_protection` | `{ enabled: boolean; on?: ('login'\|'signup'\|'reset')[] }` | `{ enabled: false }` | Runtime CAPTCHA toggle. See [Security — Runtime toggle](/docs/security#runtime-toggle). |
 | `registration` | `{ enabled: boolean }` | `{ enabled: true }` | Open or close public sign-up. Overrides the static `registration.enabled` in `defineConfig`. See [Security — Registration toggle](/docs/security#registration-toggle). |
-| `require_verified_email` | `{ enabled: boolean; graceDays?: number }` | `{ enabled: false, graceDays: 0 }` | Block unverified accounts. `graceDays` allows newly-registered accounts to log in for N days without verifying. Capability-probed (`isEmailVerified`). See [Compliance — Verified email gate](/docs/compliance#verified-email-grace). |
+| `require_verified_email` | `{ enabled: boolean; graceDays?: number }` | `{ enabled: false, graceDays: 0 }` | Block unverified accounts. `graceDays` allows newly-registered accounts to log in for N days without verifying. Capability-probed (`isEmailVerified`). See [Compliance — Verified email gate](/docs/compliance#verified-email-change-flow). |
 | `maintenance_mode` | `{ enabled: boolean; message?: string }` | `{ enabled: false }` | Block login/sign-up/forgot for non-admins. Admin API escape hatch. See [Security — Maintenance mode](/docs/security#maintenance-mode). |
 | `auth_methods` | `{ password?: boolean; magicLink?: boolean; passkey?: boolean; passkeyAutofill?: boolean; social?: string[]; forgotPassword?: boolean }` | config/capability defaults | Filter login methods at runtime. `passkeyAutofill`: WebAuthn conditional mediation (default `true` when passkey on). `forgotPassword` auto-off when `password` off. `social` intersected with static providers. Fail-safe all-off reverts to defaults. See [Security — Authentication methods](/docs/security#authentication-methods). |
-| `email_change` | `{ enabled?: boolean; ttlHours?: number; requirePassword?: boolean }` | `{ enabled: true, ttlHours: 24, requirePassword: true }` | Verified email-change flow. See [Compliance — Email change](/docs/compliance#email-change). |
+| `email_change` | `{ enabled?: boolean; ttlHours?: number; requirePassword?: boolean }` | `{ enabled: true, ttlHours: 24, requirePassword: true }` | Verified email-change flow. See [Compliance — Email change](/docs/compliance#verified-email-change-flow). |
 | `security_notifications` | `{ enabled?: boolean; kinds?: string[] }` | `{ enabled: true, kinds: [all 6] }` | Security-event emails. `kinds`: `password_changed`, `mfa_enabled`, `mfa_disabled`, `passkey_added`, `passkey_removed`, `email_changed`. See [Compliance — Security notifications](/docs/compliance#security-notifications). |
-| `password_history` | `{ enabled?: boolean; count?: number }` | `{ enabled: false, count: 5 }` | Reuse prevention. Requires `auth_password_history` table. See [Passwords — History](/docs/passwords-and-migration#history). |
-| `password_expiration` | `{ enabled?: boolean; maxAgeDays?: number }` | `{ enabled: false, maxAgeDays: 90 }` | Force password rotation. Requires `password_changed_at` column. See [Passwords — Expiration](/docs/passwords-and-migration#expiration). |
+| `password_history` | `{ enabled?: boolean; count?: number }` | `{ enabled: false, count: 5 }` | Reuse prevention. Requires `auth_password_history` table. See [Passwords — History](/docs/passwords-and-migration#password-history). |
+| `password_expiration` | `{ enabled?: boolean; maxAgeDays?: number }` | `{ enabled: false, maxAgeDays: 90 }` | Force password rotation. Requires `password_changed_at` column. See [Passwords — Expiration](/docs/passwords-and-migration#password-expiration). |
 | `session_policy` | `{ rememberEnabled?: boolean; rememberDays?: number; defaultSessionHours?: number; singleSession?: boolean; idleTimeoutMinutes?: number }` | `{ rememberEnabled: true, rememberDays: 30, defaultSessionHours: 168, singleSession: false, idleTimeoutMinutes: 0 }` | Session duration and behaviour. Idle timeout applies to account console only (not OIDC tokens). |
 | `lockout` | `{ enabled?: boolean; maxAttempts?: number; windowSec?: number; baseLockoutSec?: number; maxLockoutSec?: number }` | `{ enabled: true, maxAttempts: 5, windowSec: 900, baseLockoutSec: 60, maxLockoutSec: 3600 }` | Per-email lockout policy. `store` stays in config (infra). |
 | `rate_limit` | `{ login?: { points, duration }; introspection?: { points, duration } }` | `login: { points: 10, duration: '1 min' }; introspection: { points: 60, duration: '1 min' }` | Rate-limit bucket policy. **Limitation:** route throttle middleware uses boot-time values; only lockout-side is dynamic. |
@@ -396,7 +396,7 @@ See [Console session & sudo mode](/docs/console-session) for recipes.
 ### Sudo methods (the confirmation SPI)
 
 The methods offered on the confirmation screen are pluggable. Read
-[Console session & sudo mode](/docs/console-session#sudo-methods) for the full guide.
+[Console session & sudo mode](/docs/console-session#confirmation-methods) for the full guide.
 
 | Export | Purpose |
 | --- | --- |
@@ -447,7 +447,7 @@ past decision does not answer for it. See [MFA — Trusted devices](/docs/mfa#tr
 
 Published from `@adonis-agora/authkit-server/durable`, and only relevant with
 `accountLifecycle: { durable: true }`. See
-[Compliance — Durable workflows](/docs/compliance#durable-workflows).
+[Compliance — Durable workflows](/docs/compliance#durable-account-lifecycle-workflows).
 
 | Export | Purpose |
 | --- | --- |
@@ -569,7 +569,7 @@ Full export list. For usage and examples see
 
 Reach for the component on a stock login screen, the hook inside your own React screen,
 and the function when your screen owns its state machine. See
-[React](/docs/react#passkeys) and [Components](/docs/components).
+[React](/docs/react#9-passkeys-in-three-tiers) and [Components](/docs/components).
 
 ### Interaction URLs
 
