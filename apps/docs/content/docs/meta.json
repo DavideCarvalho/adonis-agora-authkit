@@ -45,6 +45,7 @@
     "testing",
     "events",
     "i18n",
+    "agora-integration",
     "observability",
     "reference",
     "changelog"
