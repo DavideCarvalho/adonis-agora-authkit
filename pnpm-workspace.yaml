@@ -71,26 +71,26 @@ catalogs:
   # and the lockfile keeps them honest); peers want a range.
   # Only peerDependencies may point here.
   adonisPeers:
-    "@adonisjs/ally": "^6.3.0"
-    "@adonisjs/auth": "^10.1.0"
-    "@adonisjs/core": "^7.3.3"
-    "@adonisjs/drive": "^4.0.0"
-    "@adonisjs/lock": "^2.1.0"
-    "@adonisjs/lucid": "^22.4.2"
-    "@adonisjs/redis": "^9.2.0"
-    "@adonisjs/session": "^8.1.0"
-    "@adonisjs/shield": "^9.0.0"
+    "@adonisjs/ally": "6.3.0"
+    "@adonisjs/auth": "10.1.0"
+    "@adonisjs/core": "7.5.0"
+    "@adonisjs/drive": "4.0.0"
+    "@adonisjs/lock": "2.1.0"
+    "@adonisjs/lucid": "22.4.2"
+    "@adonisjs/redis": "9.2.0"
+    "@adonisjs/session": "8.1.0"
+    "@adonisjs/shield": "9.0.0"
 
   frontendPeers:
-    "@inertiajs/react": "^3.3.0"
-    "@simplewebauthn/browser": "^13.3.0"
-    "@tanstack/react-query": "^5.100.14"
-    "react": "^19.2.6"
-    "react-dom": "^19.2.6"
+    "@inertiajs/react": "3.7.0"
+    "@simplewebauthn/browser": "13.3.0"
+    "@tanstack/react-query": "5.101.4"
+    "react": "19.2.8"
+    "react-dom": "19.2.8"
 
   miscPeers:
-    "@vinejs/vine": "^4.3.0"
-    "edge.js": "^6.5.1"
+    "@vinejs/vine": "4.4.0"
+    "edge.js": "6.5.1"
 
   adonis:
     "@adonisjs/ally": "6.3.0"

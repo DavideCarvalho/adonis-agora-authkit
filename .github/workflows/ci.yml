@@ -17,17 +17,17 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5.1.0
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v4.4.0
         with:
           version: 11.4.0
 
       - name: Setup Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v5.0.0
         with:
-          node-version: 22
+          node-version: 22.23.2
           cache: pnpm
 
       - name: Install dependencies
