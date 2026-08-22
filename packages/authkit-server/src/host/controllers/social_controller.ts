@@ -2,9 +2,21 @@ import '../augmentations.js';
 import { randomUUID } from 'node:crypto';
 import type { AllyDriverContract } from '@adonisjs/ally/types';
 import type { HttpContext } from '@adonisjs/core/http';
-import { supportsProviderIdentity } from '../../accounts/account_store.js';
+import {
+  supportsMagicLink,
+  supportsPasskeys,
+  supportsProviderIdentity,
+  supportsLoginMethodsPreference,
+} from '../../accounts/account_store.js';
 import { assertLoginAllowed } from '../login_attempt.js';
-import { resolveRuntimeSettingsOrNoop } from '../runtime_settings.js';
+import { type RuntimeSettings, resolveRuntimeSettingsOrNoop } from '../runtime_settings.js';
+import {
+  resolveEffectiveAuthMethods,
+} from '../runtime_toggles.js';
+import {
+  resolveEffectiveUserLoginMethods,
+  type ResolvedAuthMethodsLike,
+} from '../user_login_methods.js';
 
 const UID_SESSION_KEY = 'authkit_social_uid';
 
@@ -16,6 +28,23 @@ const UID_SESSION_KEY = 'authkit_social_uid';
  */
 function useProvider(ctx: HttpContext, provider: string): AllyDriverContract<any, any> {
   return (ctx.ally.use as (name: string) => AllyDriverContract<any, any>)(provider);
+}
+
+/**
+ * Métodos globais efetivos para o gate por usuário do callback social.
+ * Espelha o `#loginMethods` do interaction controller (mesma fonte de
+ * capabilities), sem acoplar os dois controllers.
+ */
+async function resolveGlobalAuthMethodsForUser(
+  cfg: any,
+  settings: RuntimeSettings,
+): Promise<ResolvedAuthMethodsLike> {
+  return await resolveEffectiveAuthMethods(settings, {
+    configuredSocialProviders: cfg.social?.providers ?? [],
+    magicLinkCapable: cfg.passwordless?.magicLink && supportsMagicLink(cfg.accountStore),
+    passkeyCapable: supportsPasskeys(cfg.accountStore),
+    configOverrides: cfg.authMethods,
+  });
 }
 
 export default class AuthSocialController {
@@ -131,6 +160,23 @@ export default class AuthSocialController {
     if (!statusGate.allowed) {
       ctx.session.forget(UID_SESSION_KEY);
       return ctx.response.redirect(backToLogin);
+    }
+
+    // Preferência por usuário: método social desligado para esta conta → recusa.
+    // Aplica-se a contas EXISTENTES (identidade ligada ou e-mail conhecido); uma
+    // conta recém-criada pelo callback não tem preferência gravada, então herda
+    // os globais — o gate é no-op para ela por construção.
+    const existingUser = user;
+    if (supportsLoginMethodsPreference(store)) {
+      const pref = await store.getLoginMethods(existingUser.id);
+      const scoped = resolveEffectiveUserLoginMethods(
+        await resolveGlobalAuthMethodsForUser(cfg, settings),
+        pref,
+      );
+      if (scoped.social.length === 0) {
+        ctx.session.forget(UID_SESSION_KEY);
+        return ctx.response.redirect(backToLogin);
+      }
     }
 
     ctx.session.forget(UID_SESSION_KEY);

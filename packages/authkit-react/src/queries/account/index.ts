@@ -16,6 +16,7 @@ import { AuthkitClientError } from '../../client/client.js';
 import { useAuthkitClient } from '../../client/context.js';
 import type {
   AccountAppsResult,
+  AccountLoginMethodsResult,
   AccountMe,
   AccountMfaStatus,
   AccountOrgDetail,
@@ -37,8 +38,10 @@ import type {
   RevokeOthersResult,
   RevokeSessionResult,
   RevokeTokenResult,
+  UpdateLoginMethodsResult,
   UpdateProfileInput,
   UpdateProfileResult,
+  UserLoginMethodsInput,
 } from '../../client/types.js';
 import { authkitKeys } from '../keys.js';
 
@@ -209,6 +212,37 @@ export function useMfaQueryOptions() {
     queryKey: authkitKeys.account.mfa(),
     queryFn: () => client.account.mfa(),
   } satisfies UseQueryOptions<AccountMfaStatus, AuthkitClientError>;
+}
+
+// ---------------------------------------------------------------------------
+// Login methods (preferência por usuário de tipos de login) – Query + Mutation
+// ---------------------------------------------------------------------------
+
+/**
+ * Query da preferência de tipos de login do usuário logado: o que ele escolheu,
+ * o que está disponível (global ∩ preferência) e o que está travado (fora do
+ * controle dele — globalmente off ou pin de config).
+ */
+export function useLoginMethodsQueryOptions() {
+  const client = useAuthkitClient();
+  return {
+    queryKey: authkitKeys.account.loginMethods(),
+    queryFn: () => client.account.loginMethods.get(),
+  } satisfies UseQueryOptions<AccountLoginMethodsResult, AuthkitClientError>;
+}
+
+/** Mutation da preferência de tipos de login. `{}` = voltar a herdar os globais. */
+export function useUpdateLoginMethodsMutationOptions() {
+  const client = useAuthkitClient();
+  return {
+    mutationKey: ['authkit', 'account', 'login-methods', 'update'],
+    mutationFn: (data: { methods: UserLoginMethodsInput }) =>
+      client.account.loginMethods.update(data),
+  } satisfies UseMutationOptions<
+    UpdateLoginMethodsResult,
+    AuthkitClientError,
+    { methods: UserLoginMethodsInput }
+  >;
 }
 
 // ---------------------------------------------------------------------------
