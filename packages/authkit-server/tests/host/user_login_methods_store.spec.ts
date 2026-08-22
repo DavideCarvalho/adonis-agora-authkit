@@ -3,10 +3,10 @@ import { compose } from '@adonisjs/core/helpers';
 import { BaseModel, beforeCreate, column } from '@adonisjs/lucid/orm';
 import { test } from '@japa/runner';
 import { supportsLoginMethodsPreference } from '../../src/accounts/account_store.js';
+import { lucidAccountStore } from '../../src/accounts/lucid_account_store.js';
 import { jsonColumn } from '../../src/mixins/json_column.js';
 import { withAuthUser } from '../../src/mixins/with_auth_user.js';
 import { withCredentials } from '../../src/mixins/with_credentials.js';
-import { lucidAccountStore } from '../../src/accounts/lucid_account_store.js';
 import { createTestDatabase } from '../bootstrap.js';
 
 class AccountWithPref extends compose(BaseModel, withAuthUser(), withCredentials()) {
@@ -96,9 +96,13 @@ test.group('lucidAccountStore — login methods preference', (group) => {
   test('valor cru inválido na coluna → normalizado para null', async ({ assert }) => {
     const store = lucidAccountStore(AccountWithPref) as any;
     const acc = await store.create({ email: 'junk@test.com', password: 'Xk9pQ!mZr7nL' });
-    await db.connection().from('users').where('id', acc.id).update({
-      login_methods: JSON.stringify({ whatever: 'x', password: 'not-boolean' }),
-    });
+    await db
+      .connection()
+      .from('users')
+      .where('id', acc.id)
+      .update({
+        login_methods: JSON.stringify({ whatever: 'x', password: 'not-boolean' }),
+      });
     assert.isNull(await store.getLoginMethods(acc.id));
   });
 });

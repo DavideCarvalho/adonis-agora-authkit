@@ -1,8 +1,8 @@
-import type { LoginMethodsPreferenceCapability } from '../account_store.js';
 import type { UserLoginMethods } from '../../host/user_login_methods.js';
 import { normalizeUserLoginMethods } from '../../host/user_login_methods.js';
-import { hasColumn } from './status_profile.js';
+import type { LoginMethodsPreferenceCapability } from '../account_store.js';
 import type { LucidStoreContext } from './shared.js';
+import { hasColumn } from './status_profile.js';
 
 /**
  * Preferência por usuário de tipos de login sobre a coluna `login_methods`

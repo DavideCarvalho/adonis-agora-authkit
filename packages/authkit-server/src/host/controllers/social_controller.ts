@@ -3,19 +3,17 @@ import { randomUUID } from 'node:crypto';
 import type { AllyDriverContract } from '@adonisjs/ally/types';
 import type { HttpContext } from '@adonisjs/core/http';
 import {
+  supportsLoginMethodsPreference,
   supportsMagicLink,
   supportsPasskeys,
   supportsProviderIdentity,
-  supportsLoginMethodsPreference,
 } from '../../accounts/account_store.js';
 import { assertLoginAllowed } from '../login_attempt.js';
 import { type RuntimeSettings, resolveRuntimeSettingsOrNoop } from '../runtime_settings.js';
+import { resolveEffectiveAuthMethods } from '../runtime_toggles.js';
 import {
-  resolveEffectiveAuthMethods,
-} from '../runtime_toggles.js';
-import {
-  resolveEffectiveUserLoginMethods,
   type ResolvedAuthMethodsLike,
+  resolveEffectiveUserLoginMethods,
 } from '../user_login_methods.js';
 
 const UID_SESSION_KEY = 'authkit_social_uid';

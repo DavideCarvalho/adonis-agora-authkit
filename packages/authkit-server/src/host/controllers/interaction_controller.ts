@@ -1,8 +1,8 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import {
-  supportsMagicLink,
   supportsLoginMethodsPreference,
+  supportsMagicLink,
   supportsOtpLogin,
   supportsPasskeys,
 } from '../../accounts/account_store.js';
@@ -37,14 +37,14 @@ import {
   resolveEffectiveSessionPolicy,
 } from '../runtime_toggles.js';
 import {
-  normalizeUserLoginMethods,
-  resolveEffectiveUserLoginMethods,
-} from '../user_login_methods.js';
-import {
   TRUSTED_DEVICE_COOKIE,
   buildTrustedDevicePayload,
   isTrustedDeviceValid,
 } from '../trusted_device.js';
+import {
+  normalizeUserLoginMethods,
+  resolveEffectiveUserLoginMethods,
+} from '../user_login_methods.js';
 
 /**
  * Chave i18n do erro de status de conta (disabled/expired) compartilhada pelos
@@ -137,7 +137,10 @@ export default class AuthInteractionController {
       const pref = await cfg.accountStore.getLoginMethods(acc.id);
       const normalized = normalizeUserLoginMethods(pref);
       if (!normalized) return base;
-      const scoped = resolveEffectiveUserLoginMethods(base.authMethods as ResolvedAuthMethods, normalized);
+      const scoped = resolveEffectiveUserLoginMethods(
+        base.authMethods as ResolvedAuthMethods,
+        normalized,
+      );
       const magicLinkCapableConfig =
         cfg.passwordless.magicLink && supportsMagicLink(cfg.accountStore);
       return {

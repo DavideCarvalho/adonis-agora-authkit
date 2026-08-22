@@ -57,10 +57,6 @@ import {
   resolveEffectiveEmailChange,
   resolveEffectivePasswordHistory,
 } from '../runtime_toggles.js';
-import {
-  parseUserLoginMethodsPayload,
-  resolveEffectiveUserLoginMethods,
-} from '../user_login_methods.js';
 import { dispatchSecurityNotice } from '../security_notice_service.js';
 import { enrichSessionsWithContext } from '../session_context.js';
 import {
@@ -69,6 +65,10 @@ import {
   requireSudo,
   resolveEffectiveSudoMode,
 } from '../sudo_mode.js';
+import {
+  parseUserLoginMethodsPayload,
+  resolveEffectiveUserLoginMethods,
+} from '../user_login_methods.js';
 import {
   changeEmailValidator,
   changePasswordValidator,
@@ -865,7 +865,9 @@ export default class AccountApiController {
     const userId = ctx.session.get(ACCOUNT_SESSION_KEY) as string;
 
     if (!supportsLoginMethodsPreference(cfg.accountStore)) {
-      return ctx.response.notFound(apiErr('not_supported', 'Login methods preference not supported.'));
+      return ctx.response.notFound(
+        apiErr('not_supported', 'Login methods preference not supported.'),
+      );
     }
 
     const parsed = parseUserLoginMethodsPayload(ctx.request.body());

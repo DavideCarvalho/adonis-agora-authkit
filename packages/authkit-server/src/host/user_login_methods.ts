@@ -154,7 +154,11 @@ export function resolveEffectiveUserLoginMethods(
       passkeyAutofill: passkey && global.passkeyAutofill,
     };
 
-    const allOff = !resolved.password && !resolved.magicLink && !resolved.passkey && resolved.social.length === 0;
+    const allOff =
+      !resolved.password &&
+      !resolved.magicLink &&
+      !resolved.passkey &&
+      resolved.social.length === 0;
     if (allOff) {
       console.warn(
         '[authkit] user login_methods zerou todos os métodos — ignorando a preferência (fail-safe).',
