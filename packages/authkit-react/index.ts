@@ -249,6 +249,10 @@ export type {
   AccountMfaStatus,
   AccountPasskeysResult,
   RemovePasskeyResult,
+  // Account – Login methods (preferência por usuário de tipos de login)
+  AccountLoginMethodsResult,
+  UpdateLoginMethodsResult,
+  UserLoginMethodsInput,
   // Account – Tokens
   PatEntry,
   CreatedPatResult,
@@ -363,6 +367,9 @@ export {
   useRevokeAppMutationOptions,
   // MFA
   useMfaQueryOptions,
+  // Login methods (preferência por usuário de tipos de login)
+  useLoginMethodsQueryOptions,
+  useUpdateLoginMethodsMutationOptions,
   // Passkeys
   usePasskeysQueryOptions,
   useRemovePasskeyMutationOptions,

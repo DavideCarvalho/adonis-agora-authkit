@@ -108,6 +108,7 @@ export type {
   ListAccountsParams,
   Paginated,
   PasskeySummary,
+  LoginMethodsPreferenceCapability,
 } from './src/accounts/account_store.js';
 export {
   supportsMfa,
@@ -121,6 +122,7 @@ export {
   supportsEmailVerificationStatus,
   supportsAccountDeletion,
   supportsAccountImport,
+  supportsLoginMethodsPreference,
 } from './src/accounts/account_store.js';
 // Login por OTP (código digitável): config + helpers puros.
 export {
@@ -376,6 +378,18 @@ export type {
   AuthMethodsCapabilities,
   AuthMethodsConfigOverride,
 } from './src/host/runtime_toggles.js';
+// Tipos de login POR USUÁRIO (self-service no console de conta).
+export {
+  USER_LOGIN_METHOD_KEYS,
+  normalizeUserLoginMethods,
+  parseUserLoginMethodsPayload,
+  resolveEffectiveUserLoginMethods,
+} from './src/host/user_login_methods.js';
+export type {
+  UserLoginMethodKey,
+  UserLoginMethods,
+  ResolvedUserLoginMethods,
+} from './src/host/user_login_methods.js';
 export { resolveRegistration } from './src/define_config.js';
 export type {
   RegistrationConfigInput,

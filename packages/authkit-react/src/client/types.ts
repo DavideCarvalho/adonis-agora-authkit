@@ -365,6 +365,48 @@ export interface AccountSecurityOverview {
 }
 
 // ---------------------------------------------------------------------------
+// Account – Login methods (preferência por usuário de tipos de login)
+// ---------------------------------------------------------------------------
+
+/** Métodos que o usuário pode ligar/desligar para a própria conta. */
+export interface UserLoginMethodsInput {
+  password?: boolean;
+  magicLink?: boolean;
+  passkey?: boolean;
+  social?: boolean;
+}
+
+export interface AccountLoginMethodsResult {
+  /** false quando o store não suporta a preferência (feature no-op). */
+  supported: boolean;
+  /** Preferência crua do usuário; null = sem preferência (herda globais). */
+  methods: UserLoginMethodsInput | null;
+  /** Estado final por método (global ∩ preferência) — o que a tela mostra. */
+  available: {
+    password: boolean;
+    magicLink: boolean;
+    passkey: boolean;
+    social: string[];
+    forgotPassword: boolean;
+  } | null;
+  /**
+   * Métodos fora do controle do usuário (globalmente indisponíveis ou fixados
+   * no config do host).
+   */
+  locked: {
+    password: boolean;
+    magicLink: boolean;
+    passkey: boolean;
+    social: boolean;
+  } | null;
+}
+
+export interface UpdateLoginMethodsResult {
+  ok: boolean;
+  methods: UserLoginMethodsInput;
+}
+
+// ---------------------------------------------------------------------------
 // Account – Sessões
 // ---------------------------------------------------------------------------
 

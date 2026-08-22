@@ -9,6 +9,7 @@ import { type PasswordConfigInput, PasswordManager } from '../password/password_
 import type { FetchLike, PwnedLogger } from '../password/pwned.js';
 import type { AccountStore, AuthAccount } from './account_store.js';
 import { buildCore } from './lucid_store/core.js';
+import { buildLoginMethods, supportsLoginMethodsColumn } from './lucid_store/login_methods.js';
 import { buildMfa } from './lucid_store/mfa.js';
 import { buildOrganizations } from './lucid_store/organizations.js';
 import { buildPasswordExpiration, buildPasswordHistory } from './lucid_store/password_hygiene.js';
@@ -373,6 +374,9 @@ export function lucidAccountStore(
     ...buildDeletion(ctx),
     // Expiração de senha: só quando o model tem a coluna `password_changed_at`.
     ...(hasColumn(Model, 'passwordChangedAt') ? buildPasswordExpiration(ctx) : {}),
+    // Preferência por usuário de tipos de login: só quando o model tem a coluna
+    // `login_methods` (JSONB). Sem a coluna → capacidade ausente (feature no-op).
+    ...(supportsLoginMethodsColumn(Model) ? buildLoginMethods(ctx) : {}),
     // Organizations (multi-tenancy): só quando os três models foram fornecidos.
     ...(OrgModels
       ? buildOrganizations({

@@ -18,6 +18,7 @@
 import type {
   AccountAppsResult,
   // Account
+  AccountLoginMethodsResult,
   AccountMe,
   AccountMfaStatus,
   AccountOrgDetail,
@@ -67,11 +68,13 @@ import type {
   SettingEntry,
   SettingListResult,
   UpdateClientInput,
+  UpdateLoginMethodsResult,
   UpdateOrgInput,
   UpdateProfileInput,
   UpdateProfileResult,
   UpdateRoleInput,
   UpdateUserInput,
+  UserLoginMethodsInput,
   UserSessionsResult,
 } from './types.js';
 
@@ -506,6 +509,14 @@ class AuthkitClient {
 
     /** GET /account/api/mfa */
     mfa: () => this.get<AccountMfaStatus>(this.a('/mfa')),
+
+    loginMethods: {
+      /** GET /account/api/login-methods */
+      get: () => this.get<AccountLoginMethodsResult>(this.a('/login-methods')),
+      /** PUT /account/api/login-methods */
+      update: (data: { methods: UserLoginMethodsInput }) =>
+        this.put<UpdateLoginMethodsResult>(this.a('/login-methods'), data),
+    },
 
     passkeys: {
       /** GET /account/api/passkeys */

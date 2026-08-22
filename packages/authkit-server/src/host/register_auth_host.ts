@@ -932,6 +932,9 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
       router.delete(`${apiBase}/apps/:clientId`, [C.accountApi, 'revokeApp']);
       // MFA + passkeys.
       router.get(`${apiBase}/mfa`, [C.accountApi, 'mfaStatus']);
+      // Login methods preference (self-service, por usuário).
+      router.get(`${apiBase}/login-methods`, [C.accountApi, 'getLoginMethods']);
+      router.put(`${apiBase}/login-methods`, [C.accountApi, 'updateLoginMethods']);
       router.get(`${apiBase}/passkeys`, [C.accountApi, 'listPasskeys']);
       router.delete(`${apiBase}/passkeys/:id`, [C.accountApi, 'removePasskey']);
       // PATs.
