@@ -33,6 +33,8 @@ import type { HttpContext } from '@adonisjs/core/http';
 import {
   type PasskeySummary,
   supportsAccountSecurity,
+  supportsLoginMethodsPreference,
+  supportsMagicLink,
   supportsOrganizations,
   supportsPasskeys,
   supportsProfile,
@@ -48,8 +50,10 @@ import { AvatarUploadError, isAvatarUploadSupported, storeAvatar } from '../avat
 import { sendEmailChangeConfirmationEmail, sendEmailChangeNoticeEmail } from '../default_mailer.js';
 import { translate } from '../i18n.js';
 import { authkitOrigin } from '../origin.js';
-import { resolveRuntimeSettings } from '../runtime_settings.js';
+import { resolveRuntimeSettings, resolveRuntimeSettingsOrNoop } from '../runtime_settings.js';
 import {
+  configLockedAuthMethods,
+  resolveEffectiveAuthMethods,
   resolveEffectiveEmailChange,
   resolveEffectivePasswordHistory,
 } from '../runtime_toggles.js';
@@ -61,6 +65,10 @@ import {
   requireSudo,
   resolveEffectiveSudoMode,
 } from '../sudo_mode.js';
+import {
+  parseUserLoginMethodsPayload,
+  resolveEffectiveUserLoginMethods,
+} from '../user_login_methods.js';
 import {
   changeEmailValidator,
   changePasswordValidator,
@@ -800,6 +808,105 @@ export default class AccountApiController {
       // Recovery codes are shown once via the existing POST /account/mfa/confirm flow.
       recovery: { available: enabled },
     };
+  }
+
+  // ─── GET /account/api/login-methods ─────────────────────────────────────
+
+  /**
+   * Preferência POR USUÁRIO de tipos de login + o catálogo do que está
+   * disponível/travado. A interseção com os métodos globais efetivos é feita
+   * AQUI (a UI mostra o estado final; o enforcement no login reusa o resolver).
+   */
+  async getLoginMethods(ctx: HttpContext) {
+    const service = await ctx.containerResolver.make('authkit.server');
+    const cfg = service.config;
+
+    const userId = ctx.session.get(ACCOUNT_SESSION_KEY) as string;
+
+    const supported = supportsLoginMethodsPreference(cfg.accountStore);
+    if (!supported) {
+      return { supported: false as const, methods: null, available: null, locked: null };
+    }
+
+    const pref = await cfg.accountStore.getLoginMethods(userId);
+    const { resolved: global, locked: cfgLocked } = await this.#resolveGlobalAuthMethods(ctx, cfg);
+    const effective = resolveEffectiveUserLoginMethods(global, pref);
+
+    return {
+      supported: true as const,
+      // Preferência crua do usuário (o que ELE escolheu; null = sem preferência).
+      methods: pref ?? {},
+      // Estado final por método (global ∩ preferência) — o que a tela de login mostra.
+      available: {
+        password: effective.password,
+        magicLink: effective.magicLink,
+        passkey: effective.passkey,
+        social: effective.social,
+        forgotPassword: effective.forgotPassword,
+      },
+      // Métodos que o usuário NÃO pode controlar (globalmente off ou pin de config).
+      // Pin de config: `cfgLocked` lista as chaves fixadas no arquivo de config.
+      locked: {
+        password: !global.password || cfgLocked.includes('password'),
+        magicLink: !global.magicLink || cfgLocked.includes('magicLink'),
+        passkey: !global.passkey || cfgLocked.includes('passkey'),
+        social: global.social.length === 0,
+      },
+    };
+  }
+
+  // ─── PUT /account/api/login-methods ─────────────────────────────────────
+
+  /** Grava a preferência de tipos de login do usuário logado. */
+  async updateLoginMethods(ctx: HttpContext) {
+    const service = await ctx.containerResolver.make('authkit.server');
+    const cfg = service.config;
+
+    const userId = ctx.session.get(ACCOUNT_SESSION_KEY) as string;
+
+    if (!supportsLoginMethodsPreference(cfg.accountStore)) {
+      return ctx.response.notFound(
+        apiErr('not_supported', 'Login methods preference not supported.'),
+      );
+    }
+
+    const parsed = parseUserLoginMethodsPayload(ctx.request.body());
+    if (!parsed.ok) {
+      return ctx.response.badRequest(apiErr(parsed.error, 'Invalid login methods payload.'));
+    }
+
+    // All-off guard server-side: a preferência não pode zerar todos os métodos
+    // GLOBAIS disponíveis. Um `false` que deixaria zero métodos é recusado.
+    const { resolved: global } = await this.#resolveGlobalAuthMethods(ctx, cfg);
+    const value = { ...parsed.value };
+    const wouldBeAllOff =
+      (value.password === false || !global.password) &&
+      (value.magicLink === false || !global.magicLink) &&
+      (value.passkey === false || !global.passkey) &&
+      (value.social === false || global.social.length === 0);
+    if (wouldBeAllOff) {
+      return ctx.response.badRequest(
+        apiErr('all_methods_off', 'Cannot disable every login method.'),
+      );
+    }
+
+    await cfg.accountStore.setLoginMethods(userId, Object.keys(value).length > 0 ? value : null);
+    return { ok: true, methods: value };
+  }
+
+  /**
+   * Métodos globais efetivos + pins de config, compartilhados pelos handlers
+   * acima. Fail-safe: erro → defaults conservadores.
+   */
+  async #resolveGlobalAuthMethods(ctx: HttpContext, cfg: any) {
+    const settings = await resolveRuntimeSettingsOrNoop(ctx);
+    const resolved = await resolveEffectiveAuthMethods(settings, {
+      configuredSocialProviders: cfg.social?.providers ?? [],
+      magicLinkCapable: cfg.passwordless?.magicLink && supportsMagicLink(cfg.accountStore),
+      passkeyCapable: supportsPasskeys(cfg.accountStore),
+      configOverrides: cfg.authMethods,
+    });
+    return { resolved, locked: configLockedAuthMethods(cfg.authMethods) };
   }
 
   // ─── GET /account/api/passkeys ──────────────────────────────────────────

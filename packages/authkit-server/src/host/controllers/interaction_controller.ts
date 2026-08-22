@@ -1,6 +1,7 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import {
+  supportsLoginMethodsPreference,
   supportsMagicLink,
   supportsOtpLogin,
   supportsPasskeys,
@@ -29,6 +30,7 @@ import {
 } from '../otp_lockout.js';
 import { type RuntimeSettings, resolveRuntimeSettingsOrNoop } from '../runtime_settings.js';
 import {
+  type ResolvedAuthMethods,
   resolveEffectiveAuthMethods,
   resolveEffectiveMaintenanceMode,
   resolveEffectiveRegistration,
@@ -39,6 +41,10 @@ import {
   buildTrustedDevicePayload,
   isTrustedDeviceValid,
 } from '../trusted_device.js';
+import {
+  normalizeUserLoginMethods,
+  resolveEffectiveUserLoginMethods,
+} from '../user_login_methods.js';
 
 /**
  * Chave i18n do erro de status de conta (disabled/expired) compartilhada pelos
@@ -105,6 +111,49 @@ export default class AuthInteractionController {
       magicLinkAvailable: authMethods.magicLink && magicLinkCapableConfig,
       otpEnabled,
     };
+  }
+
+  /**
+   * Métodos de login com a preferência POR USUÁRIO aplicada (interseção global ×
+   * `login_methods` da conta). Usado em TODO render/POST que já conhece o email
+   * (passo 2+ do login) — o passo 1 (identifier) não tem usuário, então usa só o
+   * global via {@link #loginMethods}.
+   *
+   * Fail-safe: store sem a capacidade, conta inexistente ou qualquer erro →
+   * métodos globais sem alteração (a preferência nunca derruba o login).
+   */
+  async #userScopedLoginMethods(
+    ctx: HttpContext,
+    cfg: ResolvedServerConfig,
+    email: string | undefined | null,
+    runtimeSettings?: RuntimeSettings,
+  ) {
+    const base = await this.#loginMethods(ctx, cfg, runtimeSettings);
+    if (!email) return base;
+    try {
+      if (!supportsLoginMethodsPreference(cfg.accountStore)) return base;
+      const acc = await cfg.accountStore.findByEmail(email);
+      if (!acc) return base;
+      const pref = await cfg.accountStore.getLoginMethods(acc.id);
+      const normalized = normalizeUserLoginMethods(pref);
+      if (!normalized) return base;
+      const scoped = resolveEffectiveUserLoginMethods(
+        base.authMethods as ResolvedAuthMethods,
+        normalized,
+      );
+      const magicLinkCapableConfig =
+        cfg.passwordless.magicLink && supportsMagicLink(cfg.accountStore);
+      return {
+        ...base,
+        authMethods: scoped,
+        magicLinkAvailable: scoped.magicLink && magicLinkCapableConfig,
+        // OTP é extensão do magic link — desligar magic link desliga o código.
+        otpEnabled: base.otpEnabled && scoped.magicLink,
+      };
+    } catch {
+      // Preferência nunca derruba o login.
+      return base;
+    }
   }
 
   async show(ctx: HttpContext) {
@@ -174,7 +223,11 @@ export default class AuthInteractionController {
     // `authMethods`, `magicLinkAvailable` e `otpEnabled` saiam POR CONSTRUÇÃO
     // (o seletor choose-first precisa de `otpEnabled` para oferecer "código").
     // Passa o runtimeSettings já resolvido para maintenance (sem 2ª resolução).
-    const loginMethods = await this.#loginMethods(ctx, cfg, runtimeSettingsForMaintenance);
+    // Com email na sessão (passo 2+), aplica a preferência POR USUÁRIO — os
+    // métodos que o dono da conta desligou não aparecem nem aqui nem nos POSTs.
+    const loginMethods = email
+      ? await this.#userScopedLoginMethods(ctx, cfg, email, runtimeSettingsForMaintenance)
+      : await this.#loginMethods(ctx, cfg, runtimeSettingsForMaintenance);
     const authMethods = loginMethods.authMethods;
 
     if (!email) {
@@ -293,7 +346,7 @@ export default class AuthInteractionController {
         ? { fullName: found.name ?? null, globalRoles: found.globalRoles ?? [] }
         : null;
       return render(ctx, 'login', {
-        ...(await this.#loginMethods(ctx, cfg)),
+        ...(await this.#userScopedLoginMethods(ctx, cfg, email, runtimeSettings)),
         uid: ctx.request.param('uid'),
         csrfToken: ctx.request.csrfToken,
         step: 'password',
@@ -302,6 +355,41 @@ export default class AuthInteractionController {
         error: translate(cfg.messages, 'errors.bot_protection_failed'),
         brand,
         botProtection: effectiveBotLogin?.widget,
+      });
+    }
+
+    // Preferência por usuário: senha desligada para ESTA conta → recusa ANTES de
+    // verificar credenciais (mesma tela/erro de credencial inválida — não vaza
+    // se a conta existe nem qual preferência está gravada).
+    const userMethodsForLogin = await this.#userScopedLoginMethods(
+      ctx,
+      cfg,
+      email,
+      runtimeSettings,
+    );
+    if (!userMethodsForLogin.authMethods.password) {
+      const found = await cfg.accountStore.findByEmail(email);
+      const account = found
+        ? { fullName: found.name ?? null, globalRoles: found.globalRoles ?? [] }
+        : null;
+      await cfg.audit?.record({
+        type: 'login.failure',
+        ip,
+        clientId,
+        metadata: { stage: 'password', reason: 'method_disabled_by_user' },
+      });
+      return render(ctx, 'login', {
+        ...userMethodsForLogin,
+        uid: ctx.request.param('uid'),
+        csrfToken: ctx.request.csrfToken,
+        step: 'password',
+        email,
+        account,
+        error: translate(cfg.messages, 'errors.invalid_credentials'),
+        brand,
+        botProtection: effectiveBotLogin?.on.includes('login')
+          ? effectiveBotLogin.widget
+          : undefined,
       });
     }
 
@@ -341,7 +429,7 @@ export default class AuthInteractionController {
         ? { fullName: found.name ?? null, globalRoles: found.globalRoles ?? [] }
         : null;
       return render(ctx, 'login', {
-        ...(await this.#loginMethods(ctx, cfg)),
+        ...userMethodsForLogin,
         uid: ctx.request.param('uid'),
         csrfToken: ctx.request.csrfToken,
         step: 'password',
@@ -763,6 +851,26 @@ export default class AuthInteractionController {
     // NÃO condiciona a emissão de token — os dois continuam saindo co-locados.
     const channel = normalizeLoginChannel(ctx.request.input('channel'));
 
+    // Preferência por usuário: magic link desligado para ESTA conta → não emite
+    // token (resposta uniforme "enviado", sem vazar a preferência).
+    const userScopedMethods =
+      email && cfg.passwordless.magicLink && supportsMagicLink(cfg.accountStore)
+        ? await this.#userScopedLoginMethods(ctx, cfg, email)
+        : null;
+    if (userScopedMethods && !userScopedMethods.authMethods.magicLink) {
+      return render(ctx, 'login', {
+        ...userScopedMethods,
+        uid,
+        csrfToken: ctx.request.csrfToken,
+        step: 'password',
+        email,
+        account: null,
+        brand,
+        magicLinkSent: true,
+        magicChannel: 'none',
+      });
+    }
+
     if (cfg.passwordless.magicLink && supportsMagicLink(cfg.accountStore) && email) {
       const ip = ctx.request.ip?.() ?? null;
       const clientId = (details.params.client_id as string | undefined) ?? null;
@@ -806,7 +914,9 @@ export default class AuthInteractionController {
     // `otpEnabled` vem do spread de `#loginMethods` (mesmo valor do `otpEnabled`
     // local usado acima para decidir a emissão) — não re-declarado aqui.
     return render(ctx, 'login', {
-      ...(await this.#loginMethods(ctx, cfg)),
+      ...(email
+        ? await this.#userScopedLoginMethods(ctx, cfg, email)
+        : await this.#loginMethods(ctx, cfg)),
       uid,
       csrfToken: ctx.request.csrfToken,
       step: 'password',
@@ -849,6 +959,33 @@ export default class AuthInteractionController {
       });
       return ctx.response.redirect(`/auth/interaction/${uid}`);
     }
+
+    // Preferência por usuário: magic link desligado para esta conta (p. ex. o
+    // token foi emitido antes de o usuário desligar o método) → não materializa
+    // a sessão; volta ao login com erro genérico (não vaza a preferência).
+    const magicScoped = await this.#userScopedLoginMethods(ctx, cfg, acc.email);
+    if (!magicScoped.authMethods.magicLink) {
+      await cfg.audit?.record({
+        type: 'login.failure',
+        accountId: acc.id,
+        email: acc.email,
+        ip,
+        clientId,
+        metadata: { stage: 'magic_link', reason: 'method_disabled_by_user' },
+      });
+      const render = cfg.render!;
+      return render(ctx, 'login', {
+        ...magicScoped,
+        uid,
+        csrfToken: ctx.request.csrfToken,
+        step: 'password',
+        email: acc.email,
+        account: null,
+        brand: brandFor(cfg.branding!, clientId ?? undefined, undefined),
+        error: translate(cfg.messages, 'errors.invalid_credentials'),
+      });
+    }
+
     // E-mail não verificado (LGPD/compliance): mesmo com o link válido, não
     // materializa a sessão se a política exige verificação. Volta ao login com erro.
     const magicLinkRuntimeSettings = await resolveRuntimeSettingsOrNoop(ctx);
@@ -863,7 +1000,7 @@ export default class AuthInteractionController {
       });
       const render = cfg.render!;
       return render(ctx, 'login', {
-        ...(await this.#loginMethods(ctx, cfg)),
+        ...(await this.#userScopedLoginMethods(ctx, cfg, acc.email)),
         uid,
         csrfToken: ctx.request.csrfToken,
         step: 'password',
@@ -897,7 +1034,7 @@ export default class AuthInteractionController {
     if (!magicLinkStatusGate.allowed) {
       const render = cfg.render!;
       return render(ctx, 'login', {
-        ...(await this.#loginMethods(ctx, cfg)),
+        ...(await this.#userScopedLoginMethods(ctx, cfg, acc.email)),
         uid,
         csrfToken: ctx.request.csrfToken,
         step: 'password',
@@ -957,11 +1094,11 @@ export default class AuthInteractionController {
     });
 
     // Re-render da tela "link enviado" com o campo de código + erro localizado.
-    // `otpEnabled` vem do spread de `#loginMethods` (aqui, após a guarda acima,
-    // vale `true`) — não re-declarado inline.
+    // `otpEnabled` vem do spread (scoped — OTP é extensão do magic link, e a
+    // preferência do usuário que desligou magic link já foi barrada acima).
     const renderOtpError = async (messageKey: string) =>
       render(ctx, 'login', {
-        ...(await this.#loginMethods(ctx, cfg)),
+        ...(await this.#userScopedLoginMethods(ctx, cfg, email)),
         uid,
         csrfToken: ctx.request.csrfToken,
         step: 'password',
@@ -987,7 +1124,7 @@ export default class AuthInteractionController {
           metadata: { stage: 'otp', reason: 'unverified' },
         });
         return render(ctx, 'login', {
-          ...(await this.#loginMethods(ctx, cfg)),
+          ...(await this.#userScopedLoginMethods(ctx, cfg, result.account.email)),
           uid,
           csrfToken: ctx.request.csrfToken,
           step: 'password',
@@ -1014,7 +1151,7 @@ export default class AuthInteractionController {
       });
       if (!otpStatusGate.allowed) {
         return render(ctx, 'login', {
-          ...(await this.#loginMethods(ctx, cfg)),
+          ...(await this.#userScopedLoginMethods(ctx, cfg, result.account.email)),
           uid,
           csrfToken: ctx.request.csrfToken,
           step: 'password',
@@ -1192,6 +1329,37 @@ export default class AuthInteractionController {
         false)
       : false;
     ctx.session.forget(PASSKEY_AUTH_CHALLENGE_KEY);
+
+    // Preferência por usuário: passkey desligada para esta conta → recusa a
+    // assertion. Checamos DEPOIS de `ok` para não revelar a preferência no
+    // timing de uma assertion inválida. Aqui vale SÓ a preferência explícita do
+    // usuário (`pref.passkey === false`): os switches globais de passkey já são
+    // aplicados na RENDERIZAÇÃO do botão/passkey-first (e o desafio MFA usa
+    // passkey como 2º fator independente do passkey-first).
+    if (ok && accountId && supportsLoginMethodsPreference(cfg.accountStore)) {
+      const prefAccount = await cfg.accountStore.findById(accountId);
+      const pref = prefAccount
+        ? normalizeUserLoginMethods(await cfg.accountStore.getLoginMethods(prefAccount.id))
+        : null;
+      if (pref?.passkey === false) {
+        await cfg.audit?.record({
+          type: 'login.failure',
+          accountId,
+          ip,
+          clientId,
+          metadata: { stage: 'mfa', method: 'webauthn', reason: 'method_disabled_by_user' },
+        });
+        return render(ctx, 'mfa-challenge', {
+          uid: ctx.request.param('uid'),
+          csrfToken: ctx.request.csrfToken,
+          error: translate(cfg.messages, 'mfa_challenge.passkey_error'),
+          brand,
+          passkeyAvailable: false,
+          trustedDevicesEnabled: cfg.trustedDevices.enabled,
+          trustedDeviceDays: cfg.trustedDevices.days,
+        });
+      }
+    }
 
     if (!ok) {
       await cfg.audit?.record({

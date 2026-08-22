@@ -61,5 +61,6 @@ export const authkitKeys = {
     orgs: () => ['authkit', 'account', 'orgs'] as const,
     org: (id: string) => ['authkit', 'account', 'orgs', id] as const,
     orgInvitations: () => ['authkit', 'account', 'orgs', 'invitations'] as const,
+    loginMethods: () => ['authkit', 'account', 'login-methods'] as const,
   },
 } as const;

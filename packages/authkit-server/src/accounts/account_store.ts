@@ -1,4 +1,6 @@
 /** DTO público da conta — o que o provider e os controllers enxergam. Nunca um model Lucid. */
+import type { UserLoginMethods } from '../host/user_login_methods.js';
+
 export interface AuthAccount {
   id: string;
   email: string;
@@ -218,6 +220,23 @@ export interface ProviderIdentitySummary {
   provider: string;
   providerUserId: string;
   email?: string | null;
+}
+
+/**
+ * Preferência POR USUÁRIO de tipos de login (self-service no console de conta).
+ * CAPACIDADE opcional, montada quando o model tem a coluna `login_methods`
+ * (JSONB) — hosts adotam por migração própria. `null` = sem preferência (herda
+ * os métodos globais efetivos). Ver `host/user_login_methods.ts` para o shape
+ * canônico (`UserLoginMethods`) e a semântica da interseção.
+ */
+export interface LoginMethodsPreferenceCapability {
+  /** Lê a preferência da conta; null quando não há preferência persistida. */
+  getLoginMethods(accountId: string): Promise<UserLoginMethods | null>;
+  /**
+   * Grava a preferência da conta. Objeto vazio ou null REMOVE a preferência
+   * (volta a herdar os globais). No-op se a conta não existe.
+   */
+  setLoginMethods(accountId: string, methods: UserLoginMethods | null): Promise<void>;
 }
 
 /**
@@ -637,7 +656,8 @@ export type AccountStore = CoreAccountStore & {
       AccountImportCapability &
       OrganizationsCapability &
       PasswordHistoryCapability &
-      PasswordExpirationCapability
+      PasswordExpirationCapability &
+      LoginMethodsPreferenceCapability
   >;
 
 /** Type guard: o store implementa a capacidade de MFA / TOTP. */
@@ -735,4 +755,11 @@ export function supportsPasswordExpiration(
   store: AccountStore,
 ): store is AccountStore & PasswordExpirationCapability {
   return typeof store.getPasswordChangedAt === 'function';
+}
+
+/** Type guard: o store implementa a preferência por usuário de tipos de login. */
+export function supportsLoginMethodsPreference(
+  store: AccountStore,
+): store is AccountStore & LoginMethodsPreferenceCapability {
+  return typeof store.getLoginMethods === 'function';
 }
