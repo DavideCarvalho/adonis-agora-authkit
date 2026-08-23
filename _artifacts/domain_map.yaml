@@ -1,0 +1,208 @@
+# Domain map for adonis-authkit (TanStack Intent agent skills).
+# Generated autonomously by mining README.md, packages/*/README.md, stubs/, src/
+# exports and config types. No maintainer interview ran (fully-autonomous run);
+# gaps are recorded in skill_spec.md. ONE domain map for the whole monorepo;
+# skills are scoped to the consumer-facing packages.
+
+library: adonis-authkit
+description: >-
+  AuthKit for AdonisJS: a set of packages that turn an AdonisJS app into a full
+  OpenID Connect / OAuth2 Authorization Server (Identity Provider) built on
+  oidc-provider, let other AdonisJS apps consume it as OIDC relying parties with
+  session-based auth, and give React (Inertia) frontends typed auth ergonomics.
+  Covers authorization code + PKCE, rotated refresh tokens, JWKS management and
+  rotation, MFA (TOTP/passkeys/recovery codes), passwordless magic links, Device
+  Flow, DPoP, PAR, step-up via acr_values, DCR, admin + account consoles, PATs,
+  impersonation, back-channel logout, lockout, rate-limiting, audit/webhooks,
+  i18n, OpenTelemetry metrics, and doctor/key-rotation ace commands.
+
+# Versions read from package.json at scaffolding time.
+versions:
+  "@adonis-agora/authkit-server": "0.60.0"
+  "@adonis-agora/authkit-react": "0.20.0"
+  "@adonis-agora/authkit-client": "0.18.0"
+  "@adonis-agora/authkit-core": "0.8.0"
+  "@adonis-agora/authkit-sdk": "0.6.4"
+  "@adonis-agora/authkit-testing": "0.5.1"
+  "@adonis-agora/authkit-vault-aws/azure/gcp": "0.3.1"
+
+# Consumer-facing PUBLIC packages a consumer actually imports. Skills target these.
+primary_packages:
+  - name: "@adonis-agora/authkit-server"
+    dir: packages/authkit-server
+    version: "0.60.0"
+    role: AdonisJS OIDC/OAuth2 Authorization Server (IdP): defineConfig +
+      adapters.redis/database, registerOidcRoutes, registerAuthHost (account +
+      admin consoles), interaction presets (edge/react/headless),
+      lucidAccountStore, managed JWKS + keystore vaults, MFA, lockout, audit,
+      observability routes.
+  - name: "@adonis-agora/authkit-react"
+    dir: packages/authkit-react
+    version: "0.20.0"
+    role: Frontend ergonomics for AdonisJS + Inertia + React: useAuth() over the
+      shared-prop `authkit`, role helpers, gating components, AuthkitProvider +
+      headless hooks (useSignIn/useSignOut/useProfile/useSessions/...), ready
+      components (UserButton/UserProfile/AuthorizedApps).
+
+# Packages NOT given their own skills — summarized inside server/client skills
+# or listed in gaps (decision recorded in skill_spec.md).
+secondary_packages:
+  - "@adonis-agora/authkit-core" # shared contracts/types; no runtime; indirect dep
+  - "@adonis-agora/authkit-sdk" # backend Admin API SDK (remote/embedded drivers)
+  - "@adonis-agora/authkit-testing" # test helpers (mintTestIdToken, fakeAuthenticator...)
+  - "@adonis-agora/authkit-vault-aws"
+  - "@adonis-agora/authkit-vault-azure"
+  - "@adonis-agora/authkit-vault-gcp"
+
+domains:
+  - id: idp-setup
+    title: IdP app setup & configuration
+    package: "@adonis-agora/authkit-server"
+    surface:
+      - defineConfig(options)
+      - "issuer / mountPath (must match)"
+      - "adapters.redis({ connection }) | adapters.database({ connection? })"
+      - "jwks: { source: 'managed'|'jwks', store?, encrypt? } | 'auto'"
+      - "ttl { accessToken, refreshToken }"
+      - accountStore: lucidAccountStore(AuthUser)
+      - registerOidcRoutes(router, { mountPath?, metrics?, dashboard? })
+      - registerAuthHost(router, AuthHostOptions)
+      - "config.routes: true|false|AuthHostOptions (auto-mount)"
+    key_facts:
+      - `node ace add @adonis-agora/authkit-server` publishes config/authkit.ts,
+        app/models/auth_user.ts, the interactions controller and registers the provider.
+      - AUTHKIT_ISSUER must END WITH the mount path (default /oidc); the provider
+        routes internally under the issuer.
+      - The issuer env var alone does not boot anything — routes only exist after
+        registerOidcRoutes (OIDC endpoints) and registerAuthHost or
+        config.routes (consoles/account).
+      - adapters.database requires running the `authkit_oidc_payloads` migration;
+        adapters.redis requires @adonisjs/redis configured.
+      - jwks 'auto' reads AUTHKIT_JWKS inline JSON else falls back to a file-managed
+        keystore (tmp/authkit_jwks.json) — meant for ephemeral deploys/dev.
+      - Declaring `admin`/`adminApi` in defineConfig LOCKS the on/off switch;
+        registerAuthHost may then only change prefixes (structural).
+
+  - id: interactions
+    title: Login & consent screens (interactions)
+    package: "@adonis-agora/authkit-server"
+    surface:
+      - "node ace configure --ui=edge|react|headless"
+      - AuthInteractionController ('show'/'login'/'consent')
+      - service.interactions.details(ctx)/login(ctx,{email,password})/consent(ctx)
+      - verifyCredentials (config/authkit.ts)
+      - render option (edgeRenderer default / inertiaRenderer)
+    key_facts:
+      - oidc-provider redirects unauthenticated users to interactions.url
+        (/auth/interaction/:uid); those THREE routes are the host's to register —
+        without them the flow 404s at the login screen.
+      - The ejected controller is a shell; logic lives in service.interactions
+        resolved via containerResolver.make('authkit.server').
+      - verifyCredentials decides whether credentials are valid; the default queries
+        AuthUser by email and uses verifyPassword — override it to plug your own user base.
+      - The react preset validates @adonisjs/inertia + Vite + React before publishing.
+
+  - id: rp-integration
+    title: Relying-party (client) integration
+    package: "@adonis-agora/authkit-client"
+    surface:
+      - defineConfig({ issuer, clientId, redirectUri, resolver })
+      - resolvers.jwt({ tokenSource }) / resolvers.pat(...) / resolvers.opaque(...)
+      - resolveUser / identityToUser / createUserinfoResolver
+      - authkit_middleware (+ @adonisjs/session ordering)
+      - registerOidcClient(router, { prefix, redirects, afterLogin, loginMiddleware })
+      - ctx.auth.getIdentity()/getUser()/hasGlobalRole()
+      - backchannelLogout: { store } / BackchannelRevocationMiddleware
+    key_facts:
+      - ctx.auth is populated by authkit_middleware; the @adonisjs/session middleware
+        MUST run BEFORE it when tokenSource:'session'.
+      - Identity always comes from the validated token; resolveUser only maps to the
+        app model (cross-schema FK vs claims-only vs userinfo resolver per topology).
+      - App roles are OUT of scope by design — configure resolveRoles in
+        @adonis-agora/authz; the middleware only enforces login.
+      - resolvers.jwt defaults jwksUri to `${issuer}/jwks`; opaque resolver REQUIRES a
+        confidential client (throws without clientSecret).
+      - registerOidcClient absorbs the login/callback/logout boilerplate (PKCE+state,
+        code exchange, RP-initiated logout) that the ejected controller used to hand-write.
+
+  - id: react-ergonomics
+    title: React auth ergonomics (Inertia)
+    package: "@adonis-agora/authkit-react"
+    surface:
+      - useAuth()
+      - "shared prop `authkit`: { user, globalRoles } (AuthSharedProps)"
+      - hasGlobalRole/hasAnyGlobalRole/hasAllGlobalRoles
+      - "Authenticated/Guest (fallback prop)"
+      - AuthProvider value (context wins over page props)
+      - AuthkitProvider config={{ csrfToken }} + headless hooks + ready components
+    key_facts:
+      - The package never authenticates; it consumes state the host already resolved.
+      - useAuth() never throws on missing prop — returns unauthenticated state
+        (dev-only console.warn); <AuthProvider> takes precedence over Inertia props.
+      - user must match AuthUser { id, email, name?, avatarUrl?, globalRoles }.
+      - App-role/permission gating (<Can>, useCan) lives in @adonis-agora/authz-react.
+      - idp:'external' degrades UserProfile/OrganizationSwitcher/AuthorizedApps to null
+        instead of calling nonexistent endpoints.
+
+tensions:
+  - name: eject-vs-auto-mount
+    skills: ["authkit-idp-setup", "authkit-interactions"]
+    description: >
+      The kit can auto-mount all host routes (config.routes) or let the host call
+      registerOidcRoutes/registerAuthHost manually; doing BOTH double-registers named
+      routes and crashes boot, while mounting too little leaves silent 404s.
+    implication: >
+      An agent that adds config.routes:true while keeping manual register* calls
+      (or registers only the OIDC catch-all and forgets interaction routes) ships an
+      IdP that either fails at boot or 404s mid-authorization-flow.
+
+cross_references:
+  - from: authkit-idp-setup
+    to: authkit-interactions
+    reason: >
+      After wiring config + OIDC routes, the next mandatory step is registering the
+      three interaction routes; the setup skill's happy path ends where the
+      interactions skill begins.
+  - from: authkit-interactions
+    to: authkit-rp-client
+    reason: >
+      A login screen minting sessions on the IdP pairs with the client skill's
+      session consumption; verifying the end-to-end flow needs both sides.
+  - from: authkit-react-auth
+    to: authkit-rp-client
+    reason: >
+      The React shared prop is filled from ctx.auth.getUser()/identity — the same
+      resolver/topology decisions made in the client skill determine what reaches the UI.
+
+gaps:
+  # What a maintainer interview would have answered but could not be confirmed autonomously.
+  - skill: authkit-idp-setup
+    question: >
+      Which adapter do production deployments prefer (Redis vs Lucid database), and is
+      there guidance on sizing/eviction for authkit_oidc_payloads?
+    context: README lists both without a decision table; agents must guess.
+    status: open
+  - skill: authkit-idp-setup
+    question: >
+      Is jwks:'auto' intended for production behind persistent AUTHKIT_JWKS, or dev-only?
+      Docs say "recommended for ephemeral deploys" but don't state prod posture.
+    context: Wrong choice silently loses signing keys across restarts (or persists them to tmp/).
+    status: open
+  - skill: authkit-interactions
+    question: >
+      Do real hosts commonly override verifyCredentials against external user stores,
+      and are there constraints (must it resolve the SAME AuthUser row the accountStore uses)?
+    context: The seam between the ejected shell and service.interactions is documented in pt-BR only.
+    status: open
+  - skill: authkit-rp-client
+    question: >
+      Which resolveUser topology is recommended for new apps (claims-only fat ID token vs
+      userinfo resolver)? README presents both without a default recommendation.
+    context: Determines whether agents wire identityToUser or createUserinfoResolver by default.
+    status: open
+  - skill: authkit-react-auth
+    question: >
+      Should client-app topologies point AuthkitConfig endpoints at local proxy routes, and
+      is there a blessed proxy example?
+    context: README says "point them at local routes that redirect to the IdP" without a recipe.
+    status: open

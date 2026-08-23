@@ -23,7 +23,8 @@
     "identity-provider",
     "rate-limiting",
     "mfa",
-    "totp"
+    "totp",
+    "tanstack-intent"
   ],
   "publishConfig": {
     "access": "public"
@@ -31,7 +32,7 @@
   "type": "module",
   "main": "./build/index.js",
   "types": "./build/index.d.ts",
-  "files": ["build", "stubs"],
+  "files": ["build", "stubs", "skills"],
   "exports": {
     ".": "./build/index.js",
     "./types": "./build/types.js",
@@ -117,6 +118,7 @@
   "devDependencies": {
     "@adonis-agora/durable": "0.22.0",
     "@adonis-agora/telescope": "0.6.0",
+    "@tanstack/intent": "^0.3.2",
     "@adonisjs/ally": "catalog:adonis",
     "@adonisjs/auth": "catalog:adonis",
     "@adonisjs/core": "catalog:adonis",

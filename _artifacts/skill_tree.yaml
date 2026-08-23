@@ -1,0 +1,43 @@
+# Skill tree for adonis-authkit. Flat structure (skills/<name>/SKILL.md), no router.
+# Every skill is type `core`. Each entry carries its owning `package`.
+
+structure: flat
+router: false
+
+skills:
+  - name: authkit-idp-setup
+    type: core
+    package: "@adonis-agora/authkit-server"
+    path: packages/authkit-server/skills/authkit-idp-setup/SKILL.md
+    library_version: "0.60.0"
+    summary: defineConfig (issuer/adapters/jwks/ttl/accountStore), registerOidcRoutes,
+      registerAuthHost vs config.routes, issuer-must-end-with-mountPath, keystore
+      vault summary.
+
+  - name: authkit-interactions
+    type: core
+    package: "@adonis-agora/authkit-server"
+    path: packages/authkit-server/skills/authkit-interactions/SKILL.md
+    library_version: "0.60.0"
+    summary: The three host-owned interaction routes, --ui=edge|react|headless presets,
+      service.interactions details/login/consent, verifyCredentials override,
+      testing with @adonis-agora/authkit-testing helpers.
+
+  - name: authkit-rp-client
+    type: core
+    package: "@adonis-agora/authkit-client"
+    path: packages/authkit-client/skills/authkit-rp-client/SKILL.md
+    library_version: "0.18.0"
+    summary: defineConfig + resolvers.jwt/pat/opaque, resolveUser topologies,
+      session-before-authkit middleware ordering, ctx.auth surface,
+      registerOidcClient, backchannelLogout store.
+
+  - name: authkit-react-auth
+    type: core
+    package: "@adonis-agora/authkit-react"
+    path: packages/authkit-react/skills/authkit-react-auth/SKILL.md
+    library_version: "0.20.0"
+    framework: react
+    summary: The `authkit` shared prop, useAuth() semantics and role helpers,
+      Authenticated/Guest gating, AuthkitProvider config + idp:'external'
+      degradation, host wiring via sharedData.
