@@ -1,3 +1,4 @@
+import type { HttpContext } from '@adonisjs/core/http';
 import type { AuthSocialConfig, ResolvedRateLimitConfig } from '../define_config.js';
 import type { PolicyRouteOption } from './config_locks.js';
 import type { AuthHostOptions } from './register_auth_host.js';
@@ -35,6 +36,14 @@ export interface AuthHostRuntimeConfig {
    * Ver `deriveLockedRouteOptions`.
    */
   lockedRouteOptions?: PolicyRouteOption[];
+  /**
+   * API headless (Clerk-style). Presente quando o host a declarou — o provider o
+   * stash no boot para `registerAuthHost` montar as rotas sem reler o config inteiro.
+   */
+  headless?: {
+    baseUrl: string;
+    resolveAccountId: (ctx: HttpContext) => string | null;
+  };
 }
 
 let stashed: AuthHostRuntimeConfig | undefined;

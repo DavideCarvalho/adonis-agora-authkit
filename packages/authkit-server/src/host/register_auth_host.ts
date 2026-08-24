@@ -491,6 +491,8 @@ const C = {
   apiKeys: () => import('./admin_api/api_keys_controller.js'),
   // Account self-service JSON API (session-authed, under /account/api/*).
   accountApi: () => import('./account_api/account_api_controller.js'),
+  // API headless (Clerk-style) — host-session-authed via `headless.resolveAccountId`.
+  headlessLoginMethods: () => import('./controllers/headless_login_methods_controller.js'),
 };
 
 /**
@@ -947,6 +949,20 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
       router.get(`${apiBase}/orgs/:id`, [C.accountApi, 'showOrg']);
     })
     .use([accountGuard]);
+
+  // API headless (Clerk-style) — montada fora do `accountGuard` (não depende da
+  // sessão de CONTA), autenticada pelo resolver do host (`headless.resolveAccountId`).
+  // `PUT` usa CSRF igual à API do console (middleware de shield do host).
+  const headlessCfg = hostCfg?.headless;
+  if (headlessCfg) {
+    const hb = headlessCfg.baseUrl;
+    router
+      .get(`${hb}/login-methods`, [C.headlessLoginMethods, 'index'])
+      .as('authkit.headless.login_methods.index');
+    router
+      .put(`${hb}/login-methods`, [C.headlessLoginMethods, 'update'])
+      .as('authkit.headless.login_methods.update');
+  }
 
   // Prefixos resolvidos dos consoles — `null` quando o grupo não foi montado.
   // Compõem o `AuthHostRouteMap` devolvido no fim.

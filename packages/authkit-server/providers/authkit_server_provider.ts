@@ -81,6 +81,13 @@ export default class AuthkitServerProvider {
             // Defaults estruturais de `config.routes` (o argumento ainda vence).
             routes: typeof config.routes === 'object' ? config.routes : undefined,
             lockedRouteOptions: config.lockedRouteOptions,
+            // API headless — repassa pro registerAuthHost montar as rotas.
+            headless: config.headless
+              ? {
+                  baseUrl: config.headless.baseUrl,
+                  resolveAccountId: config.headless.resolveAccountId,
+                }
+              : undefined,
           });
         }
       }
