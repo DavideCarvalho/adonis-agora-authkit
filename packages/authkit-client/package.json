@@ -21,7 +21,8 @@
     "authentication",
     "authkit",
     "relying-party",
-    "jwt"
+    "jwt",
+    "tanstack-intent"
   ],
   "publishConfig": {
     "access": "public"
@@ -29,7 +30,7 @@
   "type": "module",
   "main": "./build/index.js",
   "types": "./build/index.d.ts",
-  "files": ["build", "stubs"],
+  "files": ["build", "stubs", "skills"],
   "exports": {
     ".": "./build/index.js",
     "./types": "./build/types.js",
@@ -89,6 +90,7 @@
     "@japa/assert": "catalog:",
     "@japa/runner": "catalog:",
     "@poppinss/ts-exec": "catalog:",
+    "@tanstack/intent": "^0.3.2",
     "ioredis-mock": "8.13.1",
     "@types/node": "catalog:adonis",
     "typescript": "catalog:frontend"
