@@ -1,6 +1,6 @@
 {
   "name": "@adonis-agora/authkit-react",
-  "version": "0.20.0",
+  "version": "0.20.1",
   "description": "Frontend ergonomics over AuthKit for AdonisJS + Inertia + React apps: a typed useAuth() hook, role-gating hooks and gating components.",
   "license": "MIT",
   "author": "dudousxd",
