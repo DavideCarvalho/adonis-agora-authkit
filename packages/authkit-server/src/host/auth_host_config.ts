@@ -42,7 +42,7 @@ export interface AuthHostRuntimeConfig {
    */
   headless?: {
     baseUrl: string;
-    resolveAccountId: (ctx: HttpContext) => string | null;
+    resolveAccountId: (ctx: HttpContext) => string | null | Promise<string | null>;
   };
 }
 

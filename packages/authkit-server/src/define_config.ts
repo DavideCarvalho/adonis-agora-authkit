@@ -1111,7 +1111,9 @@ export interface AuthServerConfigInput {
      * do resolver também vira 401. O id deve ser o mesmo `sub`/`AuthAccount.id`
      * usado pelo account store (no entre-textos, `auth.user.id === app.user.id`).
      */
-    resolveAccountId: (ctx: import('@adonisjs/core/http').HttpContext) => string | null;
+    resolveAccountId: (
+      ctx: import('@adonisjs/core/http').HttpContext,
+    ) => string | null | Promise<string | null>;
   };
   /** Segredo para autenticar requests de introspecção de PAT. */
   patIntrospectionSecret?: string;
@@ -1357,7 +1359,9 @@ export interface ResolvedServerConfig {
   /** API headless resolvida (Clerk-style). Presente só quando o host a declarou. */
   headless?: {
     baseUrl: string;
-    resolveAccountId: (ctx: import('@adonisjs/core/http').HttpContext) => string | null;
+    resolveAccountId: (
+      ctx: import('@adonisjs/core/http').HttpContext,
+    ) => string | null | Promise<string | null>;
   };
   rateLimit: ResolvedRateLimitConfig;
   /** Bloqueio progressivo de conta resolvido (sempre presente; default ligado). */
