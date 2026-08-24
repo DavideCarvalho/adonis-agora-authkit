@@ -8,7 +8,7 @@ import { fakeAccountStore } from '../bootstrap.js';
 function fakeSettings(value: Record<string, unknown> | null): SettingsCapability {
   return {
     getSetting: async () => value,
-  } as SettingsCapability;
+  } as unknown as SettingsCapability;
 }
 
 function makeConfig(
