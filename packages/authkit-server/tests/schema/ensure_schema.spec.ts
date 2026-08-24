@@ -64,7 +64,9 @@ test.group('ensureAuthkitSchema', (group) => {
     assert.isNull(rows[0].organization_id);
   });
 
-  test('não toca em tabelas que não são do authkit', async ({ assert }) => {
+  test('não cria tabelas que não são do authkit, mas garante login_methods em users', async ({
+    assert,
+  }) => {
     await db.connection().schema.createTable('users', (t) => {
       t.increments('id');
       t.string('email');
@@ -73,8 +75,24 @@ test.group('ensureAuthkitSchema', (group) => {
     const report = await ensureAuthkitSchema(db);
 
     assert.notInclude(report.created, 'users');
+    /* coluna consumida pela lib foi adicionada (users é host-owned; não criamos a tabela) */
+    assert.sameMembers(report.altered.users ?? [], ['login_methods']);
+    const hasLoginMethods = await db.connection().schema.hasColumn('users', 'login_methods');
+    assert.isTrue(hasLoginMethods);
+    /* dados pré-existentes intactos */
     const info = await db.connection().schema.hasColumn('users', 'email');
     assert.isTrue(info);
+  });
+
+  test('login_methods: idempotente em users já com a coluna', async ({ assert }) => {
+    await db.connection().schema.createTable('users', (t) => {
+      t.increments('id');
+      t.string('email');
+    });
+    await ensureAuthkitSchema(db);
+
+    const second = await ensureAuthkitSchema(db);
+    assert.notInclude(second.altered.users ?? [], 'login_methods');
   });
 
   test('auth_mfa: tabela lib-owned aceita estado de MFA por account_id', async ({ assert }) => {
