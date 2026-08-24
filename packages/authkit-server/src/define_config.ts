@@ -1095,6 +1095,24 @@ export interface AuthServerConfigInput {
   i18n?: I18nConfig;
   /** Configuração de providers sociais. */
   social?: AuthSocialConfig;
+  /**
+   * API headless do AuthKit (Clerk-style). Quando declarada, o host-kit monta
+   * uma JSON API (`GET/PUT {baseUrl}/login-methods`) autenticada por um resolver
+   * de conta fornecido pelo HOST (`resolveAccountId`) — tipicamente a própria
+   * sessão do RP (`await ctx.auth.getUserOrFail()`). Assim um app usa AuthKit
+   * como frontend sem expor o console `/account/*`. Default: desligado (opt-in).
+   */
+  headless?: {
+    /** Base da JSON API headless. Default: `/api/authkit`. */
+    baseUrl?: string;
+    /**
+     * Resolve o id da conta (na identidade do IdP) a partir do contexto da
+     * request do HOST. Retorne null quando não autenticado → 401. Um `throw`
+     * do resolver também vira 401. O id deve ser o mesmo `sub`/`AuthAccount.id`
+     * usado pelo account store (no entre-textos, `auth.user.id === app.user.id`).
+     */
+    resolveAccountId: (ctx: import('@adonisjs/core/http').HttpContext) => string | null;
+  };
   /** Segredo para autenticar requests de introspecção de PAT. */
   patIntrospectionSecret?: string;
   /** Rate-limiting das rotas sensíveis (anti-brute-force). Default: ligado (no-op se o limiter não estiver configurado). */
@@ -1336,6 +1354,11 @@ export interface ResolvedServerConfig {
   firstPartyClients?: string[];
   social?: AuthSocialConfig;
   patIntrospectionSecret?: string;
+  /** API headless resolvida (Clerk-style). Presente só quando o host a declarou. */
+  headless?: {
+    baseUrl: string;
+    resolveAccountId: (ctx: import('@adonisjs/core/http').HttpContext) => string | null;
+  };
   rateLimit: ResolvedRateLimitConfig;
   /** Bloqueio progressivo de conta resolvido (sempre presente; default ligado). */
   lockout: ResolvedLockoutConfig;
@@ -1607,6 +1630,12 @@ export function defineConfig(config: AuthServerConfigInput) {
       passwordless: resolvePasswordless(config.passwordless),
       authMethods: resolveAuthMethodsConfig(config.authMethods),
       login: resolveLogin(config.login),
+      headless: config.headless
+        ? {
+            baseUrl: config.headless.baseUrl ?? '/api/authkit',
+            resolveAccountId: config.headless.resolveAccountId,
+          }
+        : undefined,
       registration: resolveRegistration(config.registration),
       accessTokens: resolveAccessTokens(config.issuer, config.accessTokens),
       admin: resolveAdmin(config.admin),
