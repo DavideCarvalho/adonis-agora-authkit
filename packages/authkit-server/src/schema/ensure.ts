@@ -290,5 +290,30 @@ export async function ensureAuthkitSchema(
     }
   }
 
+  // Coluna `login_methods` em `auth.users` — a tabela é HOST-owned (não está em
+  // TABLES porque o nome/shape são decisão do app), mas a LI B consome a coluna
+  // (LoginMethodsPreferenceCapability). Alguns deploys de host só migram o schema
+  // do domínio, não o schema `auth` — então a migration manual da coluna pode
+  // nunca rodar, e isso derrubava TODO login/callback OIDC com "column users.login_methods
+  // does not exist" no instante em que o model passou a declará-la.
+  // Aqui garantimos: SE `auth.users` existe E a coluna falta, adicionamos. Nunca
+  // criamos a tabela (host-owned). Aditivo + idempotente — roda em todo boot.
+  try {
+    if (await tableExists(conn, 'users')) {
+      if (!(await columnExists(conn, 'users', 'login_methods'))) {
+        await conn.schema.alterTable('users', (t: TableBuilder) => {
+          t.jsonb('login_methods').nullable();
+        });
+        report.altered.users = ['login_methods'];
+      }
+    }
+  } catch (error) {
+    // Tabela host-owned pode não existir num banco que nunca criou users — não
+    // é erro: fail-soft (a migração do host cuida). Nunca criar a tabela aqui.
+    if (!(await tableExists(conn, 'users'))) {
+      throw error; // alguém criou entre o probe e o ALTER — repropaga se sumiu
+    }
+  }
+
   return report;
 }
