@@ -2,10 +2,10 @@
 "@adonis-agora/authkit-server": patch
 ---
 
-Corrige o tipo de `headless.resolveAccountId` para aceitar `Promise`
+Fix `headless.resolveAccountId` type to accept a `Promise`
 
-O resolver do host comumente é assíncrono (ex.: `await ctx.auth.getUserOrFail()`
-para devolver o `user.id`). A assinatura publicada em 0.61.0 era síncrona
-(`(ctx) => string | null`), o que fazia um resolver `async` estourar o typecheck
-do app. Agora o tipo aceita `string | null | Promise<string | null>` — o
-controller já `await`s o retorno. Nenhuma mudança de runtime.
+The host resolver is commonly async (e.g. `await ctx.auth.getUserOrFail()` to
+return the account `user.id`). The signature published in `0.61.0` was sync
+(`(ctx) => string | null`), which broke the app's typecheck for an `async`
+resolver. The type now accepts `string | null | Promise<string | null>` — the
+controller already `await`s the return. No runtime change.
