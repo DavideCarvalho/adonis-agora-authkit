@@ -304,7 +304,7 @@ export async function ensureAuthkitSchema(
         await conn.schema.alterTable('users', (t: TableBuilder) => {
           t.jsonb('login_methods').nullable();
         });
-        report.altered['users'] = ['login_methods'];
+        report.altered.users = ['login_methods'];
       }
     }
   } catch (error) {
