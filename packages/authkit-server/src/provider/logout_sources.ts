@@ -55,9 +55,14 @@ export function createLogoutSources(messages: AuthMessages) {
         /<\/form>/,
         '<input type="hidden" name="logout" value="yes"/></form>',
       );
+      // Auto-submit via asset SAME-ORIGIN (`/authkit/assets/logout.js`), NÃO
+      // script inline: hosts com CSP `script-src 'self'` (+ nonce/hash, sem
+      // 'unsafe-inline') bloqueiam inline e o logout ficava preso em "Saindo /
+      // Encerrando sua sessão…" para sempre (o POST de confirm nunca rodava).
+      // `<script src>` same-origin é permitido por `'self'` sem nonce/hash.
       ctx.body = page(
         t('logout.title'),
-        `<div class="spinner" aria-hidden="true"></div><h1>${esc(t('logout.title'))}</h1><p>${esc(t('logout.body'))}</p>${confirmedForm}<noscript><button type="submit" form="op.logoutForm">${esc(t('logout.fallback'))}</button></noscript><script>(function(){var f=document.forms['op.logoutForm'];if(f){f.submit();}})();</script>`,
+        `<div class="spinner" aria-hidden="true"></div><h1>${esc(t('logout.title'))}</h1><p>${esc(t('logout.body'))}</p>${confirmedForm}<noscript><button type="submit" form="op.logoutForm">${esc(t('logout.fallback'))}</button></noscript><script src="/authkit/assets/logout.js"></script>`,
       );
     },
 
