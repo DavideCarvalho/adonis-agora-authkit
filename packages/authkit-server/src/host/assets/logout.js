@@ -1,4 +1,4 @@
-(function () {
-  var f = document.forms['op.logoutForm'];
+(() => {
+  const f = document.forms['op.logoutForm'];
   if (f) f.submit();
 })();

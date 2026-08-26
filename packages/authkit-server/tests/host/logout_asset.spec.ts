@@ -91,9 +91,7 @@ test.group('logout asset (auto-submit CSP-safe do RP-initiated logout)', (group)
     }
   });
 
-  test('a rota é pública, sem guard, e registrada antes do wildcard do provider', ({
-    assert,
-  }) => {
+  test('a rota é pública, sem guard, e registrada antes do wildcard do provider', ({ assert }) => {
     resetAuthHostConfig();
 
     const routes: Array<{ method: string; pattern: string; middleware: unknown[]; name?: string }> =
