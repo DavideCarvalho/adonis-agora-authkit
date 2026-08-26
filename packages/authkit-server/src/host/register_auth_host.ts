@@ -471,6 +471,7 @@ const C = {
   accountOrgs: () => import('./controllers/account_orgs_controller.js'),
   accountConfirm: () => import('./controllers/account_confirm_controller.js'),
   webauthnAsset: () => import('./controllers/webauthn_asset_controller.js'),
+  logoutAsset: () => import('./controllers/logout_asset_controller.js'),
   // Console React JSON API (session-authed, under {prefix}/api/*).
   consoleShell: () => import('./admin_console/admin_shell_controller.js'),
   consoleOverview: () => import('./admin_console/console_overview_controller.js'),
@@ -690,6 +691,11 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
   //  • registrado ANTES do wildcard `${mount}/*` para que nenhum mountPath
   //    agressivo (ex.: '/') consiga engolir o asset e quebrar o login.
   router.get('/authkit/assets/webauthn.js', [C.webauthnAsset]).as('authkit.assets.webauthn');
+  // Script de auto-confirmação do splash de logout (RP-initiated logout).
+  // Same-origin (permitido por CSP `script-src 'self'`) — o logoutSource NÃO
+  // pode usar script inline: o CSP bloqueia sem nonce/hash e o logout fica
+  // preso em "Saindo / Encerrando sua sessão…".
+  router.get('/authkit/assets/logout.js', [C.logoutAsset]).as('authkit.assets.logout');
 
   // Provider OIDC (wildcard + root) — o que registerOidcRoutes fazia.
   router.any(`${mount}/*`, [C.oidc]).as('authkit.oidc.wildcard');
