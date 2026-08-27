@@ -106,7 +106,7 @@ export class AuthkitClientManager {
     // Sem expiresAt conhecido, não renova proativamente (evita refresh a cada request).
     if (!tokenSet.expiresAt || tokenSet.expiresAt - now() > REFRESH_SKEW_MS) return;
 
-// Dedup: se já há um refresh in-flight pra esta sessão, espera ele ao invés de
+    // Dedup: se já há um refresh in-flight pra esta sessão, espera ele ao invés de
     // disparar outro. O refresh token ROTACIONA — N requests concorrentes chegando
     // juntos fariam N refreshes + N-1 falhas com refresh token já inválido.
     const sessionId = (session as unknown as { sessionId?: string }).sessionId;

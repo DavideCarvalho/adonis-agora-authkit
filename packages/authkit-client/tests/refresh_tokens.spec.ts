@@ -33,7 +33,9 @@ function fakeCtxWithSessionId(initial?: any, sid = 'sess_1') {
   if (initial) store.set('authkit', initial);
   return {
     session: {
-      get sessionId() { return sid; },
+      get sessionId() {
+        return sid;
+      },
       get: (k: string) => store.get(k),
       put: (k: string, v: any) => store.set(k, v),
     },
@@ -176,7 +178,9 @@ test.group('AuthkitClientManager.maybeRefresh', () => {
 });
 
 test.group('AuthkitClientManager.maybeRefresh — dedup', () => {
-  test('duas chamadas concorrentes pra mesma sessão → só 1 refresh de verdade', async ({ assert }) => {
+  test('duas chamadas concorrentes pra mesma sessão → só 1 refresh de verdade', async ({
+    assert,
+  }) => {
     const m = new AuthkitClientManager(fakeConfig());
     const now = 1_000_000;
     let callCount = 0;
