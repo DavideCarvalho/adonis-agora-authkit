@@ -38,10 +38,10 @@ catalogs:
       version: 25.9.1
   adonisPeers:
     '@adonisjs/lock':
-      specifier: ^2.1.0
+      specifier: 2.1.0
       version: 2.1.0
     '@adonisjs/redis':
-      specifier: ^9.2.0
+      specifier: 9.2.0
       version: 9.2.0
   default:
     '@japa/assert':
@@ -107,7 +107,7 @@ catalogs:
       version: 6.0.3
   frontendPeers:
     '@simplewebauthn/browser':
-      specifier: ^13.3.0
+      specifier: 13.3.0
       version: 13.3.0
 
 importers:
@@ -219,7 +219,7 @@ importers:
         specifier: 'catalog:'
         version: 1.4.4
       '@tanstack/intent':
-        specifier: ^0.3.2
+        specifier: 0.3.6
         version: 0.3.6
       '@types/node':
         specifier: catalog:adonis
@@ -280,7 +280,7 @@ importers:
         specifier: 'catalog:'
         version: 1.4.4
       '@tanstack/intent':
-        specifier: ^0.3.2
+        specifier: 0.3.6
         version: 0.3.6
       '@tanstack/react-query':
         specifier: catalog:frontend
@@ -413,7 +413,7 @@ importers:
         specifier: 'catalog:'
         version: 1.4.4
       '@tanstack/intent':
-        specifier: ^0.3.2
+        specifier: 0.3.6
         version: 0.3.6
       '@tanstack/react-query':
         specifier: catalog:frontend
