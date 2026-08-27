@@ -52,6 +52,8 @@ export interface RefreshDeps {
 
 export class AuthkitClientManager {
   #resolverCache?: SessionResolver;
+  /** Mapa de promessas de refresh in-flight por sessionId (dedup thundering herd). */
+  #refreshPromises = new Map<string, Promise<void>>();
   constructor(private config: ResolvedClientConfig) {}
 
   async #getResolver(): Promise<SessionResolver> {
@@ -104,25 +106,46 @@ export class AuthkitClientManager {
     // Sem expiresAt conhecido, não renova proativamente (evita refresh a cada request).
     if (!tokenSet.expiresAt || tokenSet.expiresAt - now() > REFRESH_SKEW_MS) return;
 
-    try {
-      const next = await refreshTokens({
-        issuer: this.config.issuer,
-        clientId: this.config.clientId,
-        clientSecret: this.config.clientSecret,
-        refreshToken: tokenSet.refreshToken,
-        fetchImpl: deps.fetchImpl,
-        resilience: this.config.resilience,
-      });
-      session.put(this.config.sessionKey, {
-        idToken: next.idToken || tokenSet.idToken,
-        accessToken: next.accessToken,
-        refreshToken: next.refreshToken ?? tokenSet.refreshToken,
-        expiresAt: next.expiresAt,
-        impersonationBinding: tokenSet.impersonationBinding,
-      } satisfies TokenSet);
-    } catch {
-      // Renovação falhou — deixa o TokenSet como está; o resolver decide a sessão.
+// Dedup: se já há um refresh in-flight pra esta sessão, espera ele ao invés de
+    // disparar outro. O refresh token ROTACIONA — N requests concorrentes chegando
+    // juntos fariam N refreshes + N-1 falhas com refresh token já inválido.
+    const sessionId = (session as unknown as { sessionId?: string }).sessionId;
+    if (sessionId) {
+      const pending = this.#refreshPromises.get(sessionId);
+      if (pending) {
+        await pending.catch(() => {});
+        return;
+      }
     }
+
+    // Promise que SEMPRE resolve — o catch silencioso mantém o TokenSet original
+    // em caso de falha, igual ao comportamento do maybeRefresh original.
+    const promise = refreshTokens({
+      issuer: this.config.issuer,
+      clientId: this.config.clientId,
+      clientSecret: this.config.clientSecret,
+      refreshToken: tokenSet.refreshToken,
+      fetchImpl: deps.fetchImpl,
+      resilience: this.config.resilience,
+    })
+      .then((next) => {
+        session.put(this.config.sessionKey, {
+          idToken: next.idToken || tokenSet.idToken,
+          accessToken: next.accessToken,
+          refreshToken: next.refreshToken ?? tokenSet.refreshToken,
+          expiresAt: next.expiresAt,
+          impersonationBinding: tokenSet.impersonationBinding,
+        } satisfies TokenSet);
+      })
+      .catch(() => {
+        // Renovação falhou — deixa o TokenSet como está; o resolver decide a sessão.
+      });
+
+    if (sessionId) this.#refreshPromises.set(sessionId, promise);
+
+    await promise;
+
+    if (sessionId) this.#refreshPromises.delete(sessionId);
   }
 
   /**

@@ -27,6 +27,20 @@ function fakeCtxWithSession(initial?: any) {
   } as any;
 }
 
+/** Sessão fake COM sessionId — necessário pra testar o dedup de `maybeRefresh`. */
+function fakeCtxWithSessionId(initial?: any, sid = 'sess_1') {
+  const store = new Map<string, any>();
+  if (initial) store.set('authkit', initial);
+  return {
+    session: {
+      get sessionId() { return sid; },
+      get: (k: string) => store.get(k),
+      put: (k: string, v: any) => store.set(k, v),
+    },
+    _store: store,
+  } as any;
+}
+
 test.group('refreshTokens (primitive)', () => {
   test('POST grant_type=refresh_token e mapeia a resposta', async ({ assert }) => {
     let captured = '';
@@ -158,5 +172,115 @@ test.group('AuthkitClientManager.maybeRefresh', () => {
       fetchImpl: (async () => ({ ok: false, json: async () => ({}) })) as any,
     });
     assert.deepEqual(ctx._store.get('authkit'), original);
+  });
+});
+
+test.group('AuthkitClientManager.maybeRefresh — dedup', () => {
+  test('duas chamadas concorrentes pra mesma sessão → só 1 refresh de verdade', async ({ assert }) => {
+    const m = new AuthkitClientManager(fakeConfig());
+    const now = 1_000_000;
+    let callCount = 0;
+
+    const fetchImpl = (async () => {
+      callCount++;
+      // Delay pra garantir concorrência real
+      await new Promise((r) => setTimeout(r, 50));
+      return {
+        ok: true,
+        json: async () => ({
+          id_token: 'idt_new',
+          access_token: 'at_new',
+          refresh_token: 'rt_new',
+          expires_in: 3600,
+        }),
+      };
+    }) as any;
+
+    const ctx = fakeCtxWithSessionId(
+      { idToken: 'i', accessToken: 'a', refreshToken: 'rt', expiresAt: now },
+      'sess_abc',
+    );
+
+    // Dispara duas em paralelo
+    await Promise.all([
+      m.maybeRefresh(ctx, { now: () => now, fetchImpl }),
+      m.maybeRefresh(ctx, { now: () => now, fetchImpl }),
+    ]);
+
+    assert.equal(callCount, 1, 'refreshTokens deve ser chamado só 1 vez');
+    const stored = ctx._store.get('authkit');
+    assert.equal(stored.accessToken, 'at_new');
+  });
+
+  test('sessões diferentes → N refreshes independentes', async ({ assert }) => {
+    const m = new AuthkitClientManager(fakeConfig());
+    const now = 1_000_000;
+    let callCount = 0;
+
+    const fetchImpl = (async () => {
+      callCount++;
+      await new Promise((r) => setTimeout(r, 30));
+      return {
+        ok: true,
+        json: async () => ({
+          access_token: `at_new_${callCount}`,
+          refresh_token: 'rt_new',
+          expires_in: 3600,
+        }),
+      };
+    }) as any;
+
+    const ctx1 = fakeCtxWithSessionId(
+      { idToken: 'i', accessToken: 'a1', refreshToken: 'rt1', expiresAt: now },
+      'sess_a',
+    );
+    const ctx2 = fakeCtxWithSessionId(
+      { idToken: 'i', accessToken: 'a2', refreshToken: 'rt2', expiresAt: now },
+      'sess_b',
+    );
+
+    await Promise.all([
+      m.maybeRefresh(ctx1, { now: () => now, fetchImpl }),
+      m.maybeRefresh(ctx2, { now: () => now, fetchImpl }),
+    ]);
+
+    assert.equal(callCount, 2, 'cada sessão faz seu próprio refresh');
+  });
+
+  test('sem sessionId no ctx → fallback: faz refresh normal sem dedup', async ({ assert }) => {
+    const m = new AuthkitClientManager(fakeConfig());
+    const now = 1_000_000;
+    let callCount = 0;
+
+    // Sessão SEM sessionId (igual aos outros testes)
+    const store = new Map<string, any>();
+    store.set('authkit', { idToken: 'i', accessToken: 'a', refreshToken: 'rt', expiresAt: now });
+    const ctx = {
+      session: {
+        get: (k: string) => store.get(k),
+        put: (k: string, v: any) => store.set(k, v),
+      },
+      _store: store,
+    } as any;
+
+    const fetchImpl = (async () => {
+      callCount++;
+      await new Promise((r) => setTimeout(r, 20));
+      return {
+        ok: true,
+        json: async () => ({
+          access_token: 'at_new',
+          refresh_token: 'rt_new',
+          expires_in: 3600,
+        }),
+      };
+    }) as any;
+
+    await Promise.all([
+      m.maybeRefresh(ctx, { now: () => now, fetchImpl }),
+      m.maybeRefresh(ctx, { now: () => now, fetchImpl }),
+    ]);
+
+    assert.equal(callCount, 2, 'sem sessionId, ambas as chamadas batem no IdP');
   });
 });
