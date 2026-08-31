@@ -13,12 +13,12 @@
 import { test } from '@japa/runner';
 import { RuntimeSettings } from '../../src/host/runtime_settings.js';
 import {
-  SETTING_KEYS,
   configLockedAuthMethods,
   resolveEffectiveAuthMethods,
   resolveEffectiveMaintenanceMode,
   resolveEffectiveRegistration,
   resolveEffectiveRequireVerifiedEmail,
+  SETTING_KEYS,
 } from '../../src/host/runtime_toggles.js';
 
 // ---------- helpers ----------

@@ -26,4 +26,4 @@ declare module '@adonisjs/core/types' {
   }
 }
 
-export type { OidcService, MetricsRecorder, AccountStore, PatStore };
+export type { AccountStore, MetricsRecorder, OidcService, PatStore };

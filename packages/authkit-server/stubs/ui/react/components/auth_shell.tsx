@@ -1,6 +1,7 @@
 {
   exports({ to: app.makePath('inertia/components/auth_shell.tsx') });
 }
+
 import type { ReactNode } from 'react';
 
 export interface AuthBrand {
@@ -18,13 +19,7 @@ const COMPANY_FALLBACK = 'Acme';
  * Layout de duas colunas para as telas de autenticacao do IdP.
  * Painel esquerdo: marca (empresa guarda-chuva + produto). Painel direito: formulario.
  */
-export default function AuthShell({
-  brand,
-  children,
-}: {
-  brand?: AuthBrand;
-  children: ReactNode;
-}) {
+export default function AuthShell({ brand, children }: { brand?: AuthBrand; children: ReactNode }) {
   const accent = brand?.accent ?? '#111827';
   const accentSoft = brand?.accentSoft ?? accent;
   const company = brand?.company ?? COMPANY_FALLBACK;

@@ -14,15 +14,15 @@ import { test } from '@japa/runner';
 import type { AuditEvent } from '../../src/audit/audit_sink.js';
 import {
   __setMailLoaderForTests,
-  sendEmailChangeNoticeEmail,
   sendEmailChangedCompletedEmail,
+  sendEmailChangeNoticeEmail,
   sendSecurityNoticeEmail,
 } from '../../src/host/default_mailer.js';
 import {
   ALL_SECURITY_NOTIFICATION_KINDS,
-  type SecurityNotificationKind,
   resolveEffectiveEmailChange,
   resolveEffectiveSecurityNotifications,
+  type SecurityNotificationKind,
 } from '../../src/host/runtime_toggles.js';
 import { dispatchSecurityNotice } from '../../src/host/security_notice_service.js';
 

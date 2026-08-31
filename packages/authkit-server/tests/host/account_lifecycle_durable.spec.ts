@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { type Server, createServer } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import { InMemoryStateStore, InMemoryTransport, WorkflowEngine } from '@adonis-agora/durable';
 import { configProvider } from '@adonisjs/core';
 import { compose } from '@adonisjs/core/helpers';
 import { BaseModel, beforeCreate, column } from '@adonisjs/lucid/orm';
 import { test } from '@japa/runner';
-import { lucidAccountStore } from '../../src/accounts/lucid_account_store.js';
 import type { WebauthnCeremonies } from '../../src/accounts/lucid_account_store.js';
+import { lucidAccountStore } from '../../src/accounts/lucid_account_store.js';
 import { DatabaseAdapter } from '../../src/adapters/database_adapter.js';
 import { lucidAuditSink } from '../../src/audit/lucid_audit_sink.js';
 import { adapters, defineConfig } from '../../src/define_config.js';

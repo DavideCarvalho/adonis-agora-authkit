@@ -1,5 +1,5 @@
-import { useRolesQueryOptions } from '@adonis-agora/authkit-react';
 import type { RoleCatalogEntry } from '@adonis-agora/authkit-react';
+import { useRolesQueryOptions } from '@adonis-agora/authkit-react';
 import { useQuery } from '@tanstack/react-query';
 import React, { useState } from 'react';
 import { QueryBoundary } from '../components/QueryBoundary';

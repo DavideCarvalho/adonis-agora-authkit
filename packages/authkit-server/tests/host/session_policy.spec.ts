@@ -18,9 +18,9 @@ import { checkSessionPolicy } from '../../src/doctor/checks.js';
 import { AdminSessionsService } from '../../src/host/admin_sessions_service.js';
 import { RuntimeSettings } from '../../src/host/runtime_settings.js';
 import {
+  resolveEffectiveSessionPolicy,
   SESSION_POLICY_DEFAULTS,
   SETTING_KEYS,
-  resolveEffectiveSessionPolicy,
 } from '../../src/host/runtime_toggles.js';
 import {
   type SessionTtlHolder,

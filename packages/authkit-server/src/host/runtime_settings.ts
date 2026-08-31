@@ -52,7 +52,7 @@
  */
 
 import type { HttpContext } from '@adonisjs/core/http';
-import { SettingLockedError, isSettingLocked } from './config_locks.js';
+import { isSettingLocked, SettingLockedError } from './config_locks.js';
 
 /** Uma entrada da tabela `auth_settings`. */
 export interface SettingRow {

@@ -6,8 +6,8 @@ import { roleCreateValidator, roleUpdateValidator } from '../admin_validators.js
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import {
   type RoleCatalogEntry,
-  SETTING_KEYS,
   resolveEffectiveRolesCatalog,
+  SETTING_KEYS,
 } from '../runtime_toggles.js';
 
 /** Regex de validação: nome de role — letras maiúsculas, dígitos e underscore. */

@@ -3,8 +3,8 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { PasswordStrengthMeter } from '../src/components/password_strength_meter.js';
 import {
-  type PasswordScorer,
   heuristicScorer,
+  type PasswordScorer,
   usePasswordStrength,
 } from '../src/hooks/use_password_strength.js';
 

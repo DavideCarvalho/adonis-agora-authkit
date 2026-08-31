@@ -2,7 +2,7 @@ import { AUTHKIT_METRICS } from '@adonis-agora/authkit-core';
 import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
 import RedisMock from 'ioredis-mock';
-import { OidcService, adapters, defineConfig } from '../index.js';
+import { adapters, defineConfig, OidcService } from '../index.js';
 import { OtelRecorder } from '../src/observability/otel_recorder.js';
 import { fakeAccountStore } from './bootstrap.js';
 

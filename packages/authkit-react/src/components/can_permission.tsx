@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode, createElement } from 'react';
+import { createElement, Fragment, type ReactNode } from 'react';
 import { useCan } from '../hooks/use_can.js';
 
 export interface CanPermissionProps {

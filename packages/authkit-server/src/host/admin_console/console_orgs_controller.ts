@@ -11,8 +11,8 @@ import {
   orgUpdateValidator,
 } from '../admin_validators.js';
 import { authkitOrigin } from '../origin.js';
-import { resolveRuntimeSettings } from '../runtime_settings.js';
 import type { SettingsCapability } from '../runtime_settings.js';
+import { resolveRuntimeSettings } from '../runtime_settings.js';
 
 /**
  * Endpoints JSON de organizações do console admin React.

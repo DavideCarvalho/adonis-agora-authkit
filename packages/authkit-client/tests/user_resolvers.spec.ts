@@ -1,4 +1,4 @@
-import { type Server, createServer } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import type { Identity } from '@adonis-agora/authkit-core';
 import { test } from '@japa/runner';
 import { Authenticator } from '../src/authenticator.js';

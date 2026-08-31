@@ -11,9 +11,9 @@ import { createHmac } from 'node:crypto';
  */
 import { test } from '@japa/runner';
 import {
-  PasswordManager,
   applyCurrentPepper,
   applyPepper,
+  PasswordManager,
   resolvePeppers,
 } from '../../src/password/password_manager.js';
 

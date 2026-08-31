@@ -1,6 +1,6 @@
 import {
-  type RoleCatalogEntry,
   authkitKeys,
+  type RoleCatalogEntry,
   useAuthkitClient,
   useCreateRoleMutationOptions,
 } from '@adonis-agora/authkit-react';

@@ -1,7 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http';
 import type { ResolvedServerConfig } from '../define_config.js';
 import { sendNewDeviceLoginEmail, sendNewLoginEmail } from './default_mailer.js';
-import { TRUSTED_DEVICE_COOKIE, isTrustedDeviceValid } from './trusted_device.js';
+import { isTrustedDeviceValid, TRUSTED_DEVICE_COOKIE } from './trusted_device.js';
 
 /** Dados de um login bem-sucedido a auditar/notificar. */
 export interface LoginSuccessInput {

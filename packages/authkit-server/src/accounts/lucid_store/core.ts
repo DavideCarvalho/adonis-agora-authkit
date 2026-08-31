@@ -2,13 +2,13 @@ import { randomBytes } from 'node:crypto';
 import { Scrypt } from '@adonisjs/core/hash/drivers/scrypt';
 import { DateTime } from 'luxon';
 import {
-  OTP_LOGIN_PREFIX,
   decodeOtpToken,
   encodeOtpToken,
   evaluateLoginOtp,
   generateOtpCode,
   hashLoginOtp,
   linkTokenFromOtpUrl,
+  OTP_LOGIN_PREFIX,
 } from '../../host/otp_login.js';
 import type {
   AccountImportCapability,

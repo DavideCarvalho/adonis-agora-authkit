@@ -11,9 +11,9 @@ import { configProvider } from '@adonisjs/core';
 import type { HttpContext } from '@adonisjs/core/http';
 import type { ApplicationService } from '@adonisjs/core/types';
 import type { AccountStore, AuthAccount } from './accounts/account_store.js';
-import { type AdapterFactory, type OidcAdapterClass, adapters } from './adapters/factory.js';
+import { type AdapterFactory, adapters, type OidcAdapterClass } from './adapters/factory.js';
 import type { AuditSink } from './audit/audit_sink.js';
-import { type EventsConfigInput, composeAuditSink, resolveEvents } from './events/dispatcher.js';
+import { composeAuditSink, type EventsConfigInput, resolveEvents } from './events/dispatcher.js';
 import {
   type BotProtectionConfigInput,
   type ResolvedBotProtectionConfig,
@@ -21,9 +21,9 @@ import {
 } from './host/bot_protection.js';
 import type { BrandingConfig } from './host/branding.js';
 import {
-  type PolicyRouteOption,
   deriveLockedRouteOptions,
   deriveLockedSettingKeys,
+  type PolicyRouteOption,
 } from './host/config_locks.js';
 import type { ResolveGeo } from './host/geo.js';
 import { type AuthMessages, type I18nConfig, resolveMessages } from './host/i18n.js';
@@ -38,8 +38,8 @@ import { warnUnsatisfiableSudoConfig } from './host/sudo/satisfiability.js';
 import type { SudoMethod } from './host/sudo/types.js';
 import {
   type ResolvedTrustedDevicesConfig,
-  type TrustedDevicesConfigInput,
   resolveTrustedDevices,
+  type TrustedDevicesConfigInput,
 } from './host/trusted_device.js';
 import { generateJwks } from './keys/jwks_manager.js';
 import { KeystoreCodec } from './keys/keystore_codec.js';
@@ -47,8 +47,8 @@ import { loadEncryptionService } from './keys/keystore_crypto.js';
 import { KeystoreManager, resolveKeystoreVault } from './keys/keystore_manager.js';
 import type { PatStore } from './pat/pat_store.js';
 
-export { adapters };
 export type { AuthAccount };
+export { adapters };
 
 export type AuthHostRenderer = (
   ctx: HttpContext,
@@ -67,11 +67,7 @@ export interface AuthSocialConfig {
  */
 export interface MailHooks {
   /** Disparado após gerar o token de redefinição de senha. */
-  onPasswordReset?: (data: {
-    email: string;
-    resetUrl: string;
-    token: string;
-  }) => Promise<void>;
+  onPasswordReset?: (data: { email: string; resetUrl: string; token: string }) => Promise<void>;
   /** Disparado após gerar o token de verificação de e-mail. */
   onEmailVerification?: (data: {
     email: string;
@@ -167,11 +163,7 @@ export interface MailHooks {
    * tentativas falhas. Envia o link de desbloqueio para o e-mail da conta.
    * Best-effort, fire-and-forget.
    */
-  onOtpUnlock?: (data: {
-    email: string;
-    unlockUrl: string;
-    token: string;
-  }) => Promise<void>;
+  onOtpUnlock?: (data: { email: string; unlockUrl: string; token: string }) => Promise<void>;
   /**
    * Disparado pelo `authkit:expire-scan` quando uma conta está prestes a ser
    * desativada por inatividade. Substitui o e-mail default de aviso quando

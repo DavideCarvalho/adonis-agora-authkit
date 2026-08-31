@@ -3,8 +3,8 @@ import type { AuditEvent, AuditSink } from '../../src/audit/audit_sink.js';
 import type { ResolvedServerConfig } from '../../src/define_config.js';
 import {
   type BotProtectionConfigInput,
-  DEFAULT_BOT_TOKEN_FIELDS,
   botProtectionApplies,
+  DEFAULT_BOT_TOKEN_FIELDS,
   extractBotToken,
   guardBotProtection,
   resolveBotProtection,

@@ -9,8 +9,8 @@
  */
 import { test } from '@japa/runner';
 import type { AccountStore } from '../../src/accounts/account_store.js';
-import { resolveLockout } from '../../src/define_config.js';
 import type { ResolvedServerConfig } from '../../src/define_config.js';
+import { resolveLockout } from '../../src/define_config.js';
 import {
   checkPasswordExpiration,
   checkPasswordHistory,

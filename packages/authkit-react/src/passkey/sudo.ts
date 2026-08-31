@@ -15,9 +15,9 @@
  */
 
 import {
+  authenticatePasskey,
   type PasskeyCeremonyDeps,
   type PasskeyRegistrationDeps,
-  authenticatePasskey,
   registerPasskey,
 } from './authenticate.js';
 import { type SubmitClassicFormDeps, submitClassicForm } from './classic_form.js';

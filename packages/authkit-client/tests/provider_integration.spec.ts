@@ -1,9 +1,9 @@
-import { type Server, createServer } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
-import { SignJWT, exportJWK, generateKeyPair } from 'jose';
+import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { AuthkitClientManager } from '../providers/authkit_client_provider.js';
-import { type ResolvedClientConfig, defineConfig, resolvers } from '../src/define_config.js';
+import { defineConfig, type ResolvedClientConfig, resolvers } from '../src/define_config.js';
 
 const PORT = 9813;
 const ISSUER = `http://localhost:${PORT}`;

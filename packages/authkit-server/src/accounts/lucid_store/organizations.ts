@@ -1,10 +1,10 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { DateTime } from 'luxon';
 import type {
+  OrganizationsCapability,
   OrgInvitation,
   OrgMember,
   OrgSummary,
-  OrganizationsCapability,
 } from '../account_store.js';
 
 /**

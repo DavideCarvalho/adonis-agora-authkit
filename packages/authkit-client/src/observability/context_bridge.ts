@@ -1,5 +1,5 @@
-import { deriveOrgId } from '@adonis-agora/authkit-core';
 import type { Identity } from '@adonis-agora/authkit-core';
+import { deriveOrgId } from '@adonis-agora/authkit-core';
 
 /**
  * Ponte estrutural (best-effort) entre a sessão resolvida do authkit e o

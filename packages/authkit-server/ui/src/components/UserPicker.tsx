@@ -9,7 +9,10 @@ export type PickedUser = Pick<AdminUser, 'id' | 'email' | 'name'>;
 export function UserPicker({
   onPick,
   placeholder,
-}: { onPick: (u: PickedUser) => void; placeholder?: string }) {
+}: {
+  onPick: (u: PickedUser) => void;
+  placeholder?: string;
+}) {
   const [search, setSearch] = useState('');
   const dSearch = useDebounce(search, 250);
   const usersQuery = useQuery({

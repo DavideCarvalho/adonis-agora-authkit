@@ -1,14 +1,14 @@
 import { createHmac } from 'node:crypto';
 import { isCommonPassword } from './common_passwords.js';
 import {
+  checkPasswordPolicy,
   DEFAULT_PWNED_TIMEOUT_MS,
   type PasswordPolicyViolation,
-  type ResolvedPasswordConfig,
-  checkPasswordPolicy,
   policyViolationParams,
+  type ResolvedPasswordConfig,
   resolvePasswordConfig,
 } from './policy.js';
-import { type FetchLike, type PwnedLogger, isPasswordPwned } from './pwned.js';
+import { type FetchLike, isPasswordPwned, type PwnedLogger } from './pwned.js';
 
 /**
  * Verificador de hashes legados (de OUTROS sistemas). Chamado quando a

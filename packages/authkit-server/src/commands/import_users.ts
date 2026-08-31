@@ -42,7 +42,9 @@ export function parseImportFile(content: string): {
         parseErrors.push({ line: 1, reason: 'expected a JSON array or NDJSON' });
         return { records, parseErrors };
       }
-      arr.forEach((record, i) => records.push({ line: i + 1, record }));
+      arr.forEach((record, i) => {
+        records.push({ line: i + 1, record });
+      });
     } catch (error) {
       parseErrors.push({ line: 1, reason: `invalid JSON array: ${(error as Error).message}` });
     }

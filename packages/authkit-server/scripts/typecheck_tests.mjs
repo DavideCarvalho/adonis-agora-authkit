@@ -68,7 +68,7 @@ import { fileURLToPath } from 'node:url';
  * Only ever lower this. Raising it means you are re-accruing the debt this
  * script exists to stop.
  */
-const BASELINE = 275;
+const BASELINE = 273;
 
 const pkgDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const tsc = resolve(pkgDir, 'node_modules/.bin/tsc');

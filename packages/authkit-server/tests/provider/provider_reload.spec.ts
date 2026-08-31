@@ -1,12 +1,12 @@
 import { mkdtempSync, rmSync } from 'node:fs';
-import { type Server, createServer } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { configProvider } from '@adonisjs/core';
 // tests/provider/provider_reload.spec.ts
 import { test } from '@japa/runner';
 import RedisMock from 'ioredis-mock';
-import { SignJWT, createLocalJWKSet, importJWK, jwtVerify } from 'jose';
+import { createLocalJWKSet, importJWK, jwtVerify, SignJWT } from 'jose';
 import { adapters, defineConfig } from '../../src/define_config.js';
 import { toPublicJwks } from '../../src/keys/keystore.js';
 import { KeystoreCodec } from '../../src/keys/keystore_codec.js';

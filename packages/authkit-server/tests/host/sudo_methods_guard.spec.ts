@@ -13,8 +13,7 @@ import { sudoContextFrom } from '../../src/host/controllers/account_confirm_cont
 import { DEFAULT_MESSAGES } from '../../src/host/i18n.js';
 import { ACCOUNT_SESSION_KEY } from '../../src/host/middleware/account_auth.js';
 import { registerAuthHost } from '../../src/host/register_auth_host.js';
-import { passkey } from '../../src/host/sudo/methods/passkey.js';
-import { CONFIRM_PASSKEY_CHALLENGE_KEY } from '../../src/host/sudo/methods/passkey.js';
+import { CONFIRM_PASSKEY_CHALLENGE_KEY, passkey } from '../../src/host/sudo/methods/passkey.js';
 import { password } from '../../src/host/sudo/methods/password.js';
 import { completeSudo, fail } from '../../src/host/sudo/runtime.js';
 import { SUDO_SESSION_KEY } from '../../src/host/sudo_mode.js';

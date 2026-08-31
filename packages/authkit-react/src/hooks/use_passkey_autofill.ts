@@ -25,7 +25,7 @@
  */
 
 import { useEffect, useRef } from 'react';
-import { type StartAuthenticationFn, loadStartAuthentication } from '../passkey/authenticate.js';
+import { loadStartAuthentication, type StartAuthenticationFn } from '../passkey/authenticate.js';
 
 export interface UsePasskeyAutofillOptions {
   /**

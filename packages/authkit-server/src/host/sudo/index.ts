@@ -43,11 +43,10 @@ import { password } from './methods/password.js';
  */
 export const sudoMethods = { password, passkey, oidcStepUp, magicLink };
 
-export type { SudoMethod, SudoContext, SudoMethodDescriptor, SudoRouteHelpers } from './types.js';
-
 /**
  * Montagem do `SudoContext` a partir do `HttpContext`. Reexportado aqui por
  * simetria com `sudoMethods` e os tipos: quem escreve um método (ou a rota de
  * callback do `oidcStepUp`) precisa dos três.
  */
 export { sudoContextFrom } from './runtime.js';
+export type { SudoContext, SudoMethod, SudoMethodDescriptor, SudoRouteHelpers } from './types.js';

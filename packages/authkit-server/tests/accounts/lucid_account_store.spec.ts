@@ -3,7 +3,7 @@ import { compose } from '@adonisjs/core/helpers';
 import { BaseModel, beforeCreate, column } from '@adonisjs/lucid/orm';
 import { test } from '@japa/runner';
 import { DateTime } from 'luxon';
-import { authenticator } from 'otplib';
+import { generateSync } from 'otplib';
 import {
   supportsAccountDeletion,
   supportsAccountImport,
@@ -11,13 +11,13 @@ import {
   supportsPasskeys,
   supportsProviderIdentity,
 } from '../../src/accounts/account_store.js';
+import type { WebauthnCeremonies } from '../../src/accounts/lucid_account_store.js';
 import {
   __resetAppKeyEncryption,
   __setAppKeyEncryptionForTesting,
   appKeyEncrypter,
   lucidAccountStore,
 } from '../../src/accounts/lucid_account_store.js';
-import type { WebauthnCeremonies } from '../../src/accounts/lucid_account_store.js';
 import { sha256Hex } from '../../src/accounts/lucid_store/token_hash.js';
 import type { AuditEvent } from '../../src/audit/audit_sink.js';
 import { withAuthUser } from '../../src/mixins/with_auth_user.js';
@@ -686,7 +686,7 @@ test.group('lucidAccountStore', (group) => {
     const store = lucidAccountStore(TestAccount);
     const acc = await store.create({ email: 'mfa2@x.com', password: 'pass123456' });
     const started = await store.startTotpEnrollment!(acc.id);
-    const code = authenticator.generate(started!.secret);
+    const code = generateSync({ secret: started!.secret });
 
     const result = await store.confirmTotpEnrollment!(acc.id, code);
     assert.isTrue(result.ok);
@@ -714,9 +714,9 @@ test.group('lucidAccountStore', (group) => {
     const store = lucidAccountStore(TestAccount);
     const acc = await store.create({ email: 'mfa4@x.com', password: 'pass123456' });
     const started = await store.startTotpEnrollment!(acc.id);
-    await store.confirmTotpEnrollment!(acc.id, authenticator.generate(started!.secret));
+    await store.confirmTotpEnrollment!(acc.id, generateSync({ secret: started!.secret }));
 
-    assert.isTrue(await store.verifyTotp!(acc.id, authenticator.generate(started!.secret)));
+    assert.isTrue(await store.verifyTotp!(acc.id, generateSync({ secret: started!.secret })));
     assert.isFalse(await store.verifyTotp!(acc.id, '000000'));
   });
 
@@ -725,7 +725,7 @@ test.group('lucidAccountStore', (group) => {
     const acc = await store.create({ email: 'mfa5@x.com', password: 'pass123456' });
     const started = await store.startTotpEnrollment!(acc.id);
     // pendente, não confirmado
-    assert.isFalse(await store.verifyTotp!(acc.id, authenticator.generate(started!.secret)));
+    assert.isFalse(await store.verifyTotp!(acc.id, generateSync({ secret: started!.secret })));
   });
 
   // ----- M3: anti-replay TOTP -----
@@ -734,9 +734,9 @@ test.group('lucidAccountStore', (group) => {
     const store = lucidAccountStore(TestAccount);
     const acc = await store.create({ email: 'replay1@x.com', password: 'pass123456' });
     const started = await store.startTotpEnrollment!(acc.id);
-    await store.confirmTotpEnrollment!(acc.id, authenticator.generate(started!.secret));
+    await store.confirmTotpEnrollment!(acc.id, generateSync({ secret: started!.secret }));
 
-    const code = authenticator.generate(started!.secret);
+    const code = generateSync({ secret: started!.secret });
     // 1ª vez: aceito.
     assert.isTrue(await store.verifyTotp!(acc.id, code));
     // 2ª vez, MESMO código, MESMA janela: rejeitado (replay).
@@ -751,12 +751,12 @@ test.group('lucidAccountStore', (group) => {
     const store = lucidAccountStore(TestAccount);
     const acc = await store.create({ email: 'replay2@x.com', password: 'pass123456' });
     const started = await store.startTotpEnrollment!(acc.id);
-    await store.confirmTotpEnrollment!(acc.id, authenticator.generate(started!.secret));
+    await store.confirmTotpEnrollment!(acc.id, generateSync({ secret: started!.secret }));
 
-    const period = authenticator.allOptions().step || 30;
+    const period = 30;
     const expectedStep = Math.floor(Date.now() / 1000 / period);
 
-    assert.isTrue(await store.verifyTotp!(acc.id, authenticator.generate(started!.secret)));
+    assert.isTrue(await store.verifyTotp!(acc.id, generateSync({ secret: started!.secret })));
     const mfa = await readMfaRow(db, acc.id);
     assert.equal(mfa!.lastTotpStep, expectedStep);
   });
@@ -767,9 +767,9 @@ test.group('lucidAccountStore', (group) => {
     const store = lucidAccountStore(TestAccount);
     const acc = await store.create({ email: 'replay2b@x.com', password: 'pass123456' });
     const started = await store.startTotpEnrollment!(acc.id);
-    await store.confirmTotpEnrollment!(acc.id, authenticator.generate(started!.secret));
+    await store.confirmTotpEnrollment!(acc.id, generateSync({ secret: started!.secret }));
 
-    const period = authenticator.allOptions().step || 30;
+    const period = 30;
     const currentStep = Math.floor(Date.now() / 1000 / period);
 
     // Pré-condição: lastTotpStep ANTERIOR ao step atual → o código atual (step maior) é aceito.
@@ -778,10 +778,10 @@ test.group('lucidAccountStore', (group) => {
       .from('auth_mfa')
       .where('account_id', acc.id)
       .update({ last_totp_step: currentStep - 1 });
-    assert.isTrue(await store.verifyTotp!(acc.id, authenticator.generate(started!.secret)));
+    assert.isTrue(await store.verifyTotp!(acc.id, generateSync({ secret: started!.secret })));
 
     // Agora lastTotpStep == currentStep → o MESMO código (step == último) é rejeitado.
-    assert.isFalse(await store.verifyTotp!(acc.id, authenticator.generate(started!.secret)));
+    assert.isFalse(await store.verifyTotp!(acc.id, generateSync({ secret: started!.secret })));
 
     // E um lastTotpStep no FUTURO (maior) rejeita o código atual (step menor).
     await db
@@ -789,7 +789,7 @@ test.group('lucidAccountStore', (group) => {
       .from('auth_mfa')
       .where('account_id', acc.id)
       .update({ last_totp_step: currentStep + 5 });
-    assert.isFalse(await store.verifyTotp!(acc.id, authenticator.generate(started!.secret)));
+    assert.isFalse(await store.verifyTotp!(acc.id, generateSync({ secret: started!.secret })));
   });
 
   test('verifyTotp: re-enroll zera o anti-replay (novo segredo aceita de novo)', async ({
@@ -798,17 +798,17 @@ test.group('lucidAccountStore', (group) => {
     const store = lucidAccountStore(TestAccount);
     const acc = await store.create({ email: 'replay3@x.com', password: 'pass123456' });
     const s1 = await store.startTotpEnrollment!(acc.id);
-    await store.confirmTotpEnrollment!(acc.id, authenticator.generate(s1!.secret));
-    const code1 = authenticator.generate(s1!.secret);
+    await store.confirmTotpEnrollment!(acc.id, generateSync({ secret: s1!.secret }));
+    const code1 = generateSync({ secret: s1!.secret });
     assert.isTrue(await store.verifyTotp!(acc.id, code1));
 
     // Re-enroll: novo segredo, lastTotpStep deve ser zerado.
     const s2 = await store.startTotpEnrollment!(acc.id);
     const mfa = await readMfaRow(db, acc.id);
     assert.isNull(mfa!.lastTotpStep);
-    await store.confirmTotpEnrollment!(acc.id, authenticator.generate(s2!.secret));
+    await store.confirmTotpEnrollment!(acc.id, generateSync({ secret: s2!.secret }));
     // Verifica com o novo segredo — funciona normalmente.
-    assert.isTrue(await store.verifyTotp!(acc.id, authenticator.generate(s2!.secret)));
+    assert.isTrue(await store.verifyTotp!(acc.id, generateSync({ secret: s2!.secret })));
   });
 
   test('consumeRecoveryCode é single-use', async ({ assert }) => {
@@ -817,7 +817,7 @@ test.group('lucidAccountStore', (group) => {
     const started = await store.startTotpEnrollment!(acc.id);
     const { recoveryCodes } = await store.confirmTotpEnrollment!(
       acc.id,
-      authenticator.generate(started!.secret),
+      generateSync({ secret: started!.secret }),
     );
     const code = recoveryCodes![0];
 
@@ -832,7 +832,7 @@ test.group('lucidAccountStore', (group) => {
     const store = lucidAccountStore(TestAccount);
     const acc = await store.create({ email: 'mfa7@x.com', password: 'pass123456' });
     const started = await store.startTotpEnrollment!(acc.id);
-    await store.confirmTotpEnrollment!(acc.id, authenticator.generate(started!.secret));
+    await store.confirmTotpEnrollment!(acc.id, generateSync({ secret: started!.secret }));
     assert.isTrue((await store.getMfaState!(acc.id)).enabled);
 
     await store.disableMfa!(acc.id);
@@ -868,10 +868,10 @@ test.group('lucidAccountStore', (group) => {
     // Confirma + verifica usando códigos gerados a partir do segredo raw.
     const confirmed = await store.confirmTotpEnrollment!(
       acc.id,
-      authenticator.generate(started!.secret),
+      generateSync({ secret: started!.secret }),
     );
     assert.isTrue(confirmed.ok);
-    assert.isTrue(await store.verifyTotp!(acc.id, authenticator.generate(started!.secret)));
+    assert.isTrue(await store.verifyTotp!(acc.id, generateSync({ secret: started!.secret })));
     assert.isFalse(await store.verifyTotp!(acc.id, '000000'));
   });
 
@@ -889,7 +889,7 @@ test.group('lucidAccountStore', (group) => {
     // confirm falha porque o segredo "não abre"
     const confirmed = await store.confirmTotpEnrollment!(
       acc.id,
-      authenticator.generate(started!.secret),
+      generateSync({ secret: started!.secret }),
     );
     assert.isFalse(confirmed.ok);
   });
@@ -963,7 +963,7 @@ test.group('lucidAccountStore', (group) => {
     const acc = await store.create({ email: 'mfa8@x.com', password: 'pass123456' });
     assert.isFalse((await store.getMfaState!(acc.id)).enabled);
     const started = await store.startTotpEnrollment!(acc.id);
-    await store.confirmTotpEnrollment!(acc.id, authenticator.generate(started!.secret));
+    await store.confirmTotpEnrollment!(acc.id, generateSync({ secret: started!.secret }));
     assert.isTrue((await store.getMfaState!(acc.id)).enabled);
   });
 

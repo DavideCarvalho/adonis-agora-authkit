@@ -1,4 +1,4 @@
-import { type ButtonHTMLAttributes, type ReactNode, createElement } from 'react';
+import { type ButtonHTMLAttributes, createElement, type ReactNode } from 'react';
 import { usePasskeyLogin } from '../hooks/use_passkey_login.js';
 import { buttonClass } from '../utils.js';
 

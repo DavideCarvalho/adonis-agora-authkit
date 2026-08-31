@@ -5,7 +5,11 @@ export function FieldRow({
   label,
   hint,
   children,
-}: { label: string; hint?: string; children: React.ReactNode }) {
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
       <div style={{ flex: 1 }}>
@@ -21,7 +25,10 @@ export function FieldRow({
 export function Toggle({
   checked,
   onChange,
-}: { checked: boolean; onChange: (v: boolean) => void }) {
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
   return (
     <button
       type="button"

@@ -25,7 +25,7 @@
  */
 
 import { QueryClient } from '@tanstack/react-query';
-import { type ReactNode, createContext, createElement, useContext } from 'react';
+import { createContext, createElement, type ReactNode, useContext } from 'react';
 import { type AuthkitClient, type AuthkitClientOptions, createAuthkitClient } from './client.js';
 
 // ---------------------------------------------------------------------------

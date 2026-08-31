@@ -660,8 +660,8 @@ test.group('lucidAccountStore — connectionName', () => {
 
 // ---- resolveEffectiveBotProtection tests (added in Task 2) ----
 
-import { resolveEffectiveBotProtection } from '../src/host/bot_protection.js';
 import type { ResolvedBotProtectionConfig } from '../src/host/bot_protection.js';
+import { resolveEffectiveBotProtection } from '../src/host/bot_protection.js';
 
 test.group('resolveEffectiveBotProtection', () => {
   const verifyFn = async () => true;

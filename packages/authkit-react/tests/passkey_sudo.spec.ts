@@ -173,7 +173,10 @@ test.group('runPasskeyAssertion (tier 3 — dance de sudo)', () => {
     // options POST com header CSRF.
     assert.equal(calls.fetchUrl, '/account/confirm/passkey/options');
     assert.equal(calls.fetchInit?.method, 'POST');
-    assert.equal((calls.fetchInit?.headers as Record<string, string>)['x-csrf-token'], 'tok-9');
+    assert.equal(
+      (calls.fetchInit?.headers as Record<string, string> | undefined)?.['x-csrf-token'],
+      'tok-9',
+    );
     // Form submetido no actionUrl, com response + _csrf + return_to.
     const form = dom.forms[0]!;
     assert.equal(form.action, '/account/confirm/passkey');
@@ -263,7 +266,10 @@ test.group('runPasskeyRegistration (tier 3 — dance de registro)', () => {
     );
     assert.isTrue(startedRegistration);
     assert.equal(calls.fetchUrl, '/account/mfa/passkeys/options');
-    assert.equal((calls.fetchInit?.headers as Record<string, string>)['x-csrf-token'], 'tok');
+    assert.equal(
+      (calls.fetchInit?.headers as Record<string, string> | undefined)?.['x-csrf-token'],
+      'tok',
+    );
     const form = dom.forms[0]!;
     assert.equal(form.action, '/account/mfa/passkeys/verify');
     assert.isTrue(form.submitted);

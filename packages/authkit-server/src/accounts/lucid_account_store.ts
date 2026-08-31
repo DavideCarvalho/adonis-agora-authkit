@@ -16,9 +16,9 @@ import { buildPasswordExpiration, buildPasswordHistory } from './lucid_store/pas
 import { buildProviderIdentity } from './lucid_store/provider_identity.js';
 import {
   type AccountSecretEncrypter,
+  hasTable,
   type LucidStoreContext,
   type WebauthnCeremonies,
-  hasTable,
 } from './lucid_store/shared.js';
 import {
   buildDeletion,

@@ -9,7 +9,7 @@ import type {
 import type { ResolvedServerConfig } from '../../src/define_config.js';
 import { __setMailLoaderForTests } from '../../src/host/default_mailer.js';
 import { notifyLoginSuccess } from '../../src/host/login_notify.js';
-import { TRUSTED_DEVICE_COOKIE, buildTrustedDevicePayload } from '../../src/host/trusted_device.js';
+import { buildTrustedDevicePayload, TRUSTED_DEVICE_COOKIE } from '../../src/host/trusted_device.js';
 
 /** Sink de auditoria in-memory com consulta (filtra por type + subject). */
 function memorySink(): AuditSink & { events: StoredAuditEvent[] } {

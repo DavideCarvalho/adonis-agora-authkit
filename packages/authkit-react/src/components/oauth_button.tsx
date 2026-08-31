@@ -1,4 +1,4 @@
-import { type AnchorHTMLAttributes, type ReactNode, createElement } from 'react';
+import { type AnchorHTMLAttributes, createElement, type ReactNode } from 'react';
 import { oauthRedirectUrl } from '../interaction/urls.js';
 import { buttonClass } from '../utils.js';
 

@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { useAuthkitConfig } from '../config.js';
 import type { AuthUser } from '../types.js';
 import { useAuth } from '../use_auth.js';
-import { type ResourceState, jsonRequest } from './use_resource.js';
+import { jsonRequest, type ResourceState } from './use_resource.js';
 
 export interface ProfileUpdate {
   name?: string;

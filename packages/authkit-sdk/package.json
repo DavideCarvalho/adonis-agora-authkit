@@ -13,14 +13,23 @@
   "bugs": {
     "url": "https://github.com/DavideCarvalho/adonis-agora-authkit/issues"
   },
-  "keywords": ["adonisjs", "authkit", "sdk", "admin-api", "oidc", "authentication"],
+  "keywords": [
+    "adonisjs",
+    "authkit",
+    "sdk",
+    "admin-api",
+    "oidc",
+    "authentication"
+  ],
   "publishConfig": {
     "access": "public"
   },
   "type": "module",
   "main": "./build/index.js",
   "types": "./build/index.d.ts",
-  "files": ["build"],
+  "files": [
+    "build"
+  ],
   "exports": {
     ".": "./build/index.js",
     "./types": "./build/index.js"
@@ -31,8 +40,8 @@
     "test": "node --import=@poppinss/ts-exec bin/test.ts"
   },
   "peerDependencies": {
-    "@adonisjs/core": "catalog:adonisPeers",
-    "@adonis-agora/authkit-server": ">=0.10.0 <1.0.0"
+    "@adonis-agora/authkit-server": ">=0.10.0 <1.0.0",
+    "@adonisjs/core": "catalog:adonisPeers"
   },
   "peerDependenciesMeta": {
     "@adonisjs/core": {
@@ -43,8 +52,8 @@
     }
   },
   "devDependencies": {
-    "@adonisjs/core": "catalog:adonis",
     "@adonis-agora/authkit-server": "workspace:*",
+    "@adonisjs/core": "catalog:adonis",
     "@adonisjs/tsconfig": "catalog:adonis",
     "@japa/assert": "catalog:",
     "@japa/runner": "catalog:",

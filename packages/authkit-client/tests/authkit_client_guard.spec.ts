@@ -1,6 +1,5 @@
 import type { Identity } from '@adonis-agora/authkit-core';
-import { errors as authErrors } from '@adonisjs/auth';
-import { Authenticator as FrameworkAuthenticator } from '@adonisjs/auth';
+import { errors as authErrors, Authenticator as FrameworkAuthenticator } from '@adonisjs/auth';
 import type { HttpContext } from '@adonisjs/core/http';
 import { test } from '@japa/runner';
 import { Authenticator } from '../src/authenticator.js';

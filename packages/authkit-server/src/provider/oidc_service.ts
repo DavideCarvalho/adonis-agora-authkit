@@ -5,11 +5,11 @@ import mount from 'koa-mount';
 import type { ResolvedServerConfig } from '../define_config.js';
 import { readActiveOrgFromKoaCtx } from '../host/active_org_cookie.js';
 import { isFirstPartyClient } from '../host/branding.js';
-import { type ManagedKeyInfo, listKeyInfos, signingKeyAgeDays } from '../keys/keystore.js';
+import { listKeyInfos, type ManagedKeyInfo, signingKeyAgeDays } from '../keys/keystore.js';
 import type { KeystoreManager } from '../keys/keystore_manager.js';
 import { wireProviderEvents } from '../observability/wire_provider_events.js';
-import { type SessionTtlHolder, type TokenTtlHolder, buildProvider } from './build_provider.js';
-import { type InteractionActions, createInteractionActions } from './interaction_actions.js';
+import { buildProvider, type SessionTtlHolder, type TokenTtlHolder } from './build_provider.js';
+import { createInteractionActions, type InteractionActions } from './interaction_actions.js';
 import { registerTokenExchange } from './token_exchange.js';
 
 export class OidcService {

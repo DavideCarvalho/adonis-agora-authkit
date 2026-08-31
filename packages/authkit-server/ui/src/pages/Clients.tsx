@@ -1,7 +1,7 @@
 import {
   type AdminClient,
-  type CreateClientInput,
   authkitKeys,
+  type CreateClientInput,
   useAuthkitClient,
   useCreateClientMutationOptions,
   useUpdateClientMutationOptions,

@@ -1,5 +1,5 @@
 import { test } from '@japa/runner';
-import { DEFAULT_CONFIG, buildAuthUrl, resolveConfig } from '../src/config.js';
+import { buildAuthUrl, DEFAULT_CONFIG, resolveConfig } from '../src/config.js';
 import { deriveInitials } from '../src/utils.js';
 
 test.group('resolveConfig', () => {

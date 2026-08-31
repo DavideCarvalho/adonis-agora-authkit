@@ -33,7 +33,7 @@ import { ACCOUNT_SESSION_KEY } from '../../src/host/middleware/account_auth.js';
 import { registerAuthHost } from '../../src/host/register_auth_host.js';
 import { magicLink } from '../../src/host/sudo/methods/magic_link.js';
 import { completeSudo, fail, setMountedSudoMethods } from '../../src/host/sudo/runtime.js';
-import { SUDO_SESSION_KEY, requireSudo } from '../../src/host/sudo_mode.js';
+import { requireSudo, SUDO_SESSION_KEY } from '../../src/host/sudo_mode.js';
 
 // ─── helpers ──────────────────────────────────────────────────────────────
 

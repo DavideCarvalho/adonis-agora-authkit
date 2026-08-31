@@ -17,7 +17,7 @@ import { configProvider } from '@adonisjs/core';
 import { RuntimeException } from '@adonisjs/core/exceptions';
 import type { ApplicationService } from '@adonisjs/core/types';
 import { setBootedApp } from '../services/booted_app.js';
-import { type ResolvedServerConfig, defaultEncryptForStore } from '../src/define_config.js';
+import { defaultEncryptForStore, type ResolvedServerConfig } from '../src/define_config.js';
 import { resolveAppKey } from '../src/host/app_key.js';
 import { resolveEffectiveKeyRotation } from '../src/host/key_rotation.js';
 import { RuntimeSettings } from '../src/host/runtime_settings.js';

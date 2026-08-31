@@ -1,4 +1,4 @@
-import { type Server, createServer } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
 import { DatabaseAdapter } from '../src/adapters/database_adapter.js';

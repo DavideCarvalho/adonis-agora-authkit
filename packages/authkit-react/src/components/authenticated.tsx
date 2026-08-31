@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode, createElement } from 'react';
+import { createElement, Fragment, type ReactNode } from 'react';
 import { useAuth } from '../use_auth.js';
 
 export interface AuthenticatedProps {

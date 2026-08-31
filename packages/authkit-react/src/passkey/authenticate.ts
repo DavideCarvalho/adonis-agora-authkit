@@ -47,10 +47,8 @@ async function importWebAuthnBrowser(): Promise<{
   startAuthentication: StartAuthenticationFn;
   startRegistration: StartRegistrationFn;
 }> {
-  return await import(
-    // @ts-ignore — import dinâmico do pacote instalado pelo host (peer opcional).
-    '@simplewebauthn/browser' as string
-  );
+  // Import dinâmico do pacote instalado pelo host (peer opcional).
+  return await import('@simplewebauthn/browser' as string);
 }
 
 /** Mensagem de erro compartilhada: peer opcional ausente (mesma instrução para as duas cerimônias). */

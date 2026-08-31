@@ -1,10 +1,10 @@
 import { test } from '@japa/runner';
 import {
-  OTP_LOCKOUT_DEFAULTS,
-  OTP_UNLOCK_TOKEN_PREFIX,
   __setOtpLockoutLimiterLoaderForTests,
   createOtpLockout,
   generateOtpUnlockToken,
+  OTP_LOCKOUT_DEFAULTS,
+  OTP_UNLOCK_TOKEN_PREFIX,
   rawToDbOtpUnlockToken,
   resolveEffectiveOtpLockout,
 } from '../../src/host/otp_lockout.js';

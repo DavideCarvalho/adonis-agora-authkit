@@ -1,9 +1,9 @@
-import { type IncomingMessage, type Server, type ServerResponse, createServer } from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import {
-  OidcService,
-  type ResolvedServerConfig,
   adapters,
   defineConfig as defineServer,
+  OidcService,
+  type ResolvedServerConfig,
 } from '@adonis-agora/authkit-server';
 import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';

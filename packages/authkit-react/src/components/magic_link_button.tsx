@@ -1,4 +1,4 @@
-import { type ButtonHTMLAttributes, type ReactNode, createElement, useState } from 'react';
+import { type ButtonHTMLAttributes, createElement, type ReactNode, useState } from 'react';
 import { buttonClass } from '../utils.js';
 import { InteractionForm } from './interaction_form.js';
 

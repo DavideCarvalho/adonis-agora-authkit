@@ -1,14 +1,15 @@
-import { supportsMagicLink } from '../accounts/account_store.js';
-import { supportsPasskeys } from '../accounts/account_store.js';
-import { supportsLoginMethodsPreference } from '../accounts/account_store.js';
+import {
+  supportsLoginMethodsPreference,
+  supportsMagicLink,
+  supportsPasskeys,
+} from '../accounts/account_store.js';
 import type { ResolvedServerConfig } from '../define_config.js';
 import type { SettingsCapability } from './runtime_settings.js';
-import { resolveEffectiveAuthMethods } from './runtime_toggles.js';
-import { configLockedAuthMethods } from './runtime_toggles.js';
+import { configLockedAuthMethods, resolveEffectiveAuthMethods } from './runtime_toggles.js';
 import {
-  type UserLoginMethods,
   normalizeUserLoginMethods,
   resolveEffectiveUserLoginMethods,
+  type UserLoginMethods,
 } from './user_login_methods.js';
 
 /** Resultado compartilhado de "estado de tipos de login" entregue à UI. */

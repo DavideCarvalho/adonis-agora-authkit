@@ -18,8 +18,8 @@ import { syncAdonisAuthLogout } from '../adonis_auth_sync.js';
 import { AvatarUploadError, isAvatarUploadSupported, storeAvatar } from '../avatar_storage.js';
 import {
   sendEmailChangeConfirmationEmail,
-  sendEmailChangeNoticeEmail,
   sendEmailChangedCompletedEmail,
+  sendEmailChangeNoticeEmail,
 } from '../default_mailer.js';
 import { translate } from '../i18n.js';
 import { authkitOrigin } from '../origin.js';

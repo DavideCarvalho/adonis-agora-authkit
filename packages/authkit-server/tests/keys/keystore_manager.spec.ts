@@ -5,8 +5,7 @@ import { test } from '@japa/runner';
 import { signingKeyAgeDays } from '../../src/keys/keystore.js';
 import { KeystoreCodec } from '../../src/keys/keystore_codec.js';
 import { __setEncryptionServiceForTests } from '../../src/keys/keystore_crypto.js';
-import { KeystoreManager } from '../../src/keys/keystore_manager.js';
-import { resolveKeystoreVault } from '../../src/keys/keystore_manager.js';
+import { KeystoreManager, resolveKeystoreVault } from '../../src/keys/keystore_manager.js';
 import type { KeystoreVault } from '../../src/keys/keystore_vault.js';
 import {
   DriveKeystoreVault,

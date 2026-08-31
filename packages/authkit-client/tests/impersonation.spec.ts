@@ -1,7 +1,7 @@
 import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
 import { AuthkitClientManager } from '../providers/authkit_client_provider.js';
-import { type ResolvedClientConfig, defineConfig, resolvers } from '../src/define_config.js';
+import { defineConfig, type ResolvedClientConfig, resolvers } from '../src/define_config.js';
 import type { TokenSet } from '../src/types.js';
 
 const ISSUER = 'http://idp.test';
