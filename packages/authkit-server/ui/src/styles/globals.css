@@ -72,7 +72,8 @@ body::before {
   content: "";
   position: fixed;
   inset: 0;
-  background: radial-gradient(1100px 500px at 15% -10%, rgba(98, 95, 255, 0.1), transparent 60%),
+  background:
+    radial-gradient(1100px 500px at 15% -10%, rgba(98, 95, 255, 0.1), transparent 60%),
     radial-gradient(900px 420px at 90% 0%, rgba(62, 207, 142, 0.04), transparent 55%);
   pointer-events: none;
   z-index: 0;
@@ -265,7 +266,9 @@ html.light .topbar {
   color: var(--muted);
   cursor: pointer;
   text-decoration: none;
-  transition: background 0.12s, color 0.12s;
+  transition:
+    background 0.12s,
+    color 0.12s;
   font-weight: 500;
   font-size: 12.5px;
   border: 1px solid transparent;
@@ -701,7 +704,9 @@ tbody td.no-click {
   font-family: var(--sans);
   font-size: 13px;
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
 .input:focus {
   border-color: rgba(98, 95, 255, 0.5);
@@ -834,7 +839,9 @@ textarea.input {
   left: 2px;
   border-radius: 50%;
   background: var(--faint);
-  transition: transform 0.2s, background 0.2s;
+  transition:
+    transform 0.2s,
+    background 0.2s;
   pointer-events: none;
 }
 .toggle input:checked ~ .toggle-thumb {

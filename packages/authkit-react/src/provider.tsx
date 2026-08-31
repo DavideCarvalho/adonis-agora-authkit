@@ -1,4 +1,4 @@
-import { type ReactNode, createContext, createElement } from 'react';
+import { createContext, createElement, type ReactNode } from 'react';
 import type { AuthSharedProps } from './types.js';
 
 /**

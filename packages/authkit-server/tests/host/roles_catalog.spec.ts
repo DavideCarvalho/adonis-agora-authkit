@@ -7,14 +7,14 @@
  */
 
 import { test } from '@japa/runner';
-import { checkRolesCatalog } from '../../src/doctor/checks.js';
 import type { DoctorInput } from '../../src/doctor/checks.js';
+import { checkRolesCatalog } from '../../src/doctor/checks.js';
 import { AdminUsersService } from '../../src/host/admin_api/admin_users_service.js';
 import { RuntimeSettings } from '../../src/host/runtime_settings.js';
 import {
   ROLES_CATALOG_DEFAULT,
-  SETTING_KEYS,
   resolveEffectiveRolesCatalog,
+  SETTING_KEYS,
 } from '../../src/host/runtime_toggles.js';
 
 // ---------------------------------------------------------------------------

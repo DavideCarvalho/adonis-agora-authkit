@@ -30,7 +30,11 @@
   "type": "module",
   "main": "./build/index.js",
   "types": "./build/index.d.ts",
-  "files": ["build", "stubs", "skills"],
+  "files": [
+    "build",
+    "stubs",
+    "skills"
+  ],
   "exports": {
     ".": "./build/index.js",
     "./types": "./build/types.js",
@@ -49,8 +53,12 @@
   },
   "adonisjs": {
     "types": "@adonis-agora/authkit-client",
-    "providers": ["@adonis-agora/authkit-client/authkit_client_provider"],
-    "commands": ["@adonis-agora/authkit-client/commands"]
+    "providers": [
+      "@adonis-agora/authkit-client/authkit_client_provider"
+    ],
+    "commands": [
+      "@adonis-agora/authkit-client/commands"
+    ]
   },
   "scripts": {
     "build": "tsc && node -e \"require('node:fs').cpSync('stubs','build/stubs',{recursive:true,filter:(s)=>!s.endsWith('.ts')})\"",
@@ -58,11 +66,11 @@
     "test": "node --import=@poppinss/ts-exec bin/test.ts"
   },
   "peerDependencies": {
+    "@adonis-agora/resilience": ">=0.1.0 <1.0.0",
     "@adonisjs/auth": "catalog:adonisPeers",
     "@adonisjs/core": "catalog:adonisPeers",
-    "@adonisjs/session": "catalog:adonisPeers",
     "@adonisjs/lucid": "catalog:adonisPeers",
-    "@adonis-agora/resilience": ">=0.1.0 <1.0.0"
+    "@adonisjs/session": "catalog:adonisPeers"
   },
   "peerDependenciesMeta": {
     "@adonisjs/auth": {
@@ -77,22 +85,22 @@
   },
   "dependencies": {
     "@adonis-agora/authkit-core": "workspace:*",
-    "jose": "5.10.0"
+    "jose": "6.2.10"
   },
   "devDependencies": {
+    "@adonis-agora/authkit-server": "workspace:*",
+    "@adonis-agora/resilience": "0.3.3",
     "@adonisjs/auth": "catalog:adonis",
     "@adonisjs/core": "catalog:adonis",
-    "@adonis-agora/authkit-server": "workspace:*",
-    "@adonis-agora/resilience": "0.3.1",
-    "@adonisjs/session": "catalog:adonis",
     "@adonisjs/lucid": "catalog:adonis",
+    "@adonisjs/session": "catalog:adonis",
     "@adonisjs/tsconfig": "catalog:adonis",
     "@japa/assert": "catalog:",
     "@japa/runner": "catalog:",
     "@poppinss/ts-exec": "catalog:",
-    "@tanstack/intent": "^0.3.2",
-    "ioredis-mock": "8.13.1",
+    "@tanstack/intent": "^0.3.8",
     "@types/node": "catalog:adonis",
+    "ioredis-mock": "8.13.1",
     "typescript": "catalog:frontend"
   }
 }

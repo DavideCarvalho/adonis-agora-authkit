@@ -1,10 +1,10 @@
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
 import type { PasskeySummary, WebauthnCapability } from '../account_store.js';
 import {
+  buildMfaStateRepo,
   type LucidStoreContext,
   type ResolvedRp,
   type WebauthnCeremonies,
-  buildMfaStateRepo,
 } from './shared.js';
 
 /**

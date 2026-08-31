@@ -1,4 +1,4 @@
-import { type JWTPayload, createRemoteJWKSet, jwtVerify } from 'jose';
+import { createRemoteJWKSet, type JWTPayload, jwtVerify } from 'jose';
 
 /**
  * Verificação LOCAL de um JWT Access Token (RFC 9068) emitido pelo AuthKit server

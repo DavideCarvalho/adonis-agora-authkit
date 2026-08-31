@@ -25,9 +25,8 @@ export type UnauthorizedAccessConstructor = new (
 ) => Error;
 
 /** O tipo de usuário REAL por trás de um user provider do `@adonisjs/auth`. */
-type RealUser<UserProvider> = UserProvider extends SessionUserProviderContract<infer User>
-  ? User
-  : never;
+type RealUser<UserProvider> =
+  UserProvider extends SessionUserProviderContract<infer User> ? User : never;
 
 /**
  * Guard de `@adonisjs/auth` apoiado na sessão OIDC do `@adonis-agora/authkit-client`.

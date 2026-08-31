@@ -258,7 +258,10 @@ export function MemberRow({
 export function InvitationRow({
   orgId,
   invitation,
-}: { orgId: string; invitation: { id: string; email: string; role: string; expiresAt: string } }) {
+}: {
+  orgId: string;
+  invitation: { id: string; email: string; role: string; expiresAt: string };
+}) {
   const toast = useToast();
   const queryClient = useQueryClient();
 

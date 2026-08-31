@@ -13,10 +13,10 @@ import { sudoContextFrom } from '../../src/host/controllers/account_confirm_cont
 import { DEFAULT_MESSAGES } from '../../src/host/i18n.js';
 import { ACCOUNT_SESSION_KEY } from '../../src/host/middleware/account_auth.js';
 import {
-  SUDO_LINK_SESSION_KEY,
-  SUDO_LINK_TTL_MS,
   issueSudoLinkToken,
   magicLink,
+  SUDO_LINK_SESSION_KEY,
+  SUDO_LINK_TTL_MS,
   verifySudoLinkToken,
 } from '../../src/host/sudo/methods/magic_link.js';
 import { password } from '../../src/host/sudo/methods/password.js';

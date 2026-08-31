@@ -1,7 +1,7 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import { apiError, settingDto } from '../admin_api/dto.js';
-import { SettingLockedError, isSettingLocked, lockedSettingKeys } from '../config_locks.js';
+import { isSettingLocked, lockedSettingKeys, SettingLockedError } from '../config_locks.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 
 /** 423 Locked: setting travada via defineConfig. */

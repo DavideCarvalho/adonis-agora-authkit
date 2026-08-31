@@ -60,10 +60,10 @@ import {
 import { dispatchSecurityNotice } from '../security_notice_service.js';
 import { enrichSessionsWithContext } from '../session_context.js';
 import {
-  SUDO_MODE_DEFAULTS,
   isSudoActive,
   requireSudo,
   resolveEffectiveSudoMode,
+  SUDO_MODE_DEFAULTS,
 } from '../sudo_mode.js';
 import {
   parseUserLoginMethodsPayload,

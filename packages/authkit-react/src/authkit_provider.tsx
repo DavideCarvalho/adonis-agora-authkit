@@ -1,4 +1,4 @@
-import { type ReactNode, createElement } from 'react';
+import { createElement, type ReactNode } from 'react';
 import { type AuthkitConfig, AuthkitConfigContext, resolveConfig } from './config.js';
 import { AuthContext } from './provider.js';
 import type { AuthSharedProps } from './types.js';

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, renameSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, renameSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { test } from '@japa/runner';
 import { resetAuthHostConfig } from '../../src/host/auth_host_config.js';

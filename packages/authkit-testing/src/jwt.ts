@@ -1,12 +1,13 @@
+import type { KeyObject } from 'node:crypto';
 import { randomUUID } from 'node:crypto';
-import { type Server, createServer } from 'node:http';
-import { type JWK, type KeyLike, SignJWT, exportJWK, generateKeyPair } from 'jose';
+import { createServer, type Server } from 'node:http';
+import { exportJWK, generateKeyPair, type JWK, SignJWT } from 'jose';
 
 const ALG = 'RS256';
 
 export interface TestKeyPair {
-  privateKey: KeyLike;
-  publicKey: KeyLike;
+  privateKey: CryptoKey | KeyObject;
+  publicKey: CryptoKey | KeyObject;
   kid: string;
 }
 

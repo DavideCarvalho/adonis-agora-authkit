@@ -2,14 +2,14 @@ import { test } from '@japa/runner';
 import { resolveLogin, resolveRateLimit } from '../../src/define_config.js';
 import { renderTransactionalEmail } from '../../src/host/email_templates.js';
 import {
-  OTP_LOGIN_DEFAULTS,
-  OTP_LOGIN_PREFIX,
   decodeOtpToken,
   encodeOtpToken,
   evaluateLoginOtp,
   generateOtpCode,
   hashLoginOtp,
   linkTokenFromOtpUrl,
+  OTP_LOGIN_DEFAULTS,
+  OTP_LOGIN_PREFIX,
   resolveOtpLoginConfig,
   safeEqualHex,
 } from '../../src/host/otp_login.js';

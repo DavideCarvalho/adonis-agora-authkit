@@ -11,8 +11,8 @@ import { MagicLinkButton, type MagicLinkButtonProps } from '../src/components/ma
 import { OAuthButton } from '../src/components/oauth_button.js';
 import {
   type InteractionPostStep,
-  OTP_CODE_FIELD,
   interactionUrls,
+  OTP_CODE_FIELD,
   oauthRedirectUrl,
 } from '../src/interaction/urls.js';
 import { buttonClass } from '../src/utils.js';

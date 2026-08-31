@@ -5,8 +5,9 @@ import {
   setAccountLoginUrl,
 } from '../../src/host/account_login_url.js';
 import { consoleLoginUrl } from '../../src/host/console_session.js';
-import AccountAuthMiddleware from '../../src/host/middleware/account_auth.js';
-import { ACCOUNT_SESSION_KEY } from '../../src/host/middleware/account_auth.js';
+import AccountAuthMiddleware, {
+  ACCOUNT_SESSION_KEY,
+} from '../../src/host/middleware/account_auth.js';
 
 test.group('accountLoginUrl (destino configurável do redirect de login)', (group) => {
   // Singleton de processo — isola cada caso.

@@ -1,6 +1,6 @@
 import { test } from '@japa/runner';
-import { checkOrganizations } from '../../src/doctor/checks.js';
 import type { DoctorInput } from '../../src/doctor/checks.js';
+import { checkOrganizations } from '../../src/doctor/checks.js';
 
 function baseInput(overrides: Partial<DoctorInput> = {}): DoctorInput {
   return {

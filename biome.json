@@ -1,30 +1,51 @@
 {
-  "$schema": "https://biomejs.dev/schemas/1.9.0/schema.json",
-  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "$schema": "https://biomejs.dev/schemas/2.5.11/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
   "files": {
     "ignoreUnknown": false,
-    "ignore": [
-      "dist/**",
-      "node_modules/**",
-      ".turbo/**",
-      ".next/**",
-      ".source/**",
-      "coverage/**",
-      "**/*.stub",
-      "packages/authkit-server/src/host/assets/webauthn.js",
-      "apps/docs/out/**"
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/node_modules",
+      "!**/.turbo",
+      "!**/.next",
+      "!**/.source",
+      "!**/coverage",
+      "!**/.claude",
+      "!**/*.stub",
+      "!**/packages/authkit-server/src/host/assets/webauthn.js",
+      "!**/apps/docs/out"
     ]
   },
-  "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
   "javascript": {
-    "formatter": { "quoteStyle": "single", "semicolons": "always", "trailingCommas": "all" }
+    "formatter": {
+      "quoteStyle": "single",
+      "semicolons": "always",
+      "trailingCommas": "all"
+    }
   },
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
-      "complexity": { "noBannedTypes": "off", "noStaticOnlyClass": "off" },
-      "style": { "noNonNullAssertion": "off", "useImportType": "off" },
+      "preset": "recommended",
+      "complexity": {
+        "noBannedTypes": "off",
+        "noStaticOnlyClass": "off"
+      },
+      "style": {
+        "noNonNullAssertion": "off",
+        "useImportType": "off"
+      },
       "suspicious": {
         "noExplicitAny": "warn",
         "noEmptyInterface": "off"
@@ -33,7 +54,7 @@
   },
   "overrides": [
     {
-      "include": ["**/test/**", "**/*.spec.ts", "**/*.test.ts"],
+      "includes": ["**/test/**", "**/*.spec.ts", "**/*.test.ts"],
       "linter": {
         "rules": {
           "suspicious": {
@@ -41,28 +62,41 @@
             "noAssignInExpressions": "off",
             "noThenProperty": "off"
           },
-          "style": { "noCommaOperator": "off" }
+          "complexity": {
+            "noCommaOperator": "off"
+          }
         }
       }
     },
     {
-      "include": [
-        "packages/authkit-server/ui/**",
-        "packages/authkit-server/stubs/**",
-        "apps/docs/**"
+      "includes": [
+        "**/packages/authkit-server/ui/**",
+        "**/packages/authkit-server/stubs/**",
+        "**/apps/docs/**"
       ],
       "linter": {
         "rules": {
-          "a11y": { "recommended": false },
+          "a11y": {
+            "preset": "none"
+          },
           "suspicious": {
             "noArrayIndexKey": "off",
             "noAssignInExpressions": "off",
             "noMisleadingCharacterClass": "off"
           },
-          "complexity": { "noUselessLoneBlockStatements": "off" },
-          "correctness": { "useExhaustiveDependencies": "off" }
+          "complexity": {
+            "noUselessLoneBlockStatements": "off"
+          },
+          "correctness": {
+            "useExhaustiveDependencies": "off"
+          }
         }
       }
     }
-  ]
+  ],
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  }
 }

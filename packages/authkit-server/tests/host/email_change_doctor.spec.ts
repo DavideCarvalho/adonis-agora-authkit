@@ -5,8 +5,8 @@
  */
 
 import { test } from '@japa/runner';
-import { checkEmailChange, checkSecurityNotifications } from '../../src/doctor/checks.js';
 import type { DoctorInput } from '../../src/doctor/checks.js';
+import { checkEmailChange, checkSecurityNotifications } from '../../src/doctor/checks.js';
 
 function baseInput(storeOverride: any = {}, cfgExtra: any = {}): DoctorInput {
   const store = {

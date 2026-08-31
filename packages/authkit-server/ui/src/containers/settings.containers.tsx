@@ -5,7 +5,7 @@ import {
   useSettingsQueryOptions,
 } from '@adonis-agora/authkit-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { QueryBoundary } from '../components/QueryBoundary';
 import { Skeleton } from '../components/Skeleton';
 import { useToast } from '../lib/toast';

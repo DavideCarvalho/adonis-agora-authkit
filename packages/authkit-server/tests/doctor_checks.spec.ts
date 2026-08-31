@@ -1,7 +1,6 @@
 import { test } from '@japa/runner';
 import { DatabaseAdapter } from '../src/adapters/database_adapter.js';
 import {
-  type DoctorInput,
   checkAccessTokens,
   checkAccountStore,
   checkAccountStoreColumns,
@@ -17,6 +16,7 @@ import {
   checkRequireVerifiedEmail,
   checkSettings,
   checkWebauthn,
+  type DoctorInput,
   hasErrors,
   runAllChecks,
   signingKeyAgeFinding,

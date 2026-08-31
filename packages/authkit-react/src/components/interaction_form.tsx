@@ -1,4 +1,4 @@
-import { type FormHTMLAttributes, type ReactNode, type SubmitEvent, createElement } from 'react';
+import { createElement, type FormHTMLAttributes, type ReactNode, type SubmitEvent } from 'react';
 import { type InteractionPostStep, interactionUrls } from '../interaction/urls.js';
 
 export interface InteractionFormProps

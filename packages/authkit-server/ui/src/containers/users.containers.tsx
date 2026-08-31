@@ -1,3 +1,4 @@
+import type { ImpersonationPanel } from '@adonis-agora/authkit-react';
 import {
   authkitKeys,
   useDeleteUserMutationOptions,
@@ -11,9 +12,8 @@ import {
   useUserSessionsQueryOptions,
   useUsersQueryOptions,
 } from '@adonis-agora/authkit-react';
-import type { ImpersonationPanel } from '@adonis-agora/authkit-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Drawer } from '../components/Drawer';
 import { Modal } from '../components/Modal';
 import { Pagination } from '../components/Pagination';

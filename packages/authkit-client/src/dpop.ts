@@ -1,22 +1,22 @@
+import type { KeyObject } from 'node:crypto';
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  type JWK,
-  type KeyLike,
-  SignJWT,
   base64url,
   calculateJwkThumbprint,
   exportJWK,
   generateKeyPair,
+  type JWK,
+  SignJWT,
 } from 'jose';
 
 /**
- * Par de chaves DPoP (RFC 9449). `privateKey`/`publicKey` são KeyLike do jose,
+ * Par de chaves DPoP (RFC 9449). `privateKey`/`publicKey` são CryptoKey/KeyObject (aceitos pelo jose),
  * usáveis direto em {@link createDpopProof}. As versões JWK são exportáveis para
  * persistir/restaurar o par entre requests (ex.: sessão do client).
  */
 export interface DpopKeyPair {
-  privateKey: KeyLike;
-  publicKey: KeyLike;
+  privateKey: CryptoKey | KeyObject;
+  publicKey: CryptoKey | KeyObject;
   /** JWK pública (vai no header `jwk` da prova). */
   publicJwk: JWK;
   /** JWK privada — guarde com cuidado (só o client a possui). */

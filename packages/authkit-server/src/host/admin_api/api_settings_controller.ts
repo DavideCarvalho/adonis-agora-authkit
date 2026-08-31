@@ -1,6 +1,6 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
-import { SettingLockedError, isSettingLocked, lockedSettingKeys } from '../config_locks.js';
+import { isSettingLocked, lockedSettingKeys, SettingLockedError } from '../config_locks.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { apiError, settingDto } from './dto.js';
 

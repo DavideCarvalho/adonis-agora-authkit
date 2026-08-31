@@ -1,7 +1,7 @@
 import { test } from '@japa/runner';
 import {
-  DEFAULT_PWNED_TIMEOUT_MS,
   checkPasswordPolicy,
+  DEFAULT_PWNED_TIMEOUT_MS,
   policyViolationParams,
   resolveCheckPwned,
   resolvePasswordConfig,

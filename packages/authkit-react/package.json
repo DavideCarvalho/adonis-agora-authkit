@@ -29,7 +29,11 @@
   "type": "module",
   "main": "./build/index.js",
   "types": "./build/index.d.ts",
-  "files": ["build", "styles.css", "skills"],
+  "files": [
+    "build",
+    "styles.css",
+    "skills"
+  ],
   "exports": {
     ".": "./build/index.js",
     "./types": "./build/index.js",
@@ -61,7 +65,7 @@
     "@japa/assert": "catalog:",
     "@japa/runner": "catalog:",
     "@poppinss/ts-exec": "catalog:",
-    "@tanstack/intent": "^0.3.2",
+    "@tanstack/intent": "^0.3.8",
     "@tanstack/react-query": "catalog:frontend",
     "@types/node": "catalog:adonis",
     "@types/react": "catalog:frontend",

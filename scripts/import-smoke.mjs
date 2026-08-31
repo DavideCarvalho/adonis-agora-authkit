@@ -37,7 +37,9 @@ const ENTRYPOINT_ONLY = new Set(['packages/authkit-react/build']);
  *   rodam `await app.booted()` no top-level, então só funcionam dentro de um app booted —
  *   importar a frio quebra por falta de app, não por bug de empacotamento.
  */
-const SKIP_DIRS = new Set(['ui-dist', 'services']);
+// `assets` holds browser scripts copied verbatim into the build (e.g. host/assets/logout.js);
+// they touch `document` on load and are not modules the package exports.
+const SKIP_DIRS = new Set(['ui-dist', 'services', 'assets']);
 
 async function walk(dir) {
   const out = [];

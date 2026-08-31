@@ -1,5 +1,5 @@
 import { test } from '@japa/runner';
-import { type ManagedJwks, generateJwks } from '../src/keys/jwks_manager.js';
+import { generateJwks, type ManagedJwks } from '../src/keys/jwks_manager.js';
 
 test.group('JwksManager', () => {
   test('gera um JWKS privado válido com kid e alg', async ({ assert }) => {

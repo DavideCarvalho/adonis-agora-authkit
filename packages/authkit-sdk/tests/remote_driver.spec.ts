@@ -1,8 +1,8 @@
-import { createServer } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
+import { createServer } from 'node:http';
 import { test } from '@japa/runner';
-import { AuthkitApiError, createAuthkit } from '../index.js';
 import type { Authkit } from '../index.js';
+import { AuthkitApiError, createAuthkit } from '../index.js';
 
 interface Captured {
   method: string;

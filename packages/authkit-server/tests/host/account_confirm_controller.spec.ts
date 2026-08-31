@@ -1,6 +1,7 @@
 import { test } from '@japa/runner';
-import AccountConfirmController from '../../src/host/controllers/account_confirm_controller.js';
-import { sudoContextFrom } from '../../src/host/controllers/account_confirm_controller.js';
+import AccountConfirmController, {
+  sudoContextFrom,
+} from '../../src/host/controllers/account_confirm_controller.js';
 import { DEFAULT_MESSAGES } from '../../src/host/i18n.js';
 import { ACCOUNT_SESSION_KEY } from '../../src/host/middleware/account_auth.js';
 import {

@@ -10,8 +10,7 @@ import type { ResolvedServerConfig } from '../../define_config.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
 import { guardBotProtection, resolveEffectiveBotProtection } from '../bot_protection.js';
 import { brandFor, isFirstParty } from '../branding.js';
-import { sendMagicLinkEmail } from '../default_mailer.js';
-import { sendOtpUnlockEmail } from '../default_mailer.js';
+import { sendMagicLinkEmail, sendOtpUnlockEmail } from '../default_mailer.js';
 import { translate } from '../i18n.js';
 import type { AccountStatusReason } from '../login_attempt.js';
 import {
@@ -37,9 +36,9 @@ import {
   resolveEffectiveSessionPolicy,
 } from '../runtime_toggles.js';
 import {
-  TRUSTED_DEVICE_COOKIE,
   buildTrustedDevicePayload,
   isTrustedDeviceValid,
+  TRUSTED_DEVICE_COOKIE,
 } from '../trusted_device.js';
 import {
   normalizeUserLoginMethods,

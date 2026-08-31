@@ -1,5 +1,5 @@
-import { deriveOrgId, deriveOrgRole, deriveOrgSlug } from '@adonis-agora/authkit-core';
 import type { Identity } from '@adonis-agora/authkit-core';
+import { deriveOrgId, deriveOrgRole, deriveOrgSlug } from '@adonis-agora/authkit-core';
 
 type FetchImpl = (url: string, init: any) => Promise<{ ok: boolean; json: () => Promise<any> }>;
 

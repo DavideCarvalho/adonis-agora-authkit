@@ -5,11 +5,11 @@
  */
 import { test } from '@japa/runner';
 import {
-  SettingLockedError,
   deriveLockedSettingKeys,
   isSettingLocked,
   lockedSettingKeys,
   resetLockedSettingKeys,
+  SettingLockedError,
   setLockedSettingKeys,
 } from '../../src/host/config_locks.js';
 import { RuntimeSettings } from '../../src/host/runtime_settings.js';

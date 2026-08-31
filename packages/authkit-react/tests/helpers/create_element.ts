@@ -1,4 +1,4 @@
-import { type FunctionComponent, type ReactNode, createElement } from 'react';
+import { createElement, type FunctionComponent, type ReactNode } from 'react';
 
 /**
  * `createElement` para componentes que declaram `children` OBRIGATÓRIO.

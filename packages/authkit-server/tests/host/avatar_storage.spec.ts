@@ -6,9 +6,9 @@ import { test } from '@japa/runner';
 import { Edge } from 'edge.js';
 import { resolveUploads } from '../../src/define_config.js';
 import {
-  AvatarUploadError,
   __setDriveLoaderForTests,
   __setMediaLoaderForTests,
+  AvatarUploadError,
   deleteAvatar,
   isAvatarUploadSupported,
   isDriveAvailable,

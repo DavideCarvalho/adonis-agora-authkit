@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { useAuthkitConfig } from '../config.js';
-import { type ResourceState, jsonRequest, useResource } from './use_resource.js';
+import { jsonRequest, type ResourceState, useResource } from './use_resource.js';
 
 export interface OrgInvitationEntry {
   id: string;

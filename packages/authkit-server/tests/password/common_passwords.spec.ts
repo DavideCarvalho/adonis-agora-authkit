@@ -4,8 +4,7 @@ import {
   commonPasswordsCount,
   isCommonPassword,
 } from '../../src/password/common_passwords.js';
-import { PasswordManager } from '../../src/password/password_manager.js';
-import { PasswordPolicyError } from '../../src/password/password_manager.js';
+import { PasswordManager, PasswordPolicyError } from '../../src/password/password_manager.js';
 
 test.group('common_passwords — isCommonPassword', (group) => {
   group.each.teardown(() => {

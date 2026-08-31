@@ -1,7 +1,7 @@
-import { createEmbeddedAuthkit } from './embedded_driver.js';
 import type { EmbeddedOptions } from './embedded_driver.js';
-import { createRemoteAuthkit } from './remote_driver.js';
+import { createEmbeddedAuthkit } from './embedded_driver.js';
 import type { RemoteOptions } from './remote_driver.js';
+import { createRemoteAuthkit } from './remote_driver.js';
 import type { Authkit } from './types.js';
 
 export type CreateAuthkitOptions =

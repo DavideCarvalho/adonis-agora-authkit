@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { type Server, createServer } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import { configProvider } from '@adonisjs/core';
 import { compose } from '@adonisjs/core/helpers';
 import { BaseModel, beforeCreate, column } from '@adonisjs/lucid/orm';
@@ -18,16 +18,9 @@ import { BaseModel, beforeCreate, column } from '@adonisjs/lucid/orm';
 import { test } from '@japa/runner';
 import type { AccountStore, AuthAccount } from '../src/accounts/account_store.js';
 import type { AuditSink, StoredAuditEvent } from '../src/audit/audit_sink.js';
-import { adapters, defineConfig, resolveAdmin } from '../src/define_config.js';
 import type { AuthServerConfigInput } from '../src/define_config.js';
+import { adapters, defineConfig, resolveAdmin } from '../src/define_config.js';
 import { checkAdmin } from '../src/doctor/checks.js';
-import { getAdminPrefix, setAdminPrefix } from '../src/host/admin_prefix.js';
-import { registerAuthHost } from '../src/host/register_auth_host.js';
-import { withPersonalAccessToken } from '../src/mixins/with_personal_access_token.js';
-import { lucidPatStore } from '../src/pat/lucid_pat_store.js';
-import { OidcService } from '../src/provider/oidc_service.js';
-import { createTestDatabase } from './bootstrap.js';
-
 import ConsoleAuditController from '../src/host/admin_console/console_audit_controller.js';
 import ConsoleClientsController from '../src/host/admin_console/console_clients_controller.js';
 import ConsoleImpersonationController from '../src/host/admin_console/console_impersonation_controller.js';
@@ -38,6 +31,12 @@ import ConsoleRolesController from '../src/host/admin_console/console_roles_cont
 import ConsoleSessionsController from '../src/host/admin_console/console_sessions_controller.js';
 import ConsoleSettingsController from '../src/host/admin_console/console_settings_controller.js';
 import ConsoleUsersController from '../src/host/admin_console/console_users_controller.js';
+import { getAdminPrefix, setAdminPrefix } from '../src/host/admin_prefix.js';
+import { registerAuthHost } from '../src/host/register_auth_host.js';
+import { withPersonalAccessToken } from '../src/mixins/with_personal_access_token.js';
+import { lucidPatStore } from '../src/pat/lucid_pat_store.js';
+import { OidcService } from '../src/provider/oidc_service.js';
+import { createTestDatabase } from './bootstrap.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

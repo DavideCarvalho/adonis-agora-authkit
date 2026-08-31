@@ -15,7 +15,7 @@
  * grupo de wiring que prova que ela roda em produção.
  */
 
-import { type Server, createServer } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
 import RedisMock from 'ioredis-mock';

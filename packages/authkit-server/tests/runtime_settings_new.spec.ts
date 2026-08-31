@@ -15,7 +15,6 @@ import {
 } from '../src/commands/settings_commands.js';
 import { RuntimeSettings } from '../src/host/runtime_settings.js';
 import {
-  SETTING_KEYS,
   resolveEffectiveAdminImpersonation,
   resolveEffectiveLockout,
   resolveEffectiveNotifications,
@@ -24,6 +23,7 @@ import {
   resolveEffectiveRateLimit,
   resolveEffectiveTokenTtl,
   resolveEffectiveTrustedDevices,
+  SETTING_KEYS,
 } from '../src/host/runtime_toggles.js';
 import { type TokenTtlHolder, updateTokenTtlHolder } from '../src/provider/build_provider.js';
 

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from '@japa/runner';
-import { SignJWT, createLocalJWKSet, importJWK, jwtVerify } from 'jose';
+import { createLocalJWKSet, importJWK, jwtVerify, SignJWT } from 'jose';
 import { planRotation, signingKeyAgeDays, toPublicJwks } from '../src/keys/keystore.js';
 import { KeystoreCodec } from '../src/keys/keystore_codec.js';
 import { KeystoreManager } from '../src/keys/keystore_manager.js';

@@ -4,11 +4,11 @@ import { join } from 'node:path';
 import { test } from '@japa/runner';
 import RedisMock from 'ioredis-mock';
 import {
+  __setKeystoreDriveLoaderForTests,
   DriveKeystoreVault,
   FileKeystoreVault,
   LucidKeystoreVault,
   RedisKeystoreVault,
-  __setKeystoreDriveLoaderForTests,
 } from '../../src/keys/keystore_vault.js';
 import { createTestDatabase } from '../bootstrap.js';
 

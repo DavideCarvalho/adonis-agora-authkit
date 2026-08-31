@@ -1,10 +1,10 @@
-import { authenticator } from 'otplib';
+import { generateSecret, generateURI, verify } from 'otplib';
 import type { MfaCapability } from '../account_store.js';
 import {
-  type LucidStoreContext,
   buildMfaStateRepo,
   generateRecoveryCode,
   hashesEqual,
+  type LucidStoreContext,
   sha256,
 } from './shared.js';
 
@@ -20,6 +20,12 @@ import {
  * usada pelo restante do store. O `email` (para o keyuri/QR) continua vindo do
  * model principal — só o ESTADO de MFA migrou para `auth_mfa`.
  */
+/**
+ * Período TOTP (segundos). otplib >= 13 não expõe mais `authenticator.allOptions()`;
+ * o default RFC 6238 / Google Authenticator é 30s e é o que sempre usamos.
+ */
+const TOTP_PERIOD = 30;
+
 export function buildMfa(ctx: LucidStoreContext): MfaCapability {
   const { Model, mfaIssuer, recoveryCodeCount, sealSecret, openSecret } = ctx;
   const repo = buildMfaStateRepo(Model);
@@ -36,7 +42,7 @@ export function buildMfa(ctx: LucidStoreContext): MfaCapability {
       // O email/QR vem do model principal; só o ESTADO de MFA vive em auth_mfa.
       const row = await Model.find(accountId);
       if (!row) return null;
-      const secret = authenticator.generateSecret();
+      const secret = generateSecret();
       // Segredo PENDENTE: armazenado (encriptado em repouso) mas mfaEnabledAt continua null.
       // Re-enrollment: zera o anti-replay para o NOVO segredo (o histórico de steps
       // do segredo antigo não se aplica ao novo) e limpa recovery codes pendentes.
@@ -46,7 +52,7 @@ export function buildMfa(ctx: LucidStoreContext): MfaCapability {
         recoveryCodes: null,
         lastTotpStep: null,
       });
-      const otpauthUri = authenticator.keyuri(row.email, mfaIssuer, secret);
+      const otpauthUri = generateURI({ issuer: mfaIssuer, label: row.email, secret });
       return { secret, otpauthUri };
     },
 
@@ -56,7 +62,7 @@ export function buildMfa(ctx: LucidStoreContext): MfaCapability {
       const secret = openSecret(state.totpSecret);
       if (!secret) return { ok: false };
       // Só confirma a partir de um segredo pendente (não re-confirma um já ativo).
-      const valid = authenticator.verify({ token: String(code ?? ''), secret });
+      const { valid } = await verify({ token: String(code ?? ''), secret, period: TOTP_PERIOD });
       if (!valid) return { ok: false };
       const codes = Array.from({ length: recoveryCodeCount }, () => generateRecoveryCode());
       await repo.upsert(accountId, {
@@ -73,19 +79,13 @@ export function buildMfa(ctx: LucidStoreContext): MfaCapability {
       if (!secret) return false;
       const token = String(code ?? '');
 
-      // M3 (anti-replay): `checkDelta` retorna o offset (delta) da janela onde o
-      // token bate, ou null se inválido. Convertemos o delta no índice ABSOLUTO
-      // da janela (`step`) usando o epoch/period correntes do otplib:
-      //   stepAtual = floor(epochSegundos / period)
-      //   stepDoToken = stepAtual + delta
-      const delta = authenticator.checkDelta(token, secret);
-      if (delta === null) return false;
-
-      const opts = authenticator.allOptions();
-      // `epoch` vem em ms; `step` (period) em segundos. Default do otplib: epoch=now, step=30.
-      const period = opts.step || 30;
-      const currentStep = Math.floor(opts.epoch / 1000 / period);
-      const tokenStep = currentStep + delta;
+      // M3 (anti-replay): `verify` devolve, quando válido, o `epoch` (segundos) do
+      // INÍCIO da janela onde o token bateu. Convertemos no índice ABSOLUTO da
+      // janela (`step`): stepDoToken = floor(epochDaJanela / period).
+      const result = await verify({ token, secret, period: TOTP_PERIOD });
+      // `'epoch' in result` estreita para o resultado TOTP (o tipo é união com o HOTP).
+      if (!result.valid || !('epoch' in result)) return false;
+      const tokenStep = Math.floor(result.epoch / TOTP_PERIOD);
 
       // Rejeita replay: se este step já foi aceito (ou um posterior), nega. Isso
       // impede reusar o MESMO código dentro da janela de validade (~30s) e também

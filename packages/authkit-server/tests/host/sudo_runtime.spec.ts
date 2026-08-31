@@ -1,9 +1,9 @@
 import { test } from '@japa/runner';
 import { DEFAULT_MESSAGES } from '../../src/host/i18n.js';
 import {
-  LAST_METHOD_SESSION_KEY,
   completeSudo,
   fail,
+  LAST_METHOD_SESSION_KEY,
   resolveAvailableMethods,
 } from '../../src/host/sudo/runtime.js';
 import type { SudoMethod } from '../../src/host/sudo/types.js';

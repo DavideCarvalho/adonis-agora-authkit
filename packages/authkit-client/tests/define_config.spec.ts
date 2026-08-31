@@ -1,6 +1,6 @@
 import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
-import { type ResolvedClientConfig, defineConfig, resolvers } from '../src/define_config.js';
+import { defineConfig, type ResolvedClientConfig, resolvers } from '../src/define_config.js';
 
 test.group('defineConfig (client)', () => {
   test('resolve config com defaults', async ({ assert }) => {

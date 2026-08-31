@@ -1,6 +1,7 @@
 {
   exports({ to: app.makePath('inertia/pages/authkit/signup.tsx') });
 }
+
 import AuthShell, { type AuthBrand } from '../../components/auth_shell';
 
 const inputClass =

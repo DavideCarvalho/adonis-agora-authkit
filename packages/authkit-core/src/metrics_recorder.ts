@@ -57,5 +57,5 @@ export class NoopRecorder implements MetricsRecorder {
   }
 }
 
-export { AUTHKIT_METRICS };
 export type { AuthkitMetricName };
+export { AUTHKIT_METRICS };

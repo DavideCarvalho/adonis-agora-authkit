@@ -1,6 +1,8 @@
 import type { ClientConfig } from '@adonis-agora/authkit-core';
-import type { AdminClientsService } from '../host/admin_clients_service.js';
-import type { TokenEndpointAuthMethod } from '../host/admin_clients_service.js';
+import type {
+  AdminClientsService,
+  TokenEndpointAuthMethod,
+} from '../host/admin_clients_service.js';
 
 /** Resultado da importação de um client individual. */
 export type ClientImportOutcome = 'created' | 'skipped' | 'error';

@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type Configure from '@adonisjs/core/commands/configure';
 import { stubsRoot } from '../stubs/main.js';
-import { type UiPreset, resolveUiPreset, uiStubPaths } from './ui_preset.js';
+import { resolveUiPreset, type UiPreset, uiStubPaths } from './ui_preset.js';
 
 function assertPresetPrereqs(preset: UiPreset, appRoot: string) {
   if (preset !== 'react') return;

@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { type Server, createServer } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import { configProvider } from '@adonisjs/core';
 import { compose } from '@adonisjs/core/helpers';
 import { BaseModel, beforeCreate, column } from '@adonisjs/lucid/orm';
 import { test } from '@japa/runner';
 import type { AccountStore, AuthAccount } from '../src/accounts/account_store.js';
 import type { AuditSink, StoredAuditEvent } from '../src/audit/audit_sink.js';
-import { adapters, defineConfig } from '../src/define_config.js';
 import type { AuthServerConfigInput } from '../src/define_config.js';
+import { adapters, defineConfig } from '../src/define_config.js';
 import { adminApiGuard } from '../src/host/admin_api/admin_api_guard.js';
 import ApiClientsController from '../src/host/admin_api/api_clients_controller.js';
 import ApiMiscController from '../src/host/admin_api/api_misc_controller.js';

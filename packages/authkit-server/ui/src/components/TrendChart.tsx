@@ -1,4 +1,5 @@
 import React from 'react';
+import type { TooltipContentProps } from 'recharts';
 import {
   Area,
   AreaChart,
@@ -8,7 +9,6 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import type { TooltipContentProps } from 'recharts';
 
 interface TrendChartProps {
   data: Array<{ date: string; count: number }>;

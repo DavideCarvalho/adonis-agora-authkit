@@ -4,15 +4,16 @@
  * pulls in telescope. Import it ONLY from `config/telescope.ts`, where both
  * `@adonis-agora/telescope` and `@adonis-agora/authkit-server` are installed.
  */
-export {
-  defineAuthkitTelescopeExtension,
-  type AuthkitTelescopeOptions,
-} from './extension.js';
+
 export {
   authkitDataProviders,
+  authkitEventBreakdownProvider,
   authkitEventCountProvider,
   authkitLoginSuccessRateProvider,
   authkitLoginsOverTimeProvider,
-  authkitEventBreakdownProvider,
   authkitTokenActivityProvider,
 } from './data_providers.js';
+export {
+  type AuthkitTelescopeOptions,
+  defineAuthkitTelescopeExtension,
+} from './extension.js';

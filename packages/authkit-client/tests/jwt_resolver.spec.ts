@@ -1,6 +1,6 @@
-import { type Server, createServer } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import { test } from '@japa/runner';
-import { SignJWT, exportJWK, generateKeyPair } from 'jose';
+import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { JwtResolver } from '../src/resolvers/jwt_resolver.js';
 
 const PORT = 9810;

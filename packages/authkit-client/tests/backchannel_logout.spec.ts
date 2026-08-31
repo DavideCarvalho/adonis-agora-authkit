@@ -1,7 +1,7 @@
-import { type Server, createServer } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
-import { type KeyLike, SignJWT, exportJWK, generateKeyPair } from 'jose';
+import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { AuthkitClientManager } from '../providers/authkit_client_provider.js';
 import {
   BACKCHANNEL_LOGOUT_EVENT,
@@ -9,7 +9,7 @@ import {
   InvalidLogoutTokenError,
   validateLogoutToken,
 } from '../src/backchannel_logout.js';
-import { type ResolvedClientConfig, defineConfig, resolvers } from '../src/define_config.js';
+import { defineConfig, type ResolvedClientConfig, resolvers } from '../src/define_config.js';
 
 const PORT = 9831;
 const ISSUER = `http://localhost:${PORT}`;
@@ -48,7 +48,7 @@ function fakeCtx(body: Record<string, string>) {
 
 test.group('back-channel logout', (group) => {
   let server: Server;
-  let privateKey: KeyLike;
+  let privateKey: CryptoKey;
   let signLogoutToken: (claims: Record<string, any>, opts?: { aud?: string }) => Promise<string>;
 
   group.setup(async () => {

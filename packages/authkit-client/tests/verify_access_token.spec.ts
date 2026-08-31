@@ -1,6 +1,6 @@
-import { type Server, createServer } from 'node:http';
+import { createServer, type Server } from 'node:http';
 import { test } from '@japa/runner';
-import { SignJWT, exportJWK, generateKeyPair } from 'jose';
+import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { clearJwksCache, verifyJwtAccessToken } from '../src/verify_access_token.js';
 
 const PORT = 9811;

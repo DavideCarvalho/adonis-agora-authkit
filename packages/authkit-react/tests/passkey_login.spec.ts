@@ -11,11 +11,11 @@ import { test } from '@japa/runner';
 import { PasskeyButton } from '../src/components/passkey_button.js';
 import { type UsePasskeyLoginOptions, usePasskeyLogin } from '../src/hooks/use_passkey_login.js';
 import {
+  authenticatePasskey,
+  loadStartAuthentication,
   type PasskeyCeremonyDeps,
   type StartAuthenticationFn,
   type StartRegistrationFn,
-  authenticatePasskey,
-  loadStartAuthentication,
   submitPasskeyVerification,
 } from '../src/passkey/authenticate.js';
 

@@ -1,4 +1,4 @@
-import { type FormEvent, createElement, useState } from 'react';
+import { createElement, type FormEvent, useState } from 'react';
 import { useAuthkitConfig } from '../config.js';
 import { useProfile } from '../hooks/use_profile.js';
 import { useAuth } from '../use_auth.js';

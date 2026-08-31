@@ -1,7 +1,7 @@
-import { docs } from '@/.source';
 import { loader } from 'fumadocs-core/source';
 import * as lucide from 'lucide-react';
 import { type ComponentType, createElement } from 'react';
+import { docs } from '@/.source/server';
 
 export const source = loader({
   baseUrl: '/docs',

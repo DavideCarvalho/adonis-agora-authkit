@@ -2,8 +2,8 @@ import { test } from '@japa/runner';
 import type { AuditEvent, AuditSink } from '../../src/audit/audit_sink.js';
 import { type ResolvedLockoutConfig, resolveLockout } from '../../src/define_config.js';
 import {
-  AccountLockout,
   __setLockoutLimiterLoaderForTests,
+  AccountLockout,
   computeLockoutSec,
   createAccountLockout,
 } from '../../src/host/account_lockout.js';

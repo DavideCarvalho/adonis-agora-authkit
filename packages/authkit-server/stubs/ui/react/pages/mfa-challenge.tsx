@@ -1,6 +1,7 @@
 {
   exports({ to: app.makePath('inertia/pages/authkit/mfa-challenge.tsx') });
 }
+
 import AuthShell from '../components/auth_shell';
 
 const inputClass =

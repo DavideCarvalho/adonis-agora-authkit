@@ -11,8 +11,6 @@ const basePath = process.env.DOCS_BASE_PATH || '';
 /** @type {import('next').NextConfig} */
 const config = {
   reactStrictMode: true,
-  // The docs app does not use the monorepo's (Adonis-oriented) ESLint config.
-  eslint: { ignoreDuringBuilds: true },
   ...(staticExport
     ? {
         output: 'export',
