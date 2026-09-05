@@ -973,6 +973,30 @@ export interface AuthServerConfigInput {
   issuer: string;
   adapter: AdapterFactory;
   /**
+   * Override do adapter pros modelos de vida curta (sessão e órbita dela —
+   * ver `SESSION_SCOPED_MODELS` em `adapters/factory.ts`). O `adapter` de cima
+   * continua sendo o default de TUDO (back-compat: sem `session`, nada muda);
+   * com `session.adapter`, os modelos session-scoped passam a usar ele e o
+   * resto (`Client` em particular) fica no `adapter`.
+   *
+   * O split recomendado: sessão no Redis (efêmero, TTL nativo, mesmo destino
+   * da sessão do app) e o resto no banco (durável — sem o `Client` nem a tela
+   * de login abre). Mesma connection Redis pros dois níveis de sessão é a
+   * recomendação (prefixos já namespaciam; destinos diferentes criam
+   * meio-logado e dois domínios de falha no logout), mas a lib não trava isso.
+   *
+   * ```ts
+   * defineConfig({
+   *   adapter: adapters.database({ connection: 'auth' }),
+   *   session: { adapter: adapters.redis({ connection: 'main' }) },
+   *   // ...
+   * })
+   * ```
+   */
+  session?: {
+    adapter?: AdapterFactory;
+  };
+  /**
    * Clientes OIDC pré-carregados no provider ao subir. Útil para testes e
    * migrações pontuais. Para uso em produção, gerencie clients via console admin
    * ou Admin API (`node ace authkit:clients:create`).
@@ -1301,6 +1325,11 @@ export interface AuthServerConfigInput {
 export interface ResolvedServerConfig {
   issuer: string;
   AdapterClass: OidcAdapterClass;
+  /**
+   * Adapter dos modelos session-scoped (`SESSION_SCOPED_MODELS`). Sem
+   * `session.adapter` no input é a MESMA classe do `AdapterClass`.
+   */
+  SessionAdapterClass: OidcAdapterClass;
   clients: ClientConfig[];
   jwks: { keys: Record<string, any>[] };
   /**
@@ -1457,6 +1486,11 @@ export function jwksAutoFallbackWarning(storePath: string | null): string | null
 export function defineConfig(config: AuthServerConfigInput) {
   return configProvider.create(async (app: ApplicationService): Promise<ResolvedServerConfig> => {
     const AdapterClass = await config.adapter.resolver(app);
+    // `session.adapter` ausente ⇒ mesma classe do default (back-compat: o
+    // dispatcher vira identidade e tudo continua no adapter único de hoje).
+    const SessionAdapterClass = config.session?.adapter
+      ? await config.session.adapter.resolver(app)
+      : AdapterClass;
 
     // `jwks: 'auto'` → resolve env-aware: AUTHKIT_JWKS inline, senão managed em arquivo.
     const jwksConfig: JwksConfig =
@@ -1550,6 +1584,7 @@ export function defineConfig(config: AuthServerConfigInput) {
     return {
       issuer: config.issuer,
       AdapterClass,
+      SessionAdapterClass,
       clients: config.clients ?? [],
       jwks: jwks as { keys: Record<string, any>[] },
       jwksConfig,

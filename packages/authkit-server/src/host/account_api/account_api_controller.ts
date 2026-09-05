@@ -620,9 +620,11 @@ export default class AccountApiController {
       return ctx.response.notFound(apiErr('not_found', 'Session not found.'));
     }
 
-    // Revoga via adapter diretamente.
-    const AdapterClass = (service as any).config.AdapterClass;
-    const sessionAdapter = new AdapterClass('Session');
+    // Revoga via adapter diretamente (o da sessão — `Session` é
+    // session-scoped e pode viver em backend distinto do default).
+    const SessionAdapterClass =
+      (service as any).config.SessionAdapterClass ?? (service as any).config.AdapterClass;
+    const sessionAdapter = new SessionAdapterClass('Session');
     await sessionAdapter.destroy(sessionId);
 
     await cfg.audit?.record({

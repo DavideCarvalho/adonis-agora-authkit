@@ -1,6 +1,7 @@
 import { getBootedApp } from '../../services/booted_app.js';
 import type { AccountStore } from '../accounts/account_store.js';
 import type { EnumeratedArtifact, OidcAdapter } from '../adapters/adapter_contract.js';
+import { pickModelAdapterClass } from '../adapters/factory.js';
 import type { OidcService } from '../provider/oidc_service.js';
 
 /** Uma sessão ativa do IdP (login do usuário no provider), apresentada ao admin. */
@@ -54,9 +55,10 @@ export interface RevokeResult {
 }
 
 /**
- * Serviço de inspeção/revogação das SESSÕES e GRANTS ativos de uma conta,
- * persistidos pelo oidc-provider via o MESMO `AdapterClass` (mesmo padrão do
- * {@link AdminClientsService}). Encapsula:
+ * Serviço de inspeção/revogação das SESSÕES e GRANTS ativos de uma conta.
+ * Lê/escreve via `pickModelAdapterClass` (a MESMA regra do provider): com
+ * `session:` configurado, Session/Grant/tokens saem do adapter da sessão, não
+ * do default. Encapsula:
  *   - a enumeração via a capacidade opcional `list` do adapter (degrada quando
  *     ausente, igual ao CRUD de clients);
  *   - a destruição das sessões + grants da conta. Destruir um grant CASCATEIA a
@@ -71,18 +73,25 @@ const GLOBAL_SESSION_LIMIT = 500;
 
 export class AdminSessionsService {
   #AdapterClass: any;
+  #SessionAdapterClass: any;
   #accountStore: AccountStore;
   /** Conexão Lucid das tabelas authkit (schema `auth`) — onde vive auth_session_revocations. */
   #schemaConnection?: string;
 
   constructor(oidc: OidcService) {
     this.#AdapterClass = oidc.config.AdapterClass;
+    // `Session`/`Grant`/tokens vivem no adapter da sessão quando `session:`
+    // está configurado (default: o mesmo do `AdapterClass`). `??` cobre
+    // configs resolvidas por versões antigas do `defineConfig`.
+    this.#SessionAdapterClass = oidc.config.SessionAdapterClass ?? oidc.config.AdapterClass;
     this.#accountStore = oidc.config.accountStore;
     this.#schemaConnection = oidc.config.schema?.connection;
   }
 
   #adapter(model: string): OidcAdapter {
-    return new (this.#AdapterClass as any)(model) as OidcAdapter;
+    return new (pickModelAdapterClass(model, this.#AdapterClass, this.#SessionAdapterClass))(
+      model,
+    ) as OidcAdapter;
   }
 
   /**

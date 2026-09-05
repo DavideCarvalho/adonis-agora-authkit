@@ -1,4 +1,5 @@
 import * as oidc from 'oidc-provider';
+import { pickModelAdapterClass } from '../adapters/factory.js';
 import type { ResolvedServerConfig } from '../define_config.js';
 import { createDeviceSources } from './device_sources.js';
 import { createLogoutSources } from './logout_sources.js';
@@ -145,7 +146,15 @@ export function buildProvider(
     : {};
 
   const provider = new oidc.Provider(config.issuer, {
-    adapter: config.AdapterClass as any,
+    // Dispatcher por modelo (suportado pelo oidc-provider: `Adapter` aceita
+    // função `(name) => adapter` além de classe). Session-scoped vai pro
+    // `SessionAdapterClass`, o resto pro `AdapterClass` — mesma regra de
+    // `pickModelAdapterClass`, usada também pelos serviços que instanciam
+    // adapter na mão. Sem `session.adapter`, as duas classes são a mesma.
+    adapter: ((name: string) =>
+      new (pickModelAdapterClass(name, config.AdapterClass, config.SessionAdapterClass))(
+        name,
+      )) as any,
     clients: config.clients.map((c) => ({
       client_id: c.clientId,
       client_secret: c.clientSecret,

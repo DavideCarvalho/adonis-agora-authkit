@@ -9,6 +9,47 @@ export interface AdapterFactory {
   resolver(app: ApplicationService): Promise<OidcAdapterClass>;
 }
 
+/**
+ * Modelos do oidc-provider de vida curta, amarrados ao ciclo da sessão de
+ * login (nomes exatos que o provider passa ao adapter). Perder qualquer um
+ * deles custa no máximo um relogin — nunca um outage — então são os
+ * candidatos ao adapter da `session:` (Redis). Todo modelo fora daqui
+ * (`Client` em particular — sem ele nem a tela de login abre) fica no
+ * adapter default (durável).
+ */
+export const SESSION_SCOPED_MODELS: ReadonlySet<string> = new Set([
+  'Session',
+  'Interaction',
+  'Grant',
+  'AccessToken',
+  'RefreshToken',
+  'AuthorizationCode',
+  'DeviceCode',
+  'PushedAuthorizationRequest',
+  'BackchannelAuthenticationRequest',
+  'ClientCredentials',
+  'ReplayDetection',
+  // `RegistrationAccessToken`/`InitialAccessToken` ficam FORA de propósito:
+  // gerenciam o `Client` (rotação/reconfiguração) e precisam morar junto dele
+  // no backend durável — senão um flush do Redis orfana o gerenciamento.
+]);
+
+/**
+ * Escolhe a classe de adapter pro nome do modelo: session-scoped vai pra
+ * `sessionClass`, o resto pra `defaultClass`. Pura (sem I/O) de propósito —
+ * o dispatcher do provider (`build_provider.ts`) e os serviços que instanciam
+ * adapter na mão (`AdminSessionsService`, account API) usam a MESMA regra.
+ * Sem `session.adapter` configurado as duas classes são a mesma (back-compat:
+ * tudo continua onde está hoje).
+ */
+export function pickModelAdapterClass(
+  model: string,
+  defaultClass: OidcAdapterClass,
+  sessionClass: OidcAdapterClass,
+): OidcAdapterClass {
+  return SESSION_SCOPED_MODELS.has(model) ? sessionClass : defaultClass;
+}
+
 export interface RedisAdapterConfig {
   /** nome da conexão do @adonisjs/redis */
   connection: string;

@@ -66,8 +66,9 @@ export class AdminClientsService {
   #adapter: OidcAdapter;
 
   constructor(private oidc: OidcService) {
-    // O AdapterClass é o MESMO que o provider usa; instanciamos o model 'Client'
-    // para ler/gravar os mesmos artefatos que o oidc-provider persiste.
+    // `Client` NÃO é session-scoped: fica sempre no `AdapterClass` (default),
+    // os mesmos artefatos que o oidc-provider persiste — mesmo com `session:`
+    // configurado, clients continuam no backend durável.
     this.#adapter = new (oidc.config.AdapterClass as any)('Client') as OidcAdapter;
   }
 
