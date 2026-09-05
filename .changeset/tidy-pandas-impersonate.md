@@ -1,3 +1,4 @@
+---
 "@adonis-agora/authkit-server": minor
 ---
 
