@@ -1,4 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import type { HttpContext } from '@adonisjs/core/http';
+import type { AuditSink } from '../audit/audit_sink.js';
 import { ACCOUNT_SESSION_KEY } from './account_session_key.js';
 
 /**
@@ -26,6 +28,17 @@ const ACCESS_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:access_token';
  * implementação, leia via `impersonationState`.
  */
 const IMPERSONATOR_SESSION_KEY = 'impersonator_user_id';
+
+/**
+ * Keys de sessão do registro da impersonation (id + tempos + prova do
+ * exchange). Internas pelo mesmo motivo da key do impersonator: o contrato
+ * público é `impersonationState` / o retorno de `startImpersonation`.
+ */
+const IMPERSONATION_ID_SESSION_KEY = 'impersonation_id';
+const IMPERSONATION_STARTED_AT_SESSION_KEY = 'impersonation_started_at';
+const IMPERSONATION_EXPIRES_AT_SESSION_KEY = 'impersonation_expires_at';
+const IMPERSONATION_ACT_SESSION_KEY = 'impersonation_act_sub';
+const IMPERSONATION_EXCHANGE_EXPIRES_IN_SESSION_KEY = 'impersonation_exchange_expires_in';
 
 /**
  * Key de sessão que guarda o access token do admin, necessário como
@@ -74,6 +87,18 @@ export interface StartImpersonationParams {
   tokenEndpoint?: string;
   scope?: string;
   fetchImpl?: typeof fetch;
+  /**
+   * Vida máxima da impersonation em SEGUNDOS, contada do start. Quando
+   * definido, `impersonationState().active` passa a `false` após o prazo
+   * (expiração preguiçosa — nenhum timer roda; a leitura decide) e o stop
+   * continua restaurando o admin normalmente.
+   *
+   * OPCIONAL e ausente por default: sem ele a impersonation dura até o stop
+   * explícito / logout / fim da sessão (comportamento histórico — um default
+   * com prazo faria a impersonation "parar sozinha" para quem não configurou
+   * nada). Deve ser > 0.
+   */
+  maxAge?: number;
 }
 
 export interface ImpersonationState {
@@ -82,6 +107,30 @@ export interface ImpersonationState {
   targetId?: string;
   /** O admin real (impersonator), quando `active`. */
   impersonatorId?: string;
+  /** Id único desta impersonation (gerado no start). */
+  impersonationId?: string;
+  /** Epoch ms do start. */
+  startedAt?: number;
+  /** Epoch ms da expiração — só quando `maxAge` foi configurado. */
+  expiresAt?: number;
+  /**
+   * `act.sub` devolvido pelo token-exchange (o ator PROVADO pelo IdP, que
+   * deve coincidir com `impersonatorId`).
+   */
+  actSub?: string;
+  /**
+   * `expires_in` (segundos) do token trocado — INFORMATIVO: é a vida do token
+   * do lado do IdP, NÃO impõe expiração na sessão (só `maxAge` faz isso).
+   */
+  exchangeExpiresIn?: number;
+}
+
+/** Metadados aproveitados da resposta do token-exchange (só o que não é segredo). */
+export interface TokenExchangeResult {
+  /** `expires_in` (s) do token trocado, quando o IdP informa. */
+  expiresIn?: number;
+  /** `act.sub` (ator provado pelo IdP), quando o IdP informa. */
+  actSub?: string;
 }
 
 /**
@@ -90,11 +139,18 @@ export interface ImpersonationState {
  * adicioná-la inverteria a direção do grafo de pacotes (server = IdP toolkit). São
  * ~12 linhas; testável via `fetchImpl`. Lança se o IdP não responder 2xx (é o
  * gatekeeper: não-admin / token expirado ⇒ erro ⇒ a sessão não é tocada).
+ *
+ * Em sucesso devolve os metadados NÃO-secretos da resposta (`expires_in` e
+ * `act.sub`) — o access token trocado é DESCARTADO de propósito: é uma
+ * credencial bearer do alvo e nada no fluxo o consome depois do start
+ * (o app age como o alvo via troca de sessão, não via bearer). NUNCA guarde
+ * esse token na sessão. O parse do corpo é tolerante: IdP que responde 2xx
+ * sem JSON válido ainda conta como exchange OK, só sem metadados.
  */
 async function requestTokenExchange(
   params: StartImpersonationParams,
   subjectToken: string,
-): Promise<void> {
+): Promise<TokenExchangeResult> {
   const body = new URLSearchParams({
     grant_type: TOKEN_EXCHANGE_GRANT,
     subject_token: subjectToken,
@@ -115,6 +171,24 @@ async function requestTokenExchange(
     // NUNCA logamos tokens nem o corpo (pode ecoar segredos). Só o status.
     throw new Error(`Token exchange failed: ${res.status}`);
   }
+
+  const result: TokenExchangeResult = {};
+  try {
+    const data = (await res.json()) as {
+      expires_in?: unknown;
+      act?: unknown;
+    };
+    if (typeof data?.expires_in === 'number' && Number.isFinite(data.expires_in)) {
+      result.expiresIn = data.expires_in;
+    }
+    const act = data?.act as { sub?: unknown } | undefined;
+    if (act && typeof act.sub === 'string' && act.sub.length > 0) {
+      result.actSub = act.sub;
+    }
+  } catch {
+    // Corpo fora do JSON esperado: exchange valeu, metadados ficam ausentes.
+  }
+  return result;
 }
 
 /**
@@ -166,16 +240,29 @@ export async function refreshAccessToken(
  * impersonator (= `account_user_id` atual), regenera a sessão (anti-fixation) e
  * seta `account_user_id = targetId`.
  *
+ * Além da troca de identidade, registra a impersonation: um id único
+ * (`impersonationId`), o instante do start e — só com `maxAge` configurado —
+ * a expiração, mais os metadados não-secretos do exchange (`actSub`,
+ * `exchangeExpiresIn`). Devolve o estado criado (o mesmo shape de
+ * `impersonationState`).
+ *
  * - Se o exchange falhar, LANÇA e NÃO troca NADA na sessão.
- * - Recusa (lança) se já houver impersonation ativa (pare a atual antes).
+ * - Recusa (lança) se já houver impersonation ativa (pare a atual antes) —
+ *   inclusive expirada pelo prazo: expirar só apaga o `active` da leitura,
+ *   encerrar continua explícito via `stopImpersonation`.
  * - Recusa (lança) se não houver access token do admin na sessão.
+ * - Recusa (lança) `maxAge` não-positivo (fail-fast de misconfiguração).
  */
 export async function startImpersonation(
   ctx: HttpContext,
   params: StartImpersonationParams,
-): Promise<void> {
+): Promise<ImpersonationState> {
   if (ctx.session.get(IMPERSONATOR_SESSION_KEY)) {
     throw new Error('Impersonation already active; stop the current one before starting another');
+  }
+
+  if (params.maxAge !== undefined && !(params.maxAge > 0)) {
+    throw new Error('Invalid maxAge: must be a positive number of seconds');
   }
 
   const adminAccessToken = ctx.session.get(ADMIN_ACCESS_TOKEN_SESSION_KEY) as string | undefined;
@@ -192,8 +279,9 @@ export async function startImpersonation(
 
   // O IdP é o gatekeeper: lança se o admin não puder personificar. Chamado ANTES
   // de qualquer mutação de sessão — em caso de erro nada é trocado.
+  let exchange: TokenExchangeResult;
   try {
-    await requestTokenExchange(params, adminAccessToken);
+    exchange = await requestTokenExchange(params, adminAccessToken);
   } catch (err) {
     // Access token expirado (4xx do exchange): renova via refresh token e tenta
     // de novo. Sem refresh token / refresh falho → propaga o erro original.
@@ -202,12 +290,16 @@ export async function startImpersonation(
     if (!refreshed) throw err;
     rememberAccessToken(ctx, refreshed.accessToken);
     if (refreshed.refreshToken) rememberRefreshToken(ctx, refreshed.refreshToken);
-    await requestTokenExchange(params, refreshed.accessToken);
+    exchange = await requestTokenExchange(params, refreshed.accessToken);
   }
 
   // Anti-fixation: rotaciona o id da sessão (mantém os dados) antes de gravar a
   // nova identidade. Mesmo padrão do consumidor real no RP.
   await ctx.session.regenerate();
+
+  const impersonationId = randomUUID();
+  const startedAt = Date.now();
+  const expiresAt = params.maxAge !== undefined ? startedAt + params.maxAge * 1000 : undefined;
 
   // ESCALAÇÃO DE PRIVILÉGIO (fechada por vinculação): trocar a conta aqui NÃO
   // pode carregar junto o sudo que o admin confirmou sobre a PRÓPRIA conta —
@@ -217,25 +309,72 @@ export async function startImpersonation(
   // `isSudoActive` a recusa sozinho assim que `ACCOUNT_SESSION_KEY` muda. A
   // garantia é estrutural — vale para qualquer troca de conta futura, sem
   // depender de um `forget` lembrado em cada nova transição.
+  ctx.session.put(IMPERSONATION_ID_SESSION_KEY, impersonationId);
+  ctx.session.put(IMPERSONATION_STARTED_AT_SESSION_KEY, startedAt);
+  if (expiresAt !== undefined) ctx.session.put(IMPERSONATION_EXPIRES_AT_SESSION_KEY, expiresAt);
+  if (exchange.actSub) ctx.session.put(IMPERSONATION_ACT_SESSION_KEY, exchange.actSub);
+  if (exchange.expiresIn !== undefined) {
+    ctx.session.put(IMPERSONATION_EXCHANGE_EXPIRES_IN_SESSION_KEY, exchange.expiresIn);
+  }
   ctx.session.put(IMPERSONATOR_SESSION_KEY, impersonatorId);
   ctx.session.put(ACCOUNT_SESSION_KEY, params.targetId);
+
+  return impersonationState(ctx);
 }
 
 /**
  * Estado da impersonation pra UI (ex.: banner). `active` quando há um impersonator
- * guardado na sessão.
+ * guardado na sessão E a impersonation não expirou (expiração preguiçosa: com
+ * `maxAge` configurado no start, passado o prazo a leitura devolve
+ * `active: false` — mas os dados seguem na sessão até o `stopImpersonation`
+ * explícito, que continua restaurando o admin normalmente).
+ *
+ * O shape evita keys com valor `undefined` (construção condicional): `{ active:
+ * false }` puro quando nunca houve impersonation.
  */
 export function impersonationState(ctx: HttpContext): ImpersonationState {
   const impersonatorId = ctx.session.get(IMPERSONATOR_SESSION_KEY) as string | undefined;
   if (!impersonatorId) return { active: false };
   const targetId = ctx.session.get(ACCOUNT_SESSION_KEY) as string | undefined;
-  return { active: true, targetId, impersonatorId };
+  const state: ImpersonationState = { active: true, targetId, impersonatorId };
+
+  const impersonationId = ctx.session.get(IMPERSONATION_ID_SESSION_KEY) as string | undefined;
+  if (impersonationId) state.impersonationId = impersonationId;
+  const startedAt = ctx.session.get(IMPERSONATION_STARTED_AT_SESSION_KEY) as number | undefined;
+  if (typeof startedAt === 'number') state.startedAt = startedAt;
+  const expiresAt = ctx.session.get(IMPERSONATION_EXPIRES_AT_SESSION_KEY) as number | undefined;
+  if (typeof expiresAt === 'number') state.expiresAt = expiresAt;
+  const actSub = ctx.session.get(IMPERSONATION_ACT_SESSION_KEY) as string | undefined;
+  if (actSub) state.actSub = actSub;
+  const exchangeExpiresIn = ctx.session.get(IMPERSONATION_EXCHANGE_EXPIRES_IN_SESSION_KEY) as
+    | number
+    | undefined;
+  if (typeof exchangeExpiresIn === 'number') state.exchangeExpiresIn = exchangeExpiresIn;
+
+  if (state.expiresAt !== undefined && Date.now() > state.expiresAt) {
+    state.active = false;
+  }
+  return state;
+}
+
+/** Opções do `stopImpersonation`. */
+export interface StopImpersonationOptions {
+  /**
+   * Sink para auditar o encerramento (`impersonation.stopped`, com o
+   * `impersonationId`). Sem ele, o stop só mexe na sessão — o start segue
+   * auditado pelo IdP, mas o fim da impersonation não aparece na trilha.
+   */
+  audit?: AuditSink;
+  /** IP a registrar no evento de auditoria (o helper não lê o request). */
+  ip?: string | null;
 }
 
 /**
- * Encerra a impersonation: restaura `account_user_id = impersonator`, remove a
- * key de impersonation e regenera a sessão (anti-fixation). No-op quando não há
- * impersonation ativa.
+ * Encerra a impersonation: restaura `account_user_id = impersonator`, remove
+ * TODAS as keys de sessão de impersonation (id, tempos, prova do exchange) e
+ * regenera a sessão (anti-fixation). Devolve o estado encerrado (com o
+ * `impersonationId`, mesmo que já expirado pelo prazo) ou `null` quando não
+ * havia nenhuma ativa (no-op — sem audit, sem regenerate).
  *
  * O `admin_access_token` (a credencial do ADMIN usada como `subject_token` do
  * token-exchange) é PRESERVADO: ele é do admin — não do alvo — e o admin segue
@@ -244,9 +383,12 @@ export function impersonationState(ctx: HttpContext): ImpersonationState {
  * session). O token segue curto (TTL do access token do RP) e o logout do app
  * (`ctx.session.clear()` em `AuthRpController.logout`) continua limpando tudo.
  */
-export async function stopImpersonation(ctx: HttpContext): Promise<void> {
-  const impersonatorId = ctx.session.get(IMPERSONATOR_SESSION_KEY) as string | undefined;
-  if (!impersonatorId) return;
+export async function stopImpersonation(
+  ctx: HttpContext,
+  options?: StopImpersonationOptions,
+): Promise<ImpersonationState | null> {
+  const stopped = impersonationState(ctx);
+  if (!stopped.impersonatorId) return null;
 
   await ctx.session.regenerate();
 
@@ -257,6 +399,26 @@ export async function stopImpersonation(ctx: HttpContext): Promise<void> {
   // Nota: se o admin tinha sudo sobre a própria conta ANTES de personificar e a
   // graça ainda não venceu, ele volta valendo. Correto e intencional: é a
   // confirmação dele, sobre a conta dele, dentro da janela dele.
-  ctx.session.put(ACCOUNT_SESSION_KEY, impersonatorId);
+  ctx.session.put(ACCOUNT_SESSION_KEY, stopped.impersonatorId);
   ctx.session.forget(IMPERSONATOR_SESSION_KEY);
+  ctx.session.forget(IMPERSONATION_ID_SESSION_KEY);
+  ctx.session.forget(IMPERSONATION_STARTED_AT_SESSION_KEY);
+  ctx.session.forget(IMPERSONATION_EXPIRES_AT_SESSION_KEY);
+  ctx.session.forget(IMPERSONATION_ACT_SESSION_KEY);
+  ctx.session.forget(IMPERSONATION_EXCHANGE_EXPIRES_IN_SESSION_KEY);
+
+  await options?.audit?.record({
+    type: 'impersonation.stopped',
+    accountId: stopped.targetId ?? null,
+    actorId: stopped.impersonatorId,
+    ip: options?.ip ?? null,
+    metadata: {
+      impersonationId: stopped.impersonationId ?? null,
+      startedAt: stopped.startedAt ?? null,
+      stoppedAt: Date.now(),
+      expired: !stopped.active,
+    },
+  });
+
+  return stopped;
 }

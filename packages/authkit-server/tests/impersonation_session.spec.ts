@@ -364,7 +364,16 @@ test.group('impersonation_session — invariante 5: impersonationState reflete o
 
     await startImpersonation(ctx, baseParams({ targetId: 'target-1', fetchImpl: fetchOk([]) }));
     const during = impersonationState(ctx);
-    assert.deepEqual(during, { active: true, targetId: 'target-1', impersonatorId: 'admin-1' });
+    assert.isTrue(during.active);
+    assert.equal(during.targetId, 'target-1');
+    assert.equal(during.impersonatorId, 'admin-1');
+    // Registro da impersonation: id único + instante do start (o mock
+    // `fetchOk` não devolve `act`/`expires_in`, então ficam ausentes).
+    assert.match(during.impersonationId ?? '', /^[0-9a-f-]{36}$/);
+    assert.isNumber(during.startedAt);
+    assert.isUndefined(during.expiresAt);
+    assert.isUndefined(during.actSub);
+    assert.isUndefined(during.exchangeExpiresIn);
 
     await stopImpersonation(ctx);
     const after = impersonationState(ctx);
@@ -433,3 +442,179 @@ test.group(
     });
   },
 );
+
+test.group('impersonation_session — registro (id, tempos, prova do exchange)', () => {
+  /** fetch mock com `expires_in` + `act` na resposta do exchange. */
+  function fetchOkFull(): typeof fetch {
+    return (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ access_token: 'target-at', expires_in: 3600, act: { sub: 'admin-1' } }),
+    })) as any;
+  }
+
+  /** fetch mock 200 com corpo fora de JSON (parse tolerante). */
+  function fetchOkNoJson(): typeof fetch {
+    return (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new Error('Unexpected token');
+      },
+    })) as any;
+  }
+
+  function auditSink(events: Array<any>) {
+    return {
+      record: async (e: any) => {
+        events.push(e);
+      },
+    };
+  }
+
+  test('start devolve o estado criado e aproveita act/expires_in do exchange', async ({
+    assert,
+  }) => {
+    const { ctx, store } = makeCtx({ [ACCOUNT_SESSION_KEY]: 'admin-1' });
+    rememberAccessToken(ctx, 'admin-access-token');
+
+    const created = await startImpersonation(ctx, baseParams({ fetchImpl: fetchOkFull() }));
+
+    assert.isTrue(created.active);
+    assert.match(created.impersonationId ?? '', /^[0-9a-f-]{36}$/, 'id único por start');
+    assert.isNumber(created.startedAt);
+    assert.equal(created.actSub, 'admin-1', 'ator provado pelo IdP');
+    assert.equal(created.exchangeExpiresIn, 3600);
+    assert.isUndefined(created.expiresAt, 'sem maxAge não há expiração');
+
+    // Mesmo registro gravado na sessão (contrato que `impersonationState` lê).
+    assert.equal(store.impersonation_id, created.impersonationId);
+    assert.equal(store.impersonation_started_at, created.startedAt);
+    assert.equal(store.impersonation_act_sub, 'admin-1');
+    assert.equal(store.impersonation_exchange_expires_in, 3600);
+    assert.isUndefined(store.impersonation_expires_at);
+    assert.deepEqual(impersonationState(ctx), created);
+  });
+
+  test('cada start gera um id diferente', async ({ assert }) => {
+    const { ctx } = makeCtx({ [ACCOUNT_SESSION_KEY]: 'admin-1' });
+    rememberAccessToken(ctx, 'admin-access-token');
+
+    const first = await startImpersonation(ctx, baseParams({ fetchImpl: fetchOk([]) }));
+    await stopImpersonation(ctx);
+    const second = await startImpersonation(ctx, baseParams({ fetchImpl: fetchOk([]) }));
+
+    assert.notEqual(first.impersonationId, second.impersonationId);
+  });
+
+  test('exchange 200 sem JSON válido ainda personifica (metadados ausentes)', async ({
+    assert,
+  }) => {
+    const { ctx, store } = makeCtx({ [ACCOUNT_SESSION_KEY]: 'admin-1' });
+    rememberAccessToken(ctx, 'admin-access-token');
+
+    const created = await startImpersonation(ctx, baseParams({ fetchImpl: fetchOkNoJson() }));
+
+    assert.equal(store[ACCOUNT_SESSION_KEY], 'target-1');
+    assert.isTrue(created.active);
+    assert.isUndefined(created.actSub);
+    assert.isUndefined(created.exchangeExpiresIn);
+  });
+
+  test('maxAge grava expiresAt e o estado segue ativo dentro do prazo', async ({ assert }) => {
+    const { ctx, store } = makeCtx({ [ACCOUNT_SESSION_KEY]: 'admin-1' });
+    rememberAccessToken(ctx, 'admin-access-token');
+
+    const before = Date.now();
+    const created = await startImpersonation(
+      ctx,
+      baseParams({ fetchImpl: fetchOk([]), maxAge: 3600 }),
+    );
+
+    assert.isNumber(created.expiresAt);
+    assert.approximately(created.expiresAt!, before + 3600 * 1000, 5000);
+    assert.equal(store.impersonation_expires_at, created.expiresAt);
+    assert.isTrue(impersonationState(ctx).active);
+  });
+
+  test('maxAge não-positivo LANÇA sem tocar a sessão', async ({ assert }) => {
+    const { ctx, store, regenerated } = makeCtx({ [ACCOUNT_SESSION_KEY]: 'admin-1' });
+    rememberAccessToken(ctx, 'admin-access-token');
+
+    await assert.rejects(() =>
+      startImpersonation(ctx, baseParams({ fetchImpl: fetchOk([]), maxAge: 0 })),
+    );
+
+    assert.equal(store[ACCOUNT_SESSION_KEY], 'admin-1');
+    assert.isUndefined(store.impersonator_user_id);
+    assert.equal(regenerated(), 0);
+  });
+
+  test('expiração é preguiçosa: prazo vencido lê active:false mas o stop restaura', async ({
+    assert,
+  }) => {
+    const { ctx, store } = makeCtx({
+      [ACCOUNT_SESSION_KEY]: 'target-1',
+      impersonator_user_id: 'admin-1',
+      impersonation_id: 'imp-expired-1',
+      impersonation_started_at: Date.now() - 7200 * 1000,
+      impersonation_expires_at: Date.now() - 3600 * 1000,
+    });
+
+    const state = impersonationState(ctx);
+    assert.isFalse(state.active, 'prazo vencido não é mais ativo');
+    assert.equal(state.impersonationId, 'imp-expired-1', 'ids seguem legíveis');
+
+    // Expirar NÃO libera novo start sozinho (encerrar continua explícito).
+    rememberAccessToken(ctx, 'admin-access-token');
+    await assert.rejects(() => startImpersonation(ctx, baseParams({ fetchImpl: fetchOk([]) })));
+
+    const events: Array<any> = [];
+    const stopped = await stopImpersonation(ctx, { audit: auditSink(events) });
+    assert.equal(store[ACCOUNT_SESSION_KEY], 'admin-1', 'stop expirado restaura o admin');
+    assert.equal(stopped?.impersonationId, 'imp-expired-1');
+    assert.equal(events.length, 1);
+    assert.equal(events[0].type, 'impersonation.stopped');
+    assert.isTrue(events[0].metadata.expired, 'audit marca que já estava expirada');
+  });
+
+  test('stop audita impersonation.stopped com o id e limpa TODAS as keys', async ({ assert }) => {
+    const { ctx, store } = makeCtx({ [ACCOUNT_SESSION_KEY]: 'admin-1' });
+    rememberAccessToken(ctx, 'admin-access-token');
+    const created = await startImpersonation(ctx, baseParams({ fetchImpl: fetchOkFull() }));
+
+    const events: Array<any> = [];
+    const stopped = await stopImpersonation(ctx, { audit: auditSink(events), ip: '10.0.0.1' });
+
+    assert.equal(stopped?.impersonationId, created.impersonationId);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].type, 'impersonation.stopped');
+    assert.equal(events[0].actorId, 'admin-1');
+    assert.equal(events[0].accountId, 'target-1');
+    assert.equal(events[0].ip, '10.0.0.1');
+    assert.equal(events[0].metadata.impersonationId, created.impersonationId);
+    assert.isFalse(events[0].metadata.expired);
+
+    for (const key of [
+      'impersonator_user_id',
+      'impersonation_id',
+      'impersonation_started_at',
+      'impersonation_expires_at',
+      'impersonation_act_sub',
+      'impersonation_exchange_expires_in',
+    ]) {
+      assert.notProperty(store, key, `${key} deve sumir no stop`);
+    }
+  });
+
+  test('stop sem impersonation ativa é no-op: devolve null e não audita', async ({ assert }) => {
+    const { ctx, regenerated } = makeCtx({ [ACCOUNT_SESSION_KEY]: 'admin-1' });
+    const events: Array<any> = [];
+
+    const stopped = await stopImpersonation(ctx, { audit: auditSink(events) });
+
+    assert.isNull(stopped);
+    assert.lengthOf(events, 0);
+    assert.equal(regenerated(), 0);
+  });
+});

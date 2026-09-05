@@ -24,6 +24,9 @@ export const AUDIT_EVENT_TYPES = [
   // acontecer. Manter os dois separados é o que impede a trilha de auditoria de
   // afirmar uma impersonação que só foi consultada.
   'impersonation.panel_viewed',
+  // Uma impersonation foi encerrada no RP (`stopImpersonation`, com o
+  // `impersonationId` no metadata). Fecha o par aberto pelo `impersonation`.
+  'impersonation.stopped',
   'mfa.enabled',
   'mfa.disabled',
   'account.locked',
