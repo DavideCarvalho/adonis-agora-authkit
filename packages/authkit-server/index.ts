@@ -266,13 +266,17 @@ export {
 export type { ImpersonationClientLike, ImpersonationPanel } from './src/host/impersonation.js';
 export { buildImpersonationPanel } from './src/host/impersonation.js';
 export type {
+  ImpersonationStartErrorCode,
   ImpersonationState,
   StartImpersonationParams,
+  StopImpersonationOptions,
+  TokenExchangeResult,
 } from './src/host/impersonation_session.js';
 // Session impersonation — RP-side glue that routes through the IdP's RFC 8693
 // token-exchange (the IdP validates the admin role + audits). See
 // src/host/impersonation_session.ts.
 export {
+  ImpersonationStartError,
   impersonationState,
   refreshAccessToken,
   rememberAccessToken,

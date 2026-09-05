@@ -1,5 +1,6 @@
 import { test } from '@japa/runner';
 import {
+  ImpersonationStartError,
   impersonationState,
   refreshAccessToken,
   rememberAccessToken,
@@ -618,3 +619,102 @@ test.group('impersonation_session — registro (id, tempos, prova do exchange)',
     assert.equal(regenerated(), 0);
   });
 });
+
+test.group(
+  'impersonation_session — erros diferenciados do start (diagnóstico sem vazar segredo)',
+  () => {
+    /** fetch mock: exchange 400 com `error` no corpo + refresh que também falha. */
+    function fetchExchangeAndRefreshFail(): typeof fetch {
+      return (async (_url: any, init: any) => {
+        const body = new URLSearchParams(String(init?.body ?? ''));
+        if (body.get('grant_type') === 'refresh_token') {
+          return { ok: false, status: 400, json: async () => ({ error: 'invalid_grant' }) } as any;
+        }
+        return { ok: false, status: 400, json: async () => ({ error: 'invalid_grant' }) } as any;
+      }) as any;
+    }
+
+    test('exchange 400 carrega o error do IdP e o code exchange_rejected', async ({ assert }) => {
+      const { ctx, store } = makeCtx({ [ACCOUNT_SESSION_KEY]: 'admin-1' });
+      rememberAccessToken(ctx, 'admin-access-token');
+      // Sem refresh token: o erro final é no_refresh_token, mas a CAUSA
+      // (o 400 do exchange) deve continuar visível via `cause`.
+      try {
+        await startImpersonation(ctx, baseParams({ fetchImpl: fetchErr(400) }));
+        assert.fail('deveria ter lançado');
+      } catch (err) {
+        assert.instanceOf(err, ImpersonationStartError);
+        const typed = err as ImpersonationStartError;
+        assert.equal(typed.code, 'no_refresh_token');
+        assert.equal(typed.status, 400);
+        assert.equal(typed.idpError, 'invalid_grant');
+        assert.match(typed.message, /invalid_grant/);
+      }
+      assert.equal(store[ACCOUNT_SESSION_KEY], 'admin-1', 'sessão intacta');
+      assert.isUndefined(store.impersonator_user_id);
+    });
+
+    test('exchange 400 com refresh rejeitado → code refresh_rejected', async ({ assert }) => {
+      const { ctx } = makeCtx({ [ACCOUNT_SESSION_KEY]: 'admin-1' });
+      rememberAccessToken(ctx, 'admin-access-token');
+      rememberRefreshToken(ctx, 'stale-refresh-token');
+
+      try {
+        await startImpersonation(ctx, baseParams({ fetchImpl: fetchExchangeAndRefreshFail() }));
+        assert.fail('deveria ter lançado');
+      } catch (err) {
+        assert.instanceOf(err, ImpersonationStartError);
+        assert.equal((err as ImpersonationStartError).code, 'refresh_rejected');
+        assert.match((err as Error).message, /refresh/);
+      }
+    });
+
+    test('exchange 500 (não-4xx) não tenta refresh e lança exchange_rejected', async ({
+      assert,
+    }) => {
+      const { ctx } = makeCtx({ [ACCOUNT_SESSION_KEY]: 'admin-1' });
+      rememberAccessToken(ctx, 'admin-access-token');
+      rememberRefreshToken(ctx, 'admin-refresh-token');
+
+      const calls: Array<{ url: string; body: string }> = [];
+      const fetch500 = (async (url: any, init: any) => {
+        calls.push({ url: String(url), body: String(init?.body ?? '') });
+        return { ok: false, status: 500, json: async () => ({}) } as any;
+      }) as any;
+
+      try {
+        await startImpersonation(ctx, baseParams({ fetchImpl: fetch500 }));
+        assert.fail('deveria ter lançado');
+      } catch (err) {
+        assert.instanceOf(err, ImpersonationStartError);
+        assert.equal((err as ImpersonationStartError).code, 'exchange_rejected');
+        assert.equal((err as ImpersonationStartError).status, 500);
+      }
+      assert.lengthOf(calls, 1, 'sem retry via refresh em erro não-4xx');
+    });
+
+    test('exchange 400 com corpo fora de JSON ainda lança com status (sem idpError)', async ({
+      assert,
+    }) => {
+      const { ctx } = makeCtx({ [ACCOUNT_SESSION_KEY]: 'admin-1' });
+      rememberAccessToken(ctx, 'admin-access-token');
+      const fetchNoJson = (async () => ({
+        ok: false,
+        status: 400,
+        json: async () => {
+          throw new Error('Unexpected token');
+        },
+      })) as any;
+
+      try {
+        await startImpersonation(ctx, baseParams({ fetchImpl: fetchNoJson }));
+        assert.fail('deveria ter lançado');
+      } catch (err) {
+        assert.instanceOf(err, ImpersonationStartError);
+        assert.equal((err as ImpersonationStartError).status, 400);
+        assert.isUndefined((err as ImpersonationStartError).idpError);
+        assert.match((err as Error).message, /Token exchange failed: 400/);
+      }
+    });
+  },
+);

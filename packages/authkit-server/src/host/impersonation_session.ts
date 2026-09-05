@@ -134,6 +134,60 @@ export interface TokenExchangeResult {
 }
 
 /**
+ * Códigos de falha do `startImpersonation` — o controller mapeia cada um numa
+ * mensagem amigável (sem vazar segredo), em vez de um genérico único que
+ * obriga adivinhar entre "token expirado", "sem refresh" e "IdP recusou".
+ */
+export type ImpersonationStartErrorCode =
+  | 'already_active'
+  | 'invalid_max_age'
+  | 'no_admin_access_token'
+  | 'no_account_session'
+  | 'no_refresh_token'
+  | 'refresh_rejected'
+  | 'exchange_rejected';
+
+/**
+ * Erro do `startImpersonation` com `code` machine-readable. `status` é o HTTP
+ * do token/refresh endpoint; `idpError` é o campo `error` do corpo
+ * (`invalid_grant`, `invalid_request`, …) — um código de allowlist, NUNCA
+ * tokens nem `error_description` (pode ecoar segredos). `cause` encadeia o
+ * erro original (ex.: o 400 do exchange que motivou a tentativa de refresh).
+ */
+export class ImpersonationStartError extends Error {
+  readonly code: ImpersonationStartErrorCode;
+  readonly status?: number;
+  readonly idpError?: string;
+
+  constructor(
+    code: ImpersonationStartErrorCode,
+    message: string,
+    options?: { status?: number; idpError?: string; cause?: unknown },
+  ) {
+    super(message, options?.cause !== undefined ? { cause: options.cause } : undefined);
+    this.name = 'ImpersonationStartError';
+    this.code = code;
+    if (options?.status !== undefined) this.status = options.status;
+    if (options?.idpError !== undefined) this.idpError = options.idpError;
+  }
+}
+
+/**
+ * Extrai o campo `error` do corpo de uma resposta de erro do token endpoint
+ * (`invalid_grant`, …). Tolerante: corpo ausente/fora de JSON/sem `error`
+ * string ⇒ `undefined`. Só o código — nunca `error_description` (pode ecoar
+ * segredos) nem o corpo cru.
+ */
+async function readIdpErrorCode(res: Response): Promise<string | undefined> {
+  try {
+    const data = (await res.json()) as { error?: unknown };
+    return typeof data?.error === 'string' && data.error.length > 0 ? data.error : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * POST inline do RFC 8693 token-exchange. Inline (em vez de depender de
  * `@adonis-agora/authkit-client`) porque o client NÃO é dependência do server e
  * adicioná-la inverteria a direção do grafo de pacotes (server = IdP toolkit). São
@@ -168,8 +222,14 @@ async function requestTokenExchange(
     body: body.toString(),
   });
   if (!res.ok) {
-    // NUNCA logamos tokens nem o corpo (pode ecoar segredos). Só o status.
-    throw new Error(`Token exchange failed: ${res.status}`);
+    // NUNCA logamos tokens nem o corpo (pode ecoar segredos). Só o status +
+    // o código `error` do IdP (allowlist como `invalid_grant`).
+    const idpError = await readIdpErrorCode(res);
+    throw new ImpersonationStartError(
+      'exchange_rejected',
+      `Token exchange failed: ${res.status}${idpError ? ` (${idpError})` : ''}`,
+      { status: res.status, idpError },
+    );
   }
 
   const result: TokenExchangeResult = {};
@@ -252,29 +312,47 @@ export async function refreshAccessToken(
  *   encerrar continua explícito via `stopImpersonation`.
  * - Recusa (lança) se não houver access token do admin na sessão.
  * - Recusa (lança) `maxAge` não-positivo (fail-fast de misconfiguração).
+ *
+ * Toda falha é um `ImpersonationStartError` com `code` (`already_active`,
+ * `invalid_max_age`, `no_admin_access_token`, `no_account_session`,
+ * `no_refresh_token`, `refresh_rejected`, `exchange_rejected`) — o controller
+ * traduz cada um numa mensagem amigável. `status`/`idpError` carregam o HTTP
+ * e o `error` do IdP (códigos seguros, sem segredos) para o log server-side.
  */
 export async function startImpersonation(
   ctx: HttpContext,
   params: StartImpersonationParams,
 ): Promise<ImpersonationState> {
   if (ctx.session.get(IMPERSONATOR_SESSION_KEY)) {
-    throw new Error('Impersonation already active; stop the current one before starting another');
+    throw new ImpersonationStartError(
+      'already_active',
+      'Impersonation already active; stop the current one before starting another',
+    );
   }
 
   if (params.maxAge !== undefined && !(params.maxAge > 0)) {
-    throw new Error('Invalid maxAge: must be a positive number of seconds');
+    throw new ImpersonationStartError(
+      'invalid_max_age',
+      'Invalid maxAge: must be a positive number of seconds',
+    );
   }
 
   const adminAccessToken = ctx.session.get(ADMIN_ACCESS_TOKEN_SESSION_KEY) as string | undefined;
   if (!adminAccessToken) {
-    throw new Error('No admin access token in session; call rememberAccessToken after login');
+    throw new ImpersonationStartError(
+      'no_admin_access_token',
+      'No admin access token in session; call rememberAccessToken after login',
+    );
   }
 
   const impersonatorId = ctx.session.get(ACCOUNT_SESSION_KEY) as string | undefined;
   if (!impersonatorId) {
     // Não há admin logado para impersonar como — sem identidade para restaurar
     // depois. Recusa antes de qualquer chamada/mutação.
-    throw new Error('No account session; log in as the admin before impersonating');
+    throw new ImpersonationStartError(
+      'no_account_session',
+      'No account session; log in as the admin before impersonating',
+    );
   }
 
   // O IdP é o gatekeeper: lança se o admin não puder personificar. Chamado ANTES
@@ -284,10 +362,38 @@ export async function startImpersonation(
     exchange = await requestTokenExchange(params, adminAccessToken);
   } catch (err) {
     // Access token expirado (4xx do exchange): renova via refresh token e tenta
-    // de novo. Sem refresh token / refresh falho → propaga o erro original.
-    if (!(err instanceof Error) || !/exchange failed: 4\d\d/.test(err.message)) throw err;
+    // de novo. Sem refresh token / refresh falho → erro TIPADO (o controller
+    // distingue "entre de novo" de "IdP recusou"), com o 4xx original em `cause`.
+    const status = err instanceof ImpersonationStartError ? err.status : undefined;
+    const isExpiredToken =
+      err instanceof Error && status !== undefined && status >= 400 && status < 500;
+    if (!isExpiredToken) throw err;
+    const hasRefreshToken = Boolean(
+      ctx.session.get(ADMIN_REFRESH_TOKEN_SESSION_KEY) as string | undefined,
+    );
+    if (!hasRefreshToken) {
+      throw new ImpersonationStartError(
+        'no_refresh_token',
+        `Admin access token expired (Token exchange failed: ${status}${
+          err instanceof ImpersonationStartError && err.idpError ? ` (${err.idpError})` : ''
+        }) and no refresh token in session; log in again`,
+        {
+          status,
+          ...(err instanceof ImpersonationStartError && err.idpError
+            ? { idpError: err.idpError }
+            : {}),
+          cause: err,
+        },
+      );
+    }
     const refreshed = await refreshAccessToken(ctx, params);
-    if (!refreshed) throw err;
+    if (!refreshed) {
+      throw new ImpersonationStartError(
+        'refresh_rejected',
+        'Admin access token expired and refresh token was rejected; log in again',
+        { status, cause: err },
+      );
+    }
     rememberAccessToken(ctx, refreshed.accessToken);
     if (refreshed.refreshToken) rememberRefreshToken(ctx, refreshed.refreshToken);
     exchange = await requestTokenExchange(params, refreshed.accessToken);
