@@ -981,14 +981,14 @@ export interface AuthServerConfigInput {
    *
    * O split recomendado: sessão no Redis (efêmero, TTL nativo, mesmo destino
    * da sessão do app) e o resto no banco (durável — sem o `Client` nem a tela
-   * de login abre). Mesma connection Redis pros dois níveis de sessão é a
-   * recomendação (prefixos já namespaciam; destinos diferentes criam
-   * meio-logado e dois domínios de falha no logout), mas a lib não trava isso.
+   * de login abre). No `session.adapter`, OMITA `connection`
+   * (`adapters.redis()` puro): cai na connection DEFAULT do app, a mesma da
+   * sessão do app — sem string duplicada pra divergir.
    *
    * ```ts
    * defineConfig({
    *   adapter: adapters.database({ connection: 'auth' }),
-   *   session: { adapter: adapters.redis({ connection: 'main' }) },
+   *   session: { adapter: adapters.redis() },
    *   // ...
    * })
    * ```

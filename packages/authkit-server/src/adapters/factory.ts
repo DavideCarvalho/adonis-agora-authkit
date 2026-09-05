@@ -51,8 +51,15 @@ export function pickModelAdapterClass(
 }
 
 export interface RedisAdapterConfig {
-  /** nome da conexão do @adonisjs/redis */
-  connection: string;
+  /**
+   * Nome da conexão do @adonisjs/redis. OPCIONAL: omitido, usa a connection
+   * DEFAULT do app (`config/redis.ts`, campo `connection`) — que é a mesma
+   * que a sessão do app usa. É o recomendado (e o único jeito sensato pra
+   * `session:`): as duas camadas de sessão no mesmo destino, sem como
+   * divergir por typo em string duplicada. Passe explícito só pra um Redis
+   * dedicado, sabendo o que está fazendo.
+   */
+  connection?: string;
   prefix?: string;
 }
 
@@ -65,13 +72,17 @@ export const adapters = {
   /**
    * Factory para o adapter Redis. O consumidor precisa ter o @adonisjs/redis
    * configurado, pois o resolver resolve o `RedisManager` pelo token `'redis'`
-   * do container e obtém a conexão nomeada via `connection(name)`.
+   * do container e obtém a conexão — a nomeada em `connection`, ou a DEFAULT
+   * do app quando omitida (`manager.connection()`, que cai em
+   * `config/redis.ts#connection`).
    */
-  redis(config: RedisAdapterConfig): AdapterFactory {
+  redis(config: RedisAdapterConfig = {}): AdapterFactory {
     return {
       async resolver(app) {
         const redisManager = await app.container.make('redis');
-        const client = (redisManager as any).connection(config.connection);
+        const client = config.connection
+          ? (redisManager as any).connection(config.connection)
+          : (redisManager as any).connection();
         const prefix = config.prefix ?? 'authkit';
         return class extends RedisAdapter {
           constructor(name: string) {
