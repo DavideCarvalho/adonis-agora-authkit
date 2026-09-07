@@ -173,7 +173,20 @@ function recordingRenderer(ctx: any, view: string, props: Record<string, unknown
 // controller methods via the fake ctx.
 // ---------------------------------------------------------------------------
 
-async function startServer(opts: { mfaEnabled: boolean; deviceFlow?: boolean }): Promise<{
+async function startServer(opts: {
+  mfaEnabled: boolean;
+  deviceFlow?: boolean;
+  /**
+   * Regressão do bug "authkit-server crasha sem `branding`": quando `true`,
+   * `defineConfig` roda SEM a chave `branding` — exatamente a config mínima
+   * documentada em getting-started/quickstart/reference. Antes do fix em
+   * `resolveBranding` (src/host/branding.ts), o primeiro hit em QUALQUER tela
+   * built-in (login/identifier/consent) estourava `TypeError: Cannot read
+   * properties of undefined (reading 'clients')` em `cfg.branding!.clients`
+   * (interaction_controller.ts). Ver `e2e no branding config` abaixo.
+   */
+  omitBranding?: boolean;
+}): Promise<{
   server: Server;
   service: OidcService;
 }> {
@@ -201,13 +214,17 @@ async function startServer(opts: { mfaEnabled: boolean; deviceFlow?: boolean }):
         },
       ],
       accountStore: makeStore({ mfaEnabled: opts.mfaEnabled }),
-      branding: {
-        company: 'AuthKit Test',
-        clients: {},
-        default: { appName: 'Test', accent: '#000', accentSoft: '#111', tagline: 'tl' },
-        // No first-party clients → consent screen is shown (we drive it).
-        firstParty: [],
-      },
+      ...(opts.omitBranding
+        ? {}
+        : {
+            branding: {
+              company: 'AuthKit Test',
+              clients: {},
+              default: { appName: 'Test', accent: '#000', accentSoft: '#111', tagline: 'tl' },
+              // No first-party clients → consent screen is shown (we drive it).
+              firstParty: [],
+            },
+          }),
       render: recordingRenderer as any,
       stepUp: { acrValues: ['urn:authkit:mfa'], mfaAcr: 'urn:authkit:mfa' },
       deviceFlow: opts.deviceFlow ? { enabled: true } : undefined,
@@ -645,6 +662,54 @@ test.group('e2e device authorization grant', (group) => {
     assert.isString(tokens.access_token, JSON.stringify(tokens));
     assert.isString(tokens.id_token);
     const claims = decodeJwt(tokens.id_token) as any;
+    assert.equal(claims.sub, ACCOUNT_ID);
+  });
+});
+
+// ===========================================================================
+// VARIANT 4 — regression: defineConfig with NO `branding` key at all (the
+// minimal config every getting-started/quickstart/reference doc shows).
+// Before the fix, the very first hit of `/auth/interaction/:uid` (show()`)
+// threw `TypeError: Cannot read properties of undefined (reading 'clients')`
+// from `brandFor(cfg.branding!, ...)` in interaction_controller.ts.
+// ===========================================================================
+
+test.group('e2e no branding config (regression)', (group) => {
+  let server: Server;
+  group.setup(async () => {
+    SESSIONS.clear();
+    ({ server } = await startServer({ mfaEnabled: false, omitBranding: true }));
+    return async () => new Promise<void>((r) => server.close(() => r()));
+  });
+
+  test('login → token completes end-to-end with no crash on any interaction screen', async ({
+    assert,
+  }) => {
+    const jar = new Jar();
+    const { verifier, challenge } = pkce();
+
+    // GET /auth/interaction/:uid → controller.show() → the exact call site
+    // that used to crash on `cfg.branding!.clients`.
+    const uid = await followToInteraction(jar, authorizeUrl(challenge));
+
+    // POST identifier → controller.identifier() (also reads cfg.branding).
+    const identifier = await postForm(jar, `${ISSUER}/auth/interaction/${uid}/identifier`, {
+      email: EMAIL,
+    });
+    assert.notEqual(identifier.status, 500);
+
+    // POST login → controller.login() → completes the interaction.
+    const login = await postForm(jar, `${ISSUER}/auth/interaction/${uid}/login`, {
+      password: PASSWORD,
+    });
+    assert.notEqual(login.status, 500);
+    assert.equal(login.status, 303);
+
+    const code = await resumeToCode(jar, login);
+    const tokens = await exchangeCode(code, verifier);
+    assert.isString(tokens.id_token, JSON.stringify(tokens));
+
+    const claims = decodeJwt(tokens.id_token);
     assert.equal(claims.sub, ACCOUNT_ID);
   });
 });

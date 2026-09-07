@@ -541,14 +541,25 @@ models are supplied.
 Compose your `AuthUser` model from AuthKit's mixins so it has the columns and methods the
 store expects:
 
-- **`withAuthUser`** — base identity columns (id, email, globalRoles, profile).
-- **`withCredentials`** — password hash + `verifyCredentials` plumbing.
+- **`withAuthUser`** — base identity columns (email, password hash, globalRoles).
+  It does **not** declare a primary key or generate one — see below.
+- **`withCredentials`** — email verification + password-reset token plumbing.
 - **`withPersonalAccessToken`** — relation/helpers for [PAT](/docs/personal-access-tokens).
 - **`withMfa`** — TOTP secret, `mfaEnabledAt`, and recovery codes for [MFA](/docs/mfa).
 - **`withAuditLog`** — typed `AuditEventType` columns for an audit-log model.
 
+None of the mixins declare an `id` column or a `fullName` column, and both are required:
+
+- **`id`** needs a `@beforeCreate` hook assigning a real value (e.g. `randomUUID()`).
+  Without one, Lucid inserts `NULL` for this string column and the model's `id` comes
+  back as the database's internal auto-increment rowid — the account becomes
+  unreachable by its real id on the very next request.
+- **`fullName`** is required because the built-in signup screen always collects a
+  "Name" field, and the Lucid store passes it straight to `AuthUser.create()`.
+
 ```ts title="app/models/auth_user.ts"
-import { BaseModel } from '@adonisjs/lucid/orm'
+import { randomUUID } from 'node:crypto'
+import { BaseModel, beforeCreate, column } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { withAuthUser, withCredentials, withMfa } from '@adonis-agora/authkit-server'
 
@@ -557,7 +568,18 @@ export default class AuthUser extends compose(
   withAuthUser(),
   withCredentials(),
   withMfa()
-) {}
+) {
+  @column({ isPrimary: true })
+  declare id: string
+
+  @beforeCreate()
+  static assignUuid(user: AuthUser) {
+    user.id = randomUUID()
+  }
+
+  @column()
+  declare fullName: string | null
+}
 ```
 
 ## Bringing your own store

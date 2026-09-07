@@ -227,6 +227,9 @@ importers:
       ioredis-mock:
         specifier: 8.13.1
         version: 8.13.1(@types/ioredis-mock@8.2.8(ioredis@5.4.2(supports-color@10.2.2)))(ioredis@5.4.2(supports-color@10.2.2))
+      tempura:
+        specifier: 0.4.1
+        version: 0.4.1
       typescript:
         specifier: catalog:frontend
         version: 7.0.2

@@ -297,7 +297,7 @@ export function checkShield(input: DoctorInput): Finding {
   const mountPath = input.authkitConfig?.mountPath ?? '/oidc';
   return {
     level: 'warn',
-    message: `Make sure the IdP POST routes under "${mountPath}" are in the shield CSRF exceptions (e.g. the /token endpoint), otherwise server-to-server calls fail.`,
+    message: `Make sure the IdP POST routes under "${mountPath}" are in the shield CSRF exceptions (e.g. the /token endpoint), otherwise server-to-server calls fail. Use the exported authkitCsrfExceptions(url, { mountPath: '${mountPath}' }) helper in config/shield.ts's exceptRoutes instead of hand-writing the route-pattern check.`,
   };
 }
 

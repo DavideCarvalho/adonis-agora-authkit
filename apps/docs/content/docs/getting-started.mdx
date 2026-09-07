@@ -198,6 +198,36 @@ registerAuthHost(router, {
   [Config locks](/docs/config-locks).
 </Callout>
 
+<Callout type="warn">
+  **If your app uses `@adonisjs/shield`** (on by default in the `web` starter kit), its CSRF
+  protection intercepts the OIDC provider's own machine-to-machine routes mounted above —
+  `POST {mountPath}/token` in particular. Without an exemption, `exchangeCode()` gets
+  shield's HTML CSRF-denial page back instead of a JSON token response
+  (`SyntaxError: Unexpected token '<' ... is not valid JSON`). Use the exported
+  `authkitCsrfExceptions` helper in `config/shield.ts` — it stays in sync with whatever
+  `mountPath` you pass to `registerAuthHost`/`defineConfig`, so you don't have to hand-write
+  the route-pattern regex yourself:
+
+  ```ts title="config/shield.ts"
+  import { defineConfig } from '@adonisjs/shield'
+  import { authkitCsrfExceptions } from '@adonis-agora/authkit-server'
+
+  export default defineConfig({
+    csrf: {
+      enabled: true,
+      exceptRoutes: (ctx) =>
+        authkitCsrfExceptions(ctx.request.url(), { mountPath: '/oidc' }),
+    },
+    // ...rest of your shield config
+  })
+  ```
+
+  This exempts only the IdP's OIDC protocol surface (`{mountPath}/*`), the PAT
+  introspection endpoint, and the client's back-channel logout route — the interactive
+  login/consent/signup pages (under `/auth/interaction/*`) are a **different** prefix and
+  keep full CSRF protection. See [Reference](/docs/reference) for the full option list.
+</Callout>
+
 ## The client middleware (already registered)
 
 `authkit_middleware` is what makes `ctx.auth` exist. **`node ace add` already registered it

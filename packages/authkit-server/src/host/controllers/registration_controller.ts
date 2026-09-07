@@ -52,7 +52,7 @@ export default class AuthRegistrationController {
     const cfg = service.config;
     const render = cfg.render!;
     const details = await service.interactions.details(ctx);
-    const brand = brandFor(cfg.branding!, details.params.client_id as string | undefined);
+    const brand = brandFor(cfg.branding, details.params.client_id as string | undefined);
     const runtimeSettings = await getRuntimeSettings(ctx);
 
     // Maintenance mode: mostra página de manutenção se ativo.
@@ -96,7 +96,7 @@ export default class AuthRegistrationController {
     const cfg = service.config;
     const render = cfg.render!;
     const details = await service.interactions.details(ctx);
-    const brand = brandFor(cfg.branding!, details.params.client_id as string | undefined);
+    const brand = brandFor(cfg.branding, details.params.client_id as string | undefined);
     const runtimeSettings = await getRuntimeSettings(ctx);
 
     // Maintenance mode: rejeita o POST durante manutenção.
