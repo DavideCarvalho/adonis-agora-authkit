@@ -102,6 +102,33 @@ test.group('defineConfig (server)', () => {
     assert.equal(resolved.patIntrospectionSecret, 's3cr3t');
   });
 
+  test('resolve config sem `branding` cai num default sensato (regressão do crash em cfg.branding!.clients)', async ({
+    assert,
+  }) => {
+    // `branding` é opcional em AuthServerConfigInput e todo doc
+    // (getting-started/quickstart/reference) o omite na config mínima. Antes
+    // de `resolveBranding` (src/host/branding.ts), `resolved.branding` ficava
+    // `undefined` e o interaction controller crashava em `cfg.branding!.clients`
+    // no primeiro hit de QUALQUER tela built-in. Aqui a config nem declara a
+    // chave `branding` — reproduzindo a config mínima documentada ao pé da letra.
+    const { brandFor } = await import('../src/host/branding.js');
+    const fakeApp = {
+      container: { make: async () => ({ connection: () => new RedisMock() }) },
+    } as any;
+    const provider = defineConfig({
+      issuer: 'https://auth.test',
+      adapter: adapters.redis({ connection: 'main' }),
+      jwks: { source: 'managed' },
+      accountStore: fakeAccountStore(),
+    });
+    const resolved = (await configProvider.resolve(fakeApp, provider)) as any;
+    assert.isDefined(resolved.branding);
+    assert.isObject(resolved.branding.clients);
+    assert.isObject(resolved.branding.default);
+    assert.isString(resolved.branding.default.appName);
+    assert.doesNotThrow(() => brandFor(resolved.branding, 'any-client-id'));
+  });
+
   test('rateLimit ligado por default (enabled true)', async ({ assert }) => {
     const RedisMock = (await import('ioredis-mock')).default;
     const { configProvider } = await import('@adonisjs/core');

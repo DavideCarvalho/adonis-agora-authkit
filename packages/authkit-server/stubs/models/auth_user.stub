@@ -1,7 +1,8 @@
 {{{
   exports({ to: app.makePath('app/models/auth_user.ts') })
 }}}
-import { BaseModel, column } from '@adonisjs/lucid/orm'
+import { randomUUID } from 'node:crypto'
+import { BaseModel, beforeCreate, column } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { withAuthUser, withCredentials } from '@adonis-agora/authkit-server'
 
@@ -19,4 +20,24 @@ import { withAuthUser, withCredentials } from '@adonis-agora/authkit-server'
 export default class AuthUser extends compose(BaseModel, withAuthUser(), withCredentials()) {
   @column({ isPrimary: true })
   declare id: string
+
+  /**
+   * Nem withAuthUser() nem withCredentials() geram o id — sem este hook o
+   * Lucid insere NULL nesta coluna string e o `id` do model volta como o
+   * rowid interno do banco, tornando a conta inalcançável pelo id real na
+   * próxima request.
+   */
+  @beforeCreate()
+  static assignUuid(user: AuthUser) {
+    user.id = randomUUID()
+  }
+
+  /**
+   * A tela de signup embutida sempre coleta um campo "Nome", e o Lucid store
+   * passa esse valor direto para `AuthUser.create()` — sem esta coluna o
+   * primeiro signup quebra com "Cannot define 'fullName' on 'AuthUser'
+   * model, since it is not defined as a model property".
+   */
+  @column()
+  declare fullName: string | null
 }

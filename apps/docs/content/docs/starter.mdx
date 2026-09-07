@@ -43,10 +43,22 @@ adapter and stores.
 
 ### A2. The account model
 
-Compose an `AuthUser` from the mixins so the Lucid store has the columns it needs:
+Compose an `AuthUser` from the mixins so the Lucid store has the columns it needs. Two things
+the mixins do **not** provide, and that you must add yourself:
+
+- **A primary key.** Neither `withAuthUser()` nor `withCredentials()` declares an `id`
+  column or generates one — without a `@beforeCreate` hook assigning a real id, Lucid
+  inserts `NULL` and the model's `id` comes back as the database's internal
+  auto-increment rowid instead of a stable identifier, making the account unreachable by
+  its real id on the very next request.
+- **`fullName`.** The built-in signup screen collects a "Name" field, and the Lucid
+  store passes it straight to `AuthUser.create()` — omit this column and the first
+  signup throws `Cannot define "fullName" on "AuthUser" model, since it is not defined
+  as a model property`.
 
 ```ts title="app/models/auth_user.ts"
-import { BaseModel } from '@adonisjs/lucid/orm'
+import { randomUUID } from 'node:crypto'
+import { BaseModel, beforeCreate, column } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { withAuthUser, withCredentials } from '@adonis-agora/authkit-server'
 
@@ -54,8 +66,25 @@ export default class AuthUser extends compose(
   BaseModel,
   withAuthUser(),
   withCredentials()
-) {}
+) {
+  @column({ isPrimary: true })
+  declare id: string
+
+  @beforeCreate()
+  static assignUuid(user: AuthUser) {
+    user.id = randomUUID()
+  }
+
+  @column()
+  declare fullName: string | null
+}
 ```
+
+You'll also need a migration for the `auth_users` table backing this model — it isn't
+published by `node ace configure` (that only wires the config/provider/middleware, not
+the schema for a model you own). Columns must match every `@column()` declared above
+plus the two mixins' own (`email`, `password`, `globalRoles`); see
+[Account Store](/docs/account-store) for the full column list.
 
 ### A3. Server config
 
@@ -170,6 +199,13 @@ registerAuthHost(router, {
 One call mounts the provider, the login / consent / signup interaction, password reset, email
 verification, and the account console. See [Host Kit](/docs/host-kit) for the render seam,
 branding, and ejecting.
+
+<Callout type="warn">
+  Using `@adonisjs/shield` (default in the `web` starter kit)? Its CSRF protection blocks
+  `POST {mountPath}/token` unless you exempt it — see the callout in
+  [Getting Started](/docs/getting-started#mount-the-host-manual) for the
+  `authkitCsrfExceptions` snippet.
+</Callout>
 
 ```ts title="start/kernel.ts"
 router.use([
@@ -322,6 +358,12 @@ registerAuthHost(router, {
 
 That single call is the entire IdP: provider endpoints, login / consent / signup, password reset,
 email verification, and the account console.
+
+<Callout type="warn">
+  Using `@adonisjs/shield` on the IdP app? Exempt `POST {mountPath}/token` from CSRF — see
+  the `authkitCsrfExceptions` callout in
+  [Getting Started](/docs/getting-started#mount-the-host-manual).
+</Callout>
 
 ```dotenv title=".env (IdP)"
 AUTHKIT_ISSUER=https://auth.acme.com/oidc

@@ -19,7 +19,7 @@ import {
   type ResolvedBotProtectionConfig,
   resolveBotProtection,
 } from './host/bot_protection.js';
-import type { BrandingConfig } from './host/branding.js';
+import { type BrandingConfig, resolveBranding } from './host/branding.js';
 import {
   deriveLockedRouteOptions,
   deriveLockedSettingKeys,
@@ -1368,7 +1368,8 @@ export interface ResolvedServerConfig {
   render?: AuthHostRenderer;
   /** Recuperação de sessão de interaction perdida resolvida (default `{ mode: 'screen' }`). */
   interactionRecovery: ResolvedInteractionRecoveryConfig;
-  branding?: BrandingConfig;
+  /** Branding resolvido: sempre presente (default neutro quando o host não declara `branding`). */
+  branding: BrandingConfig;
   /**
    * Allowlist resolvida de clients first-party, ou `undefined` quando o host não
    * declarou nenhuma — caso em que todo client registrado é first-party. Ver
@@ -1621,7 +1622,7 @@ export function defineConfig(config: AuthServerConfigInput) {
         mode: config.interactionRecovery?.mode ?? 'screen',
         redirectTo: config.interactionRecovery?.redirectTo,
       },
-      branding: config.branding,
+      branding: resolveBranding(config.branding),
       // `firstPartyClients` manda; `branding.firstParty` é o fallback de
       // back-compat. Nenhum dos dois declarado → `undefined` = sem allowlist.
       firstPartyClients: config.firstPartyClients ?? config.branding?.firstParty,

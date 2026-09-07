@@ -161,7 +161,7 @@ export default class AuthInteractionController {
     const render = cfg.render!;
     const details = await service.interactions.details(ctx);
     const brand = brandFor(
-      cfg.branding!,
+      cfg.branding,
       details.params.client_id as string | undefined,
       details.params.audience as string | undefined,
     );
@@ -195,7 +195,7 @@ export default class AuthInteractionController {
 
     if (
       details.prompt.name === 'consent' &&
-      isFirstParty(cfg.branding!, details.params.client_id as string | undefined)
+      isFirstParty(cfg.branding, details.params.client_id as string | undefined)
     ) {
       // Clients first-party: auto-concede o consent (pula a tela de consent).
       // interactions.consent monta o Grant + interactionFinished e escreve o
@@ -304,7 +304,7 @@ export default class AuthInteractionController {
     const render = cfg.render!;
     const details = await service.interactions.details(ctx);
     const brand = brandFor(
-      cfg.branding!,
+      cfg.branding,
       details.params.client_id as string | undefined,
       details.params.audience as string | undefined,
     );
@@ -592,7 +592,7 @@ export default class AuthInteractionController {
     const render = cfg.render!;
     const details = await service.interactions.details(ctx);
     const brand = brandFor(
-      cfg.branding!,
+      cfg.branding,
       details.params.client_id as string | undefined,
       details.params.audience as string | undefined,
     );
@@ -836,7 +836,7 @@ export default class AuthInteractionController {
     const render = cfg.render!;
     const details = await service.interactions.details(ctx);
     const brand = brandFor(
-      cfg.branding!,
+      cfg.branding,
       details.params.client_id as string | undefined,
       details.params.audience as string | undefined,
     );
@@ -980,7 +980,7 @@ export default class AuthInteractionController {
         step: 'password',
         email: acc.email,
         account: null,
-        brand: brandFor(cfg.branding!, clientId ?? undefined, undefined),
+        brand: brandFor(cfg.branding, clientId ?? undefined, undefined),
         error: translate(cfg.messages, 'errors.invalid_credentials'),
       });
     }
@@ -1005,7 +1005,7 @@ export default class AuthInteractionController {
         step: 'password',
         email: acc.email,
         account: null,
-        brand: brandFor(cfg.branding!, clientId ?? undefined, undefined),
+        brand: brandFor(cfg.branding, clientId ?? undefined, undefined),
         error: translate(cfg.messages, 'errors.email_unverified'),
       });
     }
@@ -1039,7 +1039,7 @@ export default class AuthInteractionController {
         step: 'password',
         email: acc.email,
         account: null,
-        brand: brandFor(cfg.branding!, clientId ?? undefined, undefined),
+        brand: brandFor(cfg.branding, clientId ?? undefined, undefined),
         error: translate(cfg.messages, accountStatusErrorKey(magicLinkStatusGate.reason)),
       });
     }
@@ -1083,7 +1083,7 @@ export default class AuthInteractionController {
     }
 
     const code = String(ctx.request.input('code', '') ?? '').trim();
-    const brand = brandFor(cfg.branding!, clientId ?? undefined, undefined);
+    const brand = brandFor(cfg.branding, clientId ?? undefined, undefined);
     // Mantém a sub-view do seletor no re-render de erro (o form de código pode
     // POSTar `channel=code`). Ausente = both (histórico).
     const channel = normalizeLoginChannel(ctx.request.input('channel'));
@@ -1279,7 +1279,7 @@ export default class AuthInteractionController {
     const render = cfg.render!;
     const details = await service.interactions.details(ctx);
     const brand = brandFor(
-      cfg.branding!,
+      cfg.branding,
       details.params.client_id as string | undefined,
       details.params.audience as string | undefined,
     );
@@ -1479,7 +1479,7 @@ export default class AuthInteractionController {
     const render = cfg.render!;
     const details = await service.interactions.details(ctx);
     const brand = brandFor(
-      cfg.branding!,
+      cfg.branding,
       details.params.client_id as string | undefined,
       details.params.audience as string | undefined,
     );
