@@ -51,7 +51,7 @@ Arquivos: `host/controllers/account_session_controller.ts`, `accounts/lucid_stor
 ## Grupo F — entre-textos (config) + runtime
 Repo `streaming-educacao` + DB prod. (Fora do release da lib.)
 
-- **M12** `apps/entre-textos/config/shield.ts`: habilitar CSP (`default-src 'self'`, `frame-ancestors 'none'`, sem `unsafe-inline` — mover scripts inline das views p/ nonce/arquivo se preciso; começar em report-only se houver risco de quebrar). HSTS `includeSubDomains`.
+- **M12** `apps/entre-textos/config/shield.ts`: habilitar CSP (`default-src 'self'`, `frame-ancestors 'none'`, sem `unsafe-inline`; começar em report-only se houver risco de quebrar). HSTS `includeSubDomains`. **O bloqueador do lado da lib já foi resolvido** (`login.edge`/`mfa-challenge.edge`/`account/confirm.edge`/`account/mfa.edge`/`partials/submit_lock.edge` não têm mais `<script>` inline — migrados p/ assets same-origin em `/authkit/assets/*.js`, mesmo padrão do splash de logout); falta só o toggle + policy neste repo.
 - **L1** `config/shield.ts` + lib `host/csrf.ts`: trocar `url.includes('/api')` por prefixo ancorado; não isentar `/account/api/*` de CSRF.
 - **L7** `config/authkit.ts`: `password: { pepper: env.get('PASSWORD_PEPPER') }` (+ env schema + setar no Guara).
 - **Runtime #1**: registrar `backchannel_logout_uri=https://www.entretextosassessoria.com.br/auth/backchannel-logout` + `backchannel_logout_session_required=true` no client `entre-textos` (via Admin API update de client, ou DB se a API não expuser o campo).
@@ -62,7 +62,6 @@ Repo `streaming-educacao` + DB prod. (Fora do release da lib.)
 - **L2** client_secret plaintext: inerente ao oidc-provider; documentar (DB auth = cofre). Clients atuais são public (`none`), sem secret — risco atual nulo.
 - **L11** SSRF webhook/hashicorp: config estática, não runtime; documentar.
 - **L13** TOTP drift 0: manter estrito.
-- **M9 sudo no admin**: se o wiring de sudo no console for grande demais, deixar TODO + focar em last-admin/audit; reavaliar.
 
 ## Pós-código
 1. changeset (minor authkit-server; patch/minor authkit-react se tipos mudarem). `pnpm changeset version` → merge main → push → CI publica.

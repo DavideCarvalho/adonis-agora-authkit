@@ -4,7 +4,25 @@ import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { apiError, grantDto, sessionDto } from '../admin_api/dto.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
 import { sessionAccountValidator } from '../admin_validators.js';
+import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { enrichSessionsWithContext } from '../session_context.js';
+import { requireSudo } from '../sudo_mode.js';
+
+/**
+ * Gate de sudo (M9): revogar TODAS as sessões/grants de uma conta é
+ * destrutivo (derruba todo device logado, inclusive o próprio, se o alvo for
+ * o admin) — exige reconfirmação recente de identidade. Mesmo padrão de
+ * `console_users_controller.ts` (JSON 403 em vez do redirect que
+ * `requireSudo` monta para telas HTML).
+ */
+async function gateSudo(ctx: HttpContext): Promise<unknown | null> {
+  const settings = await resolveRuntimeSettings(ctx);
+  const result = await requireSudo(ctx, settings);
+  if (result === true) return null;
+  return ctx.response
+    .status(403)
+    .send(apiError('sudo_required', 'Identity confirmation required.'));
+}
 
 /**
  * Endpoints JSON de sessões/grants do console admin React.
@@ -79,6 +97,9 @@ export default class ConsoleSessionsController {
 
   /** POST {prefix}/api/users/:id/revoke-sessions */
   async userRevokeSessions(ctx: HttpContext) {
+    const denied = await gateSudo(ctx);
+    if (denied) return denied;
+
     const accountId = (ctx.params.id as string).trim();
     if (!accountId) {
       return ctx.response.badRequest(apiError('invalid_request', 'O parâmetro id é obrigatório.'));
@@ -110,6 +131,9 @@ export default class ConsoleSessionsController {
 
   /** POST {prefix}/api/sessions/revoke-all?accountId= */
   async revokeAll(ctx: HttpContext) {
+    const denied = await gateSudo(ctx);
+    if (denied) return denied;
+
     const service = await ctx.containerResolver.make('authkit.server');
     const cfg = service.config;
     const actorId = (ctx.session?.get(ACCOUNT_SESSION_KEY) as string) ?? null;

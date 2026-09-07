@@ -10,8 +10,30 @@ import type { RuntimeSettings } from '../runtime_settings.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { resolveEffectiveRolesCatalog } from '../runtime_toggles.js';
 import { enrichSessionsWithContext } from '../session_context.js';
+import { requireSudo } from '../sudo_mode.js';
 
 const PAGE_SIZE = 20;
+
+/**
+ * Gate de sudo (M9) para ações destrutivas do console (delete user, disable,
+ * reset-password): exige confirmação de identidade RECENTE do próprio admin
+ * autenticado (mesma infra usada pelo self-service — `requireSudo` +
+ * `/account/confirm`), não apenas a sessão de admin já autenticada.
+ *
+ * Difere do uso em telas HTML (`account_security_controller`): esta é uma API
+ * JSON consumida pela SPA do console, então o resultado "sudo ausente" vira
+ * 403 JSON em vez de seguir o redirect que `requireSudo` monta internamente
+ * (mesmo padrão de `account_api_controller.ts`, que descarta aquele redirect e
+ * responde o próprio 403).
+ */
+async function gateSudo(ctx: HttpContext): Promise<unknown | null> {
+  const settings = await resolveRuntimeSettings(ctx);
+  const result = await requireSudo(ctx, settings);
+  if (result === true) return null;
+  return ctx.response
+    .status(403)
+    .send(apiError('sudo_required', 'Identity confirmation required.'));
+}
 
 /**
  * Endpoints JSON de usuários do console admin React.
@@ -189,6 +211,10 @@ export default class ConsoleUsersController {
 
   /** POST {prefix}/api/users/:id/disable */
   async disable(ctx: HttpContext) {
+    // Sudo (M9): desabilitar uma conta é destrutivo o bastante para exigir
+    // reconfirmação — mas `enable()` (reverter) não passa por aqui de propósito.
+    const denied = await gateSudo(ctx);
+    if (denied) return denied;
     return this.#setStatus(ctx, true);
   }
 
@@ -227,6 +253,11 @@ export default class ConsoleUsersController {
 
   /** POST {prefix}/api/users/:id/reset-password */
   async resetPassword(ctx: HttpContext) {
+    // Sudo (M9): dispara um e-mail de reset em nome do admin — reconfirmação
+    // recente antes de agir.
+    const denied = await gateSudo(ctx);
+    if (denied) return denied;
+
     const service = await ctx.containerResolver.make('authkit.server');
     const cfg = service.config;
     const actorId = (ctx.session?.get(ACCOUNT_SESSION_KEY) as string) ?? null;
@@ -246,6 +277,11 @@ export default class ConsoleUsersController {
 
   /** DELETE {prefix}/api/users/:id */
   async destroy(ctx: HttpContext) {
+    // Sudo (M9): deleção é irreversível (cascade) — a ação destrutiva por
+    // excelência que o audit apontou sem gate nenhum.
+    const denied = await gateSudo(ctx);
+    if (denied) return denied;
+
     const service = await ctx.containerResolver.make('authkit.server');
     const cfg = service.config;
     const actorId = (ctx.session?.get(ACCOUNT_SESSION_KEY) as string) ?? null;
