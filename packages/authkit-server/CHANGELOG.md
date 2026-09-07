@@ -1,5 +1,13 @@
 # @adonis-agora/authkit-server
 
+## 0.65.2
+
+### Patch Changes
+
+- 527e3c0: Widen the optional `@adonisjs/redis` peer to include `^11.0.0` — apps upgrading to redis 11 no
+  longer hit a peer conflict. No code change: the surface authkit-server touches is unchanged across
+  the major.
+
 ## 0.65.1
 
 ### Patch Changes
