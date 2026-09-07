@@ -16,6 +16,13 @@ const ASSET_PATH = '/authkit/assets/webauthn.js';
 /**
  * Views que fazem o handshake WebAuthn. São exatamente as que importavam o
  * `@simplewebauthn/browser` de `cdn.jsdelivr.net`.
+ *
+ * Desde o M12 (auditoria de segurança) essas views não importam mais o bundle
+ * DIRETAMENTE: o `<script type="module">` inline que fazia `import … from
+ * '/authkit/assets/webauthn.js'` foi extraído para um asset same-origem
+ * próprio (CSP `script-src 'self'` bloqueia script inline sem nonce/hash), e é
+ * ESSE asset que importa o bundle. Ver `WEBAUTHN_ASSET_FILES` abaixo — o
+ * vínculo "sem CDN" agora se prova em dois passos: view → asset → bundle.
  */
 const WEBAUTHN_VIEWS = [
   'login.edge',
@@ -23,6 +30,22 @@ const WEBAUTHN_VIEWS = [
   'account/mfa.edge',
   'account/confirm.edge',
 ];
+
+/**
+ * Assets JS (não mais views) que hoje fazem `import … from '/authkit/assets/webauthn.js'`
+ * — um por fluxo, extraídos das views acima pelo M12. Mora aqui, ao lado de
+ * `WEBAUTHN_VIEWS`, porque as duas listas juntas são o que garante que nenhuma
+ * das quatro telas voltou a depender de um CDN.
+ */
+const WEBAUTHN_ASSET_FILES = [
+  'passkey_autofill.js',
+  'passkey_button.js',
+  'passkey_register.js',
+  'webauthn_confirm.js',
+];
+
+const assetsDir = fileURLToPath(new URL('../../src/host/assets/', import.meta.url));
+const readAsset = (p: string) => readFileSync(assetsDir + p, 'utf8');
 
 /** Todas as views da lib — o teste de anti-regressão de CDN varre o conjunto inteiro. */
 function allViews(dir = viewsDir, prefix = ''): string[] {
@@ -96,6 +119,49 @@ function scanForExternalReferences(files: string[], readFile: (path: string) => 
     for (const [i, line] of readFile(file).split('\n').entries()) {
       if (hasExternalReference(line))
         offenders.push(`${file}:${i + 1}: ${line.trim().slice(0, 160)}`);
+    }
+  }
+  return offenders;
+}
+
+/**
+ * Detecta uma tag de ABERTURA `<script>` SEM atributo `src=` — ou seja,
+ * script INLINE (M12). Um IdP com CSP `script-src 'self'` (sem
+ * `'unsafe-inline'`, sem nonce/hash) bloqueia esse script silenciosamente; foi
+ * exatamente o bug do splash de logout (`0.61.3`) e do bundle WebAuthn/CDN
+ * acima — a mesma classe de regressão, um nível abaixo (não é o DOMÍNIO que
+ * importa aqui, é o script estar ou não INLINE no HTML).
+ *
+ * `</script>` (fechamento) nunca casa com `<script` (o `/` logo depois do `<`
+ * quebra o literal), então não precisa de tratamento especial.
+ */
+function hasInlineScript(line: string): boolean {
+  return /<script\b(?![^>]*\bsrc\s*=)[^>]*>/i.test(line);
+}
+
+/**
+ * Roda `hasInlineScript` linha a linha e devolve os infratores anotados.
+ *
+ * Rastreia comentários Edge `{{-- … --}}` MULTI-LINHA: linhas dentro do bloco
+ * não repetem o marcador de abertura, e um docblock explicando por que um
+ * script virou asset (como o deste próprio arquivo, algumas linhas acima)
+ * menciona `<script>` em prosa, não como markup — sem isto, o docblock vira
+ * falso positivo do próprio teste que ele documenta.
+ */
+function scanForInlineScripts(files: string[], readFile: (path: string) => string): string[] {
+  const offenders: string[] = [];
+  for (const file of files) {
+    let inComment = false;
+    for (const [i, line] of readFile(file).split('\n').entries()) {
+      if (inComment) {
+        if (line.includes('--}}')) inComment = false;
+        continue;
+      }
+      if (line.includes('{{--')) {
+        if (!line.includes('--}}')) inComment = true; // abre e não fecha na mesma linha
+        continue;
+      }
+      if (hasInlineScript(line)) offenders.push(`${file}:${i + 1}: ${line.trim().slice(0, 160)}`);
     }
   }
   return offenders;
@@ -249,9 +315,22 @@ test.group('webauthn asset (bundle npm, sem CDN)', (group) => {
     assert.isBelow(routes.indexOf(route!), wildcard);
   });
 
-  test('as views WebAuthn importam o bundle local', ({ assert }) => {
+  test('os assets WebAuthn (extraídos das views pelo M12) importam o bundle local', ({
+    assert,
+  }) => {
+    for (const asset of WEBAUTHN_ASSET_FILES) {
+      assert.include(readAsset(asset), ASSET_PATH, `${asset} não importa ${ASSET_PATH}`);
+    }
+  });
+
+  test('as views WebAuthn referenciam, cada uma, um asset same-origin (sem script inline)', ({
+    assert,
+  }) => {
+    // view → asset (checado em detalhe por view em `m12_assets.spec.ts`) →
+    // bundle (checado no teste acima). Aqui só a ponta solta: nenhuma das
+    // quatro voltou a ter o import inline que este arquivo testava antes.
     for (const view of WEBAUTHN_VIEWS) {
-      assert.include(read(view), ASSET_PATH, `${view} não importa ${ASSET_PATH}`);
+      assert.notInclude(read(view), `from '${ASSET_PATH}'`, `${view} importa ${ASSET_PATH} inline`);
     }
   });
 
@@ -260,6 +339,24 @@ test.group('webauthn asset (bundle npm, sem CDN)', (group) => {
     // aqui em vez de quebrar o login de quem roda com CSP `script-src 'self'`.
     const offenders = scanForExternalReferences(allViews(), read);
     assert.deepEqual(offenders, [], `views com referência externa:\n${offenders.join('\n')}`);
+  });
+
+  /**
+   * M12 (auditoria de segurança): `login.edge`, `mfa-challenge.edge`,
+   * `account/confirm.edge`, `account/mfa.edge` e `partials/submit_lock.edge`
+   * embutiam `<script>`/`<script type="module">` INLINE — um IdP com CSP
+   * `script-src 'self'` (sem `'unsafe-inline'`, sem nonce/hash — a postura
+   * recomendada num IdP) bloqueia esse script silenciosamente, e a
+   * funcionalidade por trás (autofill/botão de passkey, anti-duplo-submit,
+   * verificação WebAuthn do `/account/confirm`) simplesmente não roda, sem
+   * erro visível. Mesma classe do bug do splash de logout (`0.61.3`): todos
+   * migrados para assets same-origin em `/authkit/assets/*.js`.
+   */
+  test('nenhuma view embute <script> inline sem src (anti-regressão de CSP — M12)', ({
+    assert,
+  }) => {
+    const offenders = scanForInlineScripts(allViews(), read);
+    assert.deepEqual(offenders, [], `views com <script> inline:\n${offenders.join('\n')}`);
   });
 
   /**

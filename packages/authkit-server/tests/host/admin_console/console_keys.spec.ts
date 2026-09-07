@@ -8,6 +8,7 @@ import { adapters, defineConfig } from '../../../src/define_config.js';
 import ConsoleKeysController from '../../../src/host/admin_console/console_keys_controller.js';
 import { ACCOUNT_SESSION_KEY } from '../../../src/host/middleware/account_auth.js';
 import { adminGuard } from '../../../src/host/register_auth_host.js';
+import { SUDO_ACCOUNT_SESSION_KEY, SUDO_SESSION_KEY } from '../../../src/host/sudo_mode.js';
 import { KeystoreCodec } from '../../../src/keys/keystore_codec.js';
 import { KeystoreManager } from '../../../src/keys/keystore_manager.js';
 import { FileKeystoreVault } from '../../../src/keys/keystore_vault.js';
@@ -33,6 +34,12 @@ function fakeCtx(opts: {
   body?: any;
   sessionUserId?: string;
   adminRoles?: string[];
+  /**
+   * Simula sudo mode CONFIRMADO (M9) para este `sessionUserId`. Sem isto,
+   * `ConsoleKeysController.rotate` responde 403 `sudo_required` — ver o teste
+   * dedicado abaixo.
+   */
+  sudoConfirmed?: boolean;
 }) {
   let status = 200;
   let body: any;
@@ -45,6 +52,8 @@ function fakeCtx(opts: {
     request: {
       body: () => opts.body ?? {},
       ip: () => '127.0.0.1',
+      url: () => '/admin/api/keys/rotate',
+      parsedUrl: { search: '' },
     },
     response: {
       status: (s: number) => {
@@ -63,7 +72,13 @@ function fakeCtx(opts: {
       },
     },
     session: {
-      get: (k: string) => (k === ACCOUNT_SESSION_KEY ? opts.sessionUserId : undefined),
+      get: (k: string) => {
+        if (k === ACCOUNT_SESSION_KEY) return opts.sessionUserId;
+        if (!opts.sudoConfirmed || !opts.sessionUserId) return undefined;
+        if (k === SUDO_SESSION_KEY) return Date.now();
+        if (k === SUDO_ACCOUNT_SESSION_KEY) return opts.sessionUserId;
+        return undefined;
+      },
     },
     containerResolver: {
       make: async (key: string) => {
@@ -167,7 +182,9 @@ test.group('Console API /keys (session-authed)', (group) => {
     const before = (await m.read())!;
     const beforeKids = before.keys.map((k: any) => k.kid);
 
-    const rotated: any = await ctrl.rotate(fakeCtx({ service, body: {} }).ctx);
+    const rotated: any = await ctrl.rotate(
+      fakeCtx({ service, body: {}, sessionUserId: 'admin-1', sudoConfirmed: true }).ctx,
+    );
     assert.equal(rotated.rotated, true);
     assert.isString(rotated.newKid);
     assert.notInclude(beforeKids, rotated.newKid);
@@ -186,6 +203,28 @@ test.group('Console API /keys (session-authed)', (group) => {
     await ctrl.rotate(ctx);
     assert.equal(captured.status(), 501);
     assert.equal(captured.body().error.code, 'not_implemented');
+  });
+
+  test('POST {ap}/api/keys/rotate — sudo (M9): sem confirmação recente → 403 sudo_required', async ({
+    assert,
+  }) => {
+    // Capability suportada (managed+store) e sessão de admin válida, mas SEM
+    // sudo confirmado — o gate tem de barrar antes de tocar no keystore.
+    const { service, m } = await makeService(path, 9986);
+    const ctrl = new ConsoleKeysController();
+
+    const before = (await m.read())!;
+    const { ctx, captured } = fakeCtx({ service, body: {}, sessionUserId: 'admin-1' });
+    await ctrl.rotate(ctx);
+
+    assert.equal(captured.status(), 403);
+    assert.equal(captured.body().error.code, 'sudo_required');
+    // Nada rotacionou: o keystore continua como estava.
+    const after = (await m.read())!;
+    assert.deepEqual(
+      after.keys.map((k: any) => k.kid),
+      before.keys.map((k: any) => k.kid),
+    );
   });
 
   // ─── adminGuard barrier ────────────────────────────────────────────────────

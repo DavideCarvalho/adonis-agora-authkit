@@ -21,6 +21,8 @@ import type { AuditSink, StoredAuditEvent } from '../src/audit/audit_sink.js';
 import type { AuthServerConfigInput } from '../src/define_config.js';
 import { adapters, defineConfig, resolveAdmin } from '../src/define_config.js';
 import { checkAdmin } from '../src/doctor/checks.js';
+import { ACCOUNT_SESSION_KEY } from '../src/host/account_session_key.js';
+import { AdminUsersService } from '../src/host/admin_api/admin_users_service.js';
 import ConsoleAuditController from '../src/host/admin_console/console_audit_controller.js';
 import ConsoleClientsController from '../src/host/admin_console/console_clients_controller.js';
 import ConsoleImpersonationController from '../src/host/admin_console/console_impersonation_controller.js';
@@ -33,6 +35,7 @@ import ConsoleSettingsController from '../src/host/admin_console/console_setting
 import ConsoleUsersController from '../src/host/admin_console/console_users_controller.js';
 import { getAdminPrefix, setAdminPrefix } from '../src/host/admin_prefix.js';
 import { registerAuthHost } from '../src/host/register_auth_host.js';
+import { SUDO_ACCOUNT_SESSION_KEY, SUDO_SESSION_KEY } from '../src/host/sudo_mode.js';
 import { withPersonalAccessToken } from '../src/mixins/with_personal_access_token.js';
 import { lucidPatStore } from '../src/pat/lucid_pat_store.js';
 import { OidcService } from '../src/provider/oidc_service.js';
@@ -165,6 +168,13 @@ function fakeCtx(opts: {
   inputs?: Record<string, unknown>;
   params?: Record<string, string>;
   sessionUserId?: string;
+  /**
+   * Simula sudo mode CONFIRMADO (M9) para `sessionUserId`. Sem isto, os
+   * endpoints destrutivos gateados por `requireSudo` (delete user, disable,
+   * reset-password, revoke-sessions) respondem 403 `sudo_required` — ver os
+   * testes dedicados a essa rejeição.
+   */
+  sudoConfirmed?: boolean;
 }) {
   let status = 200;
   let body: any;
@@ -185,6 +195,8 @@ function fakeCtx(opts: {
       host: () => 'localhost',
       body: () => opts.inputs ?? {},
       qs: () => ({}) as Record<string, string>,
+      url: () => '/admin/api/test',
+      parsedUrl: { search: '' },
       // Vine compiled validators expõem `.validate(data)`; valida o body (inputs).
       validateUsing: async (validator: {
         validate: (data: unknown, options: { meta: object }) => Promise<unknown>;
@@ -201,8 +213,20 @@ function fakeCtx(opts: {
       unauthorized: errFn(401),
       badRequest: errFn(400),
       conflict: errFn(409),
+      redirect: (url: string) => {
+        status = 302;
+        return setBody({ redirect: url });
+      },
     },
-    session: { get: (_k: string) => opts.sessionUserId },
+    session: {
+      get: (k: string) => {
+        if (k === ACCOUNT_SESSION_KEY) return opts.sessionUserId;
+        if (!opts.sudoConfirmed || !opts.sessionUserId) return undefined;
+        if (k === SUDO_SESSION_KEY) return Date.now();
+        if (k === SUDO_ACCOUNT_SESSION_KEY) return opts.sessionUserId;
+        return undefined;
+      },
+    },
     containerResolver: { make: async () => opts.service },
   } as any;
   return { ctx, captured: { status: () => status, body: () => body } };
@@ -490,13 +514,41 @@ test.group('Console JSON API — controller unit tests', (group) => {
     const id = created.id;
 
     const ctrl = new ConsoleUsersController();
-    const cDisable = fakeCtx({ service, params: { id } });
+    // Sudo (M9): disable é destrutivo o bastante para exigir confirmação
+    // recente do admin — ver o teste dedicado de rejeição logo abaixo.
+    const cDisable = fakeCtx({
+      service,
+      params: { id },
+      sessionUserId: 'admin-1',
+      sudoConfirmed: true,
+    });
     const disabled: any = await ctrl.disable(cDisable.ctx);
     assert.isTrue(disabled.disabled);
 
+    // enable() (reverter) NÃO é gateado — reabilitar uma conta não é destrutivo.
     const cEnable = fakeCtx({ service, params: { id } });
     const enabled: any = await ctrl.enable(cEnable.ctx);
     assert.isFalse(enabled.disabled);
+  });
+
+  test('POST /api/users/:id/disable — sudo (M9): sem confirmação recente → 403 sudo_required', async ({
+    assert,
+  }) => {
+    const store = new ConsoleUsersController();
+    const c = fakeCtx({ service, inputs: { email: 'dave2@x.com', password: 'pw123' } });
+    const created: any = await store.store(c.ctx);
+    const id = created.id;
+
+    const ctrl = new ConsoleUsersController();
+    // Sessão de admin válida, mas SEM sudo confirmado.
+    const { ctx, captured } = fakeCtx({ service, params: { id }, sessionUserId: 'admin-1' });
+    await ctrl.disable(ctx);
+    assert.equal(captured.status(), 403);
+    assert.equal(captured.body().error.code, 'sudo_required');
+
+    // A conta não foi desabilitada.
+    const users = new AdminUsersService(service.config);
+    assert.isFalse(await users.isDisabled(id));
   });
 
   test('POST /api/users/:id/reset-password → ok', async ({ assert }) => {
@@ -506,10 +558,30 @@ test.group('Console JSON API — controller unit tests', (group) => {
     const id = created.id;
 
     const ctrl = new ConsoleUsersController();
-    const { ctx } = fakeCtx({ service, params: { id } });
+    const { ctx } = fakeCtx({
+      service,
+      params: { id },
+      sessionUserId: 'admin-1',
+      sudoConfirmed: true,
+    });
     const result: any = await ctrl.resetPassword(ctx);
     assert.isTrue(result.ok);
     assert.equal(result.email, 'eve@x.com');
+  });
+
+  test('POST /api/users/:id/reset-password — sudo (M9): sem confirmação recente → 403 sudo_required', async ({
+    assert,
+  }) => {
+    const store = new ConsoleUsersController();
+    const c = fakeCtx({ service, inputs: { email: 'eve2@x.com', password: 'pw123' } });
+    const created: any = await store.store(c.ctx);
+    const id = created.id;
+
+    const ctrl = new ConsoleUsersController();
+    const { ctx, captured } = fakeCtx({ service, params: { id }, sessionUserId: 'admin-1' });
+    await ctrl.resetPassword(ctx);
+    assert.equal(captured.status(), 403);
+    assert.equal(captured.body().error.code, 'sudo_required');
   });
 
   test('DELETE /api/users/:id — store sem deleteAccount → 409 capability_unsupported', async ({
@@ -522,7 +594,12 @@ test.group('Console JSON API — controller unit tests', (group) => {
     const id = created.id;
 
     const ctrl = new ConsoleUsersController();
-    const { ctx, captured } = fakeCtx({ service, params: { id } });
+    const { ctx, captured } = fakeCtx({
+      service,
+      params: { id },
+      sessionUserId: 'admin-1',
+      sudoConfirmed: true,
+    });
     await ctrl.destroy(ctx);
     // Sem suporte à deleção → 409.
     assert.equal(captured.status(), 409);
@@ -534,10 +611,36 @@ test.group('Console JSON API — controller unit tests', (group) => {
     // Quando o store não suporta deleção, retorna 409 antes de checar existência.
     // Quando o store suporta, retorna 404. Aqui o store não suporta → 409.
     const ctrl = new ConsoleUsersController();
-    const { ctx, captured } = fakeCtx({ service, params: { id: 'gone' } });
+    const { ctx, captured } = fakeCtx({
+      service,
+      params: { id: 'gone' },
+      sessionUserId: 'admin-1',
+      sudoConfirmed: true,
+    });
     await ctrl.destroy(ctx);
     // 404 quando conta inexistente E store suporta; 409 quando store não suporta.
     assert.isTrue([404, 409].includes(captured.status()));
+  });
+
+  test('DELETE /api/users/:id — sudo (M9): sem confirmação recente → 403 sudo_required', async ({
+    assert,
+  }) => {
+    const store = new ConsoleUsersController();
+    const c = fakeCtx({ service, inputs: { email: 'frank2@x.com', password: 'pw123' } });
+    const created: any = await store.store(c.ctx);
+    const id = created.id;
+
+    const ctrl = new ConsoleUsersController();
+    // Sessão de admin válida, mas SEM sudo confirmado — o gate barra ANTES do
+    // cascade de deleção rodar.
+    const { ctx, captured } = fakeCtx({ service, params: { id }, sessionUserId: 'admin-1' });
+    await ctrl.destroy(ctx);
+    assert.equal(captured.status(), 403);
+    assert.equal(captured.body().error.code, 'sudo_required');
+
+    // A conta continua existindo.
+    const account = await service.config.accountStore.findById(id);
+    assert.isOk(account, 'a conta não deveria ter sido deletada sem sudo');
   });
 
   // ─── Sessions ──────────────────────────────────────────────────────────────
@@ -578,7 +681,14 @@ test.group('Console JSON API — controller unit tests', (group) => {
     assert,
   }) => {
     const ctrl = new ConsoleSessionsController();
-    const { ctx } = fakeCtx({ service, inputs: { accountId: '' } });
+    // Sudo confirmado para isolar o teste da validação de `accountId` (M9 já
+    // tem teste dedicado de rejeição por falta de sudo, abaixo).
+    const { ctx } = fakeCtx({
+      service,
+      inputs: { accountId: '' },
+      sessionUserId: 'admin-1',
+      sudoConfirmed: true,
+    });
     await assert.rejects(() => ctrl.revokeAll(ctx));
   });
 
@@ -588,11 +698,63 @@ test.group('Console JSON API — controller unit tests', (group) => {
     const created: any = await store.store(c.ctx);
 
     const ctrl = new ConsoleSessionsController();
-    const { ctx } = fakeCtx({ service, inputs: { accountId: created.id } });
+    const { ctx } = fakeCtx({
+      service,
+      inputs: { accountId: created.id },
+      sessionUserId: 'admin-1',
+      sudoConfirmed: true,
+    });
     const result: any = await ctrl.revokeAll(ctx);
     assert.isTrue(result.ok);
     assert.isNumber(result.sessions);
     assert.isNumber(result.grants);
+  });
+
+  test('POST /api/sessions/revoke-all — sudo (M9): sem confirmação recente → 403 sudo_required', async ({
+    assert,
+  }) => {
+    const store = new ConsoleUsersController();
+    const c = fakeCtx({ service, inputs: { email: 'revoke2@x.com', password: 'pw123' } });
+    const created: any = await store.store(c.ctx);
+
+    const ctrl = new ConsoleSessionsController();
+    const { ctx, captured } = fakeCtx({
+      service,
+      inputs: { accountId: created.id },
+      sessionUserId: 'admin-1',
+    });
+    await ctrl.revokeAll(ctx);
+    assert.equal(captured.status(), 403);
+    assert.equal(captured.body().error.code, 'sudo_required');
+  });
+
+  test('POST /api/users/:id/revoke-sessions — sudo (M9): confirmado → ok; sem confirmação → 403', async ({
+    assert,
+  }) => {
+    const store = new ConsoleUsersController();
+    const c = fakeCtx({ service, inputs: { email: 'revoke3@x.com', password: 'pw123' } });
+    const created: any = await store.store(c.ctx);
+    const id = created.id;
+
+    const ctrl = new ConsoleSessionsController();
+
+    // Sem sudo confirmado → 403, nada é revogado.
+    const denied = fakeCtx({ service, params: { id }, sessionUserId: 'admin-1' });
+    denied.ctx.params = { id };
+    await ctrl.userRevokeSessions(denied.ctx);
+    assert.equal(denied.captured.status(), 403);
+    assert.equal(denied.captured.body().error.code, 'sudo_required');
+
+    // Com sudo confirmado → segue normalmente.
+    const allowed = fakeCtx({
+      service,
+      params: { id },
+      sessionUserId: 'admin-1',
+      sudoConfirmed: true,
+    });
+    allowed.ctx.params = { id };
+    const result: any = await ctrl.userRevokeSessions(allowed.ctx);
+    assert.isTrue(result.ok);
   });
 
   // ─── Clients ───────────────────────────────────────────────────────────────

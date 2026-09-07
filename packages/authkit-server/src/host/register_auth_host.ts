@@ -472,6 +472,11 @@ const C = {
   accountConfirm: () => import('./controllers/account_confirm_controller.js'),
   webauthnAsset: () => import('./controllers/webauthn_asset_controller.js'),
   logoutAsset: () => import('./controllers/logout_asset_controller.js'),
+  passkeyAutofillAsset: () => import('./controllers/passkey_autofill_asset_controller.js'),
+  passkeyButtonAsset: () => import('./controllers/passkey_button_asset_controller.js'),
+  passkeyRegisterAsset: () => import('./controllers/passkey_register_asset_controller.js'),
+  webauthnConfirmAsset: () => import('./controllers/webauthn_confirm_asset_controller.js'),
+  submitLockAsset: () => import('./controllers/submit_lock_asset_controller.js'),
   // Console React JSON API (session-authed, under {prefix}/api/*).
   consoleShell: () => import('./admin_console/admin_shell_controller.js'),
   consoleOverview: () => import('./admin_console/console_overview_controller.js'),
@@ -696,6 +701,22 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
   // pode usar script inline: o CSP bloqueia sem nonce/hash e o logout fica
   // preso em "Saindo / Encerrando sua sessão…".
   router.get('/authkit/assets/logout.js', [C.logoutAsset]).as('authkit.assets.logout');
+  // M12: as views abaixo embutiam `<script type="module">`/`<script>` INLINE
+  // — bloqueado por CSP `script-src 'self'` sem nonce/hash, mesmo bug do
+  // logout acima. Mesmo tratamento: extraídos para assets same-origin.
+  router
+    .get('/authkit/assets/passkey_autofill.js', [C.passkeyAutofillAsset])
+    .as('authkit.assets.passkeyAutofill');
+  router
+    .get('/authkit/assets/passkey_button.js', [C.passkeyButtonAsset])
+    .as('authkit.assets.passkeyButton');
+  router
+    .get('/authkit/assets/passkey_register.js', [C.passkeyRegisterAsset])
+    .as('authkit.assets.passkeyRegister');
+  router
+    .get('/authkit/assets/webauthn_confirm.js', [C.webauthnConfirmAsset])
+    .as('authkit.assets.webauthnConfirm');
+  router.get('/authkit/assets/submit_lock.js', [C.submitLockAsset]).as('authkit.assets.submitLock');
 
   // Provider OIDC (wildcard + root) — o que registerOidcRoutes fazia.
   router.any(`${mount}/*`, [C.oidc]).as('authkit.oidc.wildcard');

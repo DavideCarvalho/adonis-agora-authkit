@@ -3,9 +3,25 @@ import type { HttpContext } from '@adonisjs/core/http';
 import { apiError } from '../admin_api/dto.js';
 import { buildKeysStatus, rotateNow } from '../key_rotation_actions.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
+import { requireSudo } from '../sudo_mode.js';
 
 function notSupported(ctx: HttpContext) {
   return ctx.response.status(501).send(apiError('not_implemented', 'jwks não é managed+store.'));
+}
+
+/**
+ * Gate de sudo (M9): rotacionar a chave de assinatura managed é destrutivo o
+ * bastante (invalida tokens/JWKS na hora, dependendo da política de retire)
+ * para exigir reconfirmação recente de identidade — mesmo padrão JSON 403 de
+ * `console_users_controller.ts`/`console_sessions_controller.ts`.
+ */
+async function gateSudo(ctx: HttpContext): Promise<unknown | null> {
+  const settings = await resolveRuntimeSettings(ctx);
+  const result = await requireSudo(ctx, settings);
+  if (result === true) return null;
+  return ctx.response
+    .status(403)
+    .send(apiError('sudo_required', 'Identity confirmation required.'));
 }
 
 /**
@@ -39,6 +55,8 @@ export default class ConsoleKeysController {
     ) {
       return notSupported(ctx);
     }
+    const denied = await gateSudo(ctx);
+    if (denied) return denied;
     return rotateNow(svc, ctx.request.body() as any);
   }
 }

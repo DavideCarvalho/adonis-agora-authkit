@@ -443,7 +443,9 @@ test.group('views edge com accountRoutes', (group) => {
     return edge;
   }
 
-  test('mfa.edge usa os paths novos nos forms E nos fetch()', async ({ assert }) => {
+  test('mfa.edge usa os paths novos nos forms E nos data-* do botão de passkey', async ({
+    assert,
+  }) => {
     setAccountPaths(PT);
     const edge = makeEdge();
     const html = await edge.render('authkit::account/mfa', {
@@ -458,9 +460,12 @@ test.group('views edge com accountRoutes', (group) => {
     // logout: sempre presente).
     assert.include(html, 'action="/conta/mfa/enroll"');
     assert.include(html, 'action="/conta/logout"');
-    // Os fetch() client-side (options + verify) no path novo.
-    assert.include(html, "fetch('/conta/mfa/passkeys/options'");
-    assert.include(html, "fetch('/conta/mfa/passkeys/verify'");
+    // Os fetch() client-side (options + verify) migraram para o asset
+    // `passkey_register.js` (M12: script inline bloqueado por CSP
+    // `script-src 'self'`) — a view carrega as URLs via `data-*` no botão
+    // `#passkey-add`, que o Edge escapa como atributo HTML.
+    assert.include(html, 'data-options-url="/conta/mfa/passkeys/options"');
+    assert.include(html, 'data-verify-url="/conta/mfa/passkeys/verify"');
     // Nenhum resquício do path antigo.
     assert.notInclude(html, '/account/mfa');
   });
@@ -474,6 +479,6 @@ test.group('views edge com accountRoutes', (group) => {
       passkeysSupported: true,
       passkeys: [],
     });
-    assert.include(html, "fetch('/account/mfa/passkeys/verify'");
+    assert.include(html, 'data-verify-url="/account/mfa/passkeys/verify"');
   });
 });
