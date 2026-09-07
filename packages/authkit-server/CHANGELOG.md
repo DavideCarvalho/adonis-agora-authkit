@@ -1,5 +1,25 @@
 # @adonis-agora/authkit-server
 
+## 0.65.3
+
+### Patch Changes
+
+- dcb3408: O `AuthUser` publicado por `node ace configure @adonis-agora/authkit-server` (`models/auth_user.stub`) — e o modelo mínimo mostrado em getting-started/quickstart/account-store — produzia contas quebradas. Dois problemas compunham: (a) nem `withAuthUser()` nem `withCredentials()` geram o `id`, então sem um hook `@beforeCreate` o Lucid insere `NULL` na coluna string `id` e a conta volta com o rowid interno do banco em vez de um id real, tornando-a inalcançável na request seguinte; (b) a tela de signup embutida sempre coleta um campo "Nome" que o Lucid store passa direto para `AuthUser.create({ fullName, ... })`, e sem essa coluna o primeiro signup quebra.
+  
+  O stub agora inclui `@beforeCreate() assignUuid` (gera um `randomUUID()`) e a coluna `fullName: string | null`. Os docs (`starter.mdx`, `account-store.mdx`) foram atualizados para mostrar o mesmo modelo completo, com uma nota explicando por que cada peça é necessária.
+- 837027f: Completa o fix do `AuthUser` scaffoldado (ver changeset anterior, "auth-user-stub-id-fullname"): mesmo com o stub do model corrigido, um host seguindo o getting-started ao pé da letra ainda batia em `SqliteError: no such table: auth_users` (ou o equivalente Postgres) no primeiro signup/login, porque `node ace configure` nunca publicava uma migration para essa tabela — só o model.
+  
+  - `node ace configure @adonis-agora/authkit-server` agora também scaffolda `database/migrations/<timestamp>_create_auth_users_table.ts`, com exatamente as colunas que `models/auth_user.stub` e os mixins `withAuthUser`/`withCredentials` esperam (`id` string não auto-increment, `email` único, `password`, `global_roles`, as quatro colunas de `withCredentials`, `full_name`).
+  - Corrigido um segundo bug, descoberto pelo novo teste e2e desta mudança: o stub do model tinha o hook `@beforeCreate` que atribui o `randomUUID()`, mas faltava `static selfAssignPrimaryKey = true` — sem essa flag o Lucid sobrescrevia silenciosamente o id atribuído pelo hook com o retorno bruto do INSERT (o rowid interno do SQLite) assim que a linha era salva, reproduzindo exatamente a mesma falha ("conta inalcançável pelo id real na request seguinte") que o hook deveria ter resolvido.
+  - `docs/starter.mdx` e `docs/account-store.mdx` agora mostram a migration completa lado a lado com o model, e o texto do model foi atualizado com a flag `selfAssignPrimaryKey`.
+  - Novos testes: `tests/configure.spec.ts` passa a asserir o conteúdo da migration scaffoldada (e o `selfAssignPrimaryKey` no model), e `tests/e2e/scaffolded_auth_users_migration.spec.ts` roda a migration real contra um SQLite em memória e exercita signup → login, reset de senha e verificação de e-mail de ponta a ponta pelo `lucidAccountStore`.
+- dcb3408: As telas built-in de login/consent/signup crashavam com `TypeError: Cannot read properties of undefined (reading 'clients')` quando o host não declarava `branding` no `defineConfig` — a config MÍNIMA que getting-started, quickstart e reference documentam. `branding` é tipado opcional, mas o interaction controller (e o registration controller) liam `cfg.branding!.clients`/`cfg.branding!.default` incondicionalmente, sem nenhum default aplicado na resolução do config.
+  
+  Adicionado `resolveBranding` (`src/host/branding.ts`), seguindo o mesmo padrão já usado para as demais seções opcionais do config (`resolveRateLimit`, `resolveLockout`, `resolveAdmin`, etc.): quando o host não declara `branding`, `defineConfig` agora resolve um `BrandingConfig` default neutro (`clients: {}`, `firstParty: []`, um `default` de tema genérico) em vez de deixar o campo `undefined`. `ResolvedServerConfig.branding` deixou de ser opcional — está sempre presente após a resolução.
+- dcb3408: Hosts montando `registerAuthHost` atrás do `@adonisjs/shield` (CSRF ligado por default no `web` starter kit) tomavam a negação HTML de CSRF em `POST {mountPath}/token` em vez da resposta JSON — `exchangeCode()` no client quebrava com `SyntaxError: Unexpected token '<' ... is not valid JSON`. O helper exportado `authkitCsrfExceptions` (que resolve exatamente essa isenção, acompanhando o `mountPath` real) já existia, mas não era mencionado em nenhum doc de getting-started/quickstart, nem citado pelo nome no aviso do `authkit:doctor` (`checkShield`) — só um lembrete genérico de "coloque as rotas do IdP nas exceções de CSRF".
+  
+  Adicionado um callout proeminente com um snippet copy-paste em getting-started.mdx (e starter.mdx) logo onde `registerAuthHost` é introduzido, e a mensagem de `checkShield` agora referencia `authkitCsrfExceptions` pelo nome. Adicionado um teste (`tests/host/csrf.spec.ts`) que registra as rotas reais via `registerAuthHost` e verifica que `authkitCsrfExceptions` cobre exatamente o `mountPath` do provider (e nenhuma rota interativa de `/auth/interaction/*`), para que o helper não saia de sincronia com o que a lib efetivamente monta.
+
 ## 0.65.2
 
 ### Patch Changes
