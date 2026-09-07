@@ -36,6 +36,18 @@ export async function configure(command: Configure) {
   // o allowlist `views` já preenchido — evitando SSR crash por páginas inexistentes.
   const configStub = preset === 'react' ? 'config/authkit_react.stub' : 'config/authkit.stub';
   await codemods.makeUsingStub(stubsRoot, configStub, {});
+  // A tabela do model scaffoldado logo abaixo (`auth_users`) não é gerenciada
+  // por `ensureAuthkitSchema()` — ela é HOST-owned de propósito (nome/shape
+  // são decisão do host), então sem esta migration o primeiro signup/login
+  // quebra com "no such table: auth_users" (ou equivalente Postgres). Ver
+  // packages/authkit-server/stubs/migrations/create_auth_users_table.stub.
+  await codemods.makeUsingStub(stubsRoot, 'migrations/create_auth_users_table.stub', {
+    entity: command.app.generators.createEntity('auth_users'),
+    migration: {
+      folder: 'database/migrations',
+      fileName: `${Date.now()}_create_auth_users_table.ts`,
+    },
+  });
   await codemods.makeUsingStub(stubsRoot, 'models/auth_user.stub', {});
   for (const path of uiStubPaths(preset)) {
     await codemods.makeUsingStub(stubsRoot, path, {});

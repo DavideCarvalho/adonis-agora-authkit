@@ -18,6 +18,14 @@ import { withAuthUser, withCredentials } from '@adonis-agora/authkit-server'
  * (e aponte as migrations correspondentes para essa conexão).
  */
 export default class AuthUser extends compose(BaseModel, withAuthUser(), withCredentials()) {
+  /**
+   * Sem isto, o Lucid ignora o id atribuído pelo hook abaixo e sobrescreve
+   * `id` com o retorno bruto do INSERT (o rowid interno do SQLite/Postgres)
+   * assim que a linha é salva — mesmo resultado prático de não ter o hook: a
+   * conta some do próprio id que acabou de criar.
+   */
+  static selfAssignPrimaryKey = true
+
   @column({ isPrimary: true })
   declare id: string
 
