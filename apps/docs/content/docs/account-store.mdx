@@ -550,12 +550,26 @@ store expects:
 
 None of the mixins declare an `id` column or a `fullName` column, and both are required:
 
-- **`id`** needs a `@beforeCreate` hook assigning a real value (e.g. `randomUUID()`).
-  Without one, Lucid inserts `NULL` for this string column and the model's `id` comes
-  back as the database's internal auto-increment rowid — the account becomes
-  unreachable by its real id on the very next request.
+- **`id`** needs a `@beforeCreate` hook assigning a real value (e.g. `randomUUID()`)
+  **and** `static selfAssignPrimaryKey = true`. Without the hook, Lucid inserts `NULL`
+  for this string column. Without the flag, Lucid still overwrites the id the hook just
+  assigned with whatever the raw INSERT returns (the database's internal auto-increment
+  rowid) the instant the row is saved. Either way the account becomes unreachable by its
+  real id on the very next request.
 - **`fullName`** is required because the built-in signup screen always collects a
   "Name" field, and the Lucid store passes it straight to `AuthUser.create()`.
+
+`node ace configure @adonis-agora/authkit-server` scaffolds both the model below **and**
+a matching migration at `database/migrations/<timestamp>_create_auth_users_table.ts` —
+run `node ace migration:run` once before the first signup. Its columns are exactly the
+ones this page documents: `id` (string primary key, not auto-increment — the
+`@beforeCreate` hook needs somewhere to put the UUID), `email` (unique), `password`,
+`global_roles` (JSON, defaults to `[]`), the four `withCredentials` columns
+(`email_verified_at`, `email_verification_token`, `password_reset_token`,
+`password_reset_expires_at`), and `full_name`. If you add your own `@column()`s to
+`AuthUser` (e.g. `disabled_at` for `AccountStatusCapability`, `avatar_url` for
+`ProfileCapability`), extend that migration yourself with an `alterTable` — `node
+ace configure` only scaffolds the columns the minimal `AuthUser` needs.
 
 ```ts title="app/models/auth_user.ts"
 import { randomUUID } from 'node:crypto'
@@ -569,6 +583,8 @@ export default class AuthUser extends compose(
   withCredentials(),
   withMfa()
 ) {
+  static selfAssignPrimaryKey = true
+
   @column({ isPrimary: true })
   declare id: string
 

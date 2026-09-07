@@ -47,10 +47,11 @@ Compose an `AuthUser` from the mixins so the Lucid store has the columns it need
 the mixins do **not** provide, and that you must add yourself:
 
 - **A primary key.** Neither `withAuthUser()` nor `withCredentials()` declares an `id`
-  column or generates one — without a `@beforeCreate` hook assigning a real id, Lucid
-  inserts `NULL` and the model's `id` comes back as the database's internal
-  auto-increment rowid instead of a stable identifier, making the account unreachable by
-  its real id on the very next request.
+  column or generates one — without a `@beforeCreate` hook assigning a real id **and**
+  `static selfAssignPrimaryKey = true`, Lucid inserts `NULL` for the `id` column, or
+  (with only the hook) silently overwrites the id you just assigned with the
+  database's internal auto-increment rowid right after the insert — either way the
+  account is unreachable by its real id on the very next request.
 - **`fullName`.** The built-in signup screen collects a "Name" field, and the Lucid
   store passes it straight to `AuthUser.create()` — omit this column and the first
   signup throws `Cannot define "fullName" on "AuthUser" model, since it is not defined
@@ -67,6 +68,8 @@ export default class AuthUser extends compose(
   withAuthUser(),
   withCredentials()
 ) {
+  static selfAssignPrimaryKey = true
+
   @column({ isPrimary: true })
   declare id: string
 
@@ -80,11 +83,42 @@ export default class AuthUser extends compose(
 }
 ```
 
-You'll also need a migration for the `auth_users` table backing this model — it isn't
-published by `node ace configure` (that only wires the config/provider/middleware, not
-the schema for a model you own). Columns must match every `@column()` declared above
-plus the two mixins' own (`email`, `password`, `globalRoles`); see
-[Account Store](/docs/account-store) for the full column list.
+`node ace configure @adonis-agora/authkit-server` also scaffolds the migration for the
+`auth_users` table backing this model, at
+`database/migrations/<timestamp>_create_auth_users_table.ts`. Its columns match every
+`@column()` declared above plus the two mixins' own (`email`, `password`,
+`global_roles`) — run `node ace migration:run` before your first signup. See
+[Account Store](/docs/account-store) for the full column list, and add your own
+migration for any extra column your own `@column()` declarations introduce later.
+
+```ts title="database/migrations/xxxx_create_auth_users_table.ts"
+import { BaseSchema } from '@adonisjs/lucid/schema'
+
+export default class extends BaseSchema {
+  protected tableName = 'auth_users'
+
+  async up() {
+    this.schema.createTable(this.tableName, (table) => {
+      table.string('id').notNullable().primary()
+
+      table.string('email').notNullable().unique()
+      table.string('password').notNullable()
+      table.json('global_roles').notNullable().defaultTo('[]')
+
+      table.timestamp('email_verified_at', { useTz: true }).nullable()
+      table.string('email_verification_token').nullable()
+      table.string('password_reset_token').nullable()
+      table.timestamp('password_reset_expires_at', { useTz: true }).nullable()
+
+      table.string('full_name').nullable()
+    })
+  }
+
+  async down() {
+    this.schema.dropTable(this.tableName)
+  }
+}
+```
 
 ### A3. Server config
 
