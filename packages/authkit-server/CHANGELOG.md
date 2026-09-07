@@ -1,5 +1,18 @@
 # @adonis-agora/authkit-server
 
+## 0.65.1
+
+### Patch Changes
+
+- 8ff1e99: Ações destrutivas do console admin (delete user, disable, reset-password, revoke-sessions, rotate da chave de assinatura managed) não exigiam sudo/reautenticação recente — só a sessão de admin já autenticada. Um admin com a sessão sequestrada (XSS, cookie roubado, aba esquecida logada) podia executá-las direto, sem reconfirmar a própria identidade.
+  
+  `ConsoleUsersController` (`disable`, `resetPassword`, `destroy`), `ConsoleSessionsController` (`revokeAll`, `userRevokeSessions`) e `ConsoleKeysController` (`rotate`) agora exigem sudo recente via `requireSudo` — a mesma infraestrutura (`/account/confirm`) já usada pelo self-service da própria conta. Sem sudo confirmado, a API JSON responde `403 sudo_required` em vez de seguir a ação (mesmo padrão do `account/api` self-service). `enable()` (reverter um disable) continua sem gate — reabilitar uma conta não é destrutivo.
+  
+  A REST Admin API (Bearer, server-to-server) fica de fora deste fix: sudo é um conceito de sessão de browser (confirmação de identidade recente do usuário), sem equivalente natural para uma API key — inventar um mecanismo novo ali é decisão em aberto, não wiring da infra existente.
+- 8ff1e99: `login.edge`, `mfa-challenge.edge`, `account/confirm.edge`, `account/mfa.edge` e `partials/submit_lock.edge` embutiam `<script>`/`<script type="module">` **inline** (autofill/botão de passkey, verificação WebAuthn do `/account/confirm`, anti-duplo-submit). Hosts com CSP restritivo (`script-src 'self'`, sem `'unsafe-inline'`, sem nonce/hash — a postura recomendada num IdP) bloqueiam esses scripts silenciosamente: os botões de passkey não fazem nada e a trava anti-duplo-submit não liga, sem erro visível.
+  
+  Os cinco scripts agora são servidos como assets same-origin em `/authkit/assets/{passkey_autofill,passkey_button,passkey_register,webauthn_confirm,submit_lock}.js` (permitidos por `'self'`, sem depender de nonce/hash), seguindo o padrão já usado pelo splash de logout (`/authkit/assets/logout.js`, `0.61.3`) e pelo bundle WebAuthn (`/authkit/assets/webauthn.js`). Valores por-request (URLs de options/verify, csrf) passam a ir em atributos `data-*` HTML-escapados pelo Edge, em vez de interpolados dentro do `<script>`. `registerAuthHost` registra as novas rotas automaticamente — hosts que atualizarem a lib ganham os assets sem mudança de código.
+
 ## 0.65.0
 
 ### Minor Changes
