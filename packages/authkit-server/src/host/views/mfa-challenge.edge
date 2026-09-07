@@ -43,7 +43,8 @@
     @if(passkeyAvailable && !noEnrollment)
       {{-- Passkey como alternativa ao código TOTP. O form é submetido por página
            inteira (não fetch) para que o 303 de volta ao client navegue o browser. --}}
-      <form id="passkey-form" method="POST" action="/auth/interaction/{{ uid }}/passkey/verify" class="mt-4">
+      <form id="passkey-form" method="POST" action="/auth/interaction/{{ uid }}/passkey/verify"
+        data-options-url="/auth/interaction/{{ uid }}/passkey/options" class="mt-4">
         <input type="hidden" name="_csrf" value="{{ csrfToken }}">
         <input type="hidden" name="response" id="passkey-response">
         <input type="hidden" name="trustDevice" id="passkey-trust" value="">
@@ -72,37 +73,8 @@
   </div>
 
   @if(passkeyAvailable)
-    <script type="module">
-      import { startAuthentication } from '/authkit/assets/webauthn.js'
-      const btn = document.getElementById('passkey-button')
-      const errEl = document.getElementById('passkey-error')
-      const csrf = document.querySelector('#passkey-form input[name="_csrf"]').value
-      btn?.addEventListener('click', async () => {
-        errEl.classList.add('hidden')
-        btn.disabled = true
-        try {
-          // 1) Busca as opções de autenticação (challenge guardado na sessão server-side).
-          const res = await fetch('/auth/interaction/{{ uid }}/passkey/options', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
-            body: JSON.stringify({}),
-          })
-          if (!res.ok) throw new Error('options')
-          const optionsJSON = await res.json()
-          // 2) Cerimônia no authenticator.
-          const assertion = await startAuthentication({ optionsJSON })
-          // 3) Submete a assertion como POST de página inteira (segue o 303).
-          document.getElementById('passkey-response').value = JSON.stringify(assertion)
-          // Carrega a escolha de "confiar neste dispositivo" para o form da passkey.
-          const trustChk = document.querySelector('input[name="trustDevice"][type="checkbox"]')
-          const trustHidden = document.getElementById('passkey-trust')
-          if (trustHidden) trustHidden.value = trustChk && trustChk.checked ? 'on' : ''
-          document.getElementById('passkey-form').submit()
-        } catch (e) {
-          errEl.classList.remove('hidden')
-          btn.disabled = false
-        }
-      })
-    </script>
+    {{-- M12: script inline sem nonce é bloqueado por CSP `script-src 'self'` — extraído
+         para asset same-origin (compartilhado com login.edge). --}}
+    <script type="module" src="/authkit/assets/passkey_button.js"></script>
   @end
 </body></html>

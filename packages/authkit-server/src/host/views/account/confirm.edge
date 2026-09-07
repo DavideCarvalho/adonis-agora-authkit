@@ -98,40 +98,9 @@
     é emitido quando existe ao menos um bloco desses na tela.
   --}}
   @if(methods && methods.some((m) => m.kind === 'webauthn'))
-    <script type="module">
-      import { startAuthentication } from '/authkit/assets/webauthn.js'
-
-      for (const block of document.querySelectorAll('[data-authkit-webauthn]')) {
-        const form = block.querySelector('[data-webauthn-form]')
-        const field = block.querySelector('[data-webauthn-response]')
-        const errorBox = block.querySelector('[data-webauthn-error]')
-
-        block.querySelector('[data-webauthn-start]')?.addEventListener('click', async () => {
-          try {
-            // Endpoint de options DERIVADO do descritor, não hardcoded.
-            const optionsResponse = await fetch(form.getAttribute('action') + '/options', {
-              method: 'POST',
-              headers: { 'x-csrf-token': form.querySelector('input[name="_csrf"]').value },
-            })
-            if (!optionsResponse.ok) throw new Error('authkit: options recusadas')
-
-            const optionsJSON = await optionsResponse.json()
-            const assertion = await startAuthentication({ optionsJSON })
-            // O handler lê `request.input('response')` como STRING e faz
-            // JSON.parse — daí o stringify aqui.
-            field.value = JSON.stringify(assertion)
-            form.submit()
-          } catch (error) {
-            // Falha no handshake (usuário cancelou, options recusadas, sem
-            // autenticador). Sem esta mensagem o botão simplesmente não faz
-            // nada e o usuário não tem como saber que deve tentar outro método.
-            console.error(error)
-            errorBox.textContent = errorBox.getAttribute('data-message')
-            errorBox.classList.remove('hidden')
-          }
-        })
-      }
-    </script>
+    {{-- M12: script inline sem nonce é bloqueado por CSP `script-src 'self'` — extraído
+         para asset same-origin (mesmo tratamento do bundle WebAuthn/splash de logout). --}}
+    <script type="module" src="/authkit/assets/webauthn_confirm.js"></script>
   @end
 </body>
 </html>

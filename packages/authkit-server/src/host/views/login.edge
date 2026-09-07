@@ -70,49 +70,14 @@
            Sucesso → submete o verify e completa o login sem precisar da senha.
            Fail-safe total: browser sem suporte, abort ou erro = silêncio, login normal segue. --}}
       @if(authMethods && authMethods.passkeyAutofill && authMethods.passkey)
-        <form id="autofill-passkey-form" method="POST" action="/auth/interaction/{{ uid }}/passkey/verify" class="hidden">
+        <form id="autofill-passkey-form" method="POST" action="/auth/interaction/{{ uid }}/passkey/verify"
+          data-options-url="/auth/interaction/{{ uid }}/passkey/options" class="hidden">
           <input type="hidden" name="_csrf" value="{{ csrfToken }}">
           <input type="hidden" name="response" id="autofill-passkey-response">
         </form>
-        <script type="module">
-          (async () => {
-            try {
-              // SSR-safe: só roda no browser.
-              if (typeof window === 'undefined' || typeof navigator === 'undefined') return
-              if (!window.PublicKeyCredential) return
-              // Detecta suporte a conditional mediation.
-              const supported = await PublicKeyCredential.isConditionalMediationAvailable?.()
-              if (!supported) return
-
-              const { startAuthentication } = await import('/authkit/assets/webauthn.js')
-              const csrf = document.querySelector('input[name="_csrf"]')?.value ?? ''
-              const optRes = await fetch('/auth/interaction/{{ uid }}/passkey/options', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
-                body: JSON.stringify({}),
-              })
-              if (!optRes.ok) return
-              const optionsJSON = await optRes.json()
-              // Remove flag interna antes de passar ao browser.
-              delete optionsJSON._discoverable
-
-              // AbortController: cancela ao navegar/desmontar.
-              const ac = new AbortController()
-              window.addEventListener('beforeunload', () => ac.abort(), { once: true })
-
-              const assertion = await startAuthentication({
-                optionsJSON,
-                useBrowserAutofill: true,
-                verifyBrowserAutofillInput: true,
-              }, ac.signal)
-
-              document.getElementById('autofill-passkey-response').value = JSON.stringify(assertion)
-              document.getElementById('autofill-passkey-form').submit()
-            } catch {
-              // Fail-safe: abort, suporte ausente ou qualquer erro = login normal.
-            }
-          })()
-        </script>
+        {{-- M12: script inline sem nonce é bloqueado por CSP `script-src 'self'` — extraído
+             para asset same-origin (mesmo tratamento do bundle WebAuthn/splash de logout). --}}
+        <script type="module" src="/authkit/assets/passkey_autofill.js"></script>
       @end
     </div>
   @else
@@ -233,7 +198,8 @@
       {{-- Passwordless: "entrar com passkey" ANTES da senha. Reusa as cerimônias
            de passkey do MFA (begin/finish) liberadas no estágio de senha. --}}
       @if(passkeyFirstAvailable)
-        <form id="passkey-form" method="POST" action="/auth/interaction/{{ uid }}/passkey/verify" class="mt-4">
+        <form id="passkey-form" method="POST" action="/auth/interaction/{{ uid }}/passkey/verify"
+          data-options-url="/auth/interaction/{{ uid }}/passkey/options" class="mt-4">
           <input type="hidden" name="_csrf" value="{{ csrfToken }}">
           <input type="hidden" name="response" id="passkey-response">
         </form>
@@ -242,31 +208,9 @@
           {{ t('login.passkey_button') }}
         </button>
         <p id="passkey-error" class="mt-3 hidden text-sm text-red-600">{{ t('mfa_challenge.passkey_error') }}</p>
-        <script type="module">
-          import { startAuthentication } from '/authkit/assets/webauthn.js'
-          const btn = document.getElementById('passkey-button')
-          const errEl = document.getElementById('passkey-error')
-          const csrf = document.querySelector('#passkey-form input[name="_csrf"]').value
-          btn?.addEventListener('click', async () => {
-            errEl.classList.add('hidden')
-            btn.disabled = true
-            try {
-              const res = await fetch('/auth/interaction/{{ uid }}/passkey/options', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json', 'x-csrf-token': csrf },
-                body: JSON.stringify({}),
-              })
-              if (!res.ok) throw new Error('options')
-              const optionsJSON = await res.json()
-              const assertion = await startAuthentication({ optionsJSON })
-              document.getElementById('passkey-response').value = JSON.stringify(assertion)
-              document.getElementById('passkey-form').submit()
-            } catch (e) {
-              errEl.classList.remove('hidden')
-              btn.disabled = false
-            }
-          })
-        </script>
+        {{-- M12: script inline sem nonce é bloqueado por CSP `script-src 'self'` — extraído
+             para asset same-origin (compartilhado com mfa-challenge.edge). --}}
+        <script type="module" src="/authkit/assets/passkey_button.js"></script>
       @end
     </div>
   @end

@@ -23,22 +23,12 @@
 
   Incluído view a view (não no partial de styles, que é GERADO por
   scripts/build_host_css.mjs e sobrescreveria a linha).
+
+  M12: era `<script>` INLINE — bloqueado por CSP `script-src 'self'` sem
+  nonce/hash (mesmo bug do splash de logout). Extraído para asset same-origin;
+  o texto do script não mudou, só o lugar onde mora.
 --}}
-<script>
-  document.addEventListener('submit', function (event) {
-    const form = event.target
-    if (!(form instanceof HTMLFormElement)) return
-    setTimeout(function () {
-      if (event.defaultPrevented) return
-      form
-        .querySelectorAll('button[type="submit"], button:not([type]), input[type="submit"]')
-        .forEach(function (el) {
-          el.disabled = true
-        })
-      form.setAttribute('aria-busy', 'true')
-    }, 0)
-  })
-</script>
+<script src="/authkit/assets/submit_lock.js"></script>
 <style>
   form[aria-busy] button[type='submit'],
   form[aria-busy] button:not([type]),

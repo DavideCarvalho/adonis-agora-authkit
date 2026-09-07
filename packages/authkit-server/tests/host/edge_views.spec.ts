@@ -76,11 +76,25 @@ test.group('edge views (lib-owned)', () => {
         `falta o partial submit_lock em ${v}`,
       );
     }
-    // O partial existe e carrega o listener delegado + a marca aria-busy.
+    // O partial existe e carrega o asset same-origin (M12: script inline foi
+    // extraído — CSP `script-src 'self'` bloqueia `<script>` sem nonce/hash) +
+    // a marca aria-busy.
     const partial = read('partials/submit_lock.edge');
-    assert.include(partial, "document.addEventListener('submit'");
+    assert.include(partial, '<script src="/authkit/assets/submit_lock.js"></script>');
     assert.include(partial, 'aria-busy');
-    assert.include(partial, 'defaultPrevented');
+    assert.notInclude(
+      partial,
+      "document.addEventListener('submit'",
+      'script deveria ter saído do partial inline',
+    );
+
+    // O listener delegado em si mora no asset extraído.
+    const asset = readFileSync(
+      fileURLToPath(new URL('../../src/host/assets/submit_lock.js', import.meta.url)),
+      'utf8',
+    );
+    assert.include(asset, "document.addEventListener('submit'");
+    assert.include(asset, 'defaultPrevented');
   });
 
   test('throttled.edge renderiza com e sem retryAfter', async ({ assert }) => {
@@ -442,17 +456,29 @@ test.group('account/confirm.edge (SPI de métodos de sudo)', () => {
     // O campo que o handler lê. Sem ele o POST é inútil.
     assert.include(html, 'name="response"');
     assert.include(html, 'data-webauthn-response');
-    // O JS que preenche esse campo. O import é do bundle servido pelo próprio
-    // host (`/authkit/assets/webauthn.js`) — NÃO de CDN público.
-    assert.include(html, '/authkit/assets/webauthn.js');
-    assert.include(html, 'startAuthentication');
-    // O endpoint de options é DERIVADO do `action` do form, não hardcoded pelo
-    // id do método — a tela continua sem conhecer 'passkey'.
-    assert.include(html, "form.getAttribute('action') + '/options'");
-    assert.include(html, 'action="/account/confirm/passkey"');
+    // O JS que preenche esse campo (M12: extraído do `<script>` inline — CSP
+    // `script-src 'self'` bloqueia script inline sem nonce/hash — para o asset
+    // same-origin `webauthn_confirm.js`).
+    assert.include(
+      html,
+      '<script type="module" src="/authkit/assets/webauthn_confirm.js"></script>',
+    );
+    assert.notInclude(html, 'startAuthentication', 'o script deveria ter saído da view inline');
     // O form do handshake carrega csrf e return_to como qualquer outro.
     assert.include(html, 'name="_csrf"');
     assert.include(html, 'value="/account/security"');
+    assert.include(html, 'action="/account/confirm/passkey"');
+
+    // O MECANISMO em si (import do bundle servido pelo próprio host — NÃO CDN
+    // público —, `startAuthentication`, endpoint de options DERIVADO do
+    // `action` do form) mora agora no asset extraído.
+    const asset = readFileSync(
+      fileURLToPath(new URL('../../src/host/assets/webauthn_confirm.js', import.meta.url)),
+      'utf8',
+    );
+    assert.include(asset, "from '/authkit/assets/webauthn.js'");
+    assert.include(asset, 'startAuthentication');
+    assert.include(asset, "form.getAttribute('action') + '/options'");
   });
 
   test('account/confirm.edge não emite o script WebAuthn sem nenhum método do tipo', async ({
@@ -472,6 +498,7 @@ test.group('account/confirm.edge (SPI de métodos de sudo)', () => {
     });
 
     assert.notInclude(html, '/authkit/assets/webauthn.js');
+    assert.notInclude(html, '/authkit/assets/webauthn_confirm.js');
     assert.notInclude(html, 'data-authkit-webauthn');
   });
 
