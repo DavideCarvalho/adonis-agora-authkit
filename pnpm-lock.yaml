@@ -192,8 +192,8 @@ importers:
         specifier: workspace:*
         version: link:../authkit-server
       '@adonis-agora/resilience':
-        specifier: 0.3.3
-        version: 0.3.3(@adonisjs/core@7.5.0(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@adonisjs/lucid@22.4.2(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@adonisjs/core@7.5.0(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(better-sqlite3@13.0.3)(luxon@3.7.2)(supports-color@10.2.2))(ioredis@5.4.2(supports-color@10.2.2))
+        specifier: 0.3.6
+        version: 0.3.6(@adonisjs/core@7.5.0(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@adonisjs/lucid@22.4.2(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@adonisjs/core@7.5.0(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(better-sqlite3@13.0.3)(luxon@3.7.2)(supports-color@10.2.2))(@adonisjs/redis@10.0.1(@adonisjs/core@7.5.0(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(supports-color@10.2.2))(ioredis@5.4.2(supports-color@10.2.2))
       '@adonisjs/auth':
         specifier: catalog:adonis
         version: 10.1.0(be64a00fb98c2300076a8916eef46e46)
@@ -665,14 +665,14 @@ packages:
       sharp:
         optional: true
 
-  '@adonis-agora/resilience@0.3.3':
-    resolution: {integrity: sha512-6o9GEDrEK09b/5KtpaPa/w82ZXhVkkedM+lC7WTPrZCby3rIgDBXNixowz5X4NVhxm0WCHk+kISD7wsuQBZapQ==}
+  '@adonis-agora/resilience@0.3.6':
+    resolution: {integrity: sha512-nQ4UA2Zi8MmFOWPmEnYpB5y+ZE6UQ305JiGEjVSTX1hOCDhG1wDRK8s8w3eZRkEXFIHOOmTJniCLF9MiNCHPRA==}
     engines: {node: '>=20.6.0'}
     peerDependencies:
       '@adonisjs/core': ^7.3.0
       '@adonisjs/lucid': ^22.4.0
-      '@adonisjs/redis': ^9.2.0
-      ioredis: ^5.0.0
+      '@adonisjs/redis': ^9.2.0 || ^10.0.0 || ^11.0.0
+      ioredis: ^5.0.0 || ^6.0.0
     peerDependenciesMeta:
       '@adonisjs/lucid':
         optional: true
@@ -6029,11 +6029,12 @@ snapshots:
       '@adonis-agora/telescope': 0.9.1(@adonisjs/core@7.5.0(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@adonisjs/lucid@22.4.2(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@adonisjs/core@7.5.0(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(better-sqlite3@13.0.3)(luxon@3.7.2)(supports-color@10.2.2))
       '@adonisjs/lucid': 22.4.2(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@adonisjs/core@7.5.0(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(better-sqlite3@13.0.3)(luxon@3.7.2)(supports-color@10.2.2)
 
-  '@adonis-agora/resilience@0.3.3(@adonisjs/core@7.5.0(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@adonisjs/lucid@22.4.2(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@adonisjs/core@7.5.0(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(better-sqlite3@13.0.3)(luxon@3.7.2)(supports-color@10.2.2))(ioredis@5.4.2(supports-color@10.2.2))':
+  '@adonis-agora/resilience@0.3.6(@adonisjs/core@7.5.0(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@adonisjs/lucid@22.4.2(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@adonisjs/core@7.5.0(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(better-sqlite3@13.0.3)(luxon@3.7.2)(supports-color@10.2.2))(@adonisjs/redis@10.0.1(@adonisjs/core@7.5.0(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(supports-color@10.2.2))(ioredis@5.4.2(supports-color@10.2.2))':
     dependencies:
       '@adonisjs/core': 7.5.0(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1)
     optionalDependencies:
       '@adonisjs/lucid': 22.4.2(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@adonisjs/core@7.5.0(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(better-sqlite3@13.0.3)(luxon@3.7.2)(supports-color@10.2.2)
+      '@adonisjs/redis': 10.0.1(@adonisjs/core@7.5.0(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(supports-color@10.2.2)
       ioredis: 5.4.2(supports-color@10.2.2)
 
   '@adonis-agora/telescope@0.9.1(@adonisjs/core@7.5.0(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@adonisjs/lucid@22.4.2(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@adonisjs/core@7.5.0(@adonisjs/assembler@8.5.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(better-sqlite3@13.0.3)(luxon@3.7.2)(supports-color@10.2.2))':
