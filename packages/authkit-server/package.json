@@ -61,6 +61,7 @@
     "prepack": "npm run build",
     "build:ui": "node scripts/build_ui.mjs",
     "build:webauthn": "node scripts/build_webauthn.mjs",
+    "check:host-css": "node scripts/check_host_css.mjs",
     "check:webauthn-bundle": "node scripts/check_webauthn_bundle.mjs",
     "typecheck": "tsc --noEmit && node scripts/typecheck_ui.mjs && node scripts/typecheck_tests.mjs",
     "typecheck:tests": "node scripts/typecheck_tests.mjs",
