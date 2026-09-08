@@ -6,7 +6,7 @@ import { apiError, auditDto } from '../admin_api/dto.js';
 /**
  * Endpoints JSON do log de auditoria do console admin React.
  *
- * GET {prefix}/api/audit?type=&page=&size=  → listagem paginada
+ * GET {prefix}/api/audit?type=&page=&size=  → `{ meta: { page, size, total }, data }`
  *
  * 404 honesto (`capability_unsupported`) quando o sink não suporta consulta.
  */
@@ -28,6 +28,6 @@ export default class ConsoleAuditController {
     const subject = (ctx.request.input('subject') as string | undefined)?.trim() || undefined;
 
     const result = await sink.list({ page, size, type, subject });
-    return { data: result.data.map(auditDto), total: result.total, page, size };
+    return { meta: { page, size, total: result.total }, data: result.data.map(auditDto) };
   }
 }

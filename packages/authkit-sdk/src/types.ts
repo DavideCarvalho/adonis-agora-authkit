@@ -54,11 +54,26 @@ export interface ListUsersParams {
   size?: number;
 }
 
-export interface ListUsersResult {
-  data: AuthkitUser[];
-  total: number;
+/**
+ * Pagination envelope of every paginated authkit listing.
+ *
+ * The `meta` key (and keeping `{ page, size }` inside it) is Lucid's own
+ * `.paginate()` convention — `{ meta, data }` — which is where
+ * `@adonis-agora/filter`'s offset path lands, and therefore the envelope every
+ * `@adonis-agora/*` package answers with.
+ */
+export interface ListMeta {
+  /** 1-based page returned. */
   page: number;
+  /** Page size actually applied (already normalized/capped). */
   size: number;
+  /** Absolute number of matching items across all pages. */
+  total: number;
+}
+
+export interface ListUsersResult {
+  meta: ListMeta;
+  data: AuthkitUser[];
 }
 
 export interface CreateUserInput {
@@ -184,10 +199,8 @@ export interface ListAuditParams {
 }
 
 export interface ListAuditResult {
+  meta: ListMeta;
   data: AuthkitAuditEvent[];
-  total: number;
-  page: number;
-  size: number;
 }
 
 /** A daily series point (ISO `YYYY-MM-DD` day + count). */

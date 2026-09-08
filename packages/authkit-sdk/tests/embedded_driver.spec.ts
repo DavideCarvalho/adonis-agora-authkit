@@ -129,7 +129,7 @@ test.group('embedded driver — same interface, same shapes', () => {
     const { service } = buildFakeServer();
     const sdk = await createAuthkit({ mode: 'embedded', app: fakeApp(service) });
     const res = await sdk.users.list();
-    assert.equal(res.total, 1);
+    assert.equal(res.meta.total, 1);
     assert.deepEqual(Object.keys(res.data[0]).sort(), [
       'avatarUrl',
       'disabled',

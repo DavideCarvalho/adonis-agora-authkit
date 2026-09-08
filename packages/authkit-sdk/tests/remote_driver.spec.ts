@@ -78,14 +78,12 @@ test.group('remote driver — users', () => {
               disabled: false,
             },
           ],
-          total: 1,
-          page: 1,
-          size: 20,
+          meta: { page: 1, size: 20, total: 1 },
         },
       }),
       async (sdk, api) => {
         const res = await sdk.users.list({ search: 'ana', page: 2 });
-        assert.equal(res.total, 1);
+        assert.deepEqual(res.meta, { page: 1, size: 20, total: 1 });
         assert.equal(res.data[0].id, 'u1');
         assert.equal(api.last!.method, 'GET');
         assert.match(api.last!.url, /^\/api\/authkit\/v1\/users\?/);
@@ -484,7 +482,7 @@ test.group('remote driver — apiPrefix option', () => {
       '/authkit/api',
       () => ({
         status: 200,
-        body: { data: [], total: 0, page: 1, size: 20 },
+        body: { data: [], meta: { page: 1, size: 20, total: 0 } },
       }),
       async (sdk, api) => {
         await sdk.users.list();
@@ -531,7 +529,7 @@ test.group('remote driver — apiPrefix option', () => {
   }) => {
     await withCustomPrefixApi(
       'authkit/api/',
-      () => ({ status: 200, body: { data: [], total: 0, page: 1, size: 20 } }),
+      () => ({ status: 200, body: { data: [], meta: { page: 1, size: 20, total: 0 } } }),
       async (sdk, api) => {
         await sdk.users.list();
         assert.match(api.last!.url, /^\/authkit\/api\/users/);
@@ -540,7 +538,10 @@ test.group('remote driver — apiPrefix option', () => {
   });
 
   test('default (no apiPrefix): still uses /api/authkit/v1 (back-compat)', async ({ assert }) => {
-    const api = fakeApi(() => ({ status: 200, body: { data: [], total: 0, page: 1, size: 20 } }));
+    const api = fakeApi(() => ({
+      status: 200,
+      body: { data: [], meta: { page: 1, size: 20, total: 0 } },
+    }));
     const baseUrl = await api.listen();
     try {
       // No apiPrefix passed — back-compat

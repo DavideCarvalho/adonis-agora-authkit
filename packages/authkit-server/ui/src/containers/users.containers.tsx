@@ -44,7 +44,7 @@ export function UsersTableContainer({
     useUsersQueryOptions({ search, page, size: PAGE_SIZE }),
   );
   const users = data?.data ?? [];
-  const total = data?.total ?? 0;
+  const total = data?.meta.total ?? 0;
 
   return (
     <>

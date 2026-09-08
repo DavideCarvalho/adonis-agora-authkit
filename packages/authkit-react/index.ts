@@ -79,6 +79,8 @@ export type {
   KeysRotateResult,
   // Admin – Keys
   KeysStatus,
+  // Paginação
+  ListMeta,
   ManagedKeyInfo,
   OkResult,
   // Account – MFA / Passkeys

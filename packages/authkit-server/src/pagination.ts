@@ -82,3 +82,28 @@ export function parseListSize(
 ): number {
   return clampListSize(Number.parseInt(String(raw ?? ''), 10), fallback);
 }
+
+/**
+ * Envelope de METADADOS de uma listagem paginada — a chave `meta` de toda
+ * resposta paginada do authkit (`{ meta, data }`).
+ *
+ * O nome `meta` e a co-locação de `{ page, size }` dentro dele são a convenção
+ * do `.paginate()` do Lucid (`{ meta, data }`) — que é onde o caminho por
+ * offset de `@adonis-agora/filter` desemboca — e por isso a convenção adotada
+ * por TODO o ecossistema `@adonis-agora/*`. Antes o authkit achatava
+ * `total`/`page`/`size` ao lado de `data`, sem envelope.
+ */
+export interface ListMeta {
+  /** Página devolvida (1-based). */
+  page: number;
+  /** Tamanho de página efetivamente aplicado (já normalizado/limitado). */
+  size: number;
+  /** Total absoluto de itens que casam com o filtro, através de todas as páginas. */
+  total: number;
+}
+
+/** Resposta paginada padrão: `{ meta, data }`, na ordem do `.paginate()` do Lucid. */
+export interface PaginatedResponse<T> {
+  meta: ListMeta;
+  data: T[];
+}

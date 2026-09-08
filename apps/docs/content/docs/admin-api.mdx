@@ -122,6 +122,19 @@ Error responses use the envelope:
 { "error": { "code": "not_found", "message": "..." } }
 ```
 
+Paginated listings (`GET /users`, `GET /audit`) answer the `{ meta, data }` envelope Lucid's
+own `.paginate()` uses — the shape every `@adonis-agora/*` package returns:
+
+```json
+{
+  "meta": { "page": 1, "size": 20, "total": 137 },
+  "data": [ /* ... */ ]
+}
+```
+
+`meta.size` is the page size **actually applied** (already capped at `200`), so a client can
+compute `Math.ceil(meta.total / meta.size)` pages without guessing.
+
 ## Users
 
 | Method | Path | Body / Query | Notes |
@@ -340,6 +353,8 @@ endpoint returns **`501`** `{ "error": { "code": "not_implemented", … } }`.
 curl "https://idp.example.com/api/authkit/v1/audit?type=user.created&size=50" \
   -H "Authorization: Bearer $KEY"
 ```
+
+The response is the standard paginated envelope: `{ meta: { page, size, total }, data: [...] }`.
 
 ## Settings
 

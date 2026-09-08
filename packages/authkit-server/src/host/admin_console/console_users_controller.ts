@@ -37,7 +37,7 @@ async function gateSudo(ctx: HttpContext): Promise<unknown | null> {
 /**
  * Endpoints JSON de usuários do console admin React.
  *
- * GET  {prefix}/api/users?search=&page=&size=  → lista paginada + roles
+ * GET  {prefix}/api/users?search=&page=&size=  → `{ meta: { page, size, total }, data }`
  * GET  {prefix}/api/users/:id                     → detalhe + sessões + identidades + MFA status
  * POST {prefix}/api/users                         → criar usuário
  * PATCH {prefix}/api/users/:id/roles              → substituir roles globais
@@ -71,7 +71,7 @@ export default class ConsoleUsersController {
       result.data.map(async (u: any) => userDto(u, await users.isDisabled(u.id))),
     );
 
-    return { data, total: result.total, page, size };
+    return { meta: { page, size, total: result.total }, data };
   }
 
   /** GET {prefix}/api/users/:id */

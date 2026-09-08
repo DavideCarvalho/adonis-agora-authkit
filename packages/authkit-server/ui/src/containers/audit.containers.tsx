@@ -65,7 +65,7 @@ export function AuditTableContainer({
   });
 
   const events = data?.data ?? [];
-  const total = data?.total ?? 0;
+  const total = data?.meta.total ?? 0;
 
   const isNotFound =
     error &&
@@ -186,5 +186,5 @@ export function useAuditTotal(typeFilter: string, page: number) {
   const { data } = useQuery(
     useAuditQueryOptions({ type: typeFilter || undefined, page, size: PAGE_SIZE }),
   );
-  return data?.total ?? 0;
+  return data?.meta.total ?? 0;
 }

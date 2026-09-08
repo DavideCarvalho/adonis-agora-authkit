@@ -31,17 +31,27 @@ export interface AdminUser {
 }
 
 /**
- * Offset-paginated user listing.
+ * Pagination envelope of every paginated authkit listing: `{ meta, data }`.
  *
  * `{ page, size }` intentionally mirrors `@adonis-agora/filter`'s
  * `FilterInput.page`/`.size`, so every `@adonis-agora/*` package speaks the same
  * pagination interface. STRUCTURAL match — no dependency on the filter package.
+ * The `meta` key itself is Lucid's `.paginate()` convention, which is where the
+ * filter package's offset path lands.
  */
-export interface AdminUserListResult {
-  data: AdminUser[];
-  total: number;
+export interface ListMeta {
+  /** 1-based page returned. */
   page: number;
+  /** Page size actually applied (already normalized/capped). */
   size: number;
+  /** Absolute number of matching items across all pages. */
+  total: number;
+}
+
+/** Offset-paginated user listing. */
+export interface AdminUserListResult {
+  meta: ListMeta;
+  data: AdminUser[];
 }
 
 export interface CreateUserInput {
@@ -235,12 +245,10 @@ export interface AuditEventEntry {
   createdAt: string;
 }
 
-/** Offset-paginated audit listing — same `{ page, size }` shape as {@link AdminUserListResult}. */
+/** Offset-paginated audit listing — same `{ meta, data }` shape as {@link AdminUserListResult}. */
 export interface AuditListResult {
+  meta: ListMeta;
   data: AuditEventEntry[];
-  total: number;
-  page: number;
-  size: number;
 }
 
 export interface AuditListParams {

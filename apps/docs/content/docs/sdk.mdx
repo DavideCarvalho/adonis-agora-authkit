@@ -125,7 +125,7 @@ door you came through.
 
 | Resource | Method | Returns |
 | --- | --- | --- |
-| `users` | `list({ search?, page?, size? })` | `{ data, total, page, size }` |
+| `users` | `list({ search?, page?, size? })` | `{ meta: { page, size, total }, data }` |
 | `users` | `get(id)` | the user |
 | `users` | `create({ email, name?, password?, invite? })` | the user + `invited` |
 | `users` | `update(id, { globalRoles?, name?, avatarUrl? })` | the updated user |
@@ -140,7 +140,7 @@ door you came through.
 | `clients` | `update(id, input)` | the updated client |
 | `clients` | `regenerateSecret(id)` | `{ clientId, clientSecret }` — new secret **once** |
 | `clients` | `delete(id)` | `{ clientId, deleted }` |
-| `audit` | `list({ type?, subject?, page?, size? })` | `{ data, total, page, size }` |
+| `audit` | `list({ type?, subject?, page?, size? })` | `{ meta: { page, size, total }, data }` |
 | `stats()` | — | MAU, daily sign-ins/sign-ups, totals (see below) |
 | `tokens` | `verify(token)` | introspection result (PAT or opaque access token) |
 | `organizations` | `list()` | `{ data: AuthkitOrganization[] }` |
@@ -163,6 +163,23 @@ door you came through.
 
 The `clientSecret` from `create`/`regenerateSecret` is the **only** time the secret is
 returned in clear text — store it immediately.
+
+### Paginated listings
+
+`users.list()` and `audit.list()` answer the `{ meta, data }` envelope Lucid's own
+`.paginate()` uses — the shape every `@adonis-agora/*` package returns for a paginated
+listing. Request side is `{ page, size }` (1-based `page`, `size` capped at `200`), matching
+`@adonis-agora/filter`.
+
+```ts
+const { meta, data } = await authkit.users.list({ page: 2, size: 50 })
+// meta.page  — the page returned (1-based)
+// meta.size  — the page size actually applied (already capped)
+// meta.total — total matching accounts across every page
+// data       — AuthkitUser[]
+
+const pageCount = Math.ceil(meta.total / meta.size)
+```
 
 ### `keys`
 
