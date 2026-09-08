@@ -219,7 +219,7 @@ under `{prefix}/api/*`. All endpoints are protected by the `adminGuard`.
 | `GET {prefix}/*` | Shell HTML — catches all SPA deep links |
 | `GET {prefix}/assets/*` | Bundled JS/CSS/fonts (hashed names, `Cache-Control: immutable`) |
 | `GET {prefix}/api/overview` | Dashboard metrics (total users, MAU, sessions, daily charts) |
-| `GET {prefix}/api/users` | List/search users |
+| `GET {prefix}/api/users` | List/search users — `?search&page&size`, paginated `{ meta, data }` |
 | `GET {prefix}/api/users/:id` | User detail |
 | `POST {prefix}/api/users` | Create user |
 | `PATCH {prefix}/api/users/:id/roles` | Update roles |
@@ -250,7 +250,7 @@ under `{prefix}/api/*`. All endpoints are protected by the `adminGuard`.
 | `DELETE {prefix}/api/orgs/:id/members/:accountId` | Remove a member |
 | `POST {prefix}/api/orgs/:id/invitations` | Create an email invitation |
 | `DELETE {prefix}/api/orgs/:id/invitations/:invitationId` | Revoke a pending invitation |
-| `GET {prefix}/api/audit` | Browse audit log |
+| `GET {prefix}/api/audit` | Browse audit log — `?type&subject&page&size`, paginated `{ meta, data }` |
 | `GET {prefix}/api/settings` | Read all runtime settings (add `?organizationId=` for org-scoped) |
 | `PUT {prefix}/api/settings/:key` | Upsert a setting — **423** when locked by config |
 | `DELETE {prefix}/api/settings/:key` | Delete a setting (reset to lib default) — **423** when locked |

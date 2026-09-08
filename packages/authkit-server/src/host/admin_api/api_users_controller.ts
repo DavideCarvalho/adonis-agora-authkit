@@ -31,7 +31,7 @@ async function ctxBits(ctx: HttpContext) {
  * envelope `{ error: { code, message } }`. Toda escrita audita com `actor: 'admin-api'`.
  */
 export default class ApiUsersController {
-  /** GET /users — listagem paginada com busca por e-mail. */
+  /** GET /users — `{ meta: { page, size, total }, data }`, com busca por e-mail. */
   async index(ctx: HttpContext) {
     const { cfg } = await ctxBits(ctx);
     const search = (ctx.request.input('search', '') as string).trim();
@@ -43,7 +43,7 @@ export default class ApiUsersController {
     const data = await Promise.all(
       result.data.map(async (u: AuthAccount) => userDto(u, await users.isDisabled(u.id))),
     );
-    return { data, total: result.total, page, size };
+    return { meta: { page, size, total: result.total }, data };
   }
 
   /** GET /users/:id */

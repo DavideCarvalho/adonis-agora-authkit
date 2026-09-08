@@ -610,7 +610,7 @@ test.group('Admin REST API (controllers)', (group) => {
 
     const misc = new ApiMiscController();
     const all: any = await misc.audit(fakeCtx({ service, inputs: {} }).ctx);
-    assert.isAtLeast(all.total, 2);
+    assert.isAtLeast(all.meta.total, 2);
     const filtered: any = await misc.audit(
       fakeCtx({ service, inputs: { type: 'user.created' } }).ctx,
     );

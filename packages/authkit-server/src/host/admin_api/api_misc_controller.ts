@@ -12,7 +12,7 @@ import { TokenVerifyService } from './token_verify_service.js';
  * introspecção genérica de token (`POST /tokens/verify`).
  */
 export default class ApiMiscController {
-  /** GET /audit — listagem paginada (501 JSON quando o sink não consulta). */
+  /** GET /audit — `{ meta: { page, size, total }, data }` (501 JSON quando o sink não consulta). */
   async audit(ctx: HttpContext) {
     const service = await ctx.containerResolver.make('authkit.server');
     const cfg = service.config;
@@ -28,7 +28,7 @@ export default class ApiMiscController {
     const subject = (ctx.request.input('subject') as string | undefined)?.trim() || undefined;
 
     const result = await sink.list({ page, size, type, subject });
-    return { data: result.data.map(auditDto), total: result.total, page, size };
+    return { meta: { page, size, total: result.total }, data: result.data.map(auditDto) };
   }
 
   /** GET /stats — métricas-resumo do IdP (totais + MAU + séries de 30 dias). */

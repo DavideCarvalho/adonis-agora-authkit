@@ -458,9 +458,9 @@ test.group('Console JSON API — controller unit tests', (group) => {
     const { ctx } = fakeCtx({ service, inputs: { page: '1', size: '20', search: '' } });
     const result: any = await ctrl.index(ctx);
     assert.isArray(result.data);
-    assert.isNumber(result.total);
-    assert.isNumber(result.page);
-    assert.isNumber(result.size);
+    assert.isNumber(result.meta.total);
+    assert.isNumber(result.meta.page);
+    assert.isNumber(result.meta.size);
   });
 
   test('GET /api/users/:id — detalhe inclui sessões e catalogRoles', async ({ assert }) => {
@@ -843,9 +843,9 @@ test.group('Console JSON API — controller unit tests', (group) => {
     const { ctx } = fakeCtx({ service, inputs: { page: '1', size: '10' } });
     const result: any = await ctrl.index(ctx);
     assert.isArray(result.data);
-    assert.isNumber(result.total);
-    assert.isNumber(result.page);
-    assert.isNumber(result.size);
+    assert.isNumber(result.meta.total);
+    assert.isNumber(result.meta.page);
+    assert.isNumber(result.meta.size);
   });
 
   // ─── Settings ──────────────────────────────────────────────────────────────

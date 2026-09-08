@@ -128,7 +128,7 @@ test.group('Admin query options — queryKey e queryFn', () => {
       baseUrl: '/admin/api',
       fetch: async (url) => {
         capturedUrl = String(url);
-        return new Response(JSON.stringify({ data: [], total: 0, page: 1, size: 20 }), {
+        return new Response(JSON.stringify({ data: [], meta: { page: 1, size: 20, total: 0 } }), {
           status: 200,
         }) as any;
       },
@@ -183,7 +183,7 @@ test.group('Admin query options — queryKey e queryFn', () => {
       baseUrl: '/admin/api',
       fetch: async (url) => {
         capturedUrl = String(url);
-        return new Response(JSON.stringify({ data: [], total: 0, page: 1, size: 20 }), {
+        return new Response(JSON.stringify({ data: [], meta: { page: 1, size: 20, total: 0 } }), {
           status: 200,
         }) as any;
       },
@@ -371,7 +371,7 @@ test.group('QueryClient integration', () => {
   test('invalidateQueries limpa o cache da chave correta', async ({ assert }) => {
     const client = createAuthkitClient({
       baseUrl: '/admin/api',
-      fetch: mockFetch({ data: [], total: 0, page: 1, size: 20 }),
+      fetch: mockFetch({ data: [], meta: { page: 1, size: 20, total: 0 } }),
     });
     const qc = newQueryClient();
     const key = authkitKeys.admin.users();

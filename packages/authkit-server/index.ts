@@ -425,6 +425,7 @@ export type {
   WebauthnCredentialRow,
 } from './src/mixins/with_webauthn_credential.js';
 export { withWebauthnCredential } from './src/mixins/with_webauthn_credential.js';
+export type { ListMeta, PaginatedResponse } from './src/pagination.js';
 export {
   ADMIN_LIST_DEFAULT_SIZE,
   ADMIN_LIST_HTTP_DEFAULT_SIZE,

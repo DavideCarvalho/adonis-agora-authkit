@@ -221,7 +221,7 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
         );
         const result = await cfg.accountStore.listAccounts({ search, page, size });
         const data = await Promise.all(result.data.map((u: any) => userDto(u)));
-        return { data, total: result.total, page, size };
+        return { meta: { page, size, total: result.total }, data };
       },
       async get(id: string): Promise<AuthkitUser> {
         const account = await cfg.accountStore.findById(id);
@@ -387,7 +387,7 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
         const type = params.type?.trim() || undefined;
         const subject = params.subject?.trim() || undefined;
         const result = await sink.list({ page, size, type, subject });
-        return { data: result.data.map(auditDto), total: result.total, page, size };
+        return { meta: { page, size, total: result.total }, data: result.data.map(auditDto) };
       },
     },
     async stats(): Promise<AuthkitStats> {
