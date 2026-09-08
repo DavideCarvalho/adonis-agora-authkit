@@ -2,6 +2,7 @@ import type { HttpContext } from '@adonisjs/core/http';
 import type { OrgInvitation, OrgMember, OrgSummary } from '../../accounts/account_store.js';
 import { supportsOrganizations } from '../../accounts/account_store.js';
 import type { ResolvedServerConfig } from '../../define_config.js';
+import { ADMIN_LIST_DEFAULT_SIZE, LIST_FIRST_PAGE } from '../../pagination.js';
 import { accountPath } from '../account_paths.js';
 import { sendOrgInvitationEmail } from '../default_mailer.js';
 import type { SettingsCapability } from '../runtime_settings.js';
@@ -102,14 +103,14 @@ export class AdminOrgsService {
     // O store não tem listAllOrgs — acumulamos via memberships de todas as contas.
     // Para admin, fazemos um listAccounts full e coletamos todas as orgs únicas.
     // Mais eficiente: usa a tabela de organizations diretamente pelo listOrgMembers
-    // mas o store não expõe listAllOrgs. Usamos hack: listAccounts com limit alto,
+    // mas o store não expõe listAllOrgs. Usamos hack: listAccounts com size alto,
     // coletamos orgs via listOrgsForAccount por conta.
     // Para evitar N+1 excessivo, usamos uma abordagem "seen" de IDs.
     const seen = new Map<string, OrgWithMemberCount>();
-    let page = 1;
-    const limit = 100;
+    let page = LIST_FIRST_PAGE;
+    const size = ADMIN_LIST_DEFAULT_SIZE;
     while (true) {
-      const result = await store.listAccounts({ page, limit });
+      const result = await store.listAccounts({ page, size });
       for (const account of result.data) {
         const orgs = await store.listOrgsForAccount(account.id);
         for (const org of orgs) {
@@ -120,7 +121,7 @@ export class AdminOrgsService {
           }
         }
       }
-      if (result.data.length < limit) break;
+      if (result.data.length < size) break;
       page++;
     }
     return Array.from(seen.values());

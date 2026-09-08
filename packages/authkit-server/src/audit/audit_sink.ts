@@ -142,12 +142,23 @@ export interface StoredAuditEvent extends AuditEvent {
   createdAt: Date | string | null;
 }
 
-/** Filtros de listagem do log de auditoria (console admin). */
+/**
+ * Filtros de listagem do log de auditoria (console admin).
+ *
+ * O par `{ page, size }` espelha INTENCIONALMENTE o shape de paginação por
+ * offset de `@adonis-agora/filter` (`FilterInput.page`/`.size`), para manter a
+ * mesma interface em todo o ecossistema `@adonis-agora/*`. É um casamento
+ * ESTRUTURAL: não há dependência de `@adonis-agora/filter` aqui.
+ */
 export interface ListAuditParams {
   /** Página (1-based). Default: 1. */
   page?: number;
-  /** Itens por página. Default: 20. */
-  limit?: number;
+  /**
+   * Itens por página. Default: 20; limitado a `ADMIN_LIST_MAX_SIZE` (200).
+   *
+   * Renomeado de `limit` para `size` para casar com `@adonis-agora/filter`.
+   */
+  size?: number;
   /** Filtra por tipo de evento exato. */
   type?: string;
   /** Filtra pelo subject (accountId) do evento. */

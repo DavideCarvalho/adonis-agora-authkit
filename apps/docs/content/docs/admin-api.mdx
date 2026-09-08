@@ -126,7 +126,7 @@ Error responses use the envelope:
 
 | Method | Path | Body / Query | Notes |
 | --- | --- | --- | --- |
-| `GET` | `/users` | `?search&page&limit` | Paginated list; search by email substring. |
+| `GET` | `/users` | `?search&page&size` | Paginated list; search by email substring. `page` is 1-based (default `1`); `size` is the page size (default `20`, capped at `200`). |
 | `GET` | `/users/:id` | — | Single user; `404` if unknown. |
 | `POST` | `/users` | `{ email, name?, password?, invite? }` | Create; with no `password` (or `invite: true`) sends a reset/invite email. `409` on duplicate email. |
 | `PATCH` | `/users/:id` | `{ globalRoles?, name?, avatarUrl? }` | Update roles (via `setGlobalRoles`) and/or profile. |
@@ -331,13 +331,13 @@ Series are empty arrays when the audit sink does not support `list`.
 
 | Method | Path | Query | Notes |
 | --- | --- | --- | --- |
-| `GET` | `/audit` | `?type&subject&page&limit` | Paginated audit log. |
+| `GET` | `/audit` | `?type&subject&page&size` | Paginated audit log. `page` is 1-based (default `1`); `size` is the page size (default `20`, capped at `200`). |
 
 Requires an audit sink that implements `list`. When the configured sink is write-only, the
 endpoint returns **`501`** `{ "error": { "code": "not_implemented", … } }`.
 
 ```bash
-curl "https://idp.example.com/api/authkit/v1/audit?type=user.created&limit=50" \
+curl "https://idp.example.com/api/authkit/v1/audit?type=user.created&size=50" \
   -H "Authorization: Bearer $KEY"
 ```
 

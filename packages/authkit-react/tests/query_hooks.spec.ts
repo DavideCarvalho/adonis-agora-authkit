@@ -128,15 +128,15 @@ test.group('Admin query options — queryKey e queryFn', () => {
       baseUrl: '/admin/api',
       fetch: async (url) => {
         capturedUrl = String(url);
-        return new Response(JSON.stringify({ data: [], total: 0, page: 1, limit: 20 }), {
+        return new Response(JSON.stringify({ data: [], total: 0, page: 1, size: 20 }), {
           status: 200,
         }) as any;
       },
     });
-    await client.admin.users.list({ search: 'test', page: 2, limit: 5 });
+    await client.admin.users.list({ search: 'test', page: 2, size: 5 });
     assert.include(capturedUrl, 'search=test');
     assert.include(capturedUrl, 'page=2');
-    assert.include(capturedUrl, 'limit=5');
+    assert.include(capturedUrl, 'size=5');
   });
 
   test('admin.roles.list() monta URL /roles', async ({ assert }) => {
@@ -183,15 +183,15 @@ test.group('Admin query options — queryKey e queryFn', () => {
       baseUrl: '/admin/api',
       fetch: async (url) => {
         capturedUrl = String(url);
-        return new Response(JSON.stringify({ data: [], total: 0, page: 1, limit: 20 }), {
+        return new Response(JSON.stringify({ data: [], total: 0, page: 1, size: 20 }), {
           status: 200,
         }) as any;
       },
     });
-    await client.admin.audit.list({ type: 'login.success', page: 1, limit: 10 });
+    await client.admin.audit.list({ type: 'login.success', page: 1, size: 10 });
     assert.include(capturedUrl, 'type=login.success');
     assert.include(capturedUrl, 'page=1');
-    assert.include(capturedUrl, 'limit=10');
+    assert.include(capturedUrl, 'size=10');
   });
 
   test('admin.settings.set() usa PUT e injeta valor', async ({ assert }) => {
@@ -371,7 +371,7 @@ test.group('QueryClient integration', () => {
   test('invalidateQueries limpa o cache da chave correta', async ({ assert }) => {
     const client = createAuthkitClient({
       baseUrl: '/admin/api',
-      fetch: mockFetch({ data: [], total: 0, page: 1, limit: 20 }),
+      fetch: mockFetch({ data: [], total: 0, page: 1, size: 20 }),
     });
     const qc = newQueryClient();
     const key = authkitKeys.admin.users();

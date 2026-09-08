@@ -8,6 +8,7 @@ import {
   supportsProfile,
 } from '../../accounts/account_store.js';
 import type { ResolvedServerConfig } from '../../define_config.js';
+import { ADMIN_LIST_DEFAULT_SIZE, LIST_FIRST_PAGE } from '../../pagination.js';
 import { PasswordPolicyError } from '../../password/password_manager.js';
 import type { OidcService } from '../../provider/oidc_service.js';
 import { AccountDeletionService, type DeletionResult } from '../account_deletion_service.js';
@@ -256,27 +257,27 @@ export class AdminUsersService {
    * conta é contada no máximo uma vez via {@link hasAdminRole}).
    *
    * Terminadores honestos (sem número mágico): a paginação para quando
-   *   - a página veio incompleta (`data.length < pageSize`) → última página, OU
+   *   - a página veio incompleta (`data.length < size`) → última página, OU
    *   - a página veio vazia (`data.length === 0`) → sem mais dados, OU
-   *   - já cobrimos o total reportado (`page * pageSize >= total`).
+   *   - já cobrimos o total reportado (`page * size >= total`).
    * Uma página COMPLETA com `total` ainda maior continua paginando. Isto encerra
    * de forma garantida para qualquer store que devolva páginas finitas (a última
-   * página é, por definição, menor que `pageSize` ou vazia).
+   * página é, por definição, menor que `size` ou vazia).
    */
   private async countAdminsByScan(): Promise<number> {
     const store = this.cfg.accountStore;
-    const pageSize = 100;
-    let page = 1;
+    const size = ADMIN_LIST_DEFAULT_SIZE;
+    let page = LIST_FIRST_PAGE;
     let count = 0;
     while (true) {
       const { data, total } = await store.listAccounts({
         page,
-        limit: pageSize,
+        size,
       });
       for (const acc of data) {
         if (this.hasAdminRole(acc.globalRoles ?? [])) count++;
       }
-      if (data.length < pageSize || page * pageSize >= total) break;
+      if (data.length < size || page * size >= total) break;
       page++;
     }
     return count;

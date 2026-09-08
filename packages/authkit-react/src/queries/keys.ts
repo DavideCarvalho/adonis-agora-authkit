@@ -16,7 +16,7 @@ export const authkitKeys = {
 
     overview: () => ['authkit', 'admin', 'overview'] as const,
 
-    users: (params?: { search?: string; page?: number; limit?: number }) =>
+    users: (params?: { search?: string; page?: number; size?: number }) =>
       ['authkit', 'admin', 'users', params ?? {}] as const,
     user: (id: string) => ['authkit', 'admin', 'users', id] as const,
     userSessions: (id: string) => ['authkit', 'admin', 'users', id, 'sessions'] as const,
@@ -31,7 +31,7 @@ export const authkitKeys = {
     orgs: () => ['authkit', 'admin', 'orgs'] as const,
     org: (id: string) => ['authkit', 'admin', 'orgs', id] as const,
 
-    audit: (params?: { type?: string; page?: number; limit?: number; subject?: string }) =>
+    audit: (params?: { type?: string; page?: number; size?: number; subject?: string }) =>
       ['authkit', 'admin', 'audit', params ?? {}] as const,
 
     /**

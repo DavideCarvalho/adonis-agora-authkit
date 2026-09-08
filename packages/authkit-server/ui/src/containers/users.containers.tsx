@@ -21,6 +21,9 @@ import { QueryBoundary } from '../components/QueryBoundary';
 import { SkeletonDrawerSection, SkeletonPanelTable } from '../components/Skeleton';
 import { useToast } from '../lib/toast';
 
+/** Page size sent as `?size=` to `GET {prefix}/api/users`. */
+const PAGE_SIZE = 20;
+
 // ── UsersTableContainer ───────────────────────────────────────────────────────
 
 interface UsersTableContainerProps {
@@ -38,7 +41,7 @@ export function UsersTableContainer({
   onSelectUser,
 }: UsersTableContainerProps) {
   const { data, isLoading, error, refetch } = useQuery(
-    useUsersQueryOptions({ search, page, limit: 20 }),
+    useUsersQueryOptions({ search, page, size: PAGE_SIZE }),
   );
   const users = data?.data ?? [];
   const total = data?.total ?? 0;
@@ -121,7 +124,7 @@ export function UsersTableContainer({
                 </tbody>
               </table>
               <div style={{ padding: '0 16px 12px' }}>
-                <Pagination page={page} total={total} perPage={20} onPage={onPage} />
+                <Pagination page={page} total={total} size={PAGE_SIZE} onPage={onPage} />
               </div>
             </div>
           )}

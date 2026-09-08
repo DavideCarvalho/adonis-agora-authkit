@@ -65,7 +65,7 @@ export function useOverviewQueryOptions() {
 // Users – Queries
 // ---------------------------------------------------------------------------
 
-export function useUsersQueryOptions(params?: { search?: string; page?: number; limit?: number }) {
+export function useUsersQueryOptions(params?: { search?: string; page?: number; size?: number }) {
   const client = useAuthkitClient();
   return {
     queryKey: authkitKeys.admin.users(params),

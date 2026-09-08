@@ -115,12 +115,12 @@ function memoryAccountStore(): AccountStore {
     consumeEmailVerificationToken: async () => false,
     findByProviderIdentity: async () => null,
     linkProviderIdentity: async () => {},
-    listAccounts: async ({ search, limit = 20, page = 1 }) => {
+    listAccounts: async ({ search, size = 20, page = 1 }) => {
       let list = [...byId.values()];
       if (search) list = list.filter((a) => a.email.includes(search));
       const total = list.length;
-      const start = (page - 1) * limit;
-      return { data: list.slice(start, start + limit), total };
+      const start = (page - 1) * size;
+      return { data: list.slice(start, start + size), total };
     },
     setGlobalRoles: async (id, roles) => {
       const a = byId.get(id);
@@ -151,13 +151,13 @@ function memoryAuditSink(): AuditSink & { events: StoredAuditEvent[] } {
     record: async (e) => {
       events.push({ ...e, id: `ev-${events.length + 1}`, createdAt: new Date() });
     },
-    list: async ({ page = 1, limit = 20, type, subject }) => {
+    list: async ({ page = 1, size = 20, type, subject }) => {
       let list = events;
       if (type) list = list.filter((e) => e.type === type);
       if (subject) list = list.filter((e) => e.accountId === subject);
       const total = list.length;
-      const start = (page - 1) * limit;
-      return { data: list.slice(start, start + limit), total };
+      const start = (page - 1) * size;
+      return { data: list.slice(start, start + size), total };
     },
   };
 }
@@ -455,12 +455,12 @@ test.group('Console JSON API — controller unit tests', (group) => {
 
   test('GET /api/users — lista paginada', async ({ assert }) => {
     const ctrl = new ConsoleUsersController();
-    const { ctx } = fakeCtx({ service, inputs: { page: '1', perPage: '20', search: '' } });
+    const { ctx } = fakeCtx({ service, inputs: { page: '1', size: '20', search: '' } });
     const result: any = await ctrl.index(ctx);
     assert.isArray(result.data);
     assert.isNumber(result.total);
     assert.isNumber(result.page);
-    assert.isNumber(result.perPage);
+    assert.isNumber(result.size);
   });
 
   test('GET /api/users/:id — detalhe inclui sessões e catalogRoles', async ({ assert }) => {
@@ -840,12 +840,12 @@ test.group('Console JSON API — controller unit tests', (group) => {
 
   test('GET /api/audit — com sink que suporta list → retorna shape', async ({ assert }) => {
     const ctrl = new ConsoleAuditController();
-    const { ctx } = fakeCtx({ service, inputs: { page: '1', limit: '10' } });
+    const { ctx } = fakeCtx({ service, inputs: { page: '1', size: '10' } });
     const result: any = await ctrl.index(ctx);
     assert.isArray(result.data);
     assert.isNumber(result.total);
     assert.isNumber(result.page);
-    assert.isNumber(result.limit);
+    assert.isNumber(result.size);
   });
 
   // ─── Settings ──────────────────────────────────────────────────────────────

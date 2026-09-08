@@ -1,5 +1,6 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
+import { LIST_FIRST_PAGE } from '../../pagination.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
 import { computeAdminStats } from '../admin_stats_service.js';
 
@@ -22,7 +23,9 @@ export default class ConsoleOverviewController {
     const clientsCount = cfg.clients.length;
 
     const recentResult =
-      typeof cfg.audit?.list === 'function' ? await cfg.audit.list({ page: 1, limit: 5 }) : null;
+      typeof cfg.audit?.list === 'function'
+        ? await cfg.audit.list({ page: LIST_FIRST_PAGE, size: 5 })
+        : null;
 
     return {
       usersTotal: stats.totalUsers,

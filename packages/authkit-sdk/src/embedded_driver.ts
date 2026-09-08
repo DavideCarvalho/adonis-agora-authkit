@@ -43,6 +43,7 @@ import type {
   UserStatusResult,
   VerifyTokenResult,
 } from './types.js';
+import { ADMIN_LIST_DEFAULT_SIZE, ADMIN_LIST_MAX_SIZE, LIST_FIRST_PAGE } from './types.js';
 
 export interface EmbeddedOptions {
   /** The AdonisJS application service (e.g. injected `app`). */
@@ -213,11 +214,14 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
     users: {
       async list(params: ListUsersParams = {}): Promise<ListUsersResult> {
         const search = (params.search ?? '').trim();
-        const page = Math.max(1, params.page ?? 1);
-        const limit = Math.max(1, Math.min(100, params.limit ?? 20));
-        const result = await cfg.accountStore.listAccounts({ search, page, limit });
+        const page = Math.max(LIST_FIRST_PAGE, params.page ?? LIST_FIRST_PAGE);
+        const size = Math.max(
+          1,
+          Math.min(ADMIN_LIST_MAX_SIZE, params.size ?? ADMIN_LIST_DEFAULT_SIZE),
+        );
+        const result = await cfg.accountStore.listAccounts({ search, page, size });
         const data = await Promise.all(result.data.map((u: any) => userDto(u)));
-        return { data, total: result.total, page, limit };
+        return { data, total: result.total, page, size };
       },
       async get(id: string): Promise<AuthkitUser> {
         const account = await cfg.accountStore.findById(id);
@@ -375,12 +379,15 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
         if (!sink || typeof sink.list !== 'function') {
           throw new Error('O sink de auditoria configurado não suporta consulta.');
         }
-        const page = Math.max(1, params.page ?? 1);
-        const limit = Math.max(1, Math.min(100, params.limit ?? 20));
+        const page = Math.max(LIST_FIRST_PAGE, params.page ?? LIST_FIRST_PAGE);
+        const size = Math.max(
+          1,
+          Math.min(ADMIN_LIST_MAX_SIZE, params.size ?? ADMIN_LIST_DEFAULT_SIZE),
+        );
         const type = params.type?.trim() || undefined;
         const subject = params.subject?.trim() || undefined;
-        const result = await sink.list({ page, limit, type, subject });
-        return { data: result.data.map(auditDto), total: result.total, page, limit };
+        const result = await sink.list({ page, size, type, subject });
+        return { data: result.data.map(auditDto), total: result.total, page, size };
       },
     },
     async stats(): Promise<AuthkitStats> {

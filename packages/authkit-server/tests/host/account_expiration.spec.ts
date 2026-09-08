@@ -44,10 +44,10 @@ function makeAuditWithList(events: StoredAuditEvent[]): AuditSink {
         .filter((e) => !params.type || e.type === params.type)
         .filter((e) => !params.subject || e.accountId === params.subject);
       const page = params.page ?? 1;
-      const limit = params.limit ?? 20;
-      const offset = (page - 1) * limit;
+      const size = params.size ?? 20;
+      const offset = (page - 1) * size;
       return {
-        data: filtered.slice(offset, offset + limit),
+        data: filtered.slice(offset, offset + size),
         total: filtered.length,
       };
     },
@@ -228,7 +228,7 @@ test.group('expire-scan mechanics', () => {
         const filtered = auditEvents
           .filter((e) => !params.type || e.type === params.type)
           .filter((e) => !params.subject || e.accountId === params.subject);
-        return { data: filtered.slice(0, params.limit ?? 20), total: filtered.length };
+        return { data: filtered.slice(0, params.size ?? 20), total: filtered.length };
       },
     };
 
@@ -261,7 +261,7 @@ test.group('expire-scan mechanics', () => {
     const warnSoon: any[] = [];
 
     for (const acc of accounts) {
-      const res = await audit.list!({ type: 'login.success', subject: acc.id, page: 1, limit: 1 });
+      const res = await audit.list!({ type: 'login.success', subject: acc.id, page: 1, size: 1 });
       if (res.data.length === 0) continue;
       const createdAt = res.data[0].createdAt;
       const lastMs =
@@ -301,7 +301,7 @@ test.group('expire-scan mechanics', () => {
       type: 'account.expiration_warned',
       subject: ACCOUNT_WARN,
       page: 1,
-      limit: 1,
+      size: 1,
     });
     assert.lengthOf(res.data, 1);
 
@@ -329,7 +329,7 @@ test.group('expire-scan mechanics', () => {
       type: 'account.expiration_warned',
       subject: ACCOUNT_WARN,
       page: 1,
-      limit: 1,
+      size: 1,
     });
     const lastMs = Date.parse(res.data[0].createdAt as string);
     const windowMs = warnDays * 24 * 60 * 60 * 1000;

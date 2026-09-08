@@ -1,14 +1,13 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import type { AuthAccount } from '../../accounts/account_store.js';
+import { ADMIN_LIST_HTTP_DEFAULT_SIZE, parseListPage, parseListSize } from '../../pagination.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
 import { adminUserCreateValidator, adminUserUpdateValidator } from '../admin_validators.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { enrichSessionsWithContext } from '../session_context.js';
 import { AdminUsersService } from './admin_users_service.js';
 import { apiError, grantDto, sessionDto, userDto } from './dto.js';
-
-const PAGE_SIZE = 20;
 
 /**
  * Lê a config + monta o actor `admin-api` para auditoria. O `actorId` recebe o
@@ -36,21 +35,15 @@ export default class ApiUsersController {
   async index(ctx: HttpContext) {
     const { cfg } = await ctxBits(ctx);
     const search = (ctx.request.input('search', '') as string).trim();
-    const page = Math.max(1, Number.parseInt(ctx.request.input('page', '1'), 10) || 1);
-    const limit = Math.max(
-      1,
-      Math.min(
-        100,
-        Number.parseInt(ctx.request.input('limit', String(PAGE_SIZE)), 10) || PAGE_SIZE,
-      ),
-    );
+    const page = parseListPage(ctx.request.input('page'));
+    const size = parseListSize(ctx.request.input('size'), ADMIN_LIST_HTTP_DEFAULT_SIZE);
 
-    const result = await cfg.accountStore.listAccounts({ search, page, limit });
+    const result = await cfg.accountStore.listAccounts({ search, page, size });
     const users = new AdminUsersService(cfg);
     const data = await Promise.all(
       result.data.map(async (u: AuthAccount) => userDto(u, await users.isDisabled(u.id))),
     );
-    return { data, total: result.total, page, limit };
+    return { data, total: result.total, page, size };
   }
 
   /** GET /users/:id */

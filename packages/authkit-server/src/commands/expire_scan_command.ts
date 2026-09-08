@@ -25,6 +25,7 @@ import type { AccountStore, AuthAccount } from '../accounts/account_store.js';
 import type { AuditSink } from '../audit/audit_sink.js';
 import { RuntimeSettings } from '../host/runtime_settings.js';
 import { resolveEffectiveAccountExpiration } from '../host/runtime_toggles.js';
+import { ADMIN_LIST_DEFAULT_SIZE, LIST_FIRST_PAGE } from '../pagination.js';
 import { resolveAuthkitConfig } from './resolve_config.js';
 
 // ---------------------------------------------------------------------------
@@ -118,11 +119,11 @@ export async function runExpireScan(
   let warnedCount = 0;
   let dedupedCount = 0;
   let scanned = 0;
-  let page = 1;
-  const limit = 100;
+  let page = LIST_FIRST_PAGE;
+  const size = ADMIN_LIST_DEFAULT_SIZE;
 
   while (true) {
-    const batch = await accountStore.listAccounts({ page, limit });
+    const batch = await accountStore.listAccounts({ page, size });
     if (batch.data.length === 0) break;
 
     for (const account of batch.data) {
@@ -175,7 +176,7 @@ export async function runExpireScan(
       }
     }
 
-    if (batch.data.length < limit) break;
+    if (batch.data.length < size) break;
     page++;
   }
 
@@ -208,8 +209,8 @@ async function getLastLoginMs(audit: AuditSink, accountId: string): Promise<numb
     const result = await audit.list!({
       type: 'login.success',
       subject: accountId,
-      page: 1,
-      limit: 1,
+      page: LIST_FIRST_PAGE,
+      size: 1,
     });
     if (result.data.length === 0) return null;
     const createdAt = result.data[0].createdAt;
@@ -234,8 +235,8 @@ async function wasWarnedRecently(
     const result = await audit.list!({
       type: 'account.expiration_warned',
       subject: accountId,
-      page: 1,
-      limit: 1,
+      page: LIST_FIRST_PAGE,
+      size: 1,
     });
     if (result.data.length === 0) return false;
     const lastWarned = result.data[0].createdAt;

@@ -177,7 +177,7 @@ const client = createAuthkitClient({
 | Method | HTTP | Notes |
 | --- | --- | --- |
 | `admin.overview()` | `GET /overview` | Dashboard metrics |
-| `admin.users.list(params?)` | `GET /users` | `{ search?, page?, limit? }` |
+| `admin.users.list(params?)` | `GET /users` | `{ search?, page?, size? }` |
 | `admin.users.get(id)` | `GET /users/:id` | Single user |
 | `admin.users.create(data)` | `POST /users` | Creates or invites |
 | `admin.users.update(id, data)` | `PATCH /users/:id` | Partial update |
@@ -209,7 +209,7 @@ const client = createAuthkitClient({
 | `admin.orgs.updateMemberRole(orgId, accountId, role)` | `PATCH /orgs/:id/members/:accountId` | Sends `{ role }` |
 | `admin.orgs.createInvitation(orgId, { email, role })` | `POST /orgs/:id/invitations` | For someone who has no account yet |
 | `admin.orgs.revokeInvitation(orgId, invitationId)` | `DELETE /orgs/:id/invitations/:invitationId` | — |
-| `admin.audit.list(params?)` | `GET /audit` | `{ type?, page?, limit?, subject? }` |
+| `admin.audit.list(params?)` | `GET /audit` | `{ type?, page?, size?, subject? }` |
 | `admin.settings.list(orgId?)` | `GET /settings` | `orgId` scopes to one org; omitted = global |
 | `admin.settings.set(key, value, orgId?)` | `PUT /settings/:key` | Same scoping |
 | `admin.settings.remove(key, orgId?)` | `DELETE /settings/:key` | Resets to the library default |
@@ -292,7 +292,7 @@ const { data } = useQuery(useUsersQueryOptions({ search: 'alice', page: 1 }))
 | Hook | Query key | Notes |
 | --- | --- | --- |
 | `useOverviewQueryOptions()` | `authkitKeys.admin.overview()` | Dashboard metrics |
-| `useUsersQueryOptions(params?)` | `authkitKeys.admin.users(params)` | `{ search?, page?, limit? }` |
+| `useUsersQueryOptions(params?)` | `authkitKeys.admin.users(params)` | `{ search?, page?, size? }` |
 | `useUserQueryOptions(id)` | `authkitKeys.admin.user(id)` | Disabled when `id` is empty |
 | `useUserSessionsQueryOptions(id)` | `authkitKeys.admin.userSessions(id)` | — |
 | `useSessionsQueryOptions(accountId?)` | `authkitKeys.admin.sessions(accountId)` | — |
@@ -301,7 +301,7 @@ const { data } = useQuery(useUsersQueryOptions({ search: 'alice', page: 1 }))
 | `useRolesQueryOptions()` | `authkitKeys.admin.roles()` | — |
 | `useOrgsQueryOptions()` | `authkitKeys.admin.orgs()` | — |
 | `useOrgQueryOptions(id)` | `authkitKeys.admin.org(id)` | — |
-| `useAuditQueryOptions(params?)` | `authkitKeys.admin.audit(params)` | `{ type?, page?, limit?, subject? }` |
+| `useAuditQueryOptions(params?)` | `authkitKeys.admin.audit(params)` | `{ type?, page?, size?, subject? }` |
 | `useSettingsQueryOptions(orgId?)` | `authkitKeys.admin.settings(orgId)` | `orgId` scopes to one org; omitted/`null` = global |
 | `useImpersonationQueryOptions(userId)` | `authkitKeys.admin.impersonation(userId)` | — |
 | `useKeysQueryOptions()` | `authkitKeys.admin.keys()` | Signing-key status |

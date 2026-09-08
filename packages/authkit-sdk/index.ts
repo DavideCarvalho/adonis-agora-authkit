@@ -6,3 +6,8 @@ export { createAuthkit } from './src/factory.js';
 export type { RemoteOptions } from './src/remote_driver.js';
 export { createRemoteAuthkit } from './src/remote_driver.js';
 export type * from './src/types.js';
+export {
+  ADMIN_LIST_DEFAULT_SIZE,
+  ADMIN_LIST_MAX_SIZE,
+  LIST_FIRST_PAGE,
+} from './src/types.js';

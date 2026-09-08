@@ -425,6 +425,17 @@ export type {
   WebauthnCredentialRow,
 } from './src/mixins/with_webauthn_credential.js';
 export { withWebauthnCredential } from './src/mixins/with_webauthn_credential.js';
+export {
+  ADMIN_LIST_DEFAULT_SIZE,
+  ADMIN_LIST_HTTP_DEFAULT_SIZE,
+  ADMIN_LIST_MAX_SIZE,
+  clampListSize,
+  LIST_FIRST_PAGE,
+  normalizeListSize,
+  parseListPage,
+  parseListSize,
+  resolveListPage,
+} from './src/pagination.js';
 export type {
   LegacyPasswordVerifier,
   PasswordConfigInput,

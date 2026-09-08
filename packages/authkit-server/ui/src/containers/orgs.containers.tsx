@@ -22,7 +22,7 @@ import {
 } from './org_members.containers';
 import { OrgSettingsSection } from './org_settings.containers';
 
-const PER_PAGE = 20;
+const PAGE_SIZE = 20;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -185,7 +185,7 @@ export function OrgsTableContainer({
       )
     : allOrgs;
   const total = filtered.length;
-  const orgs = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+  const orgs = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const isNotFound =
     error &&
@@ -253,7 +253,7 @@ export function OrgsTableContainer({
               </tbody>
             </table>
             <div style={{ padding: '0 16px 12px' }}>
-              <Pagination page={page} total={total} perPage={PER_PAGE} onPage={onPage} />
+              <Pagination page={page} total={total} size={PAGE_SIZE} onPage={onPage} />
             </div>
           </div>
         )}

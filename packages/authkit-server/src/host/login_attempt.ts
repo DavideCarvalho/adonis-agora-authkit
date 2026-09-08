@@ -6,6 +6,7 @@ import {
 } from '../accounts/account_store.js';
 import type { AuditSink } from '../audit/audit_sink.js';
 import type { ResolvedServerConfig } from '../define_config.js';
+import { LIST_FIRST_PAGE } from '../pagination.js';
 import { createAccountLockout } from './account_lockout.js';
 import type { SettingsCapability } from './runtime_settings.js';
 import {
@@ -133,8 +134,8 @@ export async function isAccountExpired(
     const result = await audit.list({
       type: 'login.success',
       subject: accountId,
-      page: 1,
-      limit: 1,
+      page: LIST_FIRST_PAGE,
+      size: 1,
     });
     if (result.data.length === 0) {
       // Nunca logou → considera ativa (conta nova, não inativa).

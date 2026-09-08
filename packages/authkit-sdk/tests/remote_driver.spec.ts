@@ -80,7 +80,7 @@ test.group('remote driver — users', () => {
           ],
           total: 1,
           page: 1,
-          limit: 20,
+          size: 20,
         },
       }),
       async (sdk, api) => {
@@ -484,7 +484,7 @@ test.group('remote driver — apiPrefix option', () => {
       '/authkit/api',
       () => ({
         status: 200,
-        body: { data: [], total: 0, page: 1, limit: 20 },
+        body: { data: [], total: 0, page: 1, size: 20 },
       }),
       async (sdk, api) => {
         await sdk.users.list();
@@ -531,7 +531,7 @@ test.group('remote driver — apiPrefix option', () => {
   }) => {
     await withCustomPrefixApi(
       'authkit/api/',
-      () => ({ status: 200, body: { data: [], total: 0, page: 1, limit: 20 } }),
+      () => ({ status: 200, body: { data: [], total: 0, page: 1, size: 20 } }),
       async (sdk, api) => {
         await sdk.users.list();
         assert.match(api.last!.url, /^\/authkit\/api\/users/);
@@ -540,7 +540,7 @@ test.group('remote driver — apiPrefix option', () => {
   });
 
   test('default (no apiPrefix): still uses /api/authkit/v1 (back-compat)', async ({ assert }) => {
-    const api = fakeApi(() => ({ status: 200, body: { data: [], total: 0, page: 1, limit: 20 } }));
+    const api = fakeApi(() => ({ status: 200, body: { data: [], total: 0, page: 1, size: 20 } }));
     const baseUrl = await api.listen();
     try {
       // No apiPrefix passed — back-compat

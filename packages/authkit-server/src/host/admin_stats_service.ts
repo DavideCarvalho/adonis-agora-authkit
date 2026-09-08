@@ -1,4 +1,5 @@
 import type { ResolvedServerConfig } from '../define_config.js';
+import { ADMIN_LIST_MAX_SIZE, LIST_FIRST_PAGE } from '../pagination.js';
 
 /** Um ponto de série diária (dia ISO `YYYY-MM-DD` + contagem). */
 export interface DailyPoint {
@@ -54,7 +55,8 @@ export async function computeAdminStats(
   cfg: Pick<ResolvedServerConfig, 'audit' | 'accountStore'>,
   sessionsService: { canList: boolean; countActiveSessions(): Promise<number> },
 ): Promise<AdminStats> {
-  const totalUsers = (await cfg.accountStore.listAccounts({ page: 1, limit: 1 })).total;
+  const totalUsers = (await cfg.accountStore.listAccounts({ page: LIST_FIRST_PAGE, size: 1 }))
+    .total;
   const activeSessions = sessionsService.canList
     ? await sessionsService.countActiveSessions()
     : null;
@@ -114,10 +116,10 @@ async function loadEventsInWindow(
   windowStartMs: number,
 ): Promise<WindowEvent[]> {
   const out: WindowEvent[] = [];
-  const limit = 200;
-  let page = 1;
+  const size = ADMIN_LIST_MAX_SIZE;
+  let page = LIST_FIRST_PAGE;
   while (out.length < MAX_EVENTS) {
-    const result = await audit.list!({ type, page, limit });
+    const result = await audit.list!({ type, page, size });
     if (result.data.length === 0) break;
     let allBelowWindow = true;
     for (const e of result.data) {
@@ -131,7 +133,7 @@ async function loadEventsInWindow(
     }
     // Página inteira anterior à janela → não há mais nada relevante (ordem desc).
     if (allBelowWindow) break;
-    if (result.data.length < limit) break;
+    if (result.data.length < size) break;
     page += 1;
   }
   return out;

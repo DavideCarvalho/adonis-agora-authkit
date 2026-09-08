@@ -125,7 +125,7 @@ door you came through.
 
 | Resource | Method | Returns |
 | --- | --- | --- |
-| `users` | `list({ search?, page?, limit? })` | `{ data, total, page, limit }` |
+| `users` | `list({ search?, page?, size? })` | `{ data, total, page, size }` |
 | `users` | `get(id)` | the user |
 | `users` | `create({ email, name?, password?, invite? })` | the user + `invited` |
 | `users` | `update(id, { globalRoles?, name?, avatarUrl? })` | the updated user |
@@ -140,7 +140,7 @@ door you came through.
 | `clients` | `update(id, input)` | the updated client |
 | `clients` | `regenerateSecret(id)` | `{ clientId, clientSecret }` — new secret **once** |
 | `clients` | `delete(id)` | `{ clientId, deleted }` |
-| `audit` | `list({ type?, subject?, page?, limit? })` | `{ data, total, page, limit }` |
+| `audit` | `list({ type?, subject?, page?, size? })` | `{ data, total, page, size }` |
 | `stats()` | — | MAU, daily sign-ins/sign-ups, totals (see below) |
 | `tokens` | `verify(token)` | introspection result (PAT or opaque access token) |
 | `organizations` | `list()` | `{ data: AuthkitOrganization[] }` |

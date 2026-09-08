@@ -92,14 +92,14 @@ test.group('lucidAuditSink', (group) => {
     for (let i = 0; i < 5; i++) {
       await sink.record({ type: 'login.success', accountId: `u${i}`, email: `u${i}@x.com` });
     }
-    const firstPage = await sink.list!({ page: 1, limit: 2 });
+    const firstPage = await sink.list!({ page: 1, size: 2 });
     assert.equal(firstPage.total, 5);
     assert.lengthOf(firstPage.data, 2);
     // Cada evento devolvido carrega id + createdAt.
     assert.isString(firstPage.data[0].id);
     assert.isNotNull(firstPage.data[0].createdAt);
 
-    const thirdPage = await sink.list!({ page: 3, limit: 2 });
+    const thirdPage = await sink.list!({ page: 3, size: 2 });
     assert.lengthOf(thirdPage.data, 1);
   });
 
