@@ -114,7 +114,7 @@ catalogs:
     "@adonisjs/transmit": "3.0.2"
     "@adonisjs/transmit-client": "1.1.0"
     "@adonisjs/vite": "6.0.1"
-    "@adonisjs/assembler": "8.5.0"
+    "@adonisjs/assembler": "8.5.1"
     "@adonisjs/eslint-config": "3.1.0"
     "@adonisjs/prettier-config": "1.5.0"
     "@adonisjs/tsconfig": "2.0.0"
