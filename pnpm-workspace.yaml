@@ -9,6 +9,11 @@ minimumReleaseAge: 0
 
 allowBuilds:
   '@biomejs/biome': true
+  # Entra como dependência do `@tailwindcss/cli` (que o authkit-server usa para
+  # compilar o CSS das views do host). Só serve ao `--watch` do CLI, que nunca
+  # rodamos — o build é one-shot. Negado explicitamente para não compilar um
+  # addon nativo no CI e para não deixar o pnpm falhar com ERR_PNPM_IGNORED_BUILDS.
+  '@parcel/watcher': false
   '@swc/core': true
   better-sqlite3: true
   esbuild: true
@@ -189,6 +194,7 @@ catalogs:
     "zod": "4.5.4"
     "typescript": "7.0.2"
     "tailwindcss": "4.3.3"
+    "@tailwindcss/cli": "4.3.3"
     "@tailwindcss/vite": "4.3.3"
     "@tailwindcss/postcss": "4.3.3"
 

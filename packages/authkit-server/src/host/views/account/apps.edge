@@ -30,11 +30,11 @@
     @end
 
     @if(!supported)
-      <div class="rounded-xl bg-white p-6 text-sm text-gray-500 shadow-sm ring-1 ring-black/5">
+      <div class="rounded-xl bg-white p-6 text-sm text-gray-500 shadow-xs ring-1 ring-black/5">
         {{ t('account.apps.not_supported') }}
       </div>
     @else
-      <div class="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-black/5">
+      <div class="overflow-hidden rounded-xl bg-white shadow-xs ring-1 ring-black/5">
         @if(apps.length === 0)
           <p class="p-6 text-sm text-gray-500">{{ t('account.apps.empty') }}</p>
         @else

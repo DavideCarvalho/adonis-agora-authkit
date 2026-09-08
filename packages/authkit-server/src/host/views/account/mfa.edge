@@ -35,7 +35,7 @@
     @end
 
     @if(enrolling)
-      <div class="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
+      <div class="rounded-xl bg-white p-6 shadow-xs ring-1 ring-black/5">
         <p class="text-sm text-gray-600">
           {{ t('account.mfa.enroll_intro') }}
         </p>
@@ -51,14 +51,14 @@
           <input type="hidden" name="_csrf" value="{{ csrfToken }}">
           <label for="code" class="mb-1 block text-sm font-medium text-gray-700">{{ t('account.mfa.confirm_code_label') }}</label>
           <input id="code" name="code" inputmode="numeric" pattern="[0-9]*" maxlength="6" autofocus
-            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-center text-lg tracking-[0.4em] outline-none focus:border-gray-900" />
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-center text-lg tracking-[0.4em] outline-hidden focus:border-gray-900" />
           <button type="submit" class="mt-4 w-full rounded-lg bg-gray-900 py-2.5 text-sm font-semibold text-white">
             {{ t('account.mfa.activate') }}
           </button>
         </form>
       </div>
     @elseif(enabled)
-      <div class="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
+      <div class="rounded-xl bg-white p-6 shadow-xs ring-1 ring-black/5">
         <p class="text-sm text-gray-700">
           {{{ t('account.mfa.enabled_html') }}}
         </p>
@@ -70,7 +70,7 @@
         </form>
       </div>
     @else
-      <div class="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
+      <div class="rounded-xl bg-white p-6 shadow-xs ring-1 ring-black/5">
         <p class="text-sm text-gray-700">
           {{ t('account.mfa.disabled_intro') }}
         </p>
@@ -85,7 +85,7 @@
 
     @if(passkeysSupported)
       {{-- Passkeys / chaves de acesso (WebAuthn) — 2º fator alternativo ao TOTP. --}}
-      <div class="mt-6 rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
+      <div class="mt-6 rounded-xl bg-white p-6 shadow-xs ring-1 ring-black/5">
         <h2 class="text-base font-semibold text-gray-900">{{ t('mfa.passkey.section_title') }}</h2>
         <p class="mt-1 text-sm text-gray-600">{{ t('mfa.passkey.section_intro') }}</p>
 

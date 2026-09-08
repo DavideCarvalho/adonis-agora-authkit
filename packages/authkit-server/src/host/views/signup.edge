@@ -28,13 +28,13 @@
         <div class="mt-6">
           <label for="fullName" class="mb-1 block text-sm font-medium text-gray-700">{{ t('signup.name_label') }}</label>
           <input id="fullName" name="fullName" type="text" required
-            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none transition focus:border-gray-900 focus:ring-2 focus:ring-gray-900" />
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-hidden transition focus:border-gray-900 focus:ring-2 focus:ring-gray-900" />
         </div>
 
         <div class="mt-4">
           <label for="email" class="mb-1 block text-sm font-medium text-gray-700">{{ t('signup.email_label') }}</label>
           <input id="email" name="email" type="email" required
-            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none transition focus:border-gray-900 focus:ring-2 focus:ring-gray-900" />
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-hidden transition focus:border-gray-900 focus:ring-2 focus:ring-gray-900" />
         </div>
 
         {{-- Cadastro passwordless: sem campo de senha. O login vem por magic link. --}}
@@ -42,7 +42,7 @@
           <div class="mt-4">
             <label for="password" class="mb-1 block text-sm font-medium text-gray-700">{{ t('signup.password_label') }}</label>
             <input id="password" name="password" type="password" required minlength="8"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none transition focus:border-gray-900 focus:ring-2 focus:ring-gray-900" />
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-hidden transition focus:border-gray-900 focus:ring-2 focus:ring-gray-900" />
           </div>
         @end
 

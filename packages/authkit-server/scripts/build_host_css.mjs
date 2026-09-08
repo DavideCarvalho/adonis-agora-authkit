@@ -9,6 +9,10 @@
  * O partial gerado é commitado: muda apenas quando as classes usadas nas
  * views mudam, e assim o pacote funciona tanto a partir de `src/` (dev)
  * quanto de `build/` (publicado) sem passo extra.
+ *
+ * Tailwind 4: o CLI saiu do pacote `tailwindcss` para `@tailwindcss/cli` e a
+ * flag `-c <config>` não existe mais — a configuração é CSS-first, então o
+ * `content` do config v3 virou o `@source` de `src/host/host.css`.
  */
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -18,17 +22,10 @@ import { join } from 'node:path';
 const root = new URL('..', import.meta.url).pathname;
 const tmp = mkdtempSync(join(tmpdir(), 'authkit-css-'));
 
-const input = join(tmp, 'input.css');
-const config = join(tmp, 'tailwind.config.mjs');
+const input = join(root, 'src/host/host.css');
 const output = join(tmp, 'host.css');
 
-writeFileSync(input, '@tailwind base;\n@tailwind components;\n@tailwind utilities;\n');
-writeFileSync(
-  config,
-  `export default { content: [${JSON.stringify(join(root, 'src/host/views/**/*.edge'))}] }\n`,
-);
-
-execFileSync('npx', ['tailwindcss', '-c', config, '-i', input, '-o', output, '--minify'], {
+execFileSync('npx', ['@tailwindcss/cli', '-i', input, '-o', output, '--minify'], {
   cwd: root,
   stdio: ['ignore', 'ignore', 'inherit'],
 });
