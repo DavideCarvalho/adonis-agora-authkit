@@ -26,14 +26,25 @@ export interface LinkProviderIdentityInput {
   email?: string;
 }
 
-/** Parâmetros de listagem paginada de contas (console admin). */
+/**
+ * Parâmetros de listagem paginada de contas (console admin).
+ *
+ * O par `{ page, size }` espelha INTENCIONALMENTE o shape de paginação por
+ * offset de `@adonis-agora/filter` (`FilterInput.page`/`.size`), para manter a
+ * mesma interface em todo o ecossistema `@adonis-agora/*`. É um casamento
+ * ESTRUTURAL: não há dependência de `@adonis-agora/filter` aqui.
+ */
 export interface ListAccountsParams {
   /** Filtro por e-mail (substring, case-insensitive). */
   search?: string;
   /** Página (1-based). Default: 1. */
   page?: number;
-  /** Itens por página. Default: 20. */
-  limit?: number;
+  /**
+   * Itens por página. Default: 20; limitado a `ADMIN_LIST_MAX_SIZE` (200).
+   *
+   * Renomeado de `limit` para `size` para casar com `@adonis-agora/filter`.
+   */
+  size?: number;
 }
 
 /** Página de resultados + total absoluto (para paginação na UI). */

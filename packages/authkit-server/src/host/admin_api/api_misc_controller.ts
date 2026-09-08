@@ -1,5 +1,6 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
+import { ADMIN_LIST_HTTP_DEFAULT_SIZE, parseListPage, parseListSize } from '../../pagination.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
 import { computeAdminStats } from '../admin_stats_service.js';
 import { tokenVerifyValidator } from '../admin_validators.js';
@@ -21,16 +22,13 @@ export default class ApiMiscController {
         .status(501)
         .send(apiError('not_implemented', 'O sink de auditoria configurado não suporta consulta.'));
     }
-    const page = Math.max(1, Number.parseInt(ctx.request.input('page', '1'), 10) || 1);
-    const limit = Math.max(
-      1,
-      Math.min(100, Number.parseInt(ctx.request.input('limit', '20'), 10) || 20),
-    );
+    const page = parseListPage(ctx.request.input('page'));
+    const size = parseListSize(ctx.request.input('size'), ADMIN_LIST_HTTP_DEFAULT_SIZE);
     const type = (ctx.request.input('type') as string | undefined)?.trim() || undefined;
     const subject = (ctx.request.input('subject') as string | undefined)?.trim() || undefined;
 
-    const result = await sink.list({ page, limit, type, subject });
-    return { data: result.data.map(auditDto), total: result.total, page, limit };
+    const result = await sink.list({ page, size, type, subject });
+    return { data: result.data.map(auditDto), total: result.total, page, size };
   }
 
   /** GET /stats — métricas-resumo do IdP (totais + MAU + séries de 30 dias). */

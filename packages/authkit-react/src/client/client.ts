@@ -285,8 +285,8 @@ class AuthkitClient {
     overview: () => this.get<AdminOverview>(this.b('/overview')),
 
     users: {
-      /** GET {base}/users?search&page&limit */
-      list: (params?: { search?: string; page?: number; limit?: number }) =>
+      /** GET {base}/users?search&page&size */
+      list: (params?: { search?: string; page?: number; size?: number }) =>
         this.get<AdminUserListResult>(this.b('/users'), params),
       /** GET {base}/users/:id */
       get: (id: string) => this.get<AdminUser>(this.b(`/users/${encodeURIComponent(id)}`)),
@@ -413,7 +413,7 @@ class AuthkitClient {
     },
 
     audit: {
-      /** GET {base}/audit?type&page&limit&subject */
+      /** GET {base}/audit?type&page&size&subject */
       list: (params?: AuditListParams) =>
         this.get<AuditListResult>(this.b('/audit'), params as Record<string, unknown> | undefined),
     },

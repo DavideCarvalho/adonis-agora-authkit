@@ -43,9 +43,9 @@ function buildMemoryStoreWithOrgs(): AccountStore {
     consumePasswordResetToken: async () => false,
     issueEmailVerificationToken: async () => null,
     consumeEmailVerificationToken: async () => false,
-    listAccounts: async ({ page = 1, limit = 20 }) => {
+    listAccounts: async ({ page = 1, size = 20 }) => {
       const data = [...accounts.values()];
-      return { data: data.slice((page - 1) * limit, page * limit), total: data.length };
+      return { data: data.slice((page - 1) * size, page * size), total: data.length };
     },
     setGlobalRoles: async () => {},
 

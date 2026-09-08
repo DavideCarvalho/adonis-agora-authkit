@@ -21,9 +21,9 @@ function buildFakeServer() {
   const disabled = new Set<string>();
 
   const accountStore = {
-    async listAccounts({ page, limit }: any) {
+    async listAccounts({ page, size }: any) {
       const data = [...accounts.values()];
-      return { data, total: data.length, page, limit };
+      return { data, total: data.length, page, size };
     },
     async findById(id: string) {
       return accounts.get(id) ?? null;

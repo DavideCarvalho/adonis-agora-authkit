@@ -1,6 +1,7 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import { supportsAccountDeletion, supportsAccountStatus } from '../../accounts/account_store.js';
+import { ADMIN_LIST_HTTP_DEFAULT_SIZE, parseListPage, parseListSize } from '../../pagination.js';
 import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { AdminUsersService } from '../admin_api/admin_users_service.js';
 import { apiError, grantDto, sessionDto, userDto } from '../admin_api/dto.js';
@@ -11,8 +12,6 @@ import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { resolveEffectiveRolesCatalog } from '../runtime_toggles.js';
 import { enrichSessionsWithContext } from '../session_context.js';
 import { requireSudo } from '../sudo_mode.js';
-
-const PAGE_SIZE = 20;
 
 /**
  * Gate de sudo (M9) para ações destrutivas do console (delete user, disable,
@@ -38,7 +37,7 @@ async function gateSudo(ctx: HttpContext): Promise<unknown | null> {
 /**
  * Endpoints JSON de usuários do console admin React.
  *
- * GET  {prefix}/api/users?search=&page=&perPage=  → lista paginada + roles
+ * GET  {prefix}/api/users?search=&page=&size=  → lista paginada + roles
  * GET  {prefix}/api/users/:id                     → detalhe + sessões + identidades + MFA status
  * POST {prefix}/api/users                         → criar usuário
  * PATCH {prefix}/api/users/:id/roles              → substituir roles globais
@@ -58,19 +57,13 @@ export default class ConsoleUsersController {
     const cfg = service.config;
 
     const search = (ctx.request.input('search', '') as string).trim();
-    const page = Math.max(1, Number.parseInt(ctx.request.input('page', '1'), 10) || 1);
-    const perPage = Math.max(
-      1,
-      Math.min(
-        100,
-        Number.parseInt(ctx.request.input('perPage', String(PAGE_SIZE)), 10) || PAGE_SIZE,
-      ),
-    );
+    const page = parseListPage(ctx.request.input('page'));
+    const size = parseListSize(ctx.request.input('size'), ADMIN_LIST_HTTP_DEFAULT_SIZE);
 
     const result = await cfg.accountStore.listAccounts({
       search,
       page,
-      limit: perPage,
+      size,
     });
     const users = new AdminUsersService(cfg);
 
@@ -78,7 +71,7 @@ export default class ConsoleUsersController {
       result.data.map(async (u: any) => userDto(u, await users.isDisabled(u.id))),
     );
 
-    return { data, total: result.total, page, perPage };
+    return { data, total: result.total, page, size };
   }
 
   /** GET {prefix}/api/users/:id */

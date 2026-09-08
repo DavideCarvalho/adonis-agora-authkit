@@ -22,7 +22,7 @@ function eventBadgeClass(type: string) {
   return 'badge-muted';
 }
 
-const PER_PAGE = 30;
+const PAGE_SIZE = 30;
 
 // ── AuditTableContainer ───────────────────────────────────────────────────────
 
@@ -46,7 +46,7 @@ export function AuditTableContainer({
   const [checkedUnavailable, setCheckedUnavailable] = useState(false);
 
   const { data, isLoading, error, refetch } = useQuery({
-    ...useAuditQueryOptions({ type: typeFilter || undefined, page, limit: PER_PAGE }),
+    ...useAuditQueryOptions({ type: typeFilter || undefined, page, size: PAGE_SIZE }),
     retry: (failureCount, err: unknown) => {
       if (
         err &&
@@ -132,7 +132,7 @@ export function AuditTableContainer({
               </tbody>
             </table>
             <div style={{ padding: '0 16px 12px' }}>
-              <Pagination page={page} total={total} perPage={PER_PAGE} onPage={onPage} />
+              <Pagination page={page} total={total} size={PAGE_SIZE} onPage={onPage} />
             </div>
           </div>
         )}
@@ -184,7 +184,7 @@ export function AuditEventDetailContainer({ event, onClose }: AuditEventDetailCo
 // Re-export count
 export function useAuditTotal(typeFilter: string, page: number) {
   const { data } = useQuery(
-    useAuditQueryOptions({ type: typeFilter || undefined, page, limit: PER_PAGE }),
+    useAuditQueryOptions({ type: typeFilter || undefined, page, size: PAGE_SIZE }),
   );
   return data?.total ?? 0;
 }

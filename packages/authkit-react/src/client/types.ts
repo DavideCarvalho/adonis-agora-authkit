@@ -30,11 +30,18 @@ export interface AdminUser {
   invited?: boolean;
 }
 
+/**
+ * Offset-paginated user listing.
+ *
+ * `{ page, size }` intentionally mirrors `@adonis-agora/filter`'s
+ * `FilterInput.page`/`.size`, so every `@adonis-agora/*` package speaks the same
+ * pagination interface. STRUCTURAL match — no dependency on the filter package.
+ */
 export interface AdminUserListResult {
   data: AdminUser[];
   total: number;
   page: number;
-  limit: number;
+  size: number;
 }
 
 export interface CreateUserInput {
@@ -228,17 +235,20 @@ export interface AuditEventEntry {
   createdAt: string;
 }
 
+/** Offset-paginated audit listing — same `{ page, size }` shape as {@link AdminUserListResult}. */
 export interface AuditListResult {
   data: AuditEventEntry[];
   total: number;
   page: number;
-  limit: number;
+  size: number;
 }
 
 export interface AuditListParams {
   type?: string;
+  /** 1-based page number. Default: 1. */
   page?: number;
-  limit?: number;
+  /** Page size. Default: 20; capped server-side at 200. */
+  size?: number;
   subject?: string;
 }
 

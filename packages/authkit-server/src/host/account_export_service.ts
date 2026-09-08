@@ -4,6 +4,7 @@ import {
   supportsProviderIdentity,
 } from '../accounts/account_store.js';
 import type { ResolvedServerConfig } from '../define_config.js';
+import { LIST_FIRST_PAGE } from '../pagination.js';
 import type { OidcService } from '../provider/oidc_service.js';
 import { AdminSessionsService } from './admin_sessions_service.js';
 
@@ -55,7 +56,7 @@ export interface AccountExport {
 }
 
 /** Limite de eventos de audit incluídos no export (evita payloads gigantes). */
-const AUDIT_EXPORT_LIMIT = 1000;
+const AUDIT_EXPORT_SIZE = 1000;
 
 /**
  * Monta o pacote de dados de uma conta para portabilidade (LGPD/GDPR). NUNCA
@@ -161,8 +162,8 @@ export class AccountExportService {
       try {
         const page = await cfg.audit.list({
           subject: accountId,
-          page: 1,
-          limit: AUDIT_EXPORT_LIMIT,
+          page: LIST_FIRST_PAGE,
+          size: AUDIT_EXPORT_SIZE,
         });
         auditLog = page.data.map((e) => ({
           type: e.type,

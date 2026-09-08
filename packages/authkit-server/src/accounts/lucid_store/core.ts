@@ -10,6 +10,11 @@ import {
   linkTokenFromOtpUrl,
   OTP_LOGIN_PREFIX,
 } from '../../host/otp_login.js';
+import {
+  ADMIN_LIST_HTTP_DEFAULT_SIZE,
+  normalizeListSize,
+  resolveListPage,
+} from '../../pagination.js';
 import type {
   AccountImportCapability,
   AccountSecurityCapability,
@@ -390,8 +395,8 @@ export function buildCore(
     // ----- Administração (console admin) -----
 
     async listAccounts(params) {
-      const page = Math.max(1, params.page ?? 1);
-      const limit = Math.max(1, params.limit ?? 20);
+      const page = resolveListPage(params.page);
+      const size = normalizeListSize(params.size, ADMIN_LIST_HTTP_DEFAULT_SIZE);
       const search = params.search?.trim();
 
       const base = () => {
@@ -408,8 +413,8 @@ export function buildCore(
 
       const rows = await base()
         .orderBy('email', 'asc')
-        .offset((page - 1) * limit)
-        .limit(limit);
+        .offset((page - 1) * size)
+        .limit(size);
 
       return { data: rows.map(toAccount), total };
     },

@@ -97,12 +97,12 @@ function memoryAccountStore(): AccountStore {
     },
     issueEmailVerificationToken: async () => null,
     consumeEmailVerificationToken: async () => false,
-    listAccounts: async ({ search, limit = 20, page = 1 }) => {
+    listAccounts: async ({ search, size = 20, page = 1 }) => {
       let list = [...byId.values()];
       if (search) list = list.filter((a) => a.email.includes(search));
       const total = list.length;
-      const start = (page - 1) * limit;
-      return { data: list.slice(start, start + limit), total };
+      const start = (page - 1) * size;
+      return { data: list.slice(start, start + size), total };
     },
     setGlobalRoles: async (id, roles) => {
       const a = byId.get(id);
@@ -137,13 +137,13 @@ function memoryAuditSink(): AuditSink & { events: StoredAuditEvent[] } {
     record: async (e) => {
       events.push({ ...e, id: `ev-${events.length + 1}`, createdAt: new Date() });
     },
-    list: async ({ page = 1, limit = 20, type, subject }) => {
+    list: async ({ page = 1, size = 20, type, subject }) => {
       let list = events;
       if (type) list = list.filter((e) => e.type === type);
       if (subject) list = list.filter((e) => e.accountId === subject);
       const total = list.length;
-      const start = (page - 1) * limit;
-      return { data: list.slice(start, start + limit), total };
+      const start = (page - 1) * size;
+      return { data: list.slice(start, start + size), total };
     },
   };
 }

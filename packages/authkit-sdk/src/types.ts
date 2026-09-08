@@ -7,6 +7,22 @@
  * shapes — keep them in sync with the server DTOs.
  */
 
+/**
+ * Shared offset-pagination constants for the Authkit SDK listings. They mirror
+ * the `@adonis-agora/authkit-server` values of the same name (and, structurally,
+ * `@adonis-agora/filter`'s `{ page, size }` contract) — declared locally so the
+ * SDK keeps working against any supported server version.
+ */
+
+/** First page — pagination is 1-based. */
+export const LIST_FIRST_PAGE = 1;
+
+/** Default page size when a listing call omits `size`. */
+export const ADMIN_LIST_DEFAULT_SIZE = 20;
+
+/** Hard cap applied to a caller-supplied `size`. */
+export const ADMIN_LIST_MAX_SIZE = 200;
+
 /** A user/account as projected by the Admin API (`userDto`). */
 export interface AuthkitUser {
   id: string;
@@ -22,17 +38,27 @@ export interface AuthkitCreatedUser extends AuthkitUser {
   invited: boolean;
 }
 
+/**
+ * Offset pagination for `users.list`.
+ *
+ * `{ page, size }` intentionally mirrors `@adonis-agora/filter`'s
+ * `FilterInput.page`/`.size` so every `@adonis-agora/*` package exposes the same
+ * pagination interface. The match is STRUCTURAL on purpose — there is no
+ * dependency on `@adonis-agora/filter` here.
+ */
 export interface ListUsersParams {
   search?: string;
+  /** 1-based page number. Default: 1. */
   page?: number;
-  limit?: number;
+  /** Page size. Default: 20; capped at {@link ADMIN_LIST_MAX_SIZE}. */
+  size?: number;
 }
 
 export interface ListUsersResult {
   data: AuthkitUser[];
   total: number;
   page: number;
-  limit: number;
+  size: number;
 }
 
 export interface CreateUserInput {
@@ -144,18 +170,24 @@ export interface AuthkitAuditEvent {
   createdAt: string;
 }
 
+/**
+ * Offset pagination for `audit.list` — same `{ page, size }` shape as
+ * {@link ListUsersParams} and `@adonis-agora/filter`.
+ */
 export interface ListAuditParams {
   type?: string;
   subject?: string;
+  /** 1-based page number. Default: 1. */
   page?: number;
-  limit?: number;
+  /** Page size. Default: 20; capped at {@link ADMIN_LIST_MAX_SIZE}. */
+  size?: number;
 }
 
 export interface ListAuditResult {
   data: AuthkitAuditEvent[];
   total: number;
   page: number;
-  limit: number;
+  size: number;
 }
 
 /** A daily series point (ISO `YYYY-MM-DD` day + count). */

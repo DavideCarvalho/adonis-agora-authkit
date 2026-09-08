@@ -98,7 +98,7 @@ test.group('events/dispatcher — composeAuditSink', () => {
     };
     const sink = composeAuditSink(original, { onEvent: () => {} });
     assert.isFunction(sink.list);
-    const page = await sink.list!({ page: 1, limit: 10 });
+    const page = await sink.list!({ page: 1, size: 10 });
     assert.equal(page.total, 0);
   });
 

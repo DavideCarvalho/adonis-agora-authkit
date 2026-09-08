@@ -1,11 +1,12 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
+import { ADMIN_LIST_HTTP_DEFAULT_SIZE, parseListPage, parseListSize } from '../../pagination.js';
 import { apiError, auditDto } from '../admin_api/dto.js';
 
 /**
  * Endpoints JSON do log de auditoria do console admin React.
  *
- * GET {prefix}/api/audit?type=&page=&limit=  → listagem paginada
+ * GET {prefix}/api/audit?type=&page=&size=  → listagem paginada
  *
  * 404 honesto (`capability_unsupported`) quando o sink não suporta consulta.
  */
@@ -21,15 +22,12 @@ export default class ConsoleAuditController {
       );
     }
 
-    const page = Math.max(1, Number.parseInt(ctx.request.input('page', '1'), 10) || 1);
-    const limit = Math.max(
-      1,
-      Math.min(100, Number.parseInt(ctx.request.input('limit', '20'), 10) || 20),
-    );
+    const page = parseListPage(ctx.request.input('page'));
+    const size = parseListSize(ctx.request.input('size'), ADMIN_LIST_HTTP_DEFAULT_SIZE);
     const type = (ctx.request.input('type') as string | undefined)?.trim() || undefined;
     const subject = (ctx.request.input('subject') as string | undefined)?.trim() || undefined;
 
-    const result = await sink.list({ page, limit, type, subject });
-    return { data: result.data.map(auditDto), total: result.total, page, limit };
+    const result = await sink.list({ page, size, type, subject });
+    return { data: result.data.map(auditDto), total: result.total, page, size };
   }
 }

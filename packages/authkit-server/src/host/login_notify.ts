@@ -1,5 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http';
 import type { ResolvedServerConfig } from '../define_config.js';
+import { ADMIN_LIST_MAX_SIZE, LIST_FIRST_PAGE } from '../pagination.js';
 import { sendNewDeviceLoginEmail, sendNewLoginEmail } from './default_mailer.js';
 import { isTrustedDeviceValid, TRUSTED_DEVICE_COOKIE } from './trusted_device.js';
 
@@ -162,8 +163,8 @@ async function maybeNotifyNewLogin(
   const page = await cfg.audit.list({
     type: 'login.success',
     subject: accountId,
-    page: 1,
-    limit: 200,
+    page: LIST_FIRST_PAGE,
+    size: ADMIN_LIST_MAX_SIZE,
   });
   const sameIpCount = page.data.filter((e) => e.ip === ip).length;
   // > 1 significa que já havia um login.success deste IP antes do atual → não é novo.

@@ -3,16 +3,17 @@ import React from 'react';
 interface PaginationProps {
   page: number;
   total: number;
-  perPage: number;
+  /** Page size — matches the `size` query param sent to the API. */
+  size: number;
   onPage: (p: number) => void;
 }
 
-export function Pagination({ page, total, perPage, onPage }: PaginationProps) {
-  const pages = Math.ceil(total / perPage);
+export function Pagination({ page, total, size, onPage }: PaginationProps) {
+  const pages = Math.ceil(total / size);
   if (pages <= 1) return null;
 
-  const start = (page - 1) * perPage + 1;
-  const end = Math.min(page * perPage, total);
+  const start = (page - 1) * size + 1;
+  const end = Math.min(page * size, total);
 
   return (
     <div className="pagination">

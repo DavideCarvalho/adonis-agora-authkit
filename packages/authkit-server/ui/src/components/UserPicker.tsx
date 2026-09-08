@@ -16,7 +16,7 @@ export function UserPicker({
   const [search, setSearch] = useState('');
   const dSearch = useDebounce(search, 250);
   const usersQuery = useQuery({
-    ...useUsersQueryOptions({ search: dSearch, limit: 6 }),
+    ...useUsersQueryOptions({ search: dSearch, size: 6 }),
     enabled: dSearch.trim().length >= 2,
   });
   const candidates = usersQuery.data?.data ?? [];

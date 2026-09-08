@@ -1060,16 +1060,16 @@ test.group('lucidAccountStore', (group) => {
     for (let i = 0; i < 5; i++) {
       await store.create({ email: `list-${i}@x.com`, password: 'pass123456' });
     }
-    const firstPage = await store.listAccounts({ page: 1, limit: 2 });
+    const firstPage = await store.listAccounts({ page: 1, size: 2 });
     assert.equal(firstPage.total, 5);
     assert.lengthOf(firstPage.data, 2);
 
-    const secondPage = await store.listAccounts({ page: 2, limit: 2 });
+    const secondPage = await store.listAccounts({ page: 2, size: 2 });
     assert.lengthOf(secondPage.data, 2);
     // Páginas distintas não repetem (ordenado por email).
     assert.notEqual(firstPage.data[0].id, secondPage.data[0].id);
 
-    const thirdPage = await store.listAccounts({ page: 3, limit: 2 });
+    const thirdPage = await store.listAccounts({ page: 3, size: 2 });
     assert.lengthOf(thirdPage.data, 1);
   });
 

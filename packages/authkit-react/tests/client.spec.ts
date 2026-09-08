@@ -64,11 +64,11 @@ test.group('AuthkitClient — URL construction', () => {
   test('monta query string em users.list()', async ({ assert }) => {
     const { calls, fetch: mockFetch } = captureFetch();
     const client = createAuthkitClient({ baseUrl: '/admin/api', fetch: mockFetch });
-    await client.admin.users.list({ search: 'ana', page: 2, limit: 10 });
+    await client.admin.users.list({ search: 'ana', page: 2, size: 10 });
     const url = calls[0].url;
     assert.include(url, 'search=ana');
     assert.include(url, 'page=2');
-    assert.include(url, 'limit=10');
+    assert.include(url, 'size=10');
   });
 
   test('omite params undefined da query string', async ({ assert }) => {

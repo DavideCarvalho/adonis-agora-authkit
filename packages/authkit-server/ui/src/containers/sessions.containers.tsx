@@ -5,7 +5,7 @@ import { Pagination } from '../components/Pagination';
 import { QueryBoundary } from '../components/QueryBoundary';
 import { SkeletonPanelTable } from '../components/Skeleton';
 
-const PER_PAGE = 20;
+const PAGE_SIZE = 20;
 
 interface SessionsTableContainerProps {
   page: number;
@@ -16,7 +16,7 @@ export function SessionsTableContainer({ page, onPage }: SessionsTableContainerP
   const { data, isLoading, error, refetch } = useQuery(useSessionsQueryOptions());
   const allSessions = data?.sessions ?? [];
   const total = allSessions.length;
-  const sessions = allSessions.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+  const sessions = allSessions.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <div className="panel">
@@ -107,7 +107,7 @@ export function SessionsTableContainer({ page, onPage }: SessionsTableContainerP
               </tbody>
             </table>
             <div style={{ padding: '0 16px 12px' }}>
-              <Pagination page={page} total={total} perPage={PER_PAGE} onPage={onPage} />
+              <Pagination page={page} total={total} size={PAGE_SIZE} onPage={onPage} />
             </div>
           </div>
         )}

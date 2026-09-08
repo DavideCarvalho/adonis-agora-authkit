@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { ADMIN_LIST_HTTP_DEFAULT_SIZE, normalizeListSize, resolveListPage } from '../pagination.js';
 import type {
   AuditEvent,
   AuditPage,
@@ -44,8 +45,8 @@ export function lucidAuditSink(Model: any): AuditSink {
     },
 
     async list(params: ListAuditParams): Promise<AuditPage> {
-      const page = Math.max(1, params.page ?? 1);
-      const limit = Math.max(1, params.limit ?? 20);
+      const page = resolveListPage(params.page);
+      const size = normalizeListSize(params.size, ADMIN_LIST_HTTP_DEFAULT_SIZE);
 
       const base = () => {
         const q = Model.query();
@@ -59,8 +60,8 @@ export function lucidAuditSink(Model: any): AuditSink {
 
       const rows = await base()
         .orderBy('createdAt', 'desc')
-        .offset((page - 1) * limit)
-        .limit(limit);
+        .offset((page - 1) * size)
+        .limit(size);
 
       const data: StoredAuditEvent[] = rows.map((row: any) => ({
         id: String(row.id),

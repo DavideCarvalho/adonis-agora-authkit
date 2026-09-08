@@ -35,10 +35,10 @@ function cfgWithEvents(events: StoredAuditEvent[], totalUsers = 10) {
     accountStore: fakeAccountStore(totalUsers),
     audit: {
       record: async () => {},
-      list: async ({ type, page = 1, limit = 200 }: any) => {
+      list: async ({ type, page = 1, size = 200 }: any) => {
         const filtered = type ? events.filter((e) => e.type === type) : events;
-        const start = (page - 1) * limit;
-        const data = filtered.slice(start, start + limit);
+        const start = (page - 1) * size;
+        const data = filtered.slice(start, start + size);
         return { data, total: filtered.length };
       },
     },
