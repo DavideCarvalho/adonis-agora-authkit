@@ -10,11 +10,11 @@
     "postinstall": "fumadocs-mdx"
   },
   "dependencies": {
-    "fumadocs-core": "16.15.4",
+    "fumadocs-core": "16.15.8",
     "fumadocs-mdx": "15.4.0",
-    "fumadocs-ui": "16.15.4",
+    "fumadocs-ui": "16.15.8",
     "lucide-react": "catalog:frontend",
-    "next": "16.3.3",
+    "next": "16.3.4",
     "react": "catalog:frontend",
     "react-dom": "catalog:frontend"
   },
@@ -24,7 +24,7 @@
     "@types/node": "catalog:adonis",
     "@types/react": "catalog:frontend",
     "@types/react-dom": "catalog:frontend",
-    "postcss": "8.5.26",
+    "postcss": "8.5.28",
     "tailwindcss": "catalog:frontend",
     "typescript": "catalog:frontend"
   }

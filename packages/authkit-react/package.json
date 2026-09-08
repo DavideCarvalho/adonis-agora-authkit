@@ -65,7 +65,7 @@
     "@japa/assert": "catalog:",
     "@japa/runner": "catalog:",
     "@poppinss/ts-exec": "catalog:",
-    "@tanstack/intent": "^0.3.8",
+    "@tanstack/intent": "^0.4.0",
     "@tanstack/react-query": "catalog:frontend",
     "@types/node": "catalog:adonis",
     "@types/react": "catalog:frontend",
