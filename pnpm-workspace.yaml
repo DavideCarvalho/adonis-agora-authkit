@@ -189,6 +189,7 @@ catalogs:
     "zod": "4.5.4"
     "typescript": "7.0.2"
     "tailwindcss": "4.3.3"
+    "@tailwindcss/cli": "4.3.3"
     "@tailwindcss/vite": "4.3.3"
     "@tailwindcss/postcss": "4.3.3"
 

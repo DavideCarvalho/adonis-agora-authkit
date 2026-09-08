@@ -1,0 +1,33 @@
+/**
+ * Entrada do Tailwind para as views do host (login/account/admin).
+ *
+ * Compilada por `scripts/build_host_css.mjs` e embutida em
+ * `views/partials/styles.edge`. No Tailwind 4 a configuração é CSS-first —
+ * não existe mais `tailwind.config.js` nem a flag `-c` do CLI.
+ *
+ * `source(none)` desliga a detecção automática de arquivos: sem ela o Tailwind
+ * varreria o pacote inteiro (inclusive o SPA React em `ui/`) e o CSS servido
+ * nas telas server-rendered cresceria com utilitários que elas nunca usam.
+ * O `@source` abaixo é o equivalente do `content` que o config v3 tinha.
+ *
+ * O `@source not` exclui o PRÓPRIO arquivo gerado: ele mora dentro de
+ * `views/` e, sem a exclusão, o extrator lê os seletores do CSS anterior como
+ * se fossem classes usadas — o build passa a se auto-alimentar e o output
+ * carrega utilitários fantasma que nenhuma view referencia.
+ */
+@import "tailwindcss" source(none);
+@source "./views/**/*.edge";
+@source not "./views/partials/styles.edge";
+
+/**
+ * Compat com o Preflight do Tailwind 3: o v4 tirou `cursor: pointer` de
+ * `button`/`[role=button]` e deixou o cursor padrão do browser. Todas as telas
+ * do host são formulários — sem isto cada botão de login/MFA/conta perde o
+ * cursor de clique. Restaurado aqui, não view a view.
+ */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}

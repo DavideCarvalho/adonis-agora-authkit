@@ -32,7 +32,7 @@
     @end
 
     @if(profileSupported)
-      <div class="mb-6 rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
+      <div class="mb-6 rounded-xl bg-white p-6 shadow-xs ring-1 ring-black/5">
         <h2 class="mb-1 text-sm font-semibold text-gray-900">{{ t('account.profile.section') }}</h2>
         <p class="mb-4 text-xs text-gray-500">{{ t('account.profile.intro') }}</p>
         <form method="POST" action="{{ accountPaths?.security ?? '/account/security' }}/profile" enctype="multipart/form-data" class="space-y-4">
@@ -45,20 +45,20 @@
           <div>
             <label class="mb-1 block text-sm font-medium text-gray-700">{{ t('account.profile.name_label') }}</label>
             <input name="name" type="text" value="{{ name }}" maxlength="255"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-gray-900" />
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-hidden focus:border-gray-900" />
           </div>
           @if(avatarUploadSupported)
             <div>
               <label class="mb-1 block text-sm font-medium text-gray-700">{{ t('account.profile.avatar_upload_label') }}</label>
               <input name="avatar" type="file" accept="image/jpeg,image/png,image/webp"
-                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-gray-900" />
+                class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-hidden focus:border-gray-900" />
               <p class="mt-1 text-xs text-gray-500">{{ t('account.profile.avatar_upload_hint') }}</p>
             </div>
           @end
           <div>
             <label class="mb-1 block text-sm font-medium text-gray-700">{{ t('account.profile.avatar_label') }}</label>
             <input name="avatarUrl" type="url" value="{{ avatarUrl }}"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-gray-900" />
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-hidden focus:border-gray-900" />
           </div>
           <button type="submit" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white">
             {{ t('account.profile.submit') }}
@@ -68,7 +68,7 @@
     @end
 
     @if(!supported)
-      <div class="rounded-xl bg-white p-6 text-sm text-gray-500 shadow-sm ring-1 ring-black/5">
+      <div class="rounded-xl bg-white p-6 text-sm text-gray-500 shadow-xs ring-1 ring-black/5">
         {{ t('account.security.not_supported') }}
       </div>
     @else
@@ -88,19 +88,19 @@
         </div>
       @end
 
-      <div class="mb-6 rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
+      <div class="mb-6 rounded-xl bg-white p-6 shadow-xs ring-1 ring-black/5">
         <h2 class="mb-4 text-sm font-semibold text-gray-900">{{ t('account.security.password_section') }}</h2>
         <form method="POST" action="{{ accountPaths?.security ?? '/account/security' }}/password" class="space-y-4">
           <input type="hidden" name="_csrf" value="{{ csrfToken }}">
           <div>
             <label class="mb-1 block text-sm font-medium text-gray-700">{{ t('account.security.current_password_label') }}</label>
             <input name="currentPassword" type="password" required
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-gray-900" />
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-hidden focus:border-gray-900" />
           </div>
           <div>
             <label class="mb-1 block text-sm font-medium text-gray-700">{{ t('account.security.new_password_label') }}</label>
             <input name="newPassword" type="password" required minlength="8"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-gray-900" />
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-hidden focus:border-gray-900" />
           </div>
           <button type="submit" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white">
             {{ t('account.security.change_password_submit') }}
@@ -108,7 +108,7 @@
         </form>
       </div>
 
-      <div class="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
+      <div class="rounded-xl bg-white p-6 shadow-xs ring-1 ring-black/5">
         <h2 class="mb-1 text-sm font-semibold text-gray-900">{{ t('account.security.email_section') }}</h2>
         <p class="mb-4 text-xs text-gray-500">{{ t('account.security.email_intro') }}</p>
         <form method="POST" action="{{ accountPaths?.security ?? '/account/security' }}/email" class="space-y-4">
@@ -116,12 +116,12 @@
           <div>
             <label class="mb-1 block text-sm font-medium text-gray-700">{{ t('account.security.new_email_label') }}</label>
             <input name="newEmail" type="email" required
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-gray-900" />
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-hidden focus:border-gray-900" />
           </div>
           <div>
             <label class="mb-1 block text-sm font-medium text-gray-700">{{ t('account.security.email_password_label') }}</label>
             <input name="currentPassword" type="password" required
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-gray-900" />
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-hidden focus:border-gray-900" />
           </div>
           <button type="submit" class="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white">
             {{ t('account.security.change_email_submit') }}
@@ -131,7 +131,7 @@
     @end
 
     @if(sessionsSupported)
-      <div class="mt-6 rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
+      <div class="mt-6 rounded-xl bg-white p-6 shadow-xs ring-1 ring-black/5">
         <h2 class="mb-1 text-sm font-semibold text-gray-900">{{ t('account.security.sessions_section') }}</h2>
         <p class="mb-4 text-xs text-gray-500">{{ t('account.security.sessions_intro') }}</p>
         @if(sessions.length === 0)
@@ -162,7 +162,7 @@
           <p class="text-sm font-medium text-emerald-900">{{ trustedDevicesRevoked }}</p>
         </div>
       @end
-      <div class="mt-6 rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
+      <div class="mt-6 rounded-xl bg-white p-6 shadow-xs ring-1 ring-black/5">
         <h2 class="mb-1 text-sm font-semibold text-gray-900">{{ t('account.security.trusted_devices_section') }}</h2>
         <p class="mb-4 text-xs text-gray-500">{{ t('account.security.trusted_devices_intro') }}</p>
         <form method="POST" action="{{ accountPaths?.security ?? '/account/security' }}/trusted-devices/revoke">
@@ -175,7 +175,7 @@
     @end
 
     @if(exportSupported)
-      <div class="mt-6 rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5">
+      <div class="mt-6 rounded-xl bg-white p-6 shadow-xs ring-1 ring-black/5">
         <h2 class="mb-1 text-sm font-semibold text-gray-900">{{ t('account.export.section') }}</h2>
         <p class="mb-4 text-xs text-gray-500">{{ t('account.export.intro') }}</p>
         <a href="{{ accountPaths?.security ?? '/account/security' }}/export"
@@ -191,7 +191,7 @@
           <p class="text-sm font-medium text-red-900">{{ deleteError }}</p>
         </div>
       @end
-      <div class="mt-6 rounded-xl bg-white p-6 shadow-sm ring-1 ring-red-200">
+      <div class="mt-6 rounded-xl bg-white p-6 shadow-xs ring-1 ring-red-200">
         <h2 class="mb-1 text-sm font-semibold text-red-700">{{ t('account.delete.section') }}</h2>
         <p class="mb-4 text-xs text-gray-500">{{ t('account.delete.intro') }}</p>
         <form method="POST" action="{{ accountPaths?.security ?? '/account/security' }}/delete" class="space-y-4">
@@ -199,12 +199,12 @@
           <div>
             <label class="mb-1 block text-sm font-medium text-gray-700">{{ t('account.delete.confirm_password_label') }}</label>
             <input name="currentPassword" type="password"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-red-600" />
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-hidden focus:border-red-600" />
           </div>
           <div>
             <label class="mb-1 block text-sm font-medium text-gray-700">{{ t('account.delete.confirm_email_label') }}</label>
             <input name="confirmEmail" type="email" placeholder="{{ email }}"
-              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-red-600" />
+              class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-hidden focus:border-red-600" />
           </div>
           <button type="submit" class="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700">
             {{ t('account.delete.submit') }}
