@@ -107,7 +107,7 @@ catalogs:
     "@adonisjs/lucid-slugify": "4.0.0"
     "@adonisjs/mail": "10.4.0"
     "@adonisjs/queue": "0.6.2"
-    "@adonisjs/redis": "10.0.1"
+    "@adonisjs/redis": "10.0.2"
     "@adonisjs/session": "8.1.0"
     "@adonisjs/shield": "9.0.0"
     "@adonisjs/static": "2.0.1"
