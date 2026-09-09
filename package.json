@@ -6,7 +6,7 @@
   "description": "AuthKit — an AdonisJS OIDC/OAuth2 Authorization Server kit, OIDC client adapter, and React frontend ergonomics.",
   "license": "MIT",
   "author": "Davi de Carvalho",
-  "packageManager": "pnpm@11.24.0",
+  "packageManager": "pnpm@11.26.0",
   "engines": {
     "node": ">=20"
   },
