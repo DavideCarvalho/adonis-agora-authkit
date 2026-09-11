@@ -98,7 +98,7 @@
     "@japa/assert": "catalog:",
     "@japa/runner": "catalog:",
     "@poppinss/ts-exec": "catalog:",
-    "@tanstack/intent": "^0.4.0",
+    "@tanstack/intent": "0.4.0",
     "@types/node": "catalog:adonis",
     "ioredis-mock": "8.13.1",
     "tempura": "0.4.1",
