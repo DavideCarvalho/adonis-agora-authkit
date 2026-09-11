@@ -73,8 +73,8 @@ catalogs:
       version: 8.2.2
   frontend:
     '@inertiajs/react':
-      specifier: 3.7.0
-      version: 3.7.0
+      specifier: 3.7.1
+      version: 3.7.1
     '@tailwindcss/cli':
       specifier: 4.3.3
       version: 4.3.3
@@ -275,7 +275,7 @@ importers:
         version: 2.0.0
       '@inertiajs/react':
         specifier: catalog:frontend
-        version: 3.7.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: 3.7.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@japa/assert':
         specifier: 'catalog:'
         version: 4.2.0(@japa/runner@5.3.0)
@@ -1765,16 +1765,16 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@inertiajs/core@3.7.0':
-    resolution: {integrity: sha512-JzysXTPsOpKcnR7ohwpgKE+UWBrKwW7z23DydWHSxjfQ02tJAKmNnZJAxnX7zH3zUSTqbtPge6QC8XhvfjNXmw==}
+  '@inertiajs/core@3.7.1':
+    resolution: {integrity: sha512-shFvLhu/8R0QgYxsQVR5Pj9LvCnnodUSHZtg5b9yVfd9MG75zuw43/ZBy0iYxIzmI36HkFlmM94ji49Jcx9Q4Q==}
     peerDependencies:
       axios: ^1.15.2
     peerDependenciesMeta:
       axios:
         optional: true
 
-  '@inertiajs/react@3.7.0':
-    resolution: {integrity: sha512-rc/TsVT7ihDk+cMeCuU3BjdUfTq6HJwXqGy7oPaysLQCeyfhIaP2QgExo5R1QSCFIwl9un0MeZnzTOG+i38jLw==}
+  '@inertiajs/react@3.7.1':
+    resolution: {integrity: sha512-pfXYa/K8Y4e+gr1HDVC7ZKoBlASszUbsjZTbZdQp8+1oBtt94zJvD4Doi9EznuaaKySSlWoYWB8AFyNbT41b4A==}
     peerDependencies:
       react: ^19.0.0
       react-dom: ^19.0.0
@@ -7119,15 +7119,15 @@ snapshots:
   '@img/sharp-win32-x64@0.35.4':
     optional: true
 
-  '@inertiajs/core@3.7.0':
+  '@inertiajs/core@3.7.1':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
       es-toolkit: 1.52.0
       laravel-precognition: 2.0.0
 
-  '@inertiajs/react@3.7.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@inertiajs/react@3.7.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
-      '@inertiajs/core': 3.7.0
+      '@inertiajs/core': 3.7.1
       es-toolkit: 1.52.0
       laravel-precognition: 2.0.0
       react: 19.2.8
