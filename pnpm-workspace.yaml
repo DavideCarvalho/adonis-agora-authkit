@@ -46,7 +46,7 @@ catalog:
   "elysia": "1.4.30"
   "eslint": "10.10.0"
   "hls-transcoder": "0.1.3"
-  "hls.js": "1.7.2"
+  "hls.js": "1.7.3"
   "hot-hook": "1.0.0"
   "i18next": "26.4.2"
   "i18next-icu": "2.4.4"
