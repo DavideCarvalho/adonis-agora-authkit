@@ -27,17 +27,17 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.actor == 'renovate[bot]'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6.1.0
         with:
           version: 11.24.0
 
       - name: Setup Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7.0.0
         with:
           node-version: 22
           cache: pnpm
@@ -131,12 +131,12 @@ jobs:
           git push origin HEAD:${{ github.ref_name }}
 
       - name: Create release PR or publish
-        uses: changesets/action@v1
+        uses: changesets/action@v2.1.2
         with:
-          version: pnpm version-packages
-          publish: pnpm release
-          commit: 'chore: version packages'
-          title: 'chore: version packages'
+          version-script: pnpm version-packages
+          publish-script: pnpm release
+          commit-message: 'chore: version packages'
+          pr-title: 'chore: version packages'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Deliberately empty: setup-node writes .npmrc with _authToken=${NODE_AUTH_TOKEN},
