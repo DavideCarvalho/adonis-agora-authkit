@@ -131,12 +131,12 @@ jobs:
           git push origin HEAD:${{ github.ref_name }}
 
       - name: Create release PR or publish
-        uses: changesets/action@v2.1.2
+        uses: changesets/action@v1.9.0
         with:
-          version-script: pnpm version-packages
-          publish-script: pnpm release
-          commit-message: 'chore: version packages'
-          pr-title: 'chore: version packages'
+          version: pnpm version-packages
+          publish: pnpm release
+          commit: 'chore: version packages'
+          title: 'chore: version packages'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Deliberately empty: setup-node writes .npmrc with _authToken=${NODE_AUTH_TOKEN},
