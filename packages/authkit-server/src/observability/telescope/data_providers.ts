@@ -34,11 +34,11 @@ const AUTHKIT_TAG = 'lib:authkit';
 const DEFAULT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /** Fetch captured `agora:authkit:*` audit entries from Telescope (newest-first). */
-async function fetchEntries(ctx: ExtensionContext, limit = 5_000): Promise<AuthkitEntry[]> {
+async function fetchEntries(ctx: ExtensionContext, size = 5_000): Promise<AuthkitEntry[]> {
   return ctx.store.list({
     type: DIAGNOSTIC_TYPE,
     tag: AUTHKIT_TAG,
-    limit,
+    size,
   }) as unknown as Promise<AuthkitEntry[]>;
 }
 
