@@ -1,6 +1,3 @@
-import type {} from '@adonisjs/ally/ally_provider';
-import type {} from '@adonisjs/auth/initialize_auth_middleware';
-import type {} from '@adonisjs/core/providers/vinejs_provider';
 /**
  * Carrega as augmentations de tipo do AdonisJS usadas pelos controllers do host-kit.
  *
@@ -21,6 +18,10 @@ import type {} from '@adonisjs/core/providers/vinejs_provider';
  * - `@adonisjs/core/providers/vinejs_provider`      → `HttpRequest.validateUsing`
  * - `@adonisjs/auth/initialize_auth_middleware`     → `HttpContext.auth` (peer opcional)
  */
+
+import type {} from '@adonisjs/ally/ally_provider';
+import type {} from '@adonisjs/auth/initialize_auth_middleware';
+import type {} from '@adonisjs/core/providers/vinejs_provider';
 import type {} from '@adonisjs/session/session_middleware';
 import type {} from '@adonisjs/shield/shield_middleware';
 
