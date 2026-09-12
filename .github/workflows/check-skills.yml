@@ -88,7 +88,13 @@ jobs:
           if git show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
             git checkout -B "$BRANCH" "origin/$BRANCH"
           else
-            git checkout -b "$BRANCH"
+            # Branch off the base, not the checked-out commit. On a `release`
+            # event that commit is the tag, so any workflow file changed since
+            # then would ride along -- and GITHUB_TOKEN may not write under
+            # .github/workflows, which rejects the push. The commit is empty;
+            # the branch exists only to hang the PR on.
+            git fetch origin "$BASE_BRANCH"
+            git checkout -B "$BRANCH" "origin/$BASE_BRANCH"
             git commit --allow-empty -m "chore: review intent skills for ${VERSION}"
             git push origin "$BRANCH"
           fi
