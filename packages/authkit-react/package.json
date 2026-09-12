@@ -4,12 +4,12 @@
   "description": "Frontend ergonomics over AuthKit for AdonisJS + Inertia + React apps: a typed useAuth() hook, role-gating hooks and gating components.",
   "license": "MIT",
   "author": "dudousxd",
-  "homepage": "https://github.com/DavideCarvalho/adonis-agora-authkit/tree/main/packages/authkit-react#readme",
   "repository": {
     "type": "git",
     "url": "https://github.com/DavideCarvalho/adonis-agora-authkit.git",
     "directory": "packages/authkit-react"
   },
+  "homepage": "https://davidecarvalho.github.io/agora/docs/authkit",
   "bugs": {
     "url": "https://github.com/DavideCarvalho/adonis-agora-authkit/issues"
   },
