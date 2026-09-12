@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 0.66.2
+
+### Patch Changes
+
+- d787b52: Restore the file-level docblock in `host/augmentations.ts` to the top of the file, above the imports it documents
+
 ## 0.66.1
 
 ### Patch Changes
