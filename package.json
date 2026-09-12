@@ -25,6 +25,7 @@
     "@adonisjs/assembler": "8.5.1",
     "@adonisjs/tsconfig": "2.0.0",
     "@biomejs/biome": "2.5.13",
+    "@changesets/changelog-github": "1.0.1",
     "@changesets/cli": "3.0.2",
     "typescript": "7.0.2"
   }
