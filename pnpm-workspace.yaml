@@ -191,7 +191,7 @@ catalogs:
     "date-fns": "4.4.0"
     "use-mask-input": "3.14.1"
     "nuqs": "2.10.1"
-    "zod": "4.5.4"
+    "zod": "4.6.1"
     "typescript": "7.0.2"
     "tailwindcss": "4.3.3"
     "@tailwindcss/cli": "4.3.3"
