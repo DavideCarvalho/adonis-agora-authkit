@@ -142,6 +142,5 @@ jobs:
           # Deliberately empty: setup-node writes .npmrc with _authToken=${NODE_AUTH_TOKEN},
           # and a real token there wins over OIDC -- npm uses the token and never exchanges
           # the id-token for a credential. Empty, npm sees no auth and falls back to trusted
-          # publishing. The NPM_TOKEN secret still exists; put back `${{ secrets.NPM_TOKEN }}`
-          # here to revert to the token if trusted publishing isn't configured on npmjs.com yet.
+          # publishing.
           NODE_AUTH_TOKEN: ''
