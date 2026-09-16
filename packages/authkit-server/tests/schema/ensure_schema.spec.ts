@@ -1,10 +1,10 @@
-import { test } from '@japa/runner';
-import { BaseModel, column } from '@adonisjs/lucid/orm';
 import { compose } from '@adonisjs/core/helpers';
-import { ensureAuthkitSchema } from '../../src/schema/ensure.js';
+import { BaseModel, column } from '@adonisjs/lucid/orm';
+import { test } from '@japa/runner';
 import { lucidAccountStore } from '../../src/accounts/lucid_account_store.js';
 import { withAuthUser } from '../../src/mixins/with_auth_user.js';
 import { withCredentials } from '../../src/mixins/with_credentials.js';
+import { ensureAuthkitSchema } from '../../src/schema/ensure.js';
 import { createTestDatabase } from '../bootstrap.js';
 
 /** Conta com o mesmo nome de tabela que o scaffold da lib usa. */
@@ -166,7 +166,9 @@ test.group('ensureAuthkitSchema', (group) => {
     assert.notProperty(report.altered, 'auth_users');
   });
 
-  test('o store expõe accountTable — de `static table` e da naming strategy', async ({ assert }) => {
+  test('o store expõe accountTable — de `static table` e da naming strategy', async ({
+    assert,
+  }) => {
     BaseModel.useAdapter(db.modelAdapter());
 
     assert.equal(lucidAccountStore(AuthUserModel).accountTable, 'auth_users');

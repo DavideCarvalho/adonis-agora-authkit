@@ -11,8 +11,8 @@ import type { AccountStore, AuthAccount } from './account_store.js';
 import { buildCore } from './lucid_store/core.js';
 import { buildLoginMethods, supportsLoginMethodsColumn } from './lucid_store/login_methods.js';
 import { buildMfa } from './lucid_store/mfa.js';
-import { buildOrganizations } from './lucid_store/organizations.js';
 import { defaultOrganizationModels } from './lucid_store/organization_models.js';
+import { buildOrganizations } from './lucid_store/organizations.js';
 import { buildPasswordExpiration, buildPasswordHistory } from './lucid_store/password_hygiene.js';
 import { buildProviderIdentity } from './lucid_store/provider_identity.js';
 import {
