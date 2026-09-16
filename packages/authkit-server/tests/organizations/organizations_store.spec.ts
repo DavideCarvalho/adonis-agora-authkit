@@ -214,7 +214,11 @@ test.group('OrganizationsCapability — models default da lib', (group) => {
 
     assert.isTrue(supportsOrganizations(store));
     const account = await store.create({ email: 'owner@explicit.test', password: 'pass12345678' });
-    const org = await store.createOrg({ name: 'Explicit', slug: 'explicit', ownerAccountId: account.id });
+    const org = await store.createOrg({
+      name: 'Explicit',
+      slug: 'explicit',
+      ownerAccountId: account.id,
+    });
     assert.equal(org.slug, 'explicit');
   });
 });

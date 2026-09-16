@@ -1,22 +1,22 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { join, relative } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { test } from '@japa/runner'
-import { compile } from 'tempura'
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { test } from '@japa/runner';
+import { compile } from 'tempura';
 
-const STUBS_ROOT = fileURLToPath(new URL('../build/stubs', import.meta.url))
+const STUBS_ROOT = fileURLToPath(new URL('../build/stubs', import.meta.url));
 
 /**
  * Todos os `.stub` do pacote, recursivamente.
  */
 function findStubs(dir: string): string[] {
-  const found: string[] = []
+  const found: string[] = [];
   for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry)
-    if (statSync(full).isDirectory()) found.push(...findStubs(full))
-    else if (entry.endsWith('.stub')) found.push(full)
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) found.push(...findStubs(full));
+    else if (entry.endsWith('.stub')) found.push(full);
   }
-  return found
+  return found;
 }
 
 /**
@@ -35,42 +35,42 @@ function findStubs(dir: string): string[] {
  */
 test.group('configure stubs', () => {
   test('todo .stub é compilável pelo template engine', ({ assert }) => {
-    const stubs = findStubs(STUBS_ROOT)
-    assert.isAbove(stubs.length, 0, 'nenhum .stub encontrado — o build rodou?')
+    const stubs = findStubs(STUBS_ROOT);
+    assert.isAbove(stubs.length, 0, 'nenhum .stub encontrado — o build rodou?');
 
-    const broken: string[] = []
+    const broken: string[] = [];
 
     for (const file of stubs) {
-      const raw = readFileSync(file, 'utf8')
-      const body = raw.replace(/^\{\{\{[\s\S]*?\}\}\}\n?/, '')
+      const raw = readFileSync(file, 'utf8');
+      const body = raw.replace(/^\{\{\{[\s\S]*?\}\}\}\n?/, '');
 
       try {
-        compile(body)
+        compile(body);
       } catch (error) {
-        const prefix = relative(STUBS_ROOT, file)
-        broken.push(`${prefix}: ${(error as Error).message}`)
+        const prefix = relative(STUBS_ROOT, file);
+        broken.push(`${prefix}: ${(error as Error).message}`);
       }
     }
 
     assert.deepEqual(
       broken,
       [],
-      `stubs que quebram o \`node ace configure\`:\n  ${broken.join('\n  ')}`
-    )
-  })
+      `stubs que quebram o \`node ace configure\`:\n  ${broken.join('\n  ')}`,
+    );
+  });
 
   test('nenhum .stub usa crase (a causa raiz do bug #194)', ({ assert }) => {
-    const offenders: string[] = []
+    const offenders: string[] = [];
 
     for (const file of findStubs(STUBS_ROOT)) {
-      const raw = readFileSync(file, 'utf8')
-      if (raw.includes('`')) offenders.push(relative(STUBS_ROOT, file))
+      const raw = readFileSync(file, 'utf8');
+      if (raw.includes('`')) offenders.push(relative(STUBS_ROOT, file));
     }
 
     assert.deepEqual(
       offenders,
       [],
-      `stubs com crase quebram a compilação do template — use aspas ou nada:\n  ${offenders.join('\n  ')}`
-    )
-  })
-})
+      `stubs com crase quebram a compilação do template — use aspas ou nada:\n  ${offenders.join('\n  ')}`,
+    );
+  });
+});
