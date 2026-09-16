@@ -244,7 +244,10 @@ export default class AuthkitServerProvider {
       if (!db) return; // host sem @adonisjs/lucid — nada a gerenciar
 
       const { ensureAuthkitSchema } = await import('../src/schema/ensure.js');
-      const report = await ensureAuthkitSchema(db, { connection: config.schema.connection });
+      const report = await ensureAuthkitSchema(db, {
+        connection: config.schema.connection,
+        accountTable: config.accountStore?.accountTable,
+      });
 
       const logger = await this.app.container.make('logger').catch(() => null);
       if (report.created.length > 0) {
@@ -252,6 +255,16 @@ export default class AuthkitServerProvider {
       }
       for (const [table, columns] of Object.entries(report.altered)) {
         logger?.info('authkit: added columns to %s: %s', table, columns.join(', '));
+      }
+      if (!report.loginMethods.ensured) {
+        // Sem este aviso o host não tinha como saber: a coluna não foi criada e a
+        // preferência de método de login por conta fica no-op em silêncio.
+        logger?.warn(
+          'authkit: tabela da conta "%s" não existe — a coluna `login_methods` não foi ' +
+            'garantida e a preferência de método de login por conta não vai funcionar. ' +
+            'Defina `accountStore.accountTable` (ou crie a tabela) se o nome estiver errado.',
+          report.loginMethods.table,
+        );
       }
     } catch (error) {
       const logger = await this.app.container.make('logger').catch(() => null);

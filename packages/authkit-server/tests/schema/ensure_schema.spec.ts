@@ -1,6 +1,25 @@
 import { test } from '@japa/runner';
+import { BaseModel, column } from '@adonisjs/lucid/orm';
+import { compose } from '@adonisjs/core/helpers';
 import { ensureAuthkitSchema } from '../../src/schema/ensure.js';
+import { lucidAccountStore } from '../../src/accounts/lucid_account_store.js';
+import { withAuthUser } from '../../src/mixins/with_auth_user.js';
+import { withCredentials } from '../../src/mixins/with_credentials.js';
 import { createTestDatabase } from '../bootstrap.js';
+
+/** Conta com o mesmo nome de tabela que o scaffold da lib usa. */
+class AuthUserModel extends compose(BaseModel, withAuthUser(), withCredentials()) {
+  static table = 'auth_users';
+
+  @column({ isPrimary: true })
+  declare id: string;
+}
+
+/** Conta sem `static table`: o nome tem de sair da naming strategy do Lucid. */
+class PersonModel extends compose(BaseModel, withAuthUser(), withCredentials()) {
+  @column({ isPrimary: true })
+  declare id: string;
+}
 
 test.group('ensureAuthkitSchema', (group) => {
   let db: ReturnType<typeof createTestDatabase>;
@@ -93,6 +112,66 @@ test.group('ensureAuthkitSchema', (group) => {
 
     const second = await ensureAuthkitSchema(db);
     assert.notInclude(second.altered.users ?? [], 'login_methods');
+  });
+
+  test('accountTable: coluna vai para a tabela da CONTA, não para um `users` homônimo (regressão)', async ({
+    assert,
+  }) => {
+    /**
+     * Cenário real do bug: a conta vive em `auth_users` (nome que o próprio
+     * scaffold da lib usa) e existe OUTRA tabela chamada `users`, de outro dono
+     * — o starter do AdonisJS cria uma. Com o nome fixo, o ALTER acertava a
+     * tabela errada e passava, sem erro.
+     */
+    await db.connection().schema.createTable('users', (t) => {
+      t.increments('id');
+      t.string('email');
+    });
+    await db.connection().schema.createTable('auth_users', (t) => {
+      t.string('id').primary();
+      t.string('email');
+    });
+
+    const report = await ensureAuthkitSchema(db, { accountTable: 'auth_users' });
+
+    assert.isTrue(await db.connection().schema.hasColumn('auth_users', 'login_methods'));
+    assert.isFalse(
+      await db.connection().schema.hasColumn('users', 'login_methods'),
+      'a coluna não pode ir para a tabela homônima',
+    );
+    assert.sameMembers(report.altered.auth_users ?? [], ['login_methods']);
+    assert.deepEqual(report.loginMethods, { table: 'auth_users', ensured: true });
+  });
+
+  test('sem accountTable mantém `users` (back-compat para stores próprios)', async ({ assert }) => {
+    await db.connection().schema.createTable('users', (t) => {
+      t.increments('id');
+      t.string('email');
+    });
+
+    const report = await ensureAuthkitSchema(db);
+
+    assert.deepEqual(report.loginMethods, { table: 'users', ensured: true });
+    assert.sameMembers(report.altered.users ?? [], ['login_methods']);
+  });
+
+  test('reporta ensured: false quando a tabela da conta não existe', async ({ assert }) => {
+    /**
+     * É o silêncio que escondia o sintoma: nada foi feito e o host não tinha como
+     * saber. Agora o report (e o warning do provider) dizem.
+     */
+    const report = await ensureAuthkitSchema(db, { accountTable: 'auth_users' });
+
+    assert.deepEqual(report.loginMethods, { table: 'auth_users', ensured: false });
+    assert.notProperty(report.altered, 'auth_users');
+  });
+
+  test('o store expõe accountTable — de `static table` e da naming strategy', async ({ assert }) => {
+    BaseModel.useAdapter(db.modelAdapter());
+
+    assert.equal(lucidAccountStore(AuthUserModel).accountTable, 'auth_users');
+    /* sem `static table`, o nome sai da naming strategy (snake_case + plural) */
+    assert.equal(lucidAccountStore(PersonModel).accountTable, 'person_models');
   });
 
   test('auth_mfa: tabela lib-owned aceita estado de MFA por account_id', async ({ assert }) => {

@@ -653,6 +653,20 @@ export type AccountStore = CoreAccountStore & {
    * blocos `Partial<...>` de capacidades probáveis.
    */
   readonly connectionName?: string;
+  /**
+   * Nome da tabela da conta (deriva de `Model.table` — e, se o model ainda não
+   * bootou, da naming strategy; ver `lucid_account_store.ts`). Mesmo espírito do
+   * {@link AccountStore.connectionName}: metadado opcional, não método de
+   * capacidade.
+   *
+   * Existe porque a coluna opcional `login_methods` é garantida no boot pelo
+   * `ensureAuthkitSchema`, e ele precisa saber em QUAL tabela ela pertence. Sem
+   * este metadado só resta assumir `users`, e aí uma conta cuja tabela tem outro
+   * nome (por exemplo `auth_users`, que é o que o scaffold da lib usa) fica com
+   * a coluna numa tabela que ninguém consulta — sem erro, sem aviso.
+   * Undefined → `users` (back-compat com stores próprios).
+   */
+  readonly accountTable?: string;
 } & Partial<
     MfaCapability &
       WebauthnCapability &

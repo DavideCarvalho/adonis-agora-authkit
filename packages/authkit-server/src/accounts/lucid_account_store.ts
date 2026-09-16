@@ -277,6 +277,37 @@ export interface LucidAccountStoreOptions {
  *   fornecer um model separado. A versão síncrona (`lucidAccountStore`) é mantida
  *   por back-compat — capabilities de tabela ficam AUSENTES nela.
  */
+/**
+ * Nome da tabela da conta, para o metadado `accountTable` do store.
+ *
+ * `Model.table` é atribuído no `boot()` do Lucid (naming strategy), então pode
+ * ainda estar vazio quando o store é construído. Nesse caso caímos na MESMA
+ * função que o Lucid usa (`namingStrategy.tableName`), para o metadado não
+ * depender da ordem de inicialização.
+ *
+ * Best-effort de propósito: model exótico ou store próprio sem isso continua
+ * funcionando — o ensure cai no `users` de sempre.
+ */
+function resolveAccountTable(Model: any): string | undefined {
+  try {
+    if (typeof Model?.table === 'string' && Model.table.length > 0) {
+      return Model.table;
+    }
+
+    const naming = Model?.namingStrategy;
+    if (naming && typeof naming.tableName === 'function') {
+      const resolved = naming.tableName(Model);
+      if (typeof resolved === 'string' && resolved.length > 0) {
+        return resolved;
+      }
+    }
+  } catch {
+    // Model ainda não pronto (ou não-Lucid) — metadado é opcional.
+  }
+
+  return undefined;
+}
+
 export function lucidAccountStore(
   Model: any,
   options: LucidAccountStoreOptions = {},
@@ -360,6 +391,10 @@ export function lucidAccountStore(
   const store = {
     ...buildCore(ctx),
     ...buildMfa(ctx),
+    // Metadado (não capacidade): a tabela da conta, para o ensure da coluna
+    // `login_methods` e o doctor saberem onde ela pertence em vez de assumir
+    // `users`. Ver `resolveAccountTable`.
+    accountTable: resolveAccountTable(Model),
     ...(ProviderIdentityModel ? buildProviderIdentity(ctx, ProviderIdentityModel) : {}),
     ...(WebauthnCredentialModel
       ? buildWebauthn(ctx, WebauthnCredentialModel, webauthn, ceremonies)
