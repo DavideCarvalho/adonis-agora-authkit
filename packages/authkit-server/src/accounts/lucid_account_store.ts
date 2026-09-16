@@ -301,7 +301,13 @@ export interface LucidAccountStoreOptions {
  * Best-effort de propósito: model exótico ou store próprio sem isso continua
  * funcionando — o ensure cai no `users` de sempre.
  */
-function resolveAccountTable(Model: any): string | undefined {
+/** Fatia do model Lucid que basta para resolver o nome da tabela. */
+interface AccountTableSource {
+  table?: unknown;
+  namingStrategy?: { tableName?: (model: unknown) => unknown };
+}
+
+function resolveAccountTable(Model: AccountTableSource | null | undefined): string | undefined {
   try {
     if (typeof Model?.table === 'string' && Model.table.length > 0) {
       return Model.table;

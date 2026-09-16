@@ -37,9 +37,13 @@ export class AuthOrganization extends BaseModel {
   @column()
   declare logoUrl: string | null;
 
-  /** Coluna `json`: objeto no Postgres, string no SQLite — por isso `any`. */
+  /**
+   * Coluna `json`. O contrato público (`OrgSummary.metadata`) já é
+   * `Record<string, unknown> | null`, e é o que o builder grava/lê — declarar o
+   * mesmo aqui mantém o model alinhado ao que a lib promete.
+   */
   @column()
-  declare metadata: any;
+  declare metadata: Record<string, unknown> | null;
 
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime | null;
