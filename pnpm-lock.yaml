@@ -303,8 +303,8 @@ importers:
         specifier: 15.4.0
         version: 15.4.0(@types/mdast@4.0.4)(@types/mdx@2.0.14)(@types/react@19.2.18)(fumadocs-core@16.15.10(@mdx-js/mdx@3.1.1(supports-color@10.2.2))(@types/estree-jsx@1.0.5)(@types/hast@3.0.5)(@types/mdast@4.0.4)(@types/react@19.2.18)(lucide-react@1.45.0(react@19.2.8))(next@16.3.5(@types/node@26.5.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@10.2.2)(zod@4.5.4))(next@16.3.5(@types/node@26.5.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)(rolldown@1.2.6)(supports-color@10.2.2)(vite@8.2.2(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.0))
       fumadocs-ui:
-        specifier: 16.15.9
-        version: 16.15.9(@types/mdx@2.0.14)(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(fumadocs-core@16.15.10(@mdx-js/mdx@3.1.1(supports-color@10.2.2))(@types/estree-jsx@1.0.5)(@types/hast@3.0.5)(@types/mdast@4.0.4)(@types/react@19.2.18)(lucide-react@1.45.0(react@19.2.8))(next@16.3.5(@types/node@26.5.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@10.2.2)(zod@4.5.4))(next@16.3.5(@types/node@26.5.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
+        specifier: 16.15.10
+        version: 16.15.10(@types/mdx@2.0.14)(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(fumadocs-core@16.15.10(@mdx-js/mdx@3.1.1(supports-color@10.2.2))(@types/estree-jsx@1.0.5)(@types/hast@3.0.5)(@types/mdast@4.0.4)(@types/react@19.2.18)(lucide-react@1.45.0(react@19.2.8))(next@16.3.5(@types/node@26.5.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@10.2.2)(zod@4.5.4))(next@16.3.5(@types/node@26.5.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
       lucide-react:
         specifier: catalog:frontend
         version: 1.45.0(react@19.2.8)
@@ -4317,12 +4317,12 @@ packages:
       vite:
         optional: true
 
-  fumadocs-ui@16.15.9:
-    resolution: {integrity: sha512-enwf49j9VzJLKD9Lkr2nQJiHMIMCk8on5MzlTE63KawdW5gPJh8t8qYTFhPtAcg5xSTdfP8I0Dbdr5B3Qtmk2g==}
+  fumadocs-ui@16.15.10:
+    resolution: {integrity: sha512-YWYT745M7BmZTxUv4y0SOXkoiAz9evENuHsTf+OYywpXj7/BhjsuWTaoLAS5S8lMJLUyIFbzhyR8OrBHQ0eRIg==}
     peerDependencies:
       '@types/mdx': '*'
       '@types/react': '*'
-      fumadocs-core: 16.15.9
+      fumadocs-core: 16.15.10
       next: 16.x.x
       react: ^19.2.0
       react-dom: ^19.2.0
@@ -9489,7 +9489,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  fumadocs-ui@16.15.9(@types/mdx@2.0.14)(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(fumadocs-core@16.15.10(@mdx-js/mdx@3.1.1(supports-color@10.2.2))(@types/estree-jsx@1.0.5)(@types/hast@3.0.5)(@types/mdast@4.0.4)(@types/react@19.2.18)(lucide-react@1.45.0(react@19.2.8))(next@16.3.5(@types/node@26.5.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@10.2.2)(zod@4.5.4))(next@16.3.5(@types/node@26.5.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3):
+  fumadocs-ui@16.15.10(@types/mdx@2.0.14)(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(fumadocs-core@16.15.10(@mdx-js/mdx@3.1.1(supports-color@10.2.2))(@types/estree-jsx@1.0.5)(@types/hast@3.0.5)(@types/mdast@4.0.4)(@types/react@19.2.18)(lucide-react@1.45.0(react@19.2.8))(next@16.3.5(@types/node@26.5.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@10.2.2)(zod@4.5.4))(next@16.3.5(@types/node@26.5.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3):
     dependencies:
       '@fuma-translate/react': 1.0.2(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@fumadocs/tailwind': 0.1.1(tailwindcss@4.3.3)
