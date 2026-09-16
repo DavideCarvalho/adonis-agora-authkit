@@ -3,7 +3,7 @@
 }}}
 import env from '#start/env'
 import AuthUser from '#models/auth_user'
-import { defineConfig, adapters, inertiaRenderer } from '@adonis-agora/authkit-server'
+import { defineConfig, adapters, lucidAccountStore, inertiaRenderer } from '@adonis-agora/authkit-server'
 
 const authServerConfig = defineConfig({
   issuer: env.get('AUTHKIT_ISSUER'),
@@ -14,18 +14,9 @@ const authServerConfig = defineConfig({
   ],
   ttl: { accessToken: '15m', refreshToken: '30d' },
   globalRolesClaim: 'roles',
-  findAccount: async (sub) => {
-    const user = await AuthUser.find(sub)
-    if (!user) return null
-    return { id: user.id, email: user.email, globalRoles: user.globalRoles }
-  },
-  verifyCredentials: async (email, password) => {
-    const user = await AuthUser.query().where('email', email).first()
-    if (!user || !(await user.verifyPassword(password))) return null
-    return { id: user.id }
-  },
+  accountStore: lucidAccountStore(AuthUser),
   /**
-   * Renderer Inertia/React: apenas as views listadas em `views` vão ao Inertia;
+   * Renderer Inertia/React: apenas as views listadas em "views" vão ao Inertia;
    * as demais (incluindo todas as telas admin/*) recaem silenciosamente no
    * renderer Edge built-in da lib — evitando SSR crash por página inexistente.
    *

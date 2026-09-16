@@ -20,7 +20,7 @@ import { withAuthUser, withCredentials } from '@adonis-agora/authkit-server'
 export default class AuthUser extends compose(BaseModel, withAuthUser(), withCredentials()) {
   /**
    * Sem isto, o Lucid ignora o id atribuído pelo hook abaixo e sobrescreve
-   * `id` com o retorno bruto do INSERT (o rowid interno do SQLite/Postgres)
+   * id com o retorno bruto do INSERT (o rowid interno do SQLite/Postgres)
    * assim que a linha é salva — mesmo resultado prático de não ter o hook: a
    * conta some do próprio id que acabou de criar.
    */
@@ -31,7 +31,7 @@ export default class AuthUser extends compose(BaseModel, withAuthUser(), withCre
 
   /**
    * Nem withAuthUser() nem withCredentials() geram o id — sem este hook o
-   * Lucid insere NULL nesta coluna string e o `id` do model volta como o
+   * Lucid insere NULL nesta coluna string e o id do model volta como o
    * rowid interno do banco, tornando a conta inalcançável pelo id real na
    * próxima request.
    */
@@ -42,7 +42,7 @@ export default class AuthUser extends compose(BaseModel, withAuthUser(), withCre
 
   /**
    * A tela de signup embutida sempre coleta um campo "Nome", e o Lucid store
-   * passa esse valor direto para `AuthUser.create()` — sem esta coluna o
+   * passa esse valor direto para AuthUser.create() — sem esta coluna o
    * primeiro signup quebra com "Cannot define 'fullName' on 'AuthUser'
    * model, since it is not defined as a model property".
    */
