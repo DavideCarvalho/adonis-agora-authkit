@@ -5,6 +5,7 @@ import { test } from '@japa/runner';
 import { DateTime } from 'luxon';
 import { supportsOrganizations } from '../../src/accounts/account_store.js';
 import { lucidAccountStore } from '../../src/accounts/lucid_account_store.js';
+import { lucidStores } from '../../src/accounts/lucid_stores.js';
 import { withAuthUser } from '../../src/mixins/with_auth_user.js';
 import { withCredentials } from '../../src/mixins/with_credentials.js';
 import { createTestDatabase } from '../bootstrap.js';
@@ -202,8 +203,27 @@ test.group('OrganizationsCapability — models default da lib', (group) => {
     await assert.rejects(() => store.createOrg({ name: 'X', slug: 'x', ownerAccountId: 'a1' }));
   });
 
+  test('lucidStores também aceita organizations: true', async ({ assert }) => {
+    await migrateWithOrgs(db);
+
+    const { accountStore } = lucidStores({ account: TestAccount, organizations: true }, {}) as any;
+
+    assert.isTrue(supportsOrganizations(accountStore));
+    const account = await accountStore.create({
+      email: 'owner@lucidstores.test',
+      password: 'pass12345678',
+    });
+    const org = await accountStore.createOrg({
+      name: 'Via lucidStores',
+      slug: 'via-lucidstores',
+      ownerAccountId: account.id,
+    });
+    assert.equal(org.slug, 'via-lucidstores');
+  });
+
   test('caminho explícito continua funcionando (escape hatch)', async ({ assert }) => {
     await migrateWithOrgs(db);
+
     const store = lucidAccountStore(TestAccount, {
       organizationModels: {
         OrgModel: TestOrg,

@@ -11,3 +11,7 @@ Agora `lucidAccountStore(Model, { organizationModels: true })` usa os models def
 A mensagem do `authkit:doctor` para o caso "organizations.enabled: true sem capability" passa a apontar o `organizationModels: true` primeiro.
 
 Cobertura em `tests/organizations/organizations_store.spec.ts`: `organizationModels: true` liga a capability e roda `createOrg`/`findOrgBySlug`/`getOrgMembership`/`listOrgsForAccount` de ponta a ponta contra as tabelas reais; o escape hatch explícito continua funcionando; e ficou registrado o comportamento de desenho — sem as tabelas, a capability está ligada e o erro é alto no uso (barulhento de propósito: o silêncio era o problema).
+
+O mesmo vale no caminho do `lucidStores`, que tem tipo próprio: `organizations: true` também é aceito lá — sem isso o atalho não chegava no wiring "declarado uma vez", que é o recomendado em app maior.
+
+A documentação foi atualizada junto (`organizations.mdx`, `account-store.mdx`): o `true` aparece como caminho recomendado, o objeto explícito fica como escape hatch, e a linha do `enabled` deixou de dizer que ele "detecta tabelas" — ele é sinal de intenção para o `authkit:doctor`, e quem monta as rotas é a capability.

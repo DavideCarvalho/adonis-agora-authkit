@@ -166,6 +166,76 @@ test.group('ensureAuthkitSchema', (group) => {
     assert.notProperty(report.altered, 'auth_users');
   });
 
+  test('ALTER que falha PROPAGA — não vira ensured: true (o report não pode mentir)', async ({
+    assert,
+  }) => {
+    /**
+     * O re-probe do catch era da TABELA, não da coluna: um ALTER que falhava
+     * (permissão, lock, DDL inválido) virava `ensured: true`, o report dizia
+     * sucesso e o boot não avisava nada. Agora, se a coluna não está lá, o erro
+     * sobe — e o provider já sabe degradar logando warning.
+     */
+    await db.connection().schema.createTable('auth_users', (t) => {
+      t.string('id').primary();
+      t.string('email');
+    });
+
+    const conn = db.connection();
+    /* patch no PROTÓTIPO: `conn.schema` devolve um builder novo a cada acesso,
+     * então patchar a instância não pega. */
+    const schemaProto = Object.getPrototypeOf(conn.schema) as any;
+    const originalAlter = schemaProto.alterTable;
+    schemaProto.alterTable = () => {
+      throw new Error('alter falhou de proposito');
+    };
+
+    try {
+      await assert.rejects(
+        () => ensureAuthkitSchema(db, { accountTable: 'auth_users' }),
+        /alter falhou de proposito/,
+      );
+    } finally {
+      schemaProto.alterTable = originalAlter;
+    }
+
+    /* e a coluna de fato não existe: nada de `ensured: true` aqui */
+    assert.isFalse(await conn.schema.hasColumn('auth_users', 'login_methods'));
+  });
+
+  test('ALTER que falha POR CORRIDA (coluna já existe) não propaga', async ({ assert }) => {
+    /**
+     * O outro lado: se o ALTER falhou porque outra instância subiu junto e já
+     * criou a coluna, isso não é erro — é exatamente o caso que o probe antigo
+     * tentava cobrir, só que checando a coisa errada.
+     */
+    await db.connection().schema.createTable('auth_users', (t) => {
+      t.string('id').primary();
+      t.string('email');
+    });
+
+    const conn = db.connection();
+    const schemaProto = Object.getPrototypeOf(conn.schema) as any;
+    const originalAlter = schemaProto.alterTable;
+    /* Simula a corrida de verdade: a outra instância CRIA a coluna e só então o
+     * nosso ALTER falha. Se o ALTER simplesmente falhasse sem criar nada, o
+     * primeiro probe já teria sido `true` e o catch nunca seria exercitado. */
+    schemaProto.alterTable = async function (...args: any[]) {
+      await originalAlter.apply(this, args);
+      throw new Error('corrida: coluna criada entre probe e ALTER');
+    };
+
+    let report: Awaited<ReturnType<typeof ensureAuthkitSchema>>;
+    try {
+      report = await ensureAuthkitSchema(db, { accountTable: 'auth_users' });
+    } finally {
+      schemaProto.alterTable = originalAlter;
+    }
+
+    assert.deepEqual(report.loginMethods, { table: 'auth_users', ensured: true });
+    /* não registramos `altered`: quem alterou foi a outra instância */
+    assert.notProperty(report.altered, 'auth_users');
+  });
+
   test('o store expõe accountTable — de `static table` e da naming strategy', async ({
     assert,
   }) => {

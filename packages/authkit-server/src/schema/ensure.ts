@@ -323,8 +323,8 @@ export async function ensureAuthkitSchema(
   // lib usa), o `users` fixo acertava uma tabela qualquer de mesmo nome e a
   // coluna ia parar no lugar errado sem erro nenhum.
   const accountTable = options.accountTable ?? 'users';
-  try {
-    if (await tableExists(conn, accountTable)) {
+  if (await tableExists(conn, accountTable)) {
+    try {
       if (!(await columnExists(conn, accountTable, 'login_methods'))) {
         await conn.schema.alterTable(accountTable, (t: TableBuilder) => {
           t.jsonb('login_methods').nullable();
@@ -332,14 +332,22 @@ export async function ensureAuthkitSchema(
         report.altered[accountTable] = ['login_methods'];
       }
       report.loginMethods.ensured = true;
+    } catch (error) {
+      /**
+       * Corrida entre instâncias subindo juntas: se a coluna já existe agora,
+       * outra ganhou o ALTER — segue o jogo. Qualquer outra falha PROPAGA.
+       *
+       * O re-probe tem de ser da COLUNA, não da tabela: checar a tabela fazia um
+       * ALTER que falhou virar `ensured: true`, ou seja, o report dizia sucesso e
+       * o boot não avisava nada — o silêncio que este bloco existe para acabar.
+       * (Mesma semântica do probe de `createTable` logo acima.)
+       */
+      if (await columnExists(conn, accountTable, 'login_methods')) {
+        report.loginMethods.ensured = true;
+      } else {
+        throw error;
+      }
     }
-  } catch (error) {
-    // Tabela host-owned pode não existir num banco que nunca criou a conta — não
-    // é erro: fail-soft (a migração do host cuida). Nunca criar a tabela aqui.
-    if (!(await tableExists(conn, accountTable))) {
-      throw error; // alguém criou entre o probe e o ALTER — repropaga se sumiu
-    }
-    report.loginMethods.ensured = true;
   }
 
   return report;
