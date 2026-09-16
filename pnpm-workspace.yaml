@@ -142,7 +142,7 @@ catalogs:
     "@hookform/resolvers": "5.9.1"
     "react-hook-form": "7.87.0"
     "react-error-boundary": "6.1.5"
-    "react-i18next": "17.0.13"
+    "react-i18next": "17.0.14"
     "react-day-picker": "10.0.1"
     "react-resizable-panels": "4.12.4"
     "@radix-ui/react-accordion": "1.2.20"
