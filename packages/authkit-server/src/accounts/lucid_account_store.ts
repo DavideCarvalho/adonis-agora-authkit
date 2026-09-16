@@ -12,6 +12,7 @@ import { buildCore } from './lucid_store/core.js';
 import { buildLoginMethods, supportsLoginMethodsColumn } from './lucid_store/login_methods.js';
 import { buildMfa } from './lucid_store/mfa.js';
 import { buildOrganizations } from './lucid_store/organizations.js';
+import { defaultOrganizationModels } from './lucid_store/organization_models.js';
 import { buildPasswordExpiration, buildPasswordHistory } from './lucid_store/password_hygiene.js';
 import { buildProviderIdentity } from './lucid_store/provider_identity.js';
 import {
@@ -242,16 +243,28 @@ export interface LucidAccountStoreOptions {
    */
   pwnedFetch?: FetchLike;
   /**
-   * Models Lucid para organizations (multi-tenancy). Quando os três forem fornecidos,
-   * a capacidade `OrganizationsCapability` fica disponível no store. Os models devem
-   * ser tabelas `auth_organizations`, `auth_organization_members` e
-   * `auth_organization_invitations`. Ausente → capability AUSENTE (sem tabelas = desligado).
+   * Models Lucid para organizations (multi-tenancy).
+   *
+   * - `true` → usa os models DEFAULT da lib ({@link defaultOrganizationModels}),
+   *   que já mapeiam as três tabelas lib-owned (`auth_organizations`,
+   *   `auth_organization_members`, `auth_organization_invitations`). É o caminho
+   *   recomendado: as tabelas são criadas/evoluídas pelo `ensureAuthkitSchema`,
+   *   então o mapeamento não é decisão do host.
+   * - `{ OrgModel, MemberModel, InvitationModel }` → escape hatch, para quem
+   *   guarda as tabelas de auth numa conexão/schema próprios (os defaults não
+   *   declaram `static connection`).
+   * - Ausente → `OrganizationsCapability` AUSENTE no store. Como as rotas
+   *   `/account/orgs*` são montadas por capability-probing, isso deixa a
+   *   feature desligada — silenciosamente, se o host não olhar o
+   *   `authkit:doctor`.
    */
-  organizationModels?: {
-    OrgModel: any;
-    MemberModel: any;
-    InvitationModel: any;
-  };
+  organizationModels?:
+    | true
+    | {
+        OrgModel: any;
+        MemberModel: any;
+        InvitationModel: any;
+      };
   /**
    * TTLs dos tokens de verificação de e-mail / troca de e-mail. Ver
    * {@link EmailTokensConfigInput}. Ausente → 24h / 1h (defaults de
@@ -320,7 +333,8 @@ export function lucidAccountStore(
     options.encrypter === false ? undefined : (options.encrypter ?? appKeyEncrypter());
   const ProviderIdentityModel = options.providerIdentityModel;
   const WebauthnCredentialModel = options.webauthnCredentialModel;
-  const OrgModels = options.organizationModels;
+  const OrgModels =
+    options.organizationModels === true ? defaultOrganizationModels : options.organizationModels;
   // RP do WebAuthn: usado nas cerimônias. Default do rpName cai no mfaIssuer.
   const webauthn = options.webauthn ?? {
     rpName: mfaIssuer,

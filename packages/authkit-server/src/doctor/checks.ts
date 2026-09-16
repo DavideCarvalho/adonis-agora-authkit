@@ -570,8 +570,10 @@ export function checkOrganizations(input: DoctorInput): Finding | null {
       level: 'warn',
       message:
         'organizations.enabled: true, but the accountStore has no OrganizationsCapability — ' +
-        'pass `organizationModels: { OrgModel, MemberModel, InvitationModel }` to `lucidAccountStore()`. ' +
-        'Expected tables: auth_organizations, auth_organization_members, auth_organization_invitations.',
+        'pass `organizationModels: true` to `lucidAccountStore()` (usa os models default da lib), ' +
+        'ou `{ OrgModel, MemberModel, InvitationModel }` se as tabelas de auth vivem numa ' +
+        'conexão/schema próprios. Expected tables: auth_organizations, ' +
+        'auth_organization_members, auth_organization_invitations.',
     };
   }
 
