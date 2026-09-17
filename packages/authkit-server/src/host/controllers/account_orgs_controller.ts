@@ -31,7 +31,11 @@ export default class AccountOrgsController {
 
     if (!supportsOrganizations(store)) {
       return cfg.render
-        ? cfg.render(ctx, 'account/orgs', { supported: false, messages })
+        ? cfg.render(ctx, 'account/orgs', {
+            supported: false,
+            messages,
+            csrfToken: ctx.request.csrfToken,
+          })
         : response.notFound();
     }
 
@@ -70,6 +74,7 @@ export default class AccountOrgsController {
       allowSelfCreate: cfg.organizations.allowSelfCreate,
       availableRoles: cfg.organizations.roles,
       messages,
+      csrfToken: ctx.request.csrfToken,
     };
 
     return cfg.render ? cfg.render(ctx, 'account/orgs', props) : response.notFound();
@@ -294,6 +299,7 @@ export default class AccountOrgsController {
       invitation,
       token: params.token,
       messages: cfg.messages,
+      csrfToken: ctx.request.csrfToken,
     };
 
     return cfg.render
