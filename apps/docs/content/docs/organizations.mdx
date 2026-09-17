@@ -86,17 +86,20 @@ node ace authkit:settings:set organizations_policy \
 ## Lucid store models
 
 The three organization tables are **owned by the library** — `ensureAuthkitSchema` creates
-and evolves them — so you don't write models for them. Pass `true` and the store uses the
-built-in ones:
+and evolves them — so you don't write models for them. The built-in models are used **by
+default**: just build the store and the `OrganizationsCapability` is there.
 
 ```ts title="config/authkit.ts"
 import { lucidAccountStore } from '@adonis-agora/authkit-server'
 
 accountStore: lucidAccountStore(AuthUser, {
   // …your existing options (mfaIssuer, password, …)…
-  organizationModels: true,
 })
 ```
+
+`organizationModels: true` is the explicit spelling of that same default. To turn the
+capability off — for example because you relied on `supportsOrganizations === false` — pass
+`organizationModels: false`.
 
 If your auth tables live in their own connection or schema (`static connection = 'auth'`),
 pass the three model classes explicitly — the built-in models don't declare a connection:
@@ -117,8 +120,9 @@ accountStore: lucidAccountStore(AuthUser, {
 })
 ```
 
-When `organizationModels` is present **and** the tables exist at runtime, the store returns
-an `OrganizationsCapability` that the host kit uses automatically.
+The store returns an `OrganizationsCapability` that the host kit uses automatically. The
+`/account/orgs` screen is mounted by default; without this capability it would answer 403,
+which is exactly what used to happen when the host forgot `organizationModels`.
 
 ## Token claims
 

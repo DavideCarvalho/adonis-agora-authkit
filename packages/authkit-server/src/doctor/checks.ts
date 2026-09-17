@@ -555,7 +555,11 @@ export function checkAccessTokens(input: DoctorInput): Finding | null {
 /**
  * Organizations (multi-tenancy). Informa se a capacidade está disponível
  * (store expõe createOrg) e avisa se `organizations.enabled: true` no config mas
- * a capacidade não está presente no store (organizationModels não foram passados).
+ * a capacidade não está presente no store.
+ *
+ * Com `lucidAccountStore()`, a capability existe POR PADRÃO (models default da
+ * lib); o aviso abaixo só é alcançável para store não-lucid que não a implementa
+ * ou para um store lucid construído com `organizationModels: false` (opt-out).
  */
 export function checkOrganizations(input: DoctorInput): Finding | null {
   const cfg = input.authkitConfig;
@@ -570,18 +574,28 @@ export function checkOrganizations(input: DoctorInput): Finding | null {
       level: 'warn',
       message:
         'organizations.enabled: true, but the accountStore has no OrganizationsCapability — ' +
-        'pass `organizationModels: true` to `lucidAccountStore()` (usa os models default da lib), ' +
-        'ou `{ OrgModel, MemberModel, InvitationModel }` se as tabelas de auth vivem numa ' +
-        'conexão/schema próprios. Expected tables: auth_organizations, ' +
+        'with `lucidAccountStore()` it is present by default; if you passed ' +
+        '`organizationModels: false`, drop the opt-out (or pass the explicit ' +
+        '`{ OrgModel, MemberModel, InvitationModel }` trio when the auth tables live on their ' +
+        'own connection/schema). Expected tables: auth_organizations, ' +
         'auth_organization_members, auth_organization_invitations.',
     };
   }
 
   if (storeSupports) {
     const roles = cfg.organizations?.roles ?? ['owner', 'admin', 'member'];
+    // Origem dos models: default da lib (organizationModels ausente/true) ou
+    // trio explícito do host. Ausente em store não-lucid → wording genérica.
+    const source = (store as any).__organizationModelsSource;
+    const models =
+      source === 'default'
+        ? 'lib defaults (organizationModels omitted or true)'
+        : source === 'explicit'
+          ? 'host-provided explicit trio'
+          : 'lib defaults or host-provided models';
     return {
       level: 'ok',
-      message: `organizations capability present (roles: ${roles.join(', ')}).`,
+      message: `organizations capability present (models: ${models}; roles: ${roles.join(', ')}).`,
     };
   }
 

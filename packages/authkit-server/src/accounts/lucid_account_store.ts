@@ -245,21 +245,29 @@ export interface LucidAccountStoreOptions {
   /**
    * Models Lucid para organizations (multi-tenancy).
    *
-   * - `true` → usa os models DEFAULT da lib ({@link defaultOrganizationModels}),
-   *   que já mapeiam as três tabelas lib-owned (`auth_organizations`,
-   *   `auth_organization_members`, `auth_organization_invitations`). É o caminho
-   *   recomendado: as tabelas são criadas/evoluídas pelo `ensureAuthkitSchema`,
-   *   então o mapeamento não é decisão do host.
+   * - **Ausente (default)** → usa os models DEFAULT da lib
+   *   ({@link defaultOrganizationModels}), que já mapeiam as três tabelas
+   *   lib-owned (`auth_organizations`, `auth_organization_members`,
+   *   `auth_organization_invitations`). A `OrganizationsCapability` passa a
+   *   existir por padrão. Isso é seguro porque as rotas do console de conta para
+   *   orgs JÁ eram montadas por default (`register_auth_host`, bloco `if
+   *   (mountOrgs)`, com controller capability-probed); antes, sem os models, a
+   *   tela montada respondia 403; agora ela funciona. Não há tela nova — só uma
+   *   que deixou de estar quebrada. As tabelas são criadas/evoluídas pelo
+   *   `ensureAuthkitSchema`, então o mapeamento não é decisão do host.
+   * - `true` → idêntico ao default (atalho explícito; é o que apps existentes
+   *   já usam e continua valendo).
    * - `{ OrgModel, MemberModel, InvitationModel }` → escape hatch, para quem
    *   guarda as tabelas de auth numa conexão/schema próprios (os defaults não
    *   declaram `static connection`).
-   * - Ausente → `OrganizationsCapability` AUSENTE no store. Como as rotas
-   *   `/account/orgs*` são montadas por capability-probing, isso deixa a
-   *   feature desligada — silenciosamente, se o host não olhar o
-   *   `authkit:doctor`.
+   * - `false` → opt-out explícito: `OrganizationsCapability` AUSENTE no store.
+   *   Use quando a dependência atual é `supportsOrganizations === false` (ex.:
+   *   store/rotas que assumem a ausência). O `authkit:doctor` avisa se
+   *   `organizations.enabled: true` e o store não tem a capability.
    */
   organizationModels?:
     | true
+    | false
     | {
         OrgModel: any;
         MemberModel: any;
@@ -283,6 +291,8 @@ export interface LucidAccountStoreOptions {
  * (WebAuthn) e account linking por provider só são montados quando o model
  * correspondente é fornecido — caso contrário a capacidade fica ABSENTE (os
  * métodos não existem no objeto retornado, em vez de presentes-mas-lançando).
+ * Organizations também é montada por padrão (models default da lib) e só some
+ * com `organizationModels: false`.
  *
  * @remarks Para capabilities que dependem de tabelas opcionais (ex.:
  *   `auth_password_history`), use {@link lucidAccountStoreAsync} que probe o DB
@@ -339,8 +349,16 @@ export function lucidAccountStore(
     options.encrypter === false ? undefined : (options.encrypter ?? appKeyEncrypter());
   const ProviderIdentityModel = options.providerIdentityModel;
   const WebauthnCredentialModel = options.webauthnCredentialModel;
+  // Organizations é padrão: ausente OU `true` → models default da lib. O
+  // opt-out explícito é `false`. O trio explícito segue como escape hatch.
+  const orgModelsOption = options.organizationModels;
+  const usesDefaultOrgModels = orgModelsOption === undefined || orgModelsOption === true;
   const OrgModels =
-    options.organizationModels === true ? defaultOrganizationModels : options.organizationModels;
+    orgModelsOption === false
+      ? undefined
+      : usesDefaultOrgModels
+        ? defaultOrganizationModels
+        : orgModelsOption;
   // RP do WebAuthn: usado nas cerimônias. Default do rpName cai no mfaIssuer.
   const webauthn = options.webauthn ?? {
     rpName: mfaIssuer,
@@ -432,17 +450,23 @@ export function lucidAccountStore(
     // Preferência por usuário de tipos de login: só quando o model tem a coluna
     // `login_methods` (JSONB). Sem a coluna → capacidade ausente (feature no-op).
     ...(supportsLoginMethodsColumn(Model) ? buildLoginMethods(ctx) : {}),
-    // Organizations (multi-tenancy): só quando os três models foram fornecidos.
+    // Organizations (multi-tenancy): por padrão usa os models default da lib;
+    // ausente só com `organizationModels: false` (opt-out explícito).
     ...(OrgModels
-      ? buildOrganizations({
-          OrgModel: OrgModels.OrgModel,
-          MemberModel: OrgModels.MemberModel,
-          InvitationModel: OrgModels.InvitationModel,
-          findAccountEmail: async (accountId: string) => {
-            const row = await Model.find(accountId);
-            return row?.email ?? null;
-          },
-        })
+      ? {
+          // Origem dos models, para o `authkit:doctor` reportar sem re-inferir.
+          // NÃO faz parte do contrato AccountStore.
+          __organizationModelsSource: usesDefaultOrgModels ? 'default' : 'explicit',
+          ...buildOrganizations({
+            OrgModel: OrgModels.OrgModel,
+            MemberModel: OrgModels.MemberModel,
+            InvitationModel: OrgModels.InvitationModel,
+            findAccountEmail: async (accountId: string) => {
+              const row = await Model.find(accountId);
+              return row?.email ?? null;
+            },
+          }),
+        }
       : {}),
     // Config de senha resolvida — exposta (não-enumerável) para o authkit:doctor
     // inspecionar policy/checkPwned. NÃO faz parte do contrato AccountStore.

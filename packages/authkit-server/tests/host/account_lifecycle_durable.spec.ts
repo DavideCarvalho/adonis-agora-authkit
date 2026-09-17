@@ -185,6 +185,40 @@ async function migrate(db: any) {
     t.text('metadata').nullable();
     t.timestamp('created_at').nullable();
   });
+  /* Organizations é padrão no `lucidAccountStore`, e a deleção de conta passa
+   * pelo cascade `removeAccountFromAllOrgs`. Estas são as tabelas lib-owned que
+   * o `ensureAuthkitSchema` cria num app real; sem elas o step `remove.orgs`
+   * quebraria o workflow. Vazias → o cascade remove zero memberships. */
+  await db.connection().schema.createTable('auth_organizations', (t: any) => {
+    t.string('id').primary();
+    t.string('name').notNullable();
+    t.string('slug').notNullable().unique();
+    t.string('logo_url').nullable();
+    t.text('metadata').nullable();
+    t.timestamp('created_at').nullable();
+    t.timestamp('updated_at').nullable();
+  });
+  await db.connection().schema.createTable('auth_organization_members', (t: any) => {
+    t.string('id').primary();
+    t.string('organization_id').notNullable();
+    t.string('account_id').notNullable();
+    t.string('role').notNullable();
+    t.timestamp('created_at').nullable();
+    t.timestamp('updated_at').nullable();
+    t.unique(['organization_id', 'account_id']);
+  });
+  await db.connection().schema.createTable('auth_organization_invitations', (t: any) => {
+    t.string('id').primary();
+    t.string('organization_id').notNullable();
+    t.string('email').notNullable();
+    t.string('role').notNullable();
+    t.string('token_hash').notNullable();
+    t.string('invited_by').notNullable();
+    t.timestamp('expires_at').notNullable();
+    t.timestamp('accepted_at').nullable();
+    t.timestamp('created_at').nullable();
+    t.timestamp('updated_at').nullable();
+  });
 }
 
 async function startService(port: number, db: any, opts?: { durable?: boolean }) {

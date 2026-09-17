@@ -122,21 +122,55 @@ async function migrateWithoutOrgs(db: any) {
   });
 }
 
-test.group('OrganizationsCapability — capability probing', (group) => {
+test.group('OrganizationsCapability — por padrão e opt-out', (group) => {
   let db: any;
   group.each.setup(async () => {
     db = createTestDatabase();
     return async () => db.manager.closeAll();
   });
 
-  test('sem tabelas org → supportsOrganizations retorna false', async ({ assert }) => {
-    await migrateWithoutOrgs(db);
-    const store = lucidAccountStore(TestAccount, {});
-    assert.isFalse(supportsOrganizations(store));
-    assert.isUndefined((store as any).createOrg);
+  test('sem passar organizationModels → capability presente e CRUD de ponta a ponta', async ({
+    assert,
+  }) => {
+    /* O novo contrato: a capability existe por padrão (models default da lib),
+     * sem o host declarar nada. Antes, `lucidAccountStore(Model, {})` deixava a
+     * capability AUSENTE em silêncio mesmo com `organizations.enabled: true`. */
+    await migrateWithOrgs(db);
+    const store = lucidAccountStore(TestAccount) as any;
+
+    assert.isTrue(supportsOrganizations(store));
+    assert.isFunction(store.createOrg);
+    // Metadado que o `authkit:doctor` usa para dizer de onde vieram os models.
+    assert.equal(store.__organizationModelsSource, 'default');
+
+    // CRUD end-to-end contra as tabelas reais, sem nenhum model no host.
+    const account = await store.create({ email: 'owner@default.test', password: 'pass12345678' });
+    const org = await store.createOrg({
+      name: 'Default Corp',
+      slug: 'default-corp',
+      ownerAccountId: account.id,
+    });
+
+    assert.equal(org.slug, 'default-corp');
+    assert.equal(org.logoUrl, null);
+    assert.equal((await store.findOrgBySlug('default-corp'))?.id, org.id);
+    assert.equal((await store.getOrgMembership(org.id, account.id))?.role, 'owner');
+    assert.lengthOf(await store.listOrgsForAccount(account.id), 1);
   });
 
-  test('com tabelas org → supportsOrganizations retorna true', async ({ assert }) => {
+  test('organizationModels: false → capability ausente (opt-out explícito)', async ({ assert }) => {
+    // Mesmo com as tabelas presentes, o opt-out remove a capability.
+    await migrateWithOrgs(db);
+    const store = lucidAccountStore(TestAccount, { organizationModels: false }) as any;
+
+    assert.isFalse(supportsOrganizations(store));
+    assert.isUndefined(store.createOrg);
+    assert.isUndefined(store.__organizationModelsSource);
+  });
+
+  test('trio explícito → supportsOrganizations retorna true e marca a origem', async ({
+    assert,
+  }) => {
     await migrateWithOrgs(db);
     const store = lucidAccountStore(TestAccount, {
       organizationModels: {
@@ -144,9 +178,11 @@ test.group('OrganizationsCapability — capability probing', (group) => {
         MemberModel: TestOrgMember,
         InvitationModel: TestOrgInvitation,
       },
-    });
+    }) as any;
+
     assert.isTrue(supportsOrganizations(store));
-    assert.isFunction((store as any).createOrg);
+    assert.isFunction(store.createOrg);
+    assert.equal(store.__organizationModelsSource, 'explicit');
   });
 });
 
@@ -190,11 +226,12 @@ test.group('OrganizationsCapability — models default da lib', (group) => {
     assert,
   }) => {
     /**
-     * Consequência de desenho, documentada de propósito: a capability depende de
-     * `organizationModels`, não de as tabelas existirem. Quem liga os defaults num
-     * banco sem as tabelas (host com `schema.autoManage: false` que não migrou)
-     * recebe erro na primeira chamada — barulhento, que é o que queremos; o
-     * silêncio era o problema do opt-in ausente.
+     * Consequência de desenho, documentada de propósito: a capability existe por
+     * padrão (models default da lib), NÃO depende de as tabelas existirem. Quem
+     * aponta os defaults para um banco sem as tabelas (host com
+     * `schema.autoManage: false` que não migrou) recebe erro na primeira chamada
+     * — barulhento, que é o que queremos; o silêncio era o problema do opt-in
+     * ausente.
      */
     await migrateWithoutOrgs(db);
     const store = lucidAccountStore(TestAccount, { organizationModels: true }) as any;
@@ -219,6 +256,21 @@ test.group('OrganizationsCapability — models default da lib', (group) => {
       ownerAccountId: account.id,
     });
     assert.equal(org.slug, 'via-lucidstores');
+  });
+
+  test('lucidStores também liga por padrão e aceita organizations: false (opt-out)', async ({
+    assert,
+  }) => {
+    await migrateWithOrgs(db);
+
+    const { accountStore: byDefault } = lucidStores({ account: TestAccount }, {}) as any;
+    assert.isTrue(supportsOrganizations(byDefault));
+
+    const { accountStore: optedOut } = lucidStores(
+      { account: TestAccount, organizations: false },
+      {},
+    ) as any;
+    assert.isFalse(supportsOrganizations(optedOut));
   });
 
   test('caminho explícito continua funcionando (escape hatch)', async ({ assert }) => {
