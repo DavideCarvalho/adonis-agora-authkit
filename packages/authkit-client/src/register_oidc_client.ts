@@ -60,12 +60,14 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
   const pkceKey = 'authkit_pkce';
 
   // Todo redirect desta função vai para uma URL que a PRÓPRIA lib monta (authorize,
-  // /login, destino do app, end-session). O Adonis encaminha a query string da
-  // request atual por padrão (`redirect.forwardQueryString`), então `redirect(dest)`
-  // sem o `false` explícito arrasta o `code`/`state`/`iss` do callback para o
-  // destino — o app terminava em `/?code=…&state=…&iss=…` depois do login, e o
-  // `/auth/login` de um callback falho carregava o code antigo para o authorize
-  // seguinte. Nenhum desses redirects deve encaminhar query: o destino já a tem.
+  // /login, destino do app, end-session), então nenhum deve encaminhar a query da
+  // request atual. Isso precisa ser o builder `withQs(false)`, NÃO o segundo
+  // argumento de `redirect(path, forwardQueryString)`: quando o app liga
+  // `redirect.forwardQueryString` no config/app.ts — que é o caso comum — o
+  // positional é ignorado e o Redirect herda a config global, encaminhando mesmo
+  // assim. Sem o opt-out explícito o `code`/`state`/`iss` do callback vazam para o
+  // destino (o app termina em `/?code=…`) e o `/auth/login` de um callback falho
+  // arrasta o code antigo para o authorize seguinte.
 
   const loginRoute = router.get(`${prefix}/login`, async (ctx: HttpContext) => {
     const manager = await ctx.containerResolver.make('authkit.client');
@@ -89,7 +91,7 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
       codeChallenge: challenge,
       ...(Object.keys(extraParams).length ? { extraParams } : {}),
     });
-    return ctx.response.redirect(url, false);
+    return ctx.response.redirect().withQs(false).toPath(url);
   });
   if (options.loginMiddleware) loginRoute.use(options.loginMiddleware);
   loginRoute.as('auth.login');
@@ -104,7 +106,7 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
       // Callback velho/expirado (state perdido ou code ausente) → recomeça o login.
       if (!pkce || pkce.state !== state || !code) {
         (ctx as any).session?.forget(pkceKey);
-        return ctx.response.redirect(`${prefix}/login`, false);
+        return ctx.response.redirect().withQs(false).toPath(`${prefix}/login`);
       }
 
       const tokenSet = await exchangeCode({
@@ -125,11 +127,11 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
 
       // 1) Hook do app tem prioridade quando retorna uma rota.
       const hook = await options.afterLogin?.(ctx, identity);
-      if (typeof hook === 'string') return ctx.response.redirect(hook, false);
+      if (typeof hook === 'string') return ctx.response.redirect().withQs(false).toPath(hook);
 
       // 2) Redirect por role global (do token).
       const dest = resolveDestination(identity, options.redirects);
-      return ctx.response.redirect(dest, false);
+      return ctx.response.redirect().withQs(false).toPath(dest);
     })
     .as('auth.callback');
 
@@ -153,7 +155,7 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
         postLogoutRedirectUri,
         clientId: cfg.clientId,
       });
-      return ctx.response.redirect(endSessionUrl, false);
+      return ctx.response.redirect().withQs(false).toPath(endSessionUrl);
     })
     .as('auth.logout');
 
