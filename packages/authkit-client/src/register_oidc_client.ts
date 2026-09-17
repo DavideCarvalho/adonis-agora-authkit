@@ -59,6 +59,14 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
   const passthrough = options.passthroughParams ?? ['audience'];
   const pkceKey = 'authkit_pkce';
 
+  // Todo redirect desta função vai para uma URL que a PRÓPRIA lib monta (authorize,
+  // /login, destino do app, end-session). O Adonis encaminha a query string da
+  // request atual por padrão (`redirect.forwardQueryString`), então `redirect(dest)`
+  // sem o `false` explícito arrasta o `code`/`state`/`iss` do callback para o
+  // destino — o app terminava em `/?code=…&state=…&iss=…` depois do login, e o
+  // `/auth/login` de um callback falho carregava o code antigo para o authorize
+  // seguinte. Nenhum desses redirects deve encaminhar query: o destino já a tem.
+
   const loginRoute = router.get(`${prefix}/login`, async (ctx: HttpContext) => {
     const manager = await ctx.containerResolver.make('authkit.client');
     const cfg = manager.clientConfig;
@@ -81,7 +89,7 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
       codeChallenge: challenge,
       ...(Object.keys(extraParams).length ? { extraParams } : {}),
     });
-    return ctx.response.redirect(url);
+    return ctx.response.redirect(url, false);
   });
   if (options.loginMiddleware) loginRoute.use(options.loginMiddleware);
   loginRoute.as('auth.login');
@@ -96,7 +104,7 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
       // Callback velho/expirado (state perdido ou code ausente) → recomeça o login.
       if (!pkce || pkce.state !== state || !code) {
         (ctx as any).session?.forget(pkceKey);
-        return ctx.response.redirect(`${prefix}/login`);
+        return ctx.response.redirect(`${prefix}/login`, false);
       }
 
       const tokenSet = await exchangeCode({
@@ -117,11 +125,11 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
 
       // 1) Hook do app tem prioridade quando retorna uma rota.
       const hook = await options.afterLogin?.(ctx, identity);
-      if (typeof hook === 'string') return ctx.response.redirect(hook);
+      if (typeof hook === 'string') return ctx.response.redirect(hook, false);
 
       // 2) Redirect por role global (do token).
       const dest = resolveDestination(identity, options.redirects);
-      return ctx.response.redirect(dest);
+      return ctx.response.redirect(dest, false);
     })
     .as('auth.callback');
 
@@ -145,7 +153,7 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
         postLogoutRedirectUri,
         clientId: cfg.clientId,
       });
-      return ctx.response.redirect(endSessionUrl);
+      return ctx.response.redirect(endSessionUrl, false);
     })
     .as('auth.logout');
 
