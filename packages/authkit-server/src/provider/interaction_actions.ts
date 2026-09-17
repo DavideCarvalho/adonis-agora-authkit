@@ -1,4 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http';
+import { readActiveOrgFromHostCtx } from '../host/active_org_cookie.js';
 import {
   InteractionSessionLostException,
   isInteractionSessionLost,
@@ -97,9 +98,15 @@ export function createInteractionActions(provider: any, deps: InteractionDeps): 
 
     async consent(ctx) {
       const details = await interactionDetailsOrRecover(provider, ctx);
+      // O consent roda numa request do BROWSER, então a org ativa (cookie) está
+      // disponível AQUI — ao contrário do mint do id_token no /token, que é
+      // server-a-servidor e não carrega os cookies do usuário. Persistimos a org
+      // no Grant para que o fluxo authorization code volte a emitir org_*.
+      const activeOrg = readActiveOrgFromHostCtx(ctx);
       const grant = new provider.Grant({
         accountId: details.session.accountId,
         clientId: details.params.client_id,
+        ...(activeOrg ? { activeOrg } : {}),
       });
       grant.addOIDCScope(String(details.params.scope ?? 'openid'));
       // Resource Indicators (RFC 8707): quando o authorize/token pede um `resource`

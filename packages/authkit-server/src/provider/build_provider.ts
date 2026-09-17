@@ -1,6 +1,7 @@
 import * as oidc from 'oidc-provider';
 import { pickModelAdapterClass } from '../adapters/factory.js';
 import type { ResolvedServerConfig } from '../define_config.js';
+import { normalizeActiveOrg, readActiveOrgFromKoaCtx } from '../host/active_org_cookie.js';
 import { createDeviceSources } from './device_sources.js';
 import { createLogoutSources } from './logout_sources.js';
 
@@ -174,6 +175,33 @@ export function buildProvider(
         : {}),
     })),
     findAccount: options.findAccount,
+    // Grant REAPROVEITADO (consent já lembrado): o org capturado no primeiro
+    // consent ficaria VELHO se o usuário trocasse de org no console e voltasse a
+    // autenticar sem novo consent. Esta função roda numa request do BROWSER (o
+    // authorize), então relemos o cookie aqui e atualizamos o Grant quando
+    // divergir — inclusive LIMPANDO quando o cookie some (org desativada). Sem
+    // isto o token continuaria emitindo a org antiga até o grant expirar.
+    // Assinatura/default confirmados no fonte instalado: `actions/authorization/
+    // session.js` chama `configuration.loadExistingGrant(ctx)`.
+    loadExistingGrant: async (ctx: any) => {
+      const grantId =
+        ctx.oidc.result?.consent?.grantId || ctx.oidc.session.grantIdFor(ctx.oidc.client.clientId);
+      if (!grantId) return undefined;
+      const grant = await ctx.oidc.provider.Grant.find(grantId);
+      if (!grant) return undefined;
+      const activeOrg = readActiveOrgFromKoaCtx(ctx);
+      const current = normalizeActiveOrg(grant.activeOrg);
+      const changed =
+        (activeOrg?.orgId ?? null) !== (current?.orgId ?? null) ||
+        (activeOrg?.orgSlug ?? null) !== (current?.orgSlug ?? null) ||
+        (activeOrg?.orgRole ?? null) !== (current?.orgRole ?? null);
+      if (changed) {
+        if (activeOrg) grant.activeOrg = activeOrg;
+        else delete grant.activeOrg;
+        await grant.save();
+      }
+      return grant;
+    },
     jwks: config.jwks,
     cookies: {
       keys: cookieKeys,
@@ -277,6 +305,30 @@ export function buildProvider(
       // provider em /oidc/auth/:uid (já corretamente prefixado pelo koa-mount).
       url: (_ctx: any, interaction: any) => `/auth/interaction/${interaction.uid}`,
     },
+  });
+
+  // ── Modelo Grant estendido: persiste a org ativa ─────────────────────────────
+  // O oidc-provider v9 NÃO expõe uma opção `models` no config (confirmado no fonte
+  // instalado: `provider.js` instancia os modelos por `models.getGrant(this)` e
+  // `helpers/defaults.js` não tem chave alguma `models`), e o `Grant` filtra o
+  // payload por `IN_PAYLOAD` (`lib/models/grant.js` + `base_model.js`), então
+  // qualquer prop de topo fora da lista é DESCARTADA no `save()`/`find()`.
+  // Estendemos `IN_PAYLOAD` com `activeOrg` e injetamos a subclasse na INSTÂNCIA
+  // do provider via `Object.defineProperty`, que sombreia o getter `Grant` do
+  // protótipo. O `name` é fixado em `'Grant'` para que o nome do ADAPTER e o
+  // `kind` persistido continuem sendo os MESMOS registros (`BaseModel` usa
+  // `constructor.name` para ambos) — sem isso, grants novos/antigos divergiriam.
+  const BaseGrant: any = provider.Grant;
+  const GrantWithOrg = class GrantWithOrg extends BaseGrant {
+    static get IN_PAYLOAD(): string[] {
+      return [...BaseGrant.IN_PAYLOAD, 'activeOrg'];
+    }
+  };
+  Object.defineProperty(GrantWithOrg, 'name', { value: 'Grant', configurable: true });
+  Object.defineProperty(provider, 'Grant', {
+    value: GrantWithOrg,
+    writable: true,
+    configurable: true,
   });
 
   provider.proxy = true;
