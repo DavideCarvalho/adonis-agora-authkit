@@ -3,7 +3,7 @@ import { type ClientConfig, type MetricsRecorder, NoopRecorder } from '@adonis-a
 import Koa from 'koa';
 import mount from 'koa-mount';
 import type { ResolvedServerConfig } from '../define_config.js';
-import { readActiveOrgFromKoaCtx } from '../host/active_org_cookie.js';
+import { normalizeActiveOrg, readActiveOrgFromKoaCtx } from '../host/active_org_cookie.js';
 import { isFirstPartyClient } from '../host/branding.js';
 import { listKeyInfos, type ManagedKeyInfo, signingKeyAgeDays } from '../keys/keystore.js';
 import type { KeystoreManager } from '../keys/keystore_manager.js';
@@ -113,8 +113,14 @@ export class OidcService {
           const user = await config.findAccount(sub);
           if (!user) return undefined;
 
-          // Lê a org ativa do cookie de sessão (se organizations estiver disponível).
-          const activeOrg = readActiveOrgFromKoaCtx(ctx);
+          // Fonte PRIMÁRIA: a org persistida no Grant no consent (request do
+          // browser). No fluxo authorization code o id_token é mintado no /token
+          // — server-a-servidor, SEM cookies — então o cookie abaixo não existe
+          // ali. O cookie continua como FALLBACK para fluxos em que o id_token
+          // sai no próprio authorize (implicit/hybrid), onde a request é do browser.
+          const activeOrg =
+            normalizeActiveOrg(ctx?.oidc?.entities?.Grant?.activeOrg) ??
+            readActiveOrgFromKoaCtx(ctx);
 
           // GATE de least-privilege: roles globais e claims de org só são emitidas
           // para clients FIRST-PARTY. Capturamos o clientId aqui (fora do closure
