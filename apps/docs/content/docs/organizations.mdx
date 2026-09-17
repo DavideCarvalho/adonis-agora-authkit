@@ -72,7 +72,7 @@ defineConfig({
 
 | Option | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `enabled` | `boolean` | auto | `undefined` = auto (detects tables at runtime). |
+| `enabled` | `boolean` | auto | Intent signal for `authkit:doctor`: with `true` it warns when the store has no `OrganizationsCapability`. It does **not** gate routes — those are mounted from the capability (see *Lucid store models* below). |
 | `claimStrategy` | `'active'` | `'active'` | Emit claims from the current active org cookie. The only supported strategy. |
 
 Policy fields (`roles`, `allowSelfCreate`, `invitationTtlHours`) are managed via the
@@ -85,7 +85,21 @@ node ace authkit:settings:set organizations_policy \
 
 ## Lucid store models
 
-Pass your three model classes to `lucidAccountStore`:
+The three organization tables are **owned by the library** — `ensureAuthkitSchema` creates
+and evolves them — so you don't write models for them. Pass `true` and the store uses the
+built-in ones:
+
+```ts title="config/authkit.ts"
+import { lucidAccountStore } from '@adonis-agora/authkit-server'
+
+accountStore: lucidAccountStore(AuthUser, {
+  // …your existing options (mfaIssuer, password, …)…
+  organizationModels: true,
+})
+```
+
+If your auth tables live in their own connection or schema (`static connection = 'auth'`),
+pass the three model classes explicitly — the built-in models don't declare a connection:
 
 ```ts title="config/authkit.ts"
 import { lucidAccountStore } from '@adonis-agora/authkit-server'

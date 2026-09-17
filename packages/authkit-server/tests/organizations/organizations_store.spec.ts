@@ -5,6 +5,7 @@ import { test } from '@japa/runner';
 import { DateTime } from 'luxon';
 import { supportsOrganizations } from '../../src/accounts/account_store.js';
 import { lucidAccountStore } from '../../src/accounts/lucid_account_store.js';
+import { lucidStores } from '../../src/accounts/lucid_stores.js';
 import { withAuthUser } from '../../src/mixins/with_auth_user.js';
 import { withCredentials } from '../../src/mixins/with_credentials.js';
 import { createTestDatabase } from '../bootstrap.js';
@@ -86,6 +87,10 @@ async function migrateWithOrgs(db: any) {
     t.string('account_id').notNullable();
     t.string('role').notNullable();
     t.timestamp('created_at').nullable();
+    /* a tabela real (TABLES em src/schema/ensure.ts) tem updated_at; sem ele
+     * aqui o fixture mente sobre o schema e os models default — que são fiéis à
+     * tabela real — quebram no INSERT. */
+    t.timestamp('updated_at').nullable();
     t.unique(['organization_id', 'account_id']);
   });
   await db.connection().schema.createTable('auth_organization_invitations', (t: any) => {
@@ -98,6 +103,8 @@ async function migrateWithOrgs(db: any) {
     t.timestamp('expires_at').notNullable();
     t.timestamp('accepted_at').nullable();
     t.timestamp('created_at').nullable();
+    /* idem: updated_at existe na tabela real */
+    t.timestamp('updated_at').nullable();
   });
 }
 
@@ -140,6 +147,99 @@ test.group('OrganizationsCapability — capability probing', (group) => {
     });
     assert.isTrue(supportsOrganizations(store));
     assert.isFunction((store as any).createOrg);
+  });
+});
+
+test.group('OrganizationsCapability — models default da lib', (group) => {
+  let db: any;
+
+  group.each.setup(async () => {
+    db = createTestDatabase();
+    return async () => db.manager.closeAll();
+  });
+
+  test('organizationModels: true liga a capability com os defaults, sem model no host', async ({
+    assert,
+  }) => {
+    await migrateWithOrgs(db);
+    const store = lucidAccountStore(TestAccount, { organizationModels: true }) as any;
+
+    assert.isTrue(supportsOrganizations(store));
+    assert.isFunction(store.createOrg);
+
+    /* de ponta a ponta contra as tabelas reais — não só o type guard.
+     * `metadata` fica fora daqui de propósito: o fixture cria a coluna como
+     * `text` (sqlite) e o valor tipado é objeto — em Postgres a coluna é `json`
+     * e o round-trip funciona (validado à parte, contra PG). */
+    const account = await store.create({ email: 'owner@defaults.test', password: 'pass12345678' });
+    const org = await store.createOrg({
+      name: 'Defaults Corp',
+      slug: 'defaults',
+      ownerAccountId: account.id,
+    });
+
+    assert.equal(org.slug, 'defaults');
+    assert.equal(org.logoUrl, null);
+
+    assert.equal((await store.findOrgBySlug('defaults'))?.id, org.id);
+    assert.equal((await store.getOrgMembership(org.id, account.id))?.role, 'owner');
+    assert.lengthOf(await store.listOrgsForAccount(account.id), 1);
+  });
+
+  test('models default sem as tabelas → capability ligada e erro ALTO no uso', async ({
+    assert,
+  }) => {
+    /**
+     * Consequência de desenho, documentada de propósito: a capability depende de
+     * `organizationModels`, não de as tabelas existirem. Quem liga os defaults num
+     * banco sem as tabelas (host com `schema.autoManage: false` que não migrou)
+     * recebe erro na primeira chamada — barulhento, que é o que queremos; o
+     * silêncio era o problema do opt-in ausente.
+     */
+    await migrateWithoutOrgs(db);
+    const store = lucidAccountStore(TestAccount, { organizationModels: true }) as any;
+
+    assert.isTrue(supportsOrganizations(store));
+    await assert.rejects(() => store.createOrg({ name: 'X', slug: 'x', ownerAccountId: 'a1' }));
+  });
+
+  test('lucidStores também aceita organizations: true', async ({ assert }) => {
+    await migrateWithOrgs(db);
+
+    const { accountStore } = lucidStores({ account: TestAccount, organizations: true }, {}) as any;
+
+    assert.isTrue(supportsOrganizations(accountStore));
+    const account = await accountStore.create({
+      email: 'owner@lucidstores.test',
+      password: 'pass12345678',
+    });
+    const org = await accountStore.createOrg({
+      name: 'Via lucidStores',
+      slug: 'via-lucidstores',
+      ownerAccountId: account.id,
+    });
+    assert.equal(org.slug, 'via-lucidstores');
+  });
+
+  test('caminho explícito continua funcionando (escape hatch)', async ({ assert }) => {
+    await migrateWithOrgs(db);
+
+    const store = lucidAccountStore(TestAccount, {
+      organizationModels: {
+        OrgModel: TestOrg,
+        MemberModel: TestOrgMember,
+        InvitationModel: TestOrgInvitation,
+      },
+    }) as any;
+
+    assert.isTrue(supportsOrganizations(store));
+    const account = await store.create({ email: 'owner@explicit.test', password: 'pass12345678' });
+    const org = await store.createOrg({
+      name: 'Explicit',
+      slug: 'explicit',
+      ownerAccountId: account.id,
+    });
+    assert.equal(org.slug, 'explicit');
   });
 });
 

@@ -11,10 +11,10 @@ export default class extends BaseSchema {
   async up() {
     this.schema.createTable(this.tableName, (table) => {
       /**
-       * String, NÃO increments(): o hook `@beforeCreate` do model scaffoldado
-       * (`models/auth_user.stub`) atribui um `randomUUID()` antes do insert.
+       * String, NÃO increments(): o hook @beforeCreate do model scaffoldado
+       * (models/auth_user.stub) atribui um randomUUID() antes do insert.
        * Uma coluna auto-increment aceitaria o INSERT mesmo assim, mas o valor
-       * do UUID seria descartado e o `id` do model voltaria como o rowid
+       * do UUID seria descartado e o id do model voltaria como o rowid
        * interno do banco — a conta ficaria inalcançável pelo id real na
        * próxima request. Ver packages/authkit-server/stubs/models/auth_user.stub.
        */
@@ -34,7 +34,7 @@ export default class extends BaseSchema {
 
       // Coluna própria do model scaffoldado (não vem de nenhum mixin): a tela
       // de signup embutida sempre coleta "Nome" e o Lucid store passa esse
-      // valor direto para `AuthUser.create()` — sem esta coluna o primeiro
+      // valor direto para AuthUser.create() — sem esta coluna o primeiro
       // signup quebra com "Cannot define 'fullName' on 'AuthUser' model,
       // since it is not defined as a model property".
       table.string('full_name').nullable()

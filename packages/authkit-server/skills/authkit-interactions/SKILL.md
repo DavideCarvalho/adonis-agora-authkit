@@ -6,7 +6,7 @@ description: >-
   routes every IdP app must register (show/login/consent on AuthInteractionController),
   `node ace configure --ui=edge|react|headless` presets, the shell-controller +
   service.interactions split (details(ctx), login(ctx,{email,password}), consent(ctx)),
-  overriding verifyCredentials in config/authkit.ts, renderers edgeRenderer/inertiaRenderer,
+  overriding accountStore.verifyCredentials in config/authkit.ts, renderers edgeRenderer/inertiaRenderer,
   and end-to-end testing with @adonis-agora/authkit-testing (createTestIdentity,
   mintTestIdToken, serveJwks, fakeAuthenticator). Use when the authorization flow 404s at
   the login screen, wiring custom login UI, plugging an external user base, or testing
@@ -81,24 +81,30 @@ the shell only translates between HTTP and those calls.
 Source: `packages/authkit-server/README.md` § UI de login/consent ("o controller
 ejetado é casca: a lógica vive em `service.interactions`").
 
-### Pattern 2 — plug your user base via `verifyCredentials`
+### Pattern 2 — plug your user base via `accountStore.verifyCredentials`
 
-`verifyCredentials` in `config/authkit.ts` decides whether credentials are valid;
-`service.interactions.login` calls it. The default queries the `AuthUser` model by
-email and uses `verifyPassword` — override to authenticate against anything else:
+`verifyCredentials` on the configured `accountStore` decides whether credentials
+are valid; `service.interactions.login` calls it. The default
+`lucidAccountStore(AuthUser)` queries the `AuthUser` model by email and uses the
+`withCredentials` mixin — override the store method to authenticate against
+anything else (`findAccount`/`verifyCredentials` are NOT top-level `defineConfig`
+keys; `AuthServerConfigInput` accepts only `accountStore`, from which the lib
+derives both):
 
 ```ts
 // config/authkit.ts
 defineConfig({
   issuer: env.get('AUTHKIT_ISSUER'),
   adapter: adapters.redis({ connection: 'main' }),
-  accountStore: lucidAccountStore(AuthUser),
-  verifyCredentials: async (email, password) => {
-    // Return the account on success; throw/falsy paths fail the login.
-    const account = await AuthUser.query().where('email', email).first()
-    if (!account) throw new Error('Invalid credentials')
-    await verifyPassword(account.passwordHash, password)
-    return account
+  accountStore: {
+    ...lucidAccountStore(AuthUser),
+    verifyCredentials: async (email, password) => {
+      // Return the account on success; throw/falsy paths fail the login.
+      const account = await AuthUser.query().where('email', email).first()
+      if (!account) throw new Error('Invalid credentials')
+      await verifyPassword(account.passwordHash, password)
+      return account
+    },
   },
 })
 ```

@@ -11,6 +11,7 @@ import type { AccountStore, AuthAccount } from './account_store.js';
 import { buildCore } from './lucid_store/core.js';
 import { buildLoginMethods, supportsLoginMethodsColumn } from './lucid_store/login_methods.js';
 import { buildMfa } from './lucid_store/mfa.js';
+import { defaultOrganizationModels } from './lucid_store/organization_models.js';
 import { buildOrganizations } from './lucid_store/organizations.js';
 import { buildPasswordExpiration, buildPasswordHistory } from './lucid_store/password_hygiene.js';
 import { buildProviderIdentity } from './lucid_store/provider_identity.js';
@@ -242,16 +243,28 @@ export interface LucidAccountStoreOptions {
    */
   pwnedFetch?: FetchLike;
   /**
-   * Models Lucid para organizations (multi-tenancy). Quando os três forem fornecidos,
-   * a capacidade `OrganizationsCapability` fica disponível no store. Os models devem
-   * ser tabelas `auth_organizations`, `auth_organization_members` e
-   * `auth_organization_invitations`. Ausente → capability AUSENTE (sem tabelas = desligado).
+   * Models Lucid para organizations (multi-tenancy).
+   *
+   * - `true` → usa os models DEFAULT da lib ({@link defaultOrganizationModels}),
+   *   que já mapeiam as três tabelas lib-owned (`auth_organizations`,
+   *   `auth_organization_members`, `auth_organization_invitations`). É o caminho
+   *   recomendado: as tabelas são criadas/evoluídas pelo `ensureAuthkitSchema`,
+   *   então o mapeamento não é decisão do host.
+   * - `{ OrgModel, MemberModel, InvitationModel }` → escape hatch, para quem
+   *   guarda as tabelas de auth numa conexão/schema próprios (os defaults não
+   *   declaram `static connection`).
+   * - Ausente → `OrganizationsCapability` AUSENTE no store. Como as rotas
+   *   `/account/orgs*` são montadas por capability-probing, isso deixa a
+   *   feature desligada — silenciosamente, se o host não olhar o
+   *   `authkit:doctor`.
    */
-  organizationModels?: {
-    OrgModel: any;
-    MemberModel: any;
-    InvitationModel: any;
-  };
+  organizationModels?:
+    | true
+    | {
+        OrgModel: any;
+        MemberModel: any;
+        InvitationModel: any;
+      };
   /**
    * TTLs dos tokens de verificação de e-mail / troca de e-mail. Ver
    * {@link EmailTokensConfigInput}. Ausente → 24h / 1h (defaults de
@@ -277,6 +290,43 @@ export interface LucidAccountStoreOptions {
  *   fornecer um model separado. A versão síncrona (`lucidAccountStore`) é mantida
  *   por back-compat — capabilities de tabela ficam AUSENTES nela.
  */
+/**
+ * Nome da tabela da conta, para o metadado `accountTable` do store.
+ *
+ * `Model.table` é atribuído no `boot()` do Lucid (naming strategy), então pode
+ * ainda estar vazio quando o store é construído. Nesse caso caímos na MESMA
+ * função que o Lucid usa (`namingStrategy.tableName`), para o metadado não
+ * depender da ordem de inicialização.
+ *
+ * Best-effort de propósito: model exótico ou store próprio sem isso continua
+ * funcionando — o ensure cai no `users` de sempre.
+ */
+/** Fatia do model Lucid que basta para resolver o nome da tabela. */
+interface AccountTableSource {
+  table?: unknown;
+  namingStrategy?: { tableName?: (model: unknown) => unknown };
+}
+
+function resolveAccountTable(Model: AccountTableSource | null | undefined): string | undefined {
+  try {
+    if (typeof Model?.table === 'string' && Model.table.length > 0) {
+      return Model.table;
+    }
+
+    const naming = Model?.namingStrategy;
+    if (naming && typeof naming.tableName === 'function') {
+      const resolved = naming.tableName(Model);
+      if (typeof resolved === 'string' && resolved.length > 0) {
+        return resolved;
+      }
+    }
+  } catch {
+    // Model ainda não pronto (ou não-Lucid) — metadado é opcional.
+  }
+
+  return undefined;
+}
+
 export function lucidAccountStore(
   Model: any,
   options: LucidAccountStoreOptions = {},
@@ -289,7 +339,8 @@ export function lucidAccountStore(
     options.encrypter === false ? undefined : (options.encrypter ?? appKeyEncrypter());
   const ProviderIdentityModel = options.providerIdentityModel;
   const WebauthnCredentialModel = options.webauthnCredentialModel;
-  const OrgModels = options.organizationModels;
+  const OrgModels =
+    options.organizationModels === true ? defaultOrganizationModels : options.organizationModels;
   // RP do WebAuthn: usado nas cerimônias. Default do rpName cai no mfaIssuer.
   const webauthn = options.webauthn ?? {
     rpName: mfaIssuer,
@@ -360,6 +411,10 @@ export function lucidAccountStore(
   const store = {
     ...buildCore(ctx),
     ...buildMfa(ctx),
+    // Metadado (não capacidade): a tabela da conta, para o ensure da coluna
+    // `login_methods` e o doctor saberem onde ela pertence em vez de assumir
+    // `users`. Ver `resolveAccountTable`.
+    accountTable: resolveAccountTable(Model),
     ...(ProviderIdentityModel ? buildProviderIdentity(ctx, ProviderIdentityModel) : {}),
     ...(WebauthnCredentialModel
       ? buildWebauthn(ctx, WebauthnCredentialModel, webauthn, ceremonies)

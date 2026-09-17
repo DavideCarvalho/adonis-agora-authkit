@@ -165,6 +165,7 @@
     "react-dom": "catalog:frontend",
     "react-error-boundary": "catalog:frontend",
     "recharts": "3.10.1",
+    "tempura": "^0.4.1",
     "typescript": "catalog:frontend",
     "vite": "catalog:"
   }

@@ -17,8 +17,15 @@ export interface LucidStoresModels {
   providerIdentity?: any;
   /** Model de `withWebauthnCredential()` — habilita passkeys. */
   webauthnCredential?: any;
-  /** Trio de models de organizations — habilita multi-tenancy. */
-  organizations?: { OrgModel: any; MemberModel: any; InvitationModel: any };
+  /**
+   * Organizations (multi-tenancy) — habilita a `OrganizationsCapability`.
+   *
+   * `true` usa os models default da lib (as três tabelas são lib-owned, criadas
+   * pelo `ensureAuthkitSchema`), que é o caminho recomendado. O trio explícito
+   * fica como escape hatch para quem guarda as tabelas de auth numa
+   * conexão/schema próprios.
+   */
+  organizations?: true | { OrgModel: any; MemberModel: any; InvitationModel: any };
 }
 
 export interface LucidStoresResult {
@@ -42,10 +49,15 @@ export type LucidStoresOptions = Omit<
  * const { accountStore, patStore, audit } = lucidStores(
  *   { account: AuthUser, pat: PersonalAccessToken, audit: AuditLog,
  *     providerIdentity: ProviderIdentity, webauthnCredential: WebauthnCredential,
- *     organizations: { OrgModel: Organization, MemberModel: OrganizationMember, InvitationModel: OrganizationInvitation } },
+ *     organizations: true },
  *   { mfaIssuer: 'educ(a)ção', webauthn }
  * )
  * ```
+ *
+ * `organizations: true` usa os models default da lib. Se as tabelas de auth
+ * vivem numa conexão/schema próprios, passe o trio explícito
+ * (`{ OrgModel, MemberModel, InvitationModel }`) — os defaults não declaram
+ * `static connection`.
  */
 export function lucidStores(
   models: LucidStoresModels,

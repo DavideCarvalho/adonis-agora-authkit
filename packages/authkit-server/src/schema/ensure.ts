@@ -223,6 +223,12 @@ const TABLES: TableDef[] = [
 export interface EnsureSchemaOptions {
   /** Conexão Lucid a usar. Default: conexão primária. */
   connection?: string;
+  /**
+   * Tabela da conta, onde a coluna opcional `login_methods` pertence. Vem do
+   * metadado `accountStore.accountTable` (o provider repassa no boot). Undefined
+   * → `users`, que era o único valor possível antes deste metadado existir.
+   */
+  accountTable?: string;
 }
 
 export interface EnsureSchemaReport {
@@ -230,6 +236,13 @@ export interface EnsureSchemaReport {
   created: string[];
   /** Colunas adicionadas em tabelas já existentes: tabela → colunas. */
   altered: Record<string, string[]>;
+  /**
+   * Desfecho da coluna `login_methods`. `ensured: false` significa que a tabela
+   * da conta não existe no banco, então NADA foi feito — e é o caso que
+   * silenciava o problema: o host precisa saber que a preferência de método de
+   * login não vai funcionar até a tabela existir.
+   */
+  loginMethods: { table: string; ensured: boolean };
 }
 
 /**
@@ -265,7 +278,11 @@ export async function ensureAuthkitSchema(
   options: EnsureSchemaOptions = {},
 ): Promise<EnsureSchemaReport> {
   const conn = options.connection ? db.connection(options.connection) : db.connection();
-  const report: EnsureSchemaReport = { created: [], altered: {} };
+  const report: EnsureSchemaReport = {
+    created: [],
+    altered: {},
+    loginMethods: { table: options.accountTable ?? 'users', ensured: false },
+  };
 
   for (const def of TABLES) {
     if (!(await tableExists(conn, def.name))) {
@@ -290,28 +307,46 @@ export async function ensureAuthkitSchema(
     }
   }
 
-  // Coluna `login_methods` em `auth.users` — a tabela é HOST-owned (não está em
-  // TABLES porque o nome/shape são decisão do app), mas a LI B consome a coluna
-  // (LoginMethodsPreferenceCapability). Alguns deploys de host só migram o schema
-  // do domínio, não o schema `auth` — então a migration manual da coluna pode
-  // nunca rodar, e isso derrubava TODO login/callback OIDC com "column users.login_methods
-  // does not exist" no instante em que o model passou a declará-la.
-  // Aqui garantimos: SE `auth.users` existe E a coluna falta, adicionamos. Nunca
-  // criamos a tabela (host-owned). Aditivo + idempotente — roda em todo boot.
-  try {
-    if (await tableExists(conn, 'users')) {
-      if (!(await columnExists(conn, 'users', 'login_methods'))) {
-        await conn.schema.alterTable('users', (t: TableBuilder) => {
+  // Coluna `login_methods` na tabela da CONTA — a tabela é HOST-owned (não está
+  // em TABLES porque o nome/shape são decisão do app), mas a LIB consome a
+  // coluna (LoginMethodsPreferenceCapability). Alguns deploys de host só migram
+  // o schema do domínio, não o schema de auth — então a migration manual da
+  // coluna pode nunca rodar, e isso derrubava TODO login/callback OIDC com
+  // "column ...login_methods does not exist" no instante em que o model passou a
+  // declará-la.
+  //
+  // Aqui garantimos: SE a tabela da conta existe E a coluna falta, adicionamos.
+  // Nunca criamos a tabela (host-owned). Aditivo + idempotente — roda em todo boot.
+  //
+  // O nome da tabela vem do store (`accountStore.accountTable`), NÃO de um
+  // `users` fixo: com a conta em `auth_users` (o nome que o próprio scaffold da
+  // lib usa), o `users` fixo acertava uma tabela qualquer de mesmo nome e a
+  // coluna ia parar no lugar errado sem erro nenhum.
+  const accountTable = options.accountTable ?? 'users';
+  if (await tableExists(conn, accountTable)) {
+    try {
+      if (!(await columnExists(conn, accountTable, 'login_methods'))) {
+        await conn.schema.alterTable(accountTable, (t: TableBuilder) => {
           t.jsonb('login_methods').nullable();
         });
-        report.altered.users = ['login_methods'];
+        report.altered[accountTable] = ['login_methods'];
       }
-    }
-  } catch (error) {
-    // Tabela host-owned pode não existir num banco que nunca criou users — não
-    // é erro: fail-soft (a migração do host cuida). Nunca criar a tabela aqui.
-    if (!(await tableExists(conn, 'users'))) {
-      throw error; // alguém criou entre o probe e o ALTER — repropaga se sumiu
+      report.loginMethods.ensured = true;
+    } catch (error) {
+      /**
+       * Corrida entre instâncias subindo juntas: se a coluna já existe agora,
+       * outra ganhou o ALTER — segue o jogo. Qualquer outra falha PROPAGA.
+       *
+       * O re-probe tem de ser da COLUNA, não da tabela: checar a tabela fazia um
+       * ALTER que falhou virar `ensured: true`, ou seja, o report dizia sucesso e
+       * o boot não avisava nada — o silêncio que este bloco existe para acabar.
+       * (Mesma semântica do probe de `createTable` logo acima.)
+       */
+      if (await columnExists(conn, accountTable, 'login_methods')) {
+        report.loginMethods.ensured = true;
+      } else {
+        throw error;
+      }
     }
   }
 

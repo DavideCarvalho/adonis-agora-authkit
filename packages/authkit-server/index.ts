@@ -54,6 +54,12 @@ export type {
   LucidAccountStoreOptions,
 } from './src/accounts/lucid_account_store.js';
 export { appKeyEncrypter, lucidAccountStore } from './src/accounts/lucid_account_store.js';
+export {
+  AuthOrganization,
+  AuthOrganizationInvitation,
+  AuthOrganizationMember,
+  defaultOrganizationModels,
+} from './src/accounts/lucid_store/organization_models.js';
 export type {
   LucidStoresModels,
   LucidStoresOptions,
