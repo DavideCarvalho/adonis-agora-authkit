@@ -12,6 +12,30 @@ O `configure` publica `config/authkit_client.ts`, o controller `app/controllers/
 (login/callback/logout) e registra o provider + o middleware `authkit_middleware`.
 
 ## Rotas de sessão
+
+O caminho **recomendado** é `registerOidcClient(router)`: uma chamada que monta
+`/auth/login`, `/auth/callback`, `/auth/logout` e o back-channel logout
+(`POST /auth/backchannel-logout`), já usando `startSession`/`endSession` e o
+RP-initiated logout. Substitui o boilerplate do controller ejetado.
+```ts
+// start/routes.ts
+import { registerOidcClient } from '@adonis-agora/authkit-client'
+
+registerOidcClient(router, {
+  prefix: '/auth',                                  // default
+  loginMiddleware: middleware.guest(),
+  redirects: { byGlobalRole: { ADMIN: '/admin' }, default: '/' },
+  afterLogin: async (ctx, identity) => undefined,   // retornar string redireciona
+  postLogoutRedirect: '/',                          // default: origem do redirectUri + '/'
+  backchannelLogout: true,                           // default
+})
+```
+Opções: `prefix`, `afterLogin`, `redirects`, `postLogoutRedirect`, `backchannelLogout`,
+`loginMiddleware` e `passthroughParams`. `AUTHKIT_REDIRECT_URI` deve apontar para a rota de callback.
+
+### Customização (controller ejetado)
+Se precisar de rotas próprias, o `configure` publica `app/controllers/oidc_session_controller.ts`
+(login/callback/logout) para você adaptar:
 ```ts
 // start/routes.ts
 import OidcSessionController from '#controllers/oidc_session_controller'
@@ -19,7 +43,12 @@ router.get('/auth/login', [OidcSessionController, 'login'])
 router.get('/auth/callback', [OidcSessionController, 'callback'])
 router.post('/auth/logout', [OidcSessionController, 'logout'])
 ```
-`AUTHKIT_REDIRECT_URI` deve apontar para a rota de callback.
+> **Ao editar o controller, use o manager — não escreva a sessão cru.** No callback chame
+> `manager.startSession(ctx, tokenSet)` e no logout `manager.endSession(ctx)`; **nunca**
+> `session.put(sessionKey)` / `session.forget(sessionKey)`. A escrita crua não limpa o
+> `impersonationBinding` nem a credencial de impersonação parqueada — o refresh token do ator
+> continua serializado no cookie da próxima identidade, e o logout deixa a credencial viva.
+> `startSession`/`endSession` são os caminhos que mantêm a invariante.
 
 ## Uso por request
 `ctx.auth` é populado pelo `authkit_middleware`:
