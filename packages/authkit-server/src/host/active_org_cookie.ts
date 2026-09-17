@@ -1,3 +1,4 @@
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import type { ActiveOrgInfo } from '../accounts/account_store.js';
 
 /** Nome do cookie da org ativa. HttpOnly, SameSite=Lax, Secure em prod. */
@@ -30,15 +31,56 @@ export function decodeActiveOrgCookie(value: string | null | undefined): ActiveO
 }
 
 /**
+ * Desfaz o envelope de cookie ASSINADO do AdonisJS: `s:<base64url>.<hmac>`.
+ *
+ * O host grava o cookie via `ctx.response.cookie`, e o AdonisJS assina com o
+ * `MessageVerifier` (`@boringnode/encryption`): HMAC-SHA256 sobre o base64url do
+ * payload, com a chave derivada de `sha256(appKey)`, e `purpose` = NOME do cookie.
+ * O `message` do payload é o valor.
+ *
+ * Verificamos a assinatura — não basta decodificar. Este cookie decide a claim de
+ * organização, então aceitar um valor não assinado deixaria qualquer usuário trocar
+ * de tenant forjando o cookie. Sem `appKey` não há como verificar: devolve null.
+ */
+function unsignAdonisCookie(signedRaw: string, appKey: string, purpose: string): string | null {
+  if (!signedRaw.startsWith('s:')) return null;
+  const [encoded, hash] = signedRaw.slice(2).split('.');
+  if (!encoded || !hash) return null;
+
+  const key = createHash('sha256').update(appKey).digest();
+  const expected = createHmac('sha256', key).update(encoded).digest('base64url');
+  const a = Buffer.from(expected);
+  const b = Buffer.from(hash);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+
+  try {
+    const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+    if (payload?.purpose !== purpose) return null;
+    return typeof payload.message === 'string' ? payload.message : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Parseia um valor de cookie possivelmente URL-encoded.
  *
- * O jar Koa do oidc-provider (`cookies`) devolve o valor COMO ESTÁ no header — sem
- * URL-decode. Como o host grava o cookie via `response.cookie` (que serializa com
- * `encodeURIComponent`, transformando os TABs em `%09`), é preciso tentar decodificar.
- * Tentamos o valor cru primeiro (hosts que gravem sem encode) e o decodificado depois.
+ * Aceita três formas, nesta ordem:
+ * 1. **Assinado pelo Adonis** (`s:<b64>.<hmac>`), quando `appKey` é conhecida —
+ *    verificado com `unsignAdonisCookie`. É a forma real quando o host grava via
+ *    `ctx.response.cookie` num app com assinatura de cookie ligada.
+ * 2. Valor cru (hosts que gravem sem encode e sem assinatura).
+ * 3. Valor cru URL-decoded (o jar Koa devolve como está no header; os TABs viram `%09`).
  */
-function parseActiveOrgCookieValue(raw: unknown): ActiveOrgInfo | null {
-  if (typeof raw !== 'string') return null;
+function parseActiveOrgCookieValue(raw: unknown, appKey?: string): ActiveOrgInfo | null {
+  if (typeof raw !== 'string' || !raw) return null;
+
+  if (raw.startsWith('s:')) {
+    if (!appKey) return null;
+    const unsigned = unsignAdonisCookie(raw, appKey, ACTIVE_ORG_COOKIE);
+    return unsigned ? decodeActiveOrgCookie(unsigned) : null;
+  }
+
   const direct = decodeActiveOrgCookie(raw);
   if (direct) return direct;
   try {
@@ -49,19 +91,26 @@ function parseActiveOrgCookieValue(raw: unknown): ActiveOrgInfo | null {
 }
 
 /**
- * Lê a org ativa de um contexto Koa (oidc-provider). O oidc-provider usa o Keygrip
- * das `cookieKeys` para assinar os cookies — lemos via `ctx.cookies.get(name, { signed: false })`
- * (o oidc-provider não assina cookies da aplicação; apenas verifica os seus). A
- * validação de assinatura para este cookie de aplicação é feita no controller AdonisJS
- * ao gravar (via `ctx.response.cookie` com `signed: true`). Aqui fazemos best-effort:
- * se o valor estiver presente e parseable, usamos; caso contrário retorna null.
+ * Lê a org ativa de um contexto Koa (oidc-provider).
  *
- * NOTA: o oidc-provider ctx.cookies.get() nunca lança — retorna null se ausente.
+ * O cookie NÃO pode ser lido como "cru": num app Adonis com assinatura de cookie
+ * ligada ele chega como `s:<b64>.<hmac>` e precisa ser verificado. Passamos
+ * `appKey` e verificamos a assinatura — sem ela o valor é recusado.
+ *
+ * Por que existe: `loadExistingGrant` roda no authorize (request do browser, com o
+ * cookie) e é quem reconcilia o Grant reaproveitado depois que o usuário troca de
+ * organização. O consent também grava a org, mas ele só roda UMA vez por grant —
+ * sem esta leitura, quem ativa a org depois do primeiro login nunca recebe a claim.
+ *
+ * NOTA: `ctx.cookies.get()` nunca lança — retorna null se ausente.
  */
-export function readActiveOrgFromKoaCtx(koaCtx: any): ActiveOrgInfo | null {
+export function readActiveOrgFromKoaCtx(
+  koaCtx: any,
+  opts?: { appKey?: string },
+): ActiveOrgInfo | null {
   try {
     const raw = koaCtx?.cookies?.get?.(ACTIVE_ORG_COOKIE, { signed: false });
-    return parseActiveOrgCookieValue(raw);
+    return parseActiveOrgCookieValue(raw, opts?.appKey);
   } catch {
     return null;
   }
@@ -93,18 +142,21 @@ export function normalizeActiveOrg(value: unknown): ActiveOrgInfo | null {
  * AdonisJS usado pelas `InteractionActions`).
  *
  * No consent a request É do browser, então o cookie está presente — ao contrário
- * do mint do id_token no `/token` (server-a-servidor, sem cookies). O cookie é
- * gravado UNSIGNED por `account_orgs_controller.activate` e lido aqui via
- * `request.cookie` (o MESMO caminho das leituras do console/account API), com
- * fallback para o caminho Koa caso o contexto recebido seja um ctx Koa.
+ * do mint do id_token no `/token` (server-a-servidor, sem cookies). Aqui o
+ * `request.cookie` do AdonisJS já desassina o cookie (quando o host assina), então
+ * o valor chega em texto; `appKey` cobre o fallback Koa, caso o ctx recebido seja
+ * um ctx Koa e não o HttpContext.
  */
-export function readActiveOrgFromHostCtx(ctx: unknown): ActiveOrgInfo | null {
+export function readActiveOrgFromHostCtx(
+  ctx: unknown,
+  opts?: { appKey?: string },
+): ActiveOrgInfo | null {
   try {
     const raw = (ctx as any)?.request?.cookie?.(ACTIVE_ORG_COOKIE);
-    const parsed = parseActiveOrgCookieValue(raw);
+    const parsed = parseActiveOrgCookieValue(raw, opts?.appKey);
     if (parsed) return parsed;
   } catch {
     // contexto sem `request.cookie` — tenta o caminho Koa abaixo
   }
-  return readActiveOrgFromKoaCtx(ctx);
+  return readActiveOrgFromKoaCtx(ctx, opts);
 }
