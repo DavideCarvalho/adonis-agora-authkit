@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-client
 
+## 0.18.5
+
+### Patch Changes
+
+- [#207](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/207) [`9682830`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/96828307192ad4de7478c84b1e0cae3eefe18d0b) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - O controller ejetado (`stubs/controllers/oidc_session_controller.stub`) escrevia a sessão crua: `ctx.session.put(cfg.sessionKey, tokenSet)` no callback e `ctx.session.forget(sessionKey)` no logout. Isso não limpa o `impersonationBinding` nem a credencial de impersonação parqueada — o refresh token do ator continuava serializado no cookie da próxima identidade, e o logout deixava a credencial viva. O stub agora usa o manager: `manager.startSession(ctx, tokenSet)` no callback e `manager.endSession(ctx)` no logout, mantendo PKCE/state e a troca de code. O README passa a recomendar `registerOidcClient(router)` e documenta o controller apenas como caminho de customização, deixando explícito o requisito de `startSession`/`endSession`. Teste de regressão assere que o stub chama o manager e não contém a escrita crua.
+
 ## 0.18.4
 
 ### Patch Changes
