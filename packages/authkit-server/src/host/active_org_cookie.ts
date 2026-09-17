@@ -70,24 +70,29 @@ function unsignAdonisCookie(signedRaw: string, appKey: string, purpose: string):
  *    verificado com `unsignAdonisCookie`. É a forma real quando o host grava via
  *    `ctx.response.cookie` num app com assinatura de cookie ligada.
  * 2. Valor cru (hosts que gravem sem encode e sem assinatura).
- * 3. Valor cru URL-decoded (o jar Koa devolve como está no header; os TABs viram `%09`).
  */
 function parseActiveOrgCookieValue(raw: unknown, appKey?: string): ActiveOrgInfo | null {
   if (typeof raw !== 'string' || !raw) return null;
 
-  if (raw.startsWith('s:')) {
+  // O jar Koa devolve o valor COMO ESTÁ no header, sem URL-decode — e o browser
+  // reenvia o cookie exatamente como o host o escreveu, isto é `s%3A<b64>.<hmac>`
+  // quando ele é assinado. Normalizar ANTES de decidir o formato é obrigatório:
+  // checar `startsWith('s:')` no valor cru nunca casaria.
+  let value = raw;
+  try {
+    const decoded = decodeURIComponent(raw);
+    if (decoded) value = decoded;
+  } catch {
+    // não era URL-encoded; segue com o cru
+  }
+
+  if (value.startsWith('s:')) {
     if (!appKey) return null;
-    const unsigned = unsignAdonisCookie(raw, appKey, ACTIVE_ORG_COOKIE);
+    const unsigned = unsignAdonisCookie(value, appKey, ACTIVE_ORG_COOKIE);
     return unsigned ? decodeActiveOrgCookie(unsigned) : null;
   }
 
-  const direct = decodeActiveOrgCookie(raw);
-  if (direct) return direct;
-  try {
-    return decodeActiveOrgCookie(decodeURIComponent(raw));
-  } catch {
-    return null;
-  }
+  return decodeActiveOrgCookie(value);
 }
 
 /**

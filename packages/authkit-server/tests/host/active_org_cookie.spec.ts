@@ -32,6 +32,15 @@ test.group('active org cookie (contexto Koa)', () => {
     assert.deepEqual(readActiveOrgFromKoaCtx(koaCtx(signed), { appKey: APP_KEY }), ORG);
   });
 
+  test('cookie assinado URL-encoded (a forma que o browser envia) é lido', ({ assert }) => {
+    // O jar Koa NÃO URL-decoda: o valor chega como está no header, e o browser
+    // reenvia o cookie exatamente como o host o escreveu (`s%3A…`).
+    const signed = signCookie(encoded, ACTIVE_ORG_COOKIE);
+    const asSentByBrowser = encodeURIComponent(signed);
+    assert.include(asSentByBrowser, 's%3A', 'a forma do browser precisa ter o prefixo encodado');
+    assert.deepEqual(readActiveOrgFromKoaCtx(koaCtx(asSentByBrowser), { appKey: APP_KEY }), ORG);
+  });
+
   test('sem appKey um cookie assinado é recusado (não dá para verificar)', ({ assert }) => {
     const signed = signCookie(encoded, ACTIVE_ORG_COOKIE);
     assert.isNull(readActiveOrgFromKoaCtx(koaCtx(signed)));
