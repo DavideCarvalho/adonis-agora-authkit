@@ -1,5 +1,47 @@
 # @adonis-agora/authkit-server
 
+## 0.67.0
+
+### Minor Changes
+
+- [#200](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/200) [`f250d6e`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/f250d6e73aff029854d7815dbb5d2c4be1f484d2) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Garante a coluna `login_methods` na tabela da **conta** em vez de assumir `users`, e faz o boot avisar quando não deu para garantir.
+  
+  O `ensureAuthkitSchema` adicionava a coluna numa tabela de nome fixo `users`. Como o nome da tabela da conta é decisão do host, isso errava nos dois sentidos: com a conta em `auth_users` (o nome que o próprio scaffold da lib usa) e uma tabela `users` qualquer no banco — o starter do AdonisJS cria uma — o `ALTER` acertava a tabela errada e **passava**; sem nenhuma `users`, nada acontecia. Nos dois casos a `LoginMethodsPreferenceCapability` ficava sem a coluna, sem erro e sem aviso.
+  
+  Agora o `lucidAccountStore` expõe `accountTable` (de `Model.table` e, se o model ainda não bootou, da naming strategy — a mesma função que o Lucid usa), o provider repassa em `EnsureSchemaOptions.accountTable`, e o `ensure` usa esse nome. Store próprio que não exponha o metadado continua no `users` de antes, então nada muda para quem já estava certo.
+  
+  O `EnsureSchemaReport` passa a trazer `loginMethods: { table, ensured }`: quando a tabela da conta não existe, o provider loga um warning — antes o sintoma só aparecia longe da causa, como login/callback OIDC quebrado por "column ...login_methods does not exist".
+  
+  Cobertura em `tests/schema/ensure_schema.spec.ts`: o caso da tabela homônima (a coluna vai para `auth_users` e **não** para `users`), o back-compat sem `accountTable`, o `ensured: false` e a derivação do nome pelo store. Reverter só o `ensure.ts` derruba três desses casos.
+  
+  E o `catch` do bloco não mente mais: o re-probe passou a ser da **coluna**, não da tabela. Antes, um `ALTER` que falhasse (permissão, lock, DDL) virava `ensured: true` — o report dizia sucesso com a coluna ausente e o boot não avisava nada, que é exatamente o silêncio que este bloco existe para acabar. Agora só o caso de corrida (a coluna já existe porque outra instância a criou) é engolido; qualquer outra falha propaga para o provider, que já sabe degradar logando warning. Dois testes cobrem os dois lados.
+
+- [#200](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/200) [`f250d6e`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/f250d6e73aff029854d7815dbb5d2c4be1f484d2) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `organizationModels: true` passa a usar models default das tabelas de organizations — sem o host precisar escrever model nenhum.
+  
+  As três tabelas (`auth_organizations`, `auth_organization_members`, `auth_organization_invitations`) são **lib-owned**: quem as cria e evolui é o `ensureAuthkitSchema`. Ainda assim, para ligar a `OrganizationsCapability` cada host tinha que transcrever à mão os models que espelham essas colunas. Isso rendia duas coisas ruins: boilerplate sem nenhuma decisão do host, e drift silencioso — uma coluna nova chega pelo `autoManage` e o model escrito à mão no host não sabe dela, sem erro nenhum. Foi o que aconteceu no próprio fixture de teste deste pacote: ele criava `auth_organization_members` sem `updated_at`, que existe na tabela real.
+  
+  Agora `lucidAccountStore(Model, { organizationModels: true })` usa os models default da lib (exportados como `defaultOrganizationModels`, junto de `AuthOrganization`, `AuthOrganizationMember` e `AuthOrganizationInvitation`). O caminho explícito `{ OrgModel, MemberModel, InvitationModel }` continua valendo como escape hatch — é para quem guarda as tabelas de auth numa conexão/schema próprios, que os defaults não declaram (`static connection`).
+  
+  A mensagem do `authkit:doctor` para o caso "organizations.enabled: true sem capability" passa a apontar o `organizationModels: true` primeiro.
+  
+  Cobertura em `tests/organizations/organizations_store.spec.ts`: `organizationModels: true` liga a capability e roda `createOrg`/`findOrgBySlug`/`getOrgMembership`/`listOrgsForAccount` de ponta a ponta contra as tabelas reais; o escape hatch explícito continua funcionando; e ficou registrado o comportamento de desenho — sem as tabelas, a capability está ligada e o erro é alto no uso (barulhento de propósito: o silêncio era o problema).
+  
+  O mesmo vale no caminho do `lucidStores`, que tem tipo próprio: `organizations: true` também é aceito lá — sem isso o atalho não chegava no wiring "declarado uma vez", que é o recomendado em app maior.
+  
+  A documentação foi atualizada junto (`organizations.mdx`, `account-store.mdx`): o `true` aparece como caminho recomendado, o objeto explícito fica como escape hatch, e a linha do `enabled` deixou de dizer que ele "detecta tabelas" — ele é sinal de intenção para o `authkit:doctor`, e quem monta as rotas é a capability.
+
+### Patch Changes
+
+- [#200](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/200) [`f250d6e`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/f250d6e73aff029854d7815dbb5d2c4be1f484d2) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Conserta o `node ace configure`, que quebrava em **todos** os presets, e o `config/authkit.ts` ejetado pelo preset React, que vinha com a API de identidade antiga.
+  
+  O `configure` gerava os arquivos com `codemods.makeUsingStub`, e o gerador de stubs compila o `.stub` como template delimitado por crase. Qualquer crase **dentro** do stub fecha o template mais cedo e o texto seguinte passa a ser parseado como JavaScript — daí os `SyntaxError` que apareciam com o nome de um identificador qualquer do comentário (`Unexpected identifier 'views'` no stub do React, `Unexpected identifier 'id'` no do model, `Invalid or unexpected token` no da migration). Só `stubs/config/authkit.stub` compilava, e é justamente o único sem crase: era ele que fazia o `--ui=edge` avançar até o stub da migration antes de estourar.
+  
+  Isso derrubava o caminho documentado de instalação (`pnpm add` → `node ace configure --ui=...`) para todo consumidor, que passava a ter que reconstruir os arquivos ejetados à mão a partir de `stubs/`.
+  
+  As crases saíram dos comentários dos três stubs afetados. Junto, o `stubs/config/authkit_react.stub` deixou de declarar `findAccount`/`verifyCredentials`: essas chaves não existem no `AuthServerConfigInput` (que aceita `accountStore`) e a lib as deriva do store — o preset React ejetava um config sem `accountStore`, ou seja, sem verificação de credenciais e sem o resto do store (MFA, capabilities). Agora usa o mesmo `accountStore: lucidAccountStore(AuthUser)` do stub sem preset.
+  
+  A lacuna que deixou isso passar foi de teste: nenhum spec chamava o `makeUsingStub`. O e2e da migration lê o stub direto e remove o frontmatter `{{{ ... }}}`, então o stub nunca era compilado como template. Entra `tests/stubs_compile.spec.ts`, que compila todos os `.stub` do build pelo mesmo mecanismo e falha listando os que quebram — com um caso separado para a crase, que é a causa raiz.
+
 ## 0.66.3
 
 ### Patch Changes
