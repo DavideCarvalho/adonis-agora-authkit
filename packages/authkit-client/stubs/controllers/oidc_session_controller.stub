@@ -29,14 +29,14 @@ export default class OidcSessionController {
       issuer: cfg.issuer, clientId: cfg.clientId, clientSecret: cfg.clientSecret,
       redirectUri: cfg.redirectUri, code, codeVerifier: pkce.verifier,
     })
-    ctx.session.put(cfg.sessionKey, tokenSet)
+    manager.startSession(ctx, tokenSet)
     ctx.session.forget('authkit_pkce')
     return ctx.response.redirect('/')
   }
 
   async logout(ctx: HttpContext) {
     const manager = await ctx.containerResolver.make('authkit.client')
-    ctx.session.forget(manager.clientConfig.sessionKey)
+    manager.endSession(ctx)
     return ctx.response.redirect('/')
   }
 }
