@@ -30,7 +30,9 @@ test.group('checkOrganizations', () => {
     assert.isNull(result);
   });
 
-  test('warn quando enabled=true mas store sem createOrg', ({ assert }) => {
+  test('warn quando enabled=true mas store sem createOrg (não-lucid ou opt-out false)', ({
+    assert,
+  }) => {
     const result = checkOrganizations(
       baseInput({
         authkitConfig: {
@@ -41,10 +43,11 @@ test.group('checkOrganizations', () => {
     );
     assert.isNotNull(result);
     assert.equal(result?.level, 'warn');
-    assert.include(result?.message ?? '', 'organizationModels');
+    // O aviso agora aponta o default + o opt-out, em vez de mandar ligar o model.
+    assert.include(result?.message ?? '', 'organizationModels: false');
   });
 
-  test('ok quando store tem createOrg', ({ assert }) => {
+  test('ok quando store tem createOrg (origem desconhecida — wording genérica)', ({ assert }) => {
     const result = checkOrganizations(
       baseInput({
         authkitConfig: {
@@ -55,5 +58,31 @@ test.group('checkOrganizations', () => {
     );
     assert.equal(result?.level, 'ok');
     assert.include(result?.message ?? '', 'owner, admin, member');
+  });
+
+  test('ok reporta models default da lib quando o store lucid marca a origem', ({ assert }) => {
+    const result = checkOrganizations(
+      baseInput({
+        authkitConfig: {
+          accountStore: { createOrg: () => {}, __organizationModelsSource: 'default' },
+          organizations: { enabled: true, roles: ['owner'] },
+        },
+      }),
+    );
+    assert.equal(result?.level, 'ok');
+    assert.include(result?.message ?? '', 'lib defaults');
+  });
+
+  test('ok reporta trio explícito quando o host forneceu os models', ({ assert }) => {
+    const result = checkOrganizations(
+      baseInput({
+        authkitConfig: {
+          accountStore: { createOrg: () => {}, __organizationModelsSource: 'explicit' },
+          organizations: { enabled: true, roles: ['owner'] },
+        },
+      }),
+    );
+    assert.equal(result?.level, 'ok');
+    assert.include(result?.message ?? '', 'host-provided explicit trio');
   });
 });

@@ -110,7 +110,7 @@ guard to feature; each capability is detailed underneath.
 | `supportsEmailVerificationStatus` | `EmailVerificationStatusCapability` | `isEmailVerified` | The `login.requireVerifiedEmail` gate | needs an `email_verified_at` column |
 | `supportsAccountDeletion` | `AccountDeletionCapability` | `deleteAccount` | The account **danger zone**, `DELETE /users/:id`, and the LGPD/GDPR cascade | always |
 | `supportsAccountImport` | `AccountImportCapability` | `importAccount` | The `authkit:users:import` command | always |
-| `supportsOrganizations` | `OrganizationsCapability` | `createOrg` | Multi-tenancy: orgs, members, invitations, org claims | needs `organizationModels` (`true` uses the built-in models) |
+| `supportsOrganizations` | `OrganizationsCapability` | `createOrg` | Multi-tenancy: orgs, members, invitations, org claims | on by default (built-in models); `organizationModels: false` opts out |
 
 <Callout type="info">
   "always" means the Lucid store mounts the capability for **any** model composed from the
@@ -498,7 +498,7 @@ returned object — which is precisely what makes the `supports*` guards tell th
 | --- | --- |
 | `WebauthnCapability` | you pass `webauthnCredentialModel` |
 | `ProviderIdentityCapability` | you pass `providerIdentityModel` |
-| `OrganizationsCapability` | you pass `organizationModels: true` (built-in models) or all three models explicitly |
+| `OrganizationsCapability` | by default (built-in models); `organizationModels: false` opts out; the three models explicitly for a custom connection/schema |
 | `AccountStatusCapability` | the model has a `disabled_at` column |
 | `ProfileCapability` | the model has `full_name` and/or `avatar_url` |
 | `EmailVerificationStatusCapability` | the model has an `email_verified_at` column |

@@ -20,12 +20,13 @@ export interface LucidStoresModels {
   /**
    * Organizations (multi-tenancy) — habilita a `OrganizationsCapability`.
    *
-   * `true` usa os models default da lib (as três tabelas são lib-owned, criadas
-   * pelo `ensureAuthkitSchema`), que é o caminho recomendado. O trio explícito
-   * fica como escape hatch para quem guarda as tabelas de auth numa
+   * **Ausente → ligada por padrão** (models default da lib; as três tabelas são
+   * lib-owned, criadas pelo `ensureAuthkitSchema`). `true` é o atalho explícito
+   * para o mesmo caminho; `false` é o opt-out (capability ausente). O trio
+   * explícito fica como escape hatch para quem guarda as tabelas de auth numa
    * conexão/schema próprios.
    */
-  organizations?: true | { OrgModel: any; MemberModel: any; InvitationModel: any };
+  organizations?: true | false | { OrgModel: any; MemberModel: any; InvitationModel: any };
 }
 
 export interface LucidStoresResult {
@@ -54,10 +55,10 @@ export type LucidStoresOptions = Omit<
  * )
  * ```
  *
- * `organizations: true` usa os models default da lib. Se as tabelas de auth
- * vivem numa conexão/schema próprios, passe o trio explícito
- * (`{ OrgModel, MemberModel, InvitationModel }`) — os defaults não declaram
- * `static connection`.
+ * Organizations é ligada por padrão (models default da lib); `organizations:
+ * false` desliga. Se as tabelas de auth vivem numa conexão/schema próprios, passe
+ * o trio explícito (`{ OrgModel, MemberModel, InvitationModel }`) — os defaults
+ * não declaram `static connection`.
  */
 export function lucidStores(
   models: LucidStoresModels,
