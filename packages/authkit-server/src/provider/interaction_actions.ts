@@ -7,6 +7,12 @@ import {
 
 export interface InteractionDeps {
   verifyCredentials?: (email: string, password: string) => Promise<{ id: string } | null>;
+  /**
+   * Chave do app, usada para VERIFICAR o cookie de org ativa quando o ctx recebido
+   * é um Koa ctx (o caminho Adonis já desassina sozinho). Sem ela, um cookie
+   * assinado é recusado — e a org não entra no Grant.
+   */
+  appKey?: string;
 }
 
 /** Detalhes opcionais de login (step-up auth): acr alcançado + amr (métodos). */
@@ -102,7 +108,7 @@ export function createInteractionActions(provider: any, deps: InteractionDeps): 
       // disponível AQUI — ao contrário do mint do id_token no /token, que é
       // server-a-servidor e não carrega os cookies do usuário. Persistimos a org
       // no Grant para que o fluxo authorization code volte a emitir org_*.
-      const activeOrg = readActiveOrgFromHostCtx(ctx);
+      const activeOrg = readActiveOrgFromHostCtx(ctx, { appKey: deps.appKey });
       const grant = new provider.Grant({
         accountId: details.session.accountId,
         clientId: details.params.client_id,

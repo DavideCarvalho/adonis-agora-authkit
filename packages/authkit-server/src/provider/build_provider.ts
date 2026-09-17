@@ -189,7 +189,13 @@ export function buildProvider(
       if (!grantId) return undefined;
       const grant = await ctx.oidc.provider.Grant.find(grantId);
       if (!grant) return undefined;
-      const activeOrg = readActiveOrgFromKoaCtx(ctx);
+      // `appKey` é obrigatória aqui: o host grava o cookie de org via
+      // `ctx.response.cookie` e o Adonis o ASSINA (`s:<b64>.<hmac>`). Sem a chave
+      // não há como verificar a assinatura e o valor é recusado — foi assim que a
+      // org deixou de chegar ao token quando o usuário ativava a org DEPOIS do
+      // primeiro login (o consent só roda uma vez por grant; quem reconcilia é
+      // este hook, e ele roda no ctx Koa).
+      const activeOrg = readActiveOrgFromKoaCtx(ctx, { appKey: options.appKey });
       const current = normalizeActiveOrg(grant.activeOrg);
       const changed =
         (activeOrg?.orgId ?? null) !== (current?.orgId ?? null) ||

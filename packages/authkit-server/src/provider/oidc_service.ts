@@ -229,6 +229,7 @@ export class OidcService {
 
     const interactions = createInteractionActions(provider, {
       verifyCredentials: config.verifyCredentials,
+      appKey: this.#appKey,
     });
 
     // Atribuição atômica no final: um throw antes deste ponto não corrompe o estado.
