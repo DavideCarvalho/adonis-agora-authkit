@@ -2,49 +2,72 @@ import { test } from '@japa/runner';
 import { registerOidcClient } from '../src/register_oidc_client.js';
 
 /**
- * O Adonis encaminha a query string da request atual no `redirect` por padrão
- * (`redirect.forwardQueryString`). O client sempre monta o destino, então todo
- * redirect dele precisa passar `false` — sem isso o `code`/`state`/`iss` do
- * callback vazam para a URL do app (`/?code=…`) e o `/auth/login` de um callback
- * falho arrasta o code antigo para o authorize seguinte.
+ * Nenhum redirect do client deve encaminhar a query da request atual: os destinos
+ * são URLs que a própria lib monta, e encaminhar arrasta o `code`/`state`/`iss` do
+ * callback para o app (que termina em `/?code=…`).
  *
- * Aqui os handlers são capturados por um router falso e chamados direto, e cada
- * redirect é registrado com o segundo argumento (`forwardQueryString`).
+ * O opt-out tem que ser o builder `withQs(false)`. O segundo argumento posicional
+ * de `redirect(path, forwardQueryString)` NÃO basta: quando o app liga
+ * `redirect.forwardQueryString: true` no config/app.ts — o caso comum — o
+ * positional é ignorado e o Redirect herda a config global. Por isso o `response`
+ * falso aqui só considera o encaminhamento desligado se `withQs(false)` for
+ * chamado; a forma posicional cai no default do config (encaminha) e o teste falha.
  */
 
-type Recorded = { pattern: string; handler: (ctx: any) => Promise<unknown> };
+type Redirect = { url: string; forward: boolean };
+
+function fakeResponse(redirects: Redirect[]) {
+  return {
+    redirect(path?: string, _forward?: boolean) {
+      // Forma posicional: em produção com `redirect.forwardQueryString: true`
+      // (o caso comum, em config/app.ts) o argumento é IGNORADO e o Redirect
+      // herda a config global — ou seja, encaminha. O fake modela isso de
+      // propósito: só `withQs(false)` conta como opt-out.
+      if (typeof path === 'string') {
+        redirects.push({ url: path, forward: true });
+        return undefined as any;
+      }
+      const builder = {
+        _url: '',
+        _forward: true,
+        withQs(value: boolean) {
+          builder._forward = value;
+          return builder;
+        },
+        status() {
+          return builder;
+        },
+        toPath(url: string) {
+          redirects.push({ url, forward: builder._forward });
+          return undefined as any;
+        },
+        back() {
+          redirects.push({ url: 'back', forward: builder._forward });
+          return undefined as any;
+        },
+      };
+      return builder;
+    },
+  };
+}
 
 function fakeRouter() {
-  const routes: Recorded[] = [];
-  const make = (method: string) => (pattern: string, handler: (ctx: any) => Promise<unknown>) => {
-    const recorded: Recorded = { pattern, handler };
-    routes.push(recorded);
-    const chain = {
-      use: () => chain,
-      as: () => chain,
-      _method: method,
-    };
+  const routes: { pattern: string; handler: (ctx: any) => Promise<unknown> }[] = [];
+  const make = (pattern: string, handler: (ctx: any) => Promise<unknown>) => {
+    const chain = { use: () => chain, as: () => chain };
+    routes.push({ pattern, handler });
     return chain;
   };
-  return {
-    routes,
-    get: make('GET'),
-    post: make('POST'),
-  } as any;
+  return { routes, get: make, post: make } as any;
 }
 
 function fakeCtx(overrides: { manager?: any; qs?: Record<string, string>; session?: any }) {
-  const redirects: { url: string; forward: boolean | undefined }[] = [];
+  const redirects: Redirect[] = [];
   const ctx = {
     containerResolver: { make: async () => overrides.manager },
     request: { qs: () => overrides.qs ?? {}, input: () => undefined },
     session: overrides.session,
-    response: {
-      redirect: (url: string, forward?: boolean) => {
-        redirects.push({ url, forward });
-        return undefined;
-      },
-    },
+    response: fakeResponse(redirects),
   } as any;
   return { ctx, redirects };
 }
@@ -61,23 +84,25 @@ const manager = () => ({
 });
 
 test.group('registerOidcClient: redirect não encaminha a query da request', () => {
-  test('login → authorize sem forward da query', async ({ assert }) => {
+  test('login → authorize sem encaminhar a query', async ({ assert }) => {
     const router = fakeRouter();
     registerOidcClient(router);
-    const login = router.routes.find((r: Recorded) => r.pattern === '/auth/login')!;
+    const login = router.routes.find((r: { pattern: string }) => r.pattern === '/auth/login')!;
 
     const { ctx, redirects } = fakeCtx({ manager: manager(), session: { put: () => undefined } });
     await login.handler(ctx);
 
     assert.lengthOf(redirects, 1);
-    assert.strictEqual(redirects[0].forward, false, 'login encaminhou a query da request');
+    assert.isFalse(redirects[0].forward, 'login encaminhou a query da request');
     assert.include(redirects[0].url, '/oidc/auth?');
   });
 
-  test('callback sem PKCE → /auth/login sem forward (o code não vaza)', async ({ assert }) => {
+  test('callback sem PKCE → /auth/login sem encaminhar (o code não vaza)', async ({ assert }) => {
     const router = fakeRouter();
     registerOidcClient(router);
-    const callback = router.routes.find((r: Recorded) => r.pattern === '/auth/callback')!;
+    const callback = router.routes.find(
+      (r: { pattern: string }) => r.pattern === '/auth/callback',
+    )!;
 
     const { ctx, redirects } = fakeCtx({
       manager: manager(),
@@ -88,10 +113,10 @@ test.group('registerOidcClient: redirect não encaminha a query da request', () 
 
     assert.lengthOf(redirects, 1);
     assert.strictEqual(redirects[0].url, '/auth/login');
-    assert.strictEqual(redirects[0].forward, false, 'callback falho encaminhou a query');
+    assert.isFalse(redirects[0].forward, 'callback falho encaminhou a query');
   });
 
-  test('callback com sucesso → destino do app sem forward', async ({ assert }) => {
+  test('callback com sucesso → destino do app sem encaminhar', async ({ assert }) => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async () =>
       new Response(
@@ -107,7 +132,9 @@ test.group('registerOidcClient: redirect não encaminha a query da request', () 
     try {
       const router = fakeRouter();
       registerOidcClient(router);
-      const callback = router.routes.find((r: Recorded) => r.pattern === '/auth/callback')!;
+      const callback = router.routes.find(
+        (r: { pattern: string }) => r.pattern === '/auth/callback',
+      )!;
 
       const { ctx, redirects } = fakeCtx({
         manager: manager(),
@@ -121,9 +148,24 @@ test.group('registerOidcClient: redirect não encaminha a query da request', () 
 
       assert.lengthOf(redirects, 1);
       assert.strictEqual(redirects[0].url, '/');
-      assert.strictEqual(redirects[0].forward, false, 'pós-login encaminhou a query do callback');
+      assert.isFalse(redirects[0].forward, 'pós-login encaminhou a query do callback');
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  test('logout → end-session sem encaminhar a query', async ({ assert }) => {
+    const router = fakeRouter();
+    registerOidcClient(router);
+    const logout = router.routes.find((r: { pattern: string }) => r.pattern === '/auth/logout')!;
+
+    const { ctx, redirects } = fakeCtx({
+      manager: { ...manager(), getIdToken: () => 'id-token', endSession: () => undefined },
+    });
+    await logout.handler(ctx);
+
+    assert.lengthOf(redirects, 1);
+    assert.include(redirects[0].url, '/oidc/');
+    assert.isFalse(redirects[0].forward, 'logout encaminhou a query');
   });
 });
