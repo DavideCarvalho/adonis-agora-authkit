@@ -20,14 +20,17 @@
           @if(org.isActive)
             <span>{{ t('account.orgs.active_badge') }}</span>
             <form method="POST" action="{{ accountPaths?.orgs ?? '/account/orgs' }}/deactivate">
+              <input type="hidden" name="_csrf" value="{{ csrfToken }}">
               <button>{{ t('account.orgs.deactivate') }}</button>
             </form>
           @else
             <form method="POST" action="{{ accountPaths?.orgs ?? '/account/orgs' }}/{{ org.id }}/activate">
+              <input type="hidden" name="_csrf" value="{{ csrfToken }}">
               <button>{{ t('account.orgs.activate') }}</button>
             </form>
           @end
           <form method="POST" action="{{ accountPaths?.orgs ?? '/account/orgs' }}/{{ org.id }}/leave">
+            <input type="hidden" name="_csrf" value="{{ csrfToken }}">
             <button>{{ t('account.orgs.leave') }}</button>
           </form>
         </div>
@@ -40,6 +43,7 @@
         <div>
           {{ t('account.orgs.invitation_from', { orgName: inv.orgName, role: inv.role }) }}
           <form method="POST" action="{{ accountPaths?.orgs ?? '/account/orgs' }}/invitations/{{ inv.id }}/accept">
+            <input type="hidden" name="_csrf" value="{{ csrfToken }}">
             <button>{{ t('account.orgs.invitation_accept') }}</button>
           </form>
         </div>
@@ -49,6 +53,7 @@
     @if(allowSelfCreate)
       <h2>{{ t('account.orgs.create_section') }}</h2>
       <form method="POST" action="{{ accountPaths?.orgs ?? '/account/orgs' }}">
+        <input type="hidden" name="_csrf" value="{{ csrfToken }}">
         <input name="name" placeholder="{{ t('account.orgs.create_name_label') }}">
         <input name="slug" placeholder="{{ t('account.orgs.create_slug_label') }}">
         <button>{{ t('account.orgs.create_submit') }}</button>

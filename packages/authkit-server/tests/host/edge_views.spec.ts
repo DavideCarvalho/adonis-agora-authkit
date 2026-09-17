@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { test } from '@japa/runner';
 import { Edge } from 'edge.js';
@@ -126,17 +126,21 @@ test.group('edge views (lib-owned)', () => {
     assert.include(read('account/tokens.edge'), '/account/security');
   });
 
+  // Varredura, não lista à mão: a lista hardcoded deixava passar toda view nova
+  // que ninguém lembrasse de acrescentar — foi assim que `account/orgs.edge`
+  // ficou sem `_csrf` em TODOS os formulários (ativar/trocar de org quebrava com
+  // CSRF ligado, em silêncio). Qualquer view com form POST entra sozinha.
   test('campos CSRF presentes em todos os formulários POST', ({ assert }) => {
-    for (const v of [
-      'login.edge',
-      'consent.edge',
-      'signup.edge',
-      'forgot.edge',
-      'reset.edge',
-      'account/login.edge',
-      'account/tokens.edge',
-    ]) {
-      assert.include(read(v), 'name="_csrf"', `${v} está sem campo _csrf`);
+    const views = readdirSync(dir, { recursive: true, encoding: 'utf8' })
+      .map((p) => p.replaceAll('\\', '/'))
+      .filter((p) => p.endsWith('.edge'));
+    assert.isAbove(views.length, 6, 'a varredura não encontrou as views da lib');
+
+    const withPostForm = views.filter((p) => /<form[^>]*method=["']?post/i.test(read(p)));
+    assert.isAbove(withPostForm.length, 5, 'nenhuma view com form POST encontrada');
+
+    for (const v of withPostForm) {
+      assert.include(read(v), 'name="_csrf"', `${v} tem formulário POST sem campo _csrf`);
     }
   });
 
