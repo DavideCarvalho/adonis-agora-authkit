@@ -14,6 +14,7 @@ import {
   checkClientRegistration,
   classifyRedirect,
   RegistrationPolicyError,
+  registrationOperation,
   resolveRedirectUriPolicy,
 } from '../src/provider/registration_policy.js';
 import { fakeAccountStore } from './bootstrap.js';
@@ -146,6 +147,53 @@ test.group('registration policy — funções puras', () => {
     assert.isNull(
       resolveDynamicRegistration({ enabled: true, redirectUriPolicy: false }).redirectUriPolicy,
     );
+  });
+});
+
+test.group('registration policy — casamento de path igual ao router do provider', () => {
+  test('case-insensitive e com barra final, como o router do oidc-provider', ({ assert }) => {
+    assert.equal(registrationOperation('POST', '/reg', '/REG'), 'create');
+    assert.equal(registrationOperation('POST', '/REG', '/REG'), 'create');
+    assert.equal(registrationOperation('POST', '/Reg/', '/REG'), 'create');
+    assert.equal(registrationOperation('PUT', '/rEg/abc', '/REG'), 'update');
+    assert.isNull(registrationOperation('POST', '/registration', '/REG'));
+    assert.isNull(registrationOperation('GET', '/reg', '/REG'));
+  });
+
+  test('POST /REG e /reg/ não contornam a política', async ({ assert, cleanup }) => {
+    const { issuer, server } = await startService(9908, { enabled: true });
+    cleanup(() => new Promise<void>((r) => server.close(() => r())));
+
+    for (const path of ['/REG', '/Reg', '/reg/', '/REG/']) {
+      const res = await fetch(`${issuer}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(publicClient(['https://evil.example/cb'])),
+      });
+      assert.equal(res.status, 400, path);
+      assert.equal(((await res.json()) as any).error, 'invalid_redirect_uri', path);
+    }
+  });
+
+  test('PUT /REG/:id (RFC 7592) não contorna a política', async ({ assert, cleanup }) => {
+    const { issuer, server } = await startService(9909, { enabled: true, management: true });
+    cleanup(() => new Promise<void>((r) => server.close(() => r())));
+
+    const created = await register(issuer, publicClient(['http://127.0.0.1/cb']));
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const res = await fetch(`${issuer}/REG/${created.body.client_id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${created.body.registration_access_token}`,
+      },
+      body: JSON.stringify({
+        ...publicClient(['https://evil.example/cb']),
+        client_id: created.body.client_id,
+      }),
+    });
+    assert.equal(res.status, 400);
+    assert.equal(((await res.json()) as any).error, 'invalid_redirect_uri');
   });
 });
 

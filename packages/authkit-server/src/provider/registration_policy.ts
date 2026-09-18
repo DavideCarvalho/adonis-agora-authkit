@@ -230,6 +230,50 @@ async function readJsonBody(ctx: any): Promise<Record<string, unknown> | undefin
 }
 
 /**
+ * Case-folding IDÊNTICO ao do router do oidc-provider (`lib/helpers/router.js`,
+ * `fold`): o router casa rotas sem diferenciar maiúsculas. Comparar o path cru
+ * deixaria `POST /REG` chegar ao handler de registro sem passar pela política.
+ */
+function foldPath(value: string): string {
+  for (let i = 0; i < value.length; i += 1) {
+    if (value.charCodeAt(i) > 127) {
+      let out = '';
+      for (const char of value) {
+        const upper = char.toUpperCase();
+        out +=
+          upper.length === 1 &&
+          !((char.codePointAt(0) ?? 0) > 127 && (upper.codePointAt(0) ?? 0) < 128)
+            ? upper
+            : char;
+      }
+      return out;
+    }
+  }
+  return value.toUpperCase();
+}
+
+/**
+ * Qual operação de registro o request atinge, com a MESMA regra de casamento do
+ * router do provider: case-insensitive e, se o path exato não casar, uma nova
+ * tentativa sem UMA barra final (`/reg/` ≡ `/reg`). `null` = não é registro.
+ */
+export function registrationOperation(
+  method: string,
+  path: string,
+  foldedBase: string,
+): RegistrationOperation | null {
+  const folded = foldPath(path);
+  if (method === 'POST') {
+    const trimmed = folded.length > 1 && folded.endsWith('/') ? folded.slice(0, -1) : folded;
+    return folded === foldedBase || trimmed === foldedBase ? 'create' : null;
+  }
+  // `PUT <base>/:clientId` (RFC 7592). Mais largo que o router de propósito:
+  // tudo sob `<base>/` passa pela política.
+  if (method === 'PUT' && folded.startsWith(`${foldedBase}/`)) return 'update';
+  return null;
+}
+
+/**
  * Middleware Koa (para `provider.use`) que aplica a política no registro
  * dinâmico. `registrationPath` é o path da rota DENTRO do provider (default
  * `/reg`; sob koa-mount o prefixo do issuer já foi removido).
@@ -239,14 +283,9 @@ export function registrationPolicyMiddleware(options: {
   validate?: ValidateRegistrationHook;
   registrationPath?: string;
 }) {
-  const base = options.registrationPath ?? '/reg';
+  const base = foldPath(options.registrationPath ?? '/reg');
   return async (ctx: any, next: () => Promise<void>) => {
-    const operation: RegistrationOperation | null =
-      ctx.method === 'POST' && ctx.path === base
-        ? 'create'
-        : ctx.method === 'PUT' && ctx.path.startsWith(`${base}/`)
-          ? 'update'
-          : null;
+    const operation = registrationOperation(ctx.method, ctx.path, base);
     if (!operation || !ctx.is('application/json')) return next();
 
     const metadata = await readJsonBody(ctx);
