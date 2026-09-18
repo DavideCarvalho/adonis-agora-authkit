@@ -27,6 +27,7 @@ import {
   wasAuthHostAutoMounted,
 } from './auth_host_config.js';
 import type { PolicyRouteOption } from './config_locks.js';
+import { ensureConsoleSession } from './idp_session_bridge.js';
 import { createAuthThrottles } from './rate_limit.js';
 import { resolveRuntimeSettings } from './runtime_settings.js';
 import { resolveEffectiveSessionPolicy } from './runtime_toggles.js';
@@ -142,7 +143,8 @@ function buildLoginRedirect(ctx: any, extra?: string): string {
  * /account/mfa acessíveis sem sessão.
  */
 const accountGuard = async (ctx: any, next: () => Promise<void>) => {
-  if (!ctx.session?.get(ACCOUNT_SESSION_KEY)) {
+  // Sessão do console — ou, com `accountSession.acceptIdpSession`, a do IdP (SSO).
+  if (!(await ensureConsoleSession(ctx))) {
     return ctx.response.redirect(buildLoginRedirect(ctx));
   }
   // Idle timeout: encerra e redireciona com query param de motivo.
@@ -173,6 +175,8 @@ export const adminGuard = async (ctx: any, next: () => Promise<void>) => {
   if (!cfg.admin.enabled) {
     return ctx.response.notFound();
   }
+  // Com `accountSession.acceptIdpSession`, a sessão do IdP também abre o console.
+  await ensureConsoleSession(ctx);
   const accountId = ctx.session?.get(ACCOUNT_SESSION_KEY) as string | undefined;
   if (!accountId) {
     // `/account/login` é sempre o login da conta — NÃO muda com o prefixo admin.

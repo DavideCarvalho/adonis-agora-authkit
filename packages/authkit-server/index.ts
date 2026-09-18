@@ -269,6 +269,7 @@ export {
   resolveMessages,
   translate,
 } from './src/host/i18n.js';
+export { ensureConsoleSession } from './src/host/idp_session_bridge.js';
 export type { ImpersonationClientLike, ImpersonationPanel } from './src/host/impersonation.js';
 export { buildImpersonationPanel } from './src/host/impersonation.js';
 export type {

@@ -60,6 +60,7 @@ description: The full defineConfig option tables for server and client.
 | `schema` | `{ autoManage?: boolean; connection?: string }` | `{ autoManage: true }` | Auto-creation of the eight tables AuthKit owns. `autoManage: false` hands you the job — call `ensureAuthkitSchema(db)` from a migration. See [Runtime Settings — Schema](/docs/settings). |
 | `accountLifecycle` | `{ durable?: boolean }` | `{ durable: false }` | `durable: true` enqueues account deletion and export as durable workflows instead of running the cascade in-process. See [Compliance — Durable workflows](/docs/compliance#durable-account-lifecycle-workflows). |
 | `adonisAuth` | `{ guard: string }` | absent | Opt-in `@adonisjs/auth` integration: the account console's login/logout also drive `ctx.auth.use(guard)`, so `middleware.auth()`, `ctx.auth.user` and the Bouncer work natively. Pair with `authkitUserProvider` in `config/auth.ts`. See [AdonisJS Auth integration](/docs/adonis-auth). |
+| `accountSession` | `{ acceptIdpSession?: boolean }` | `{ acceptIdpSession: false }` | SSO: the account console accepts the active IdP session instead of asking for a second login. See [Console session](/docs/console-session#single-sign-on-with-the-idp-session). |
 
 <Callout type="warn">
   Ten of the options above are **policy**, and declaring one in `defineConfig` locks the

@@ -37,6 +37,44 @@ router
 
 After login, `return_to` sends the user back to `/reports`.
 
+## Single sign-on with the IdP session
+
+The console session and the **IdP session** are different things. The IdP session is the
+one `oidc-provider` creates when the user completes the login interaction of `/oidc/auth`
+(password, magic link, OTP, passkey, social) — it is what gives SSO across your OIDC
+clients. The console session is only created by the console's own login
+(`POST /account/login`). So a user who just signed in to an OIDC app — including the host
+itself, when it is both IdP and relying party — is asked to sign in **again** on
+`/account/*`.
+
+Opt in to let the console accept the active IdP session:
+
+```ts title="config/authkit.ts"
+defineConfig({
+  // ...
+  accountSession: { acceptIdpSession: true },
+})
+```
+
+With it, the `/account/*` and admin guards (and `AccountAuthMiddleware`) open the console
+for the account of a valid IdP session (signed `_session` cookie, unexpired, account exists
+and is enabled). The console session opened this way is **tied** to that IdP session: when
+it ends (OIDC logout, expiry, a different account signing in) the console ends on the next
+request, and the console's "Sign out" also ends the IdP session. Sensitive operations still
+require [sudo mode](#sudo-mode-step-up-authentication). The default (`false`) keeps the
+console on its own session only.
+
+`hasAccountSession`/`getAccountId` only *read* the console session. In your own guards,
+`await ensureConsoleSession(ctx)` first to honour the SSO bridge:
+
+```ts
+import { ensureConsoleSession, consoleLoginUrl } from '@adonis-agora/authkit-server'
+
+router.get('/reports', [ReportsController]).use(async (ctx, next) =>
+  (await ensureConsoleSession(ctx)) ? next() : ctx.response.redirect(consoleLoginUrl('/reports')),
+)
+```
+
 ## Recipe: protecting adonis-telescope
 
 [`@dudousxd/adonis-telescope`](https://davidecarvalho.github.io/adonis-telescope/)

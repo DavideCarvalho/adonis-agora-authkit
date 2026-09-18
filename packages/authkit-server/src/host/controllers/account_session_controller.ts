@@ -6,6 +6,7 @@ import type { AccountLoginProps } from '../account_screen_props.js';
 import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { syncAdonisAuthLogin, syncAdonisAuthLogout } from '../adonis_auth_sync.js';
 import { translate } from '../i18n.js';
+import { endBridgedIdpSession } from '../idp_session_bridge.js';
 import { attemptPasswordLogin } from '../login_attempt.js';
 import { notifyLoginSuccess } from '../login_notify.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
@@ -145,6 +146,9 @@ export default class AccountSessionController {
     // timestamp, sem dono. Passou a ser vinculada — por isso este `forget`
     // continua sendo só do `ACCOUNT_SESSION_KEY`: trocada a conta, a marca de
     // sudo remanescente já não vale para ninguém.
+    // Console aberto pela sessão do IdP (SSO): encerra também essa sessão, senão
+    // o próximo request reabriria o console pela ponte e o "Sair" não valeria.
+    await endBridgedIdpSession(ctx);
     ctx.session.forget(ACCOUNT_SESSION_KEY);
     await ctx.session.regenerate();
     // Opt-in: espelha o logout no guard de @adonisjs/auth (ver adonisAuth em define_config.ts).

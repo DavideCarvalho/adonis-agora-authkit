@@ -10,6 +10,7 @@ import {
   encodeActiveOrgCookie,
 } from '../active_org_cookie.js';
 import { sendOrgInvitationEmail } from '../default_mailer.js';
+import { ensureConsoleSession } from '../idp_session_bridge.js';
 import { authkitOrigin } from '../origin.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import {
@@ -306,6 +307,8 @@ export default class AccountOrgsController {
 
     if (!supportsOrganizations(store)) return response.notFound();
 
+    // Rota fora do guard: a sessão do IdP (SSO) também vale, se configurado.
+    await ensureConsoleSession(ctx);
     const accountId = session.get(ACCOUNT_SESSION_KEY) as string | undefined;
     if (!accountId) {
       // Não logado: redireciona para login (configurável) com return URL
@@ -342,6 +345,8 @@ export default class AccountOrgsController {
 
     if (!supportsOrganizations(store)) return response.notFound();
 
+    // Rota fora do guard: a sessão do IdP (SSO) também vale, se configurado.
+    await ensureConsoleSession(ctx);
     const accountId = session.get(ACCOUNT_SESSION_KEY) as string | undefined;
     if (!accountId) return response.redirect(getAccountLoginUrl());
 

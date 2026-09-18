@@ -1385,6 +1385,20 @@ export interface AuthServerConfigInput {
    * existe no ctx (host com `@adonisjs/auth` de fato inicializado).
    */
   adonisAuth?: { guard: string };
+  /**
+   * Sessão do console de conta (`/account/*`, e o `/admin/*`).
+   *
+   * `acceptIdpSession: true` — SSO: o console aceita a sessão ATIVA do IdP (o
+   * login feito na interaction OIDC — senha, magic link, OTP, passkey, social)
+   * em vez de pedir um segundo login. A sessão de console aberta assim fica
+   * amarrada à sessão do IdP: termina quando ela termina (logout OIDC,
+   * expiração), e o "Sair" do console encerra também a sessão do IdP. Contas
+   * desabilitadas não entram. Operações sensíveis continuam pedindo sudo.
+   *
+   * Default `false`: o console só aceita a própria sessão (`POST /account/login`),
+   * como sempre.
+   */
+  accountSession?: { acceptIdpSession?: boolean };
 }
 
 export interface ResolvedServerConfig {
@@ -1517,6 +1531,8 @@ export interface ResolvedServerConfig {
   lockedRouteOptions: PolicyRouteOption[];
   /** Integração opt-in com `@adonisjs/auth` (ausente = não integrado; comportamento de sempre). */
   adonisAuth?: { guard: string };
+  /** Sessão do console. Ver {@link AuthServerConfigInput.accountSession}. */
+  accountSession: { acceptIdpSession: boolean };
 }
 
 const UNITS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
@@ -1758,6 +1774,7 @@ export function defineConfig(config: AuthServerConfigInput) {
       lockedRouteOptions: deriveLockedRouteOptions(config as Record<string, any>),
       // Opt-in: ausente = authkit nunca toca `ctx.auth` (comportamento de sempre).
       adonisAuth: config.adonisAuth,
+      accountSession: { acceptIdpSession: config.accountSession?.acceptIdpSession === true },
     };
   });
 }
