@@ -12,7 +12,35 @@ import {
 import { sendOrgInvitationEmail } from '../default_mailer.js';
 import { authkitOrigin } from '../origin.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
-import { isRoleInCatalog } from '../runtime_toggles.js';
+import {
+  isRoleInCatalog,
+  type OrganizationsPolicyConfigDefaults,
+  type ResolvedOrganizationsPolicySetting,
+  resolveEffectiveOrganizationsPolicy,
+} from '../runtime_toggles.js';
+
+/** Defaults estáticos da política de org (config do host) — o fallback da setting. */
+function orgPolicyDefaults(cfg: any): OrganizationsPolicyConfigDefaults {
+  return {
+    roles: cfg.organizations.roles,
+    allowSelfCreate: cfg.organizations.allowSelfCreate,
+    invitationTtlHours: cfg.organizations.invitationTtlHours,
+  };
+}
+
+/**
+ * Política EFETIVA de organizações: setting `organizations_policy` (org → global)
+ * → `config.organizations` → default da lib. É o que a doc promete; antes este
+ * controller lia só o config estático, e a setting não tinha efeito aqui.
+ */
+async function effectiveOrgPolicy(
+  ctx: HttpContext,
+  cfg: any,
+  orgId?: string | null,
+): Promise<ResolvedOrganizationsPolicySetting> {
+  const settings = await resolveRuntimeSettings(ctx);
+  return resolveEffectiveOrganizationsPolicy(settings, orgPolicyDefaults(cfg), orgId);
+}
 
 /**
  * Console de conta — Organizations. Server-rendered, padrão dos outros controllers
@@ -67,12 +95,13 @@ export default class AccountOrgsController {
       }),
     );
 
+    const policy = await effectiveOrgPolicy(ctx, cfg);
     const props = {
       supported: true,
       orgs: orgsWithMembers,
       pendingInvitations: invitationsWithOrg,
-      allowSelfCreate: cfg.organizations.allowSelfCreate,
-      availableRoles: cfg.organizations.roles,
+      allowSelfCreate: policy.allowSelfCreate,
+      availableRoles: policy.roles,
       messages,
       csrfToken: ctx.request.csrfToken,
     };
@@ -88,9 +117,8 @@ export default class AccountOrgsController {
     const store = cfg.accountStore;
     const accountId = session.get(ACCOUNT_SESSION_KEY) as string;
 
-    if (!supportsOrganizations(store) || !cfg.organizations.allowSelfCreate) {
-      return response.forbidden();
-    }
+    if (!supportsOrganizations(store)) return response.forbidden();
+    if (!(await effectiveOrgPolicy(ctx, cfg)).allowSelfCreate) return response.forbidden();
 
     const name = request.input('name', '').trim();
     const slug = request.input('slug', '').trim();
@@ -208,16 +236,7 @@ export default class AccountOrgsController {
     // config → defaults). Role fora do catálogo é rejeitada (não cria convite).
     // Usa o helper PURO `isRoleInCatalog` (mesmo ponto de verdade do caminho admin).
     const settings = await resolveRuntimeSettings(ctx);
-    const roleValid = await isRoleInCatalog(
-      role,
-      settings,
-      {
-        roles: cfg.organizations.roles,
-        allowSelfCreate: cfg.organizations.allowSelfCreate,
-        invitationTtlHours: cfg.organizations.invitationTtlHours,
-      },
-      params.id,
-    );
+    const roleValid = await isRoleInCatalog(role, settings, orgPolicyDefaults(cfg), params.id);
     if (!roleValid) {
       return response.unprocessableEntity({
         error: { code: 'invalid_role', message: 'Role inválida.' },
@@ -230,12 +249,18 @@ export default class AccountOrgsController {
       return response.forbidden();
     }
 
+    // TTL da política efetiva da org (setting org → global → config), não só do config.
+    const policy = await resolveEffectiveOrganizationsPolicy(
+      settings,
+      orgPolicyDefaults(cfg),
+      params.id,
+    );
     const { invitation, token } = await store.createOrgInvitation!({
       organizationId: params.id,
       email,
       role,
       invitedBy: accountId,
-      ttlHours: cfg.organizations.invitationTtlHours,
+      ttlHours: policy.invitationTtlHours,
     });
 
     // Sends the invitation email (best-effort). The host hook wins when present;

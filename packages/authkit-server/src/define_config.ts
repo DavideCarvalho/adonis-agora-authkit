@@ -864,6 +864,9 @@ export function resolveAdminApi(input?: AdminApiConfigInput): ResolvedAdminApiCo
  * A role `'owner'` é reservada: uma org SEMPRE precisa de pelo menos um owner.
  * `allowSelfCreate`: se um usuário autenticado pode criar sua própria org (default false).
  * `invitationTtlHours`: TTL dos convites em horas (default 168 = 7 dias).
+ * Os três são o default estático da política; a setting `organizations_policy`
+ * os sobrescreve em runtime — exceto quando `organizations` está declarado no
+ * config, o que trava a setting e faz destes campos a política efetiva.
  * `claimStrategy: 'active'`: emite claims da org ATIVA da sessão (única estratégia implementada).
  */
 export interface OrganizationsConfigInput {
@@ -875,6 +878,21 @@ export interface OrganizationsConfigInput {
    * Default: 'active'.
    */
   claimStrategy?: 'active';
+  /**
+   * Catálogo de roles de org aceitas em convites/membros. `owner` é sempre
+   * garantido. Default: `['owner', 'admin', 'member']`.
+   *
+   * Declarar `organizations` TRAVA a setting `organizations_policy` (ver
+   * `config-locks`): com a chave travada, os campos de política daqui SÃO a
+   * política efetiva. Sem eles, a política trava no default da lib — era o
+   * que acontecia antes destes campos existirem (e.g. `allowSelfCreate` preso
+   * em `false`, sem jeito de ligar).
+   */
+  roles?: string[];
+  /** Usuário autenticado pode criar a própria org em `/account/orgs`. Default: false. */
+  allowSelfCreate?: boolean;
+  /** TTL dos convites em horas. Default: 168 (7 dias). */
+  invitationTtlHours?: number;
 }
 
 export interface ResolvedOrganizationsConfig {
@@ -891,9 +909,12 @@ export function resolveOrganizations(
 ): ResolvedOrganizationsConfig {
   return {
     enabled: input?.enabled,
-    roles: ['owner', 'admin', 'member'],
-    allowSelfCreate: false,
-    invitationTtlHours: 168,
+    roles: input?.roles && input.roles.length > 0 ? input.roles : ['owner', 'admin', 'member'],
+    allowSelfCreate: input?.allowSelfCreate ?? false,
+    invitationTtlHours:
+      typeof input?.invitationTtlHours === 'number' && input.invitationTtlHours >= 1
+        ? Math.floor(input.invitationTtlHours)
+        : 168,
     claimStrategy: input?.claimStrategy ?? 'active',
   };
 }

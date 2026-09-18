@@ -83,9 +83,9 @@ and `registration: { enabled: false }` both lock the key.
   admin had previously stored — the row is invisible while the lock holds.
 </Callout>
 
-### Four keys where the config field is infrastructure only
+### Three keys where the config field is infrastructure only
 
-Read the mapping table one more time, because four of those config fields carry **no policy
+Read the mapping table one more time, because three of those config fields carry **no policy
 values at all** — they exist to point AuthKit at a limiter store, hand it a CAPTCHA
 verifier, or switch a subsystem on. Declaring one for that infrastructural reason still
 locks the whole matching setting key, and since the config has no policy values to
@@ -96,7 +96,6 @@ contribute, the policy freezes at the library baseline:
 | `lockout` | `store` — which limiter store to use | `lockout` locks at the library policy: 5 attempts, 900s window, 60s→3600s backoff |
 | `rateLimit` | `enabled`, `store` | `rate_limit` locks at the library buckets |
 | `trustedDevices` | reserved for cookie parameters | `trusted_devices` locks at enabled, 30 days |
-| `organizations` | `enabled`, `claimStrategy` | `organizations_policy` locks at the library policy |
 
 `botProtection` is a fifth case with a different flavour: its `verify` callback is required,
 so there is no way to configure bot protection without declaring the field — and declaring
