@@ -4,6 +4,7 @@ import type { ResolvedServerConfig } from '../define_config.js';
 import { normalizeActiveOrg, readActiveOrgFromKoaCtx } from '../host/active_org_cookie.js';
 import { createDeviceSources } from './device_sources.js';
 import { createLogoutSources } from './logout_sources.js';
+import { registrationPolicyMiddleware } from './registration_policy.js';
 
 export interface BuildProviderOptions {
   /** APP_KEY do consumidor; usado p/ derivar cookies.keys se não houver. */
@@ -336,6 +337,18 @@ export function buildProvider(
     writable: true,
     configurable: true,
   });
+
+  // Política do registro dinâmico (redirect URIs + só fluxo de código + gancho do
+  // host). Middleware PRÉ-rota: roda antes do `/reg` do provider, que sozinho
+  // aceitaria qualquer redirect sintaticamente válido. Ver registration_policy.ts.
+  if (dynReg.enabled && (dynReg.redirectUriPolicy || dynReg.validateRegistration)) {
+    provider.use(
+      registrationPolicyMiddleware({
+        policy: dynReg.redirectUriPolicy,
+        validate: dynReg.validateRegistration,
+      }) as any,
+    );
+  }
 
   provider.proxy = true;
   return provider;

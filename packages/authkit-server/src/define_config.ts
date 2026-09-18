@@ -46,6 +46,13 @@ import { KeystoreCodec } from './keys/keystore_codec.js';
 import { loadEncryptionService } from './keys/keystore_crypto.js';
 import { KeystoreManager, resolveKeystoreVault } from './keys/keystore_manager.js';
 import type { PatStore } from './pat/pat_store.js';
+import {
+  OPEN_REGISTRATION_REDIRECT_POLICY,
+  type RedirectUriPolicy,
+  type ResolvedRedirectUriPolicy,
+  resolveRedirectUriPolicy,
+  type ValidateRegistrationHook,
+} from './provider/registration_policy.js';
 
 export type { AuthAccount };
 export { adapters };
@@ -382,12 +389,38 @@ export interface DynamicRegistrationConfigInput {
    * registrado via o `registration_access_token` devolvido no registro. Default: false.
    */
   management?: boolean;
+  /**
+   * Política de redirect URIs aplicada a TODO registro (`POST /reg`) e update
+   * (`PUT /reg/:id`) ANTES do oidc-provider. Com a política ativa, o client
+   * também fica restrito ao fluxo de código (`authorization_code` +
+   * `refresh_token`, `response_type=code`; PKCE já é obrigatório no IdP), e
+   * um client só-loopback/app instalado é registrado como `application_type: native`.
+   *
+   * Default:
+   *   - registro ABERTO (sem `initialAccessToken`): `{ loopback: true }` — só
+   *     `http://localhost|127.0.0.1|[::1]` em qualquer porta. Callbacks web de
+   *     fornecedores (ex.: `https://claude.ai/api/mcp/auth_callback`) e esquemas
+   *     de app (`cursor`, `vscode`) precisam ser listados em `exact`/`appSchemes`.
+   *   - registro com `initialAccessToken`: sem política (quem tem o IAT é confiável).
+   *
+   * `false` desliga a política explicitamente (comportamento puro do oidc-provider).
+   */
+  redirectUriPolicy?: RedirectUriPolicy | false;
+  /**
+   * Gancho do host rodado depois da política de redirect: valida/ajusta o
+   * metadata do registro. Lance {@link RegistrationPolicyError} para recusar com
+   * `400`; retorne um objeto para substituir o metadata.
+   */
+  validateRegistration?: ValidateRegistrationHook;
 }
 
 export interface ResolvedDynamicRegistrationConfig {
   enabled: boolean;
   initialAccessToken?: string;
   management: boolean;
+  /** `null` = sem política de redirect (oidc-provider puro). */
+  redirectUriPolicy: ResolvedRedirectUriPolicy | null;
+  validateRegistration?: ValidateRegistrationHook;
 }
 
 /**
@@ -407,10 +440,21 @@ export function resolveDynamicRegistration(
         'ou desligue o management.',
     );
   }
+  const declared = input?.redirectUriPolicy;
+  const redirectUriPolicy =
+    declared === false
+      ? null
+      : declared
+        ? resolveRedirectUriPolicy(declared)
+        : input?.initialAccessToken
+          ? null
+          : { ...OPEN_REGISTRATION_REDIRECT_POLICY };
   return {
     enabled,
     initialAccessToken: input?.initialAccessToken,
     management,
+    redirectUriPolicy,
+    validateRegistration: input?.validateRegistration,
   };
 }
 

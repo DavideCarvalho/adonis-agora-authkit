@@ -472,6 +472,15 @@ export { lucidPatStore } from './src/pat/lucid_pat_store.js';
 export type { IssuePatInput, PatRecord, PatStore } from './src/pat/pat_store.js';
 export { generatePatToken, hashPatToken } from './src/pat/pat_tokens.js';
 export { OidcService } from './src/provider/oidc_service.js';
+export {
+  checkClientRegistration,
+  classifyRedirect,
+  type RedirectUriPolicy,
+  type RegistrationOperation,
+  RegistrationPolicyError,
+  type ResolvedRedirectUriPolicy,
+  type ValidateRegistrationHook,
+} from './src/provider/registration_policy.js';
 export { registerOidcRoutes } from './src/register_routes.js';
 export type { EnsureSchemaOptions, EnsureSchemaReport } from './src/schema/ensure.js';
 export { ensureAuthkitSchema } from './src/schema/ensure.js';
