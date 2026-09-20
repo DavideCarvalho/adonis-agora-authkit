@@ -11,7 +11,13 @@
  *
  * PROVA DE MUTAÇÃO: devolver `.normalizeEmail()` aos validators deixa o grupo
  * "cadastro" vermelho; tirar a normalização do `identifier()` deixa o grupo
- * "login" vermelho; tirar a ponte legada tranca de novo a conta já mutilada.
+ * "login" vermelho.
+ *
+ * As contas GRAVADAS antes desta regra (mutiladas ou com maiúsculas) continuam
+ * inalcançáveis pelo login — é o que o grupo "contas gravadas em outra grafia"
+ * trava. Quem as reencontra é a migração `authkit:users:normalize-emails`
+ * (testada em `tests/commands/normalize_emails.spec.ts`), não uma ponte no
+ * caminho do login.
  */
 
 import { test } from '@japa/runner';
@@ -25,11 +31,7 @@ import { resolveLogin, resolvePasswordless } from '../../src/define_config.js';
 import { AdminUsersService } from '../../src/host/admin_api/admin_users_service.js';
 import InteractionController from '../../src/host/controllers/interaction_controller.js';
 import AuthSocialController from '../../src/host/controllers/social_controller.js';
-import {
-  legacyNormalizeEmailIdentifier,
-  normalizeEmailIdentifier,
-  resolveEmailIdentifier,
-} from '../../src/host/email_identifier.js';
+import { normalizeEmailIdentifier } from '../../src/host/email_identifier.js';
 import {
   changeEmailValidator,
   forgotPasswordValidator,
@@ -71,7 +73,7 @@ function noTableDb() {
   };
 }
 
-function buildService(store: AccountStore, login?: { legacyEmailFallback?: boolean }) {
+function buildService(store: AccountStore) {
   const rendered: Array<{ view: string; props: Record<string, any> }> = [];
   const config = {
     render: async (_ctx: any, view: string, props: Record<string, any>) => {
@@ -87,7 +89,7 @@ function buildService(store: AccountStore, login?: { legacyEmailFallback?: boole
     },
     botProtection: undefined,
     passwordless: resolvePasswordless({ magicLink: true, passkeyFirst: false }),
-    login: resolveLogin(login),
+    login: resolveLogin(),
     registration: { enabled: true },
     social: undefined,
     authMethods: undefined,
@@ -143,12 +145,8 @@ function fakeCtx(service: any, db: any, form: Record<string, unknown> = {}) {
 }
 
 /** Roda o passo 1 (identifier) com `typed` e devolve o render do passo 2. */
-async function loginWith(
-  store: AccountStore,
-  typed: string,
-  login?: { legacyEmailFallback?: boolean },
-) {
-  const { service, rendered } = buildService(store, login);
+async function loginWith(store: AccountStore, typed: string) {
+  const { service, rendered } = buildService(store);
   const controller = new InteractionController();
   const db = noTableDb();
 
@@ -193,33 +191,6 @@ test.group('normalizeEmailIdentifier', () => {
       normalizeEmailIdentifier('davi.carvalho96+lastro@gmail.com'),
       'davi.carvalho96+lastro@gmail.com',
     );
-  });
-});
-
-test.group('legacyNormalizeEmailIdentifier (réplica do validator.js)', () => {
-  test('reproduz os defaults que mutilavam o endereço', ({ assert }) => {
-    assert.equal(
-      legacyNormalizeEmailIdentifier('Davi.Carvalho96@Gmail.com'),
-      'davicarvalho96@gmail.com',
-    );
-    assert.equal(
-      legacyNormalizeEmailIdentifier('davi.carvalho96+lastro@gmail.com'),
-      'davicarvalho96@gmail.com',
-    );
-    assert.equal(legacyNormalizeEmailIdentifier('davi@googlemail.com'), 'davi@gmail.com');
-    assert.equal(legacyNormalizeEmailIdentifier('davi+x@outlook.com'), 'davi@outlook.com');
-    assert.equal(legacyNormalizeEmailIdentifier('davi+x@icloud.com'), 'davi@icloud.com');
-    assert.equal(legacyNormalizeEmailIdentifier('davi-loja@yahoo.com'), 'davi@yahoo.com');
-    assert.equal(legacyNormalizeEmailIdentifier('Davi@yandex.com'), 'davi@yandex.ru');
-    // Domínio comum: só lowercase (nada de ponto/tag removidos).
-    assert.equal(legacyNormalizeEmailIdentifier('davi.c+x@acme.com'), 'davi.c+x@acme.com');
-    // Pontos consecutivos NÃO eram removidos pelo validator.js.
-    assert.equal(legacyNormalizeEmailIdentifier('davi..c@gmail.com'), 'davi..c@gmail.com');
-  });
-
-  test('recusa entradas sem local part utilizável', ({ assert }) => {
-    assert.isNull(legacyNormalizeEmailIdentifier('+x@gmail.com'));
-    assert.isNull(legacyNormalizeEmailIdentifier('nao-e-email'));
   });
 });
 
@@ -276,57 +247,52 @@ test.group('login — passo de identificador', () => {
   });
 });
 
-// ─── 4) Ponte: contas gravadas com o endereço mutilado ──────────────────────
+// ─── 4) Contas gravadas em outra grafia: pedem MIGRAÇÃO ─────────────────────
 
-test.group('ponte legada', () => {
-  test('conta legada mutilada ainda entra digitando o endereço certo', async ({ assert }) => {
-    // Nasceu no cadastro antigo: o ponto foi removido na gravação.
+test.group('contas gravadas em outra grafia', () => {
+  test('a conta mutilada pelo cadastro antigo NÃO é alcançada pelo login', async ({ assert }) => {
+    // Nasceu no cadastro antigo: o ponto foi removido na gravação. O login busca
+    // UMA forma só — a normalizada —, então esta conta só volta a existir depois
+    // do `authkit:users:normalize-emails`. Buscar grafias derivadas aqui custaria
+    // uma query a mais por e-mail desconhecido, que é o caminho de ataque.
     const store = storeWith(['davicarvalho96@gmail.com']);
-    const { props, session } = await loginWith(store, 'davi.carvalho96@gmail.com');
-    assert.isNotNull(props.account, 'a ponte deveria reencontrar a conta mutilada');
-    // A TELA continua mostrando o que a pessoa digitou (não vaza o endereço gravado).
+    const { props } = await loginWith(store, 'davi.carvalho96@gmail.com');
+    assert.isNull(props.account);
+    // Anti-enumeração intacta: a tela é a MESMA do caminho feliz e mostra o que
+    // a pessoa digitou — nada distingue "não achei" de "achei".
+    assert.equal(props.step, 'password');
     assert.equal(props.email, 'davi.carvalho96@gmail.com');
-    // A BUSCA usa o endereço gravado.
-    assert.equal(session.authkit_login_email_lookup, 'davicarvalho96@gmail.com');
   });
 
-  test('conta gravada com maiúsculas (import/convite/social) ainda entra', async ({ assert }) => {
+  test('a conta gravada com maiúsculas também não é alcançada', async ({ assert }) => {
     const store = storeWith(['Davi@Acme.com']);
     const { props } = await loginWith(store, 'Davi@Acme.com');
-    assert.isNotNull(props.account);
-  });
-
-  test('empate (duas contas no mesmo balde legado) é RECUSADO', async ({ assert }) => {
-    // `Davi.C@Gmail.com` (gravada crua por um fluxo sem normalização) e
-    // `davic@gmail.com` (gravada mutilada pelo cadastro legado) são duas contas
-    // distintas: a lib não adivinha qual é a pessoa.
-    const store = storeWith(['Davi.C@Gmail.com', 'davic@gmail.com']);
-    const { props, session } = await loginWith(store, 'Davi.C@Gmail.com');
-    assert.isNull(props.account, 'empate não pode escolher uma conta');
-    // Mesma tela de sempre — nada sinaliza que houve empate.
-    assert.equal(props.step, 'password');
-    assert.equal(props.email, 'davi.c@gmail.com');
-    assert.isUndefined(session.authkit_login_email_lookup);
-  });
-
-  test('LIMITE: conta gravada com maiúsculas é inalcançável quando se digita minúsculas', async ({
-    assert,
-  }) => {
-    // As três formas (normalizada, crua, legada) coincidem em `davi@acme.com`, e
-    // achar `Davi@Acme.com` exigiria busca case-insensitive no store — scan de
-    // tabela a cada login com e-mail desconhecido. Estas contas pedem MIGRAÇÃO do
-    // endereço gravado, não ponte. Teste trava o limite (e avisa se ele mudar).
-    const store = storeWith(['Davi@Acme.com']);
-    const { props } = await loginWith(store, 'davi@acme.com');
     assert.isNull(props.account);
+    assert.equal(props.email, 'davi@acme.com');
   });
 
-  test('`login.legacyEmailFallback: false` desliga a ponte', async ({ assert }) => {
-    const store = storeWith(['davicarvalho96@gmail.com']);
-    const { props } = await loginWith(store, 'davi.carvalho96@gmail.com', {
-      legacyEmailFallback: false,
-    });
-    assert.isNull(props.account);
+  test('o passo 1 NÃO consulta o store (nem uma query para diferenciar)', async ({ assert }) => {
+    const calls: string[] = [];
+    const store = {
+      findByEmail: async (email: string) => {
+        calls.push(email);
+        return null;
+      },
+    } as unknown as AccountStore;
+    const { service } = buildService(store);
+    const step1 = fakeCtx(service, noTableDb(), { email: '  Davi@Acme.com ' });
+
+    await new InteractionController().identifier(step1.ctx);
+
+    assert.deepEqual(calls, [], 'o passo de identificador não pode tocar no store');
+    assert.equal(step1.session.authkit_login_email, 'davi@acme.com');
+    assert.deepEqual(step1.redirects, ['/auth/interaction/test-uid']);
+  });
+
+  test('a sessão guarda UMA chave só (o digitado normalizado)', async ({ assert }) => {
+    const { session } = await loginWith(storeWith(['davi@acme.com']), 'Davi@Acme.com');
+    assert.deepEqual(Object.keys(session), ['authkit_login_email']);
+    assert.equal(session.authkit_login_email, 'davi@acme.com');
   });
 });
 
@@ -344,51 +310,7 @@ test.group('login — passo de identificador, entrada hostil', () => {
   });
 });
 
-// ─── 5) resolveEmailIdentifier (unidade) ────────────────────────────────────
-
-test.group('resolveEmailIdentifier', () => {
-  test('caminho direto faz UMA busca só', async ({ assert }) => {
-    const calls: string[] = [];
-    const store = {
-      findByEmail: async (email: string) => {
-        calls.push(email);
-        return email === 'davi@acme.com' ? ({ id: 'a', email } as AuthAccount) : null;
-      },
-    };
-    const out = await resolveEmailIdentifier(store, 'davi@acme.com');
-    assert.deepEqual(calls, ['davi@acme.com']);
-    assert.equal(out.lookupEmail, 'davi@acme.com');
-    assert.isFalse(out.viaLegacyFallback);
-  });
-
-  test('e-mail desconhecido SEM forma alternativa também faz UMA busca só', async ({ assert }) => {
-    const calls: string[] = [];
-    const store = {
-      findByEmail: async (email: string) => {
-        calls.push(email);
-        return null;
-      },
-    };
-    await resolveEmailIdentifier(store, 'ninguem@acme.com');
-    assert.deepEqual(calls, ['ninguem@acme.com']);
-  });
-
-  test('entrada vazia não toca no store', async ({ assert }) => {
-    let called = false;
-    const store = {
-      findByEmail: async () => {
-        called = true;
-        return null;
-      },
-    };
-    const out = await resolveEmailIdentifier(store, '   ');
-    assert.isFalse(called);
-    assert.equal(out.email, '');
-    assert.isNull(out.account);
-  });
-});
-
-// ─── 6) Cadastro social ─────────────────────────────────────────────────────
+// ─── 5) Cadastro social ─────────────────────────────────────────────────────
 
 /** ctx fake do callback social: provider devolve `email` e um id estável. */
 function fakeSocialCtx(service: any, providerEmail: string) {
@@ -426,8 +348,11 @@ function fakeSocialCtx(service: any, providerEmail: string) {
 }
 
 test.group('cadastro social', () => {
-  test('liga a identidade à conta legada em vez de criar uma SEGUNDA conta', async ({ assert }) => {
-    const legacy: AuthAccount = { id: 'acc-1', email: 'davicarvalho96@gmail.com' };
+  test('liga a identidade à conta existente em vez de criar uma SEGUNDA', async ({ assert }) => {
+    // O provider devolve o endereço com maiúsculas; a conta está gravada na
+    // forma normalizada. Sem a normalização aqui, cada "Continuar com o Google"
+    // criaria uma conta nova.
+    const legacy: AuthAccount = { id: 'acc-1', email: 'davi.carvalho96@gmail.com' };
     const created: CreateAccountInput[] = [];
     const linked: Array<{ accountId: string }> = [];
     const store: any = {
@@ -462,6 +387,37 @@ test.group('cadastro social', () => {
     assert.equal(completeLoginCalls[0][1], 'acc-1');
   });
 
+  test('conta gravada em outra grafia ganha uma SEGUNDA conta (pede migração)', async ({
+    assert,
+  }) => {
+    // A consequência documentada de não haver ponte: a conta mutilada pelo
+    // cadastro antigo é invisível aqui, e o social cria outra. Rodar
+    // `authkit:users:normalize-emails` ANTES é o que evita isto.
+    const mangled: AuthAccount = { id: 'acc-1', email: 'davicarvalho96@gmail.com' };
+    const created: CreateAccountInput[] = [];
+    const store: any = {
+      findById: async () => null,
+      findByEmail: async (email: string) => (email === mangled.email ? mangled : null),
+      findByProviderIdentity: async () => null,
+      linkProviderIdentity: async () => {},
+      create: async (input: CreateAccountInput) => {
+        created.push(input);
+        return { id: 'acc-2', email: input.email };
+      },
+    };
+    const service = {
+      config: { accountStore: store },
+      interactions: { completeLogin: async () => {} },
+    };
+
+    await new AuthSocialController().callback(fakeSocialCtx(service, 'Davi.Carvalho96@Gmail.com'));
+
+    assert.deepEqual(
+      created.map((c) => c.email),
+      ['davi.carvalho96@gmail.com'],
+    );
+  });
+
   test('conta nova nasce com o e-mail do provider normalizado', async ({ assert }) => {
     const created: CreateAccountInput[] = [];
     const store: any = {
@@ -485,11 +441,11 @@ test.group('cadastro social', () => {
   });
 });
 
-// ─── 7) Criação por admin ───────────────────────────────────────────────────
+// ─── 6) Criação por admin ───────────────────────────────────────────────────
 
 test.group('criação de usuário por admin', () => {
-  test('recusa como `email_taken` o dono de uma conta legada mutilada', async ({ assert }) => {
-    const legacy: AuthAccount = { id: 'acc-1', email: 'davicarvalho96@gmail.com' };
+  test('recusa como `email_taken` quando a forma normalizada já existe', async ({ assert }) => {
+    const legacy: AuthAccount = { id: 'acc-1', email: 'davi.carvalho96@gmail.com' };
     const created: CreateAccountInput[] = [];
     const store: any = {
       findByEmail: async (email: string) => (email === legacy.email ? legacy : null),
@@ -511,16 +467,14 @@ test.group('criação de usuário por admin', () => {
   });
 });
 
-// ─── 8) Import de usuários ──────────────────────────────────────────────────
+// ─── 7) Import de usuários ──────────────────────────────────────────────────
 
 test.group('import de usuários', () => {
-  test('não cria uma SEGUNDA conta para o dono de uma conta legada mutilada', async ({
-    assert,
-  }) => {
-    const legacy: AuthAccount = { id: 'acc-1', email: 'davicarvalho96@gmail.com' };
+  test('pula como duplicado a conta já gravada na forma normalizada', async ({ assert }) => {
+    const existing: AuthAccount = { id: 'acc-1', email: 'davi.carvalho96@gmail.com' };
     const imported: Array<{ email: string }> = [];
     const store: any = {
-      findByEmail: async (email: string) => (email === legacy.email ? legacy : null),
+      findByEmail: async (email: string) => (email === existing.email ? existing : null),
       importAccount: async (input: { email: string }) => {
         imported.push(input);
         return { id: 'acc-2', email: input.email };
@@ -528,54 +482,12 @@ test.group('import de usuários', () => {
     };
 
     const report = await importUsers(store, [
-      { line: 1, record: { email: 'davi.carvalho96@gmail.com', password_hash: 'x' } },
+      { line: 1, record: { email: '  Davi.Carvalho96@Gmail.com ', password_hash: 'x' } },
     ]);
 
     assert.lengthOf(imported, 0);
     assert.equal(report.skippedDuplicate, 1);
     assert.equal(report.created, 0);
-  });
-
-  test('nem para a conta gravada com maiúsculas (a dedupe recebe o valor CRU)', async ({
-    assert,
-  }) => {
-    // Só funciona porque a resolução recebe `record.email` cru: normalizar antes
-    // apagaria a candidata "forma exatamente como digitada".
-    const upper: AuthAccount = { id: 'acc-1', email: 'Davi@Acme.com' };
-    const imported: Array<{ email: string }> = [];
-    const store: any = {
-      findByEmail: async (email: string) => (email === upper.email ? upper : null),
-      importAccount: async (input: { email: string }) => {
-        imported.push(input);
-        return { id: 'acc-2', email: input.email };
-      },
-    };
-
-    const report = await importUsers(store, [{ line: 1, record: { email: 'Davi@Acme.com' } }]);
-
-    assert.lengthOf(imported, 0);
-    assert.equal(report.skippedDuplicate, 1);
-  });
-
-  test('`legacyFallback: false` volta a tratar como conta nova', async ({ assert }) => {
-    const legacy: AuthAccount = { id: 'acc-1', email: 'davicarvalho96@gmail.com' };
-    const imported: Array<{ email: string }> = [];
-    const store: any = {
-      findByEmail: async (email: string) => (email === legacy.email ? legacy : null),
-      importAccount: async (input: { email: string }) => {
-        imported.push(input);
-        return { id: 'acc-2', email: input.email };
-      },
-    };
-
-    const report = await importUsers(
-      store,
-      [{ line: 1, record: { email: 'davi.carvalho96@gmail.com', password_hash: 'x' } }],
-      { legacyFallback: false },
-    );
-
-    assert.equal(report.created, 1);
-    assert.equal(imported[0].email, 'davi.carvalho96@gmail.com');
   });
 
   test('grava o e-mail normalizado (senão o login não acha a conta)', async ({ assert }) => {

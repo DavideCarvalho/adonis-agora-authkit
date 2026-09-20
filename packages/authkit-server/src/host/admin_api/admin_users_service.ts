@@ -13,7 +13,7 @@ import { PasswordPolicyError } from '../../password/password_manager.js';
 import type { OidcService } from '../../provider/oidc_service.js';
 import { AccountDeletionService, type DeletionResult } from '../account_deletion_service.js';
 import { sendPasswordResetEmail } from '../default_mailer.js';
-import { normalizeEmailIdentifier, resolveEmailIdentifier } from '../email_identifier.js';
+import { normalizeEmailIdentifier } from '../email_identifier.js';
 import { authkitOrigin } from '../origin.js';
 import type { SettingsCapability } from '../runtime_settings.js';
 import { resolveEffectiveRolesCatalog } from '../runtime_toggles.js';
@@ -89,14 +89,10 @@ export class AdminUsersService {
     // serviço também é chamado direto (console/API/host) — normaliza aqui para
     // que nenhum caminho grave um endereço que o login não encontra.
     const email = normalizeEmailIdentifier(input.email);
-    // Duplicado: enxerga também a conta gravada com o endereço mutilado pelo
-    // cadastro antigo (ponte legada) — senão o admin criaria uma SEGUNDA conta
-    // para quem o cadastro público recusaria com `email_taken`.
-    const existing = (
-      await resolveEmailIdentifier(store, input.email, {
-        legacyFallback: this.cfg.login?.legacyEmailFallback ?? true,
-      })
-    ).account;
+    // Duplicado pela MESMA forma que o login busca — a normalizada. Contas
+    // gravadas com outra grafia (import/convite antigos) só entram nesta conta
+    // depois do `authkit:users:normalize-emails`.
+    const existing = await store.findByEmail(email);
     if (existing) return { ok: false, reason: 'email_taken' };
 
     const hasPassword = !!input.password;

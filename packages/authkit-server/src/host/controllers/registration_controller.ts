@@ -10,7 +10,6 @@ import {
   sendMagicLinkEmail,
   sendPasswordResetEmail,
 } from '../default_mailer.js';
-import { resolveEmailIdentifier } from '../email_identifier.js';
 import { translate } from '../i18n.js';
 import { authkitOrigin } from '../origin.js';
 import { RuntimeSettings, resolveRuntimeSettings } from '../runtime_settings.js';
@@ -162,15 +161,9 @@ export default class AuthRegistrationController {
     const data = await ctx.request.validateUsing(signupValidator);
 
     const accountStore = cfg.accountStore;
-    // Duplicado: além do endereço normalizado, enxerga a conta que o cadastro
-    // antigo gravou mutilada — senão a mesma pessoa ganharia uma SEGUNDA conta.
-    // Usa o valor CRU do formulário (o validator já normalizou `data.email`, e a
-    // ponte precisa da grafia original entre as candidatas).
-    const existing = (
-      await resolveEmailIdentifier(accountStore, ctx.request.input('email'), {
-        legacyFallback: cfg.login?.legacyEmailFallback ?? true,
-      })
-    ).account;
+    // Duplicado pela MESMA forma que o login busca (`data.email` já saiu
+    // normalizado do validator).
+    const existing = await accountStore.findByEmail(data.email);
     if (existing) {
       return render(ctx, 'signup', {
         uid: ctx.request.param('uid'),
@@ -274,12 +267,7 @@ export default class AuthRegistrationController {
 
     // Cria a conta se ainda não existe. Senha random inutilizável: o login é 100%
     // passwordless (mesmo precedente das contas criadas por identidade social).
-    // Valor CRU do formulário pelo mesmo motivo do cadastro com senha.
-    const existing = (
-      await resolveEmailIdentifier(accountStore, ctx.request.input('email'), {
-        legacyFallback: cfg.login?.legacyEmailFallback ?? true,
-      })
-    ).account;
+    const existing = await accountStore.findByEmail(data.email);
     if (!existing) {
       const created = await accountStore.create({
         email: data.email,
@@ -296,10 +284,9 @@ export default class AuthRegistrationController {
     }
 
     // Emite + envia o magic link (mesma construção do login por magic link).
-    // Conta já existente entra pelo endereço sob o qual está GRAVADA (pode ser a
-    // forma mutilada pelo cadastro antigo); conta nova, pelo endereço digitado.
-    const issueFor = existing?.email ?? data.email;
-    const issued = await accountStore.issueMagicLinkToken(issueFor);
+    // `data.email` já é a forma normalizada — a mesma sob a qual a conta foi
+    // encontrada acima ou acabou de ser criada.
+    const issued = await accountStore.issueMagicLinkToken(data.email);
     if (issued) {
       const origin = authkitOrigin(cfg);
       const magicUrl = `${origin}/auth/interaction/${uid}/magic?token=${encodeURIComponent(issued.token)}`;
@@ -405,17 +392,10 @@ export default class AuthRegistrationController {
 
     const { email } = await ctx.request.validateUsing(forgotPasswordValidator);
     const accountStore = cfg.accountStore;
-    let result = await accountStore.issuePasswordResetToken(email);
-    // Ponte legada: quem teve o endereço mutilado pelo cadastro antigo precisa
-    // conseguir resetar a senha digitando o endereço REAL. Só entra quando o
-    // endereço normalizado não achou nada — o caminho feliz segue com UMA
-    // chamada só. Resposta uniforme (a tela abaixo é a mesma, ache ou não).
-    if (!result && (cfg.login?.legacyEmailFallback ?? true)) {
-      const resolved = await resolveEmailIdentifier(accountStore, ctx.request.input('email'));
-      if (resolved.viaLegacyFallback) {
-        result = await accountStore.issuePasswordResetToken(resolved.lookupEmail);
-      }
-    }
+    // `email` já saiu normalizado do validator (a MESMA normalização do
+    // cadastro e do login). Resposta uniforme: a tela abaixo é a mesma, ache
+    // conta ou não.
+    const result = await accountStore.issuePasswordResetToken(email);
     if (result) {
       await cfg.audit?.record({
         type: 'password_reset.issued',
