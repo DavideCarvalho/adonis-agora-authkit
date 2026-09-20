@@ -65,7 +65,8 @@ type AccountStore = CoreAccountStore &
     MfaCapability & WebauthnCapability & ProviderIdentityCapability &
     AccountSecurityCapability & AccountStatusCapability & ProfileCapability &
     MagicLinkCapability & OtpLoginCapability & EmailVerificationStatusCapability &
-    AccountDeletionCapability & AccountImportCapability & OrganizationsCapability
+    AccountDeletionCapability & AccountImportCapability &
+    AccountEmailRewriteCapability & OrganizationsCapability
   >
 ```
 
@@ -110,6 +111,7 @@ guard to feature; each capability is detailed underneath.
 | `supportsEmailVerificationStatus` | `EmailVerificationStatusCapability` | `isEmailVerified` | The `login.requireVerifiedEmail` gate | needs an `email_verified_at` column |
 | `supportsAccountDeletion` | `AccountDeletionCapability` | `deleteAccount` | The account **danger zone**, `DELETE /users/:id`, and the LGPD/GDPR cascade | always |
 | `supportsAccountImport` | `AccountImportCapability` | `importAccount` | The `authkit:users:import` command | always |
+| `supportsAccountEmailRewrite` | `AccountEmailRewriteCapability` | `rewriteAccountEmail` | The `authkit:users:normalize-emails --apply` migration | always |
 | `supportsOrganizations` | `OrganizationsCapability` | `createOrg` | Multi-tenancy: orgs, members, invitations, org claims | on by default (built-in models); `organizationModels: false` opts out |
 
 <Callout type="info">
@@ -379,6 +381,28 @@ your current hasher. `importAccount` returns `null` when the email already exist
 the importer counts as a skip rather than an error. Without this capability the
 `authkit:users:import` command reports every row as "store does not support account
 import". See [Passwords & Migration](/docs/passwords-and-migration).
+
+</Accordion>
+
+<Accordion title="AccountEmailRewriteCapability — supportsAccountEmailRewrite">
+
+Administrative rewrite of the stored address — no confirmation ceremony, no email sent.
+
+```ts
+interface AccountEmailRewriteCapability {
+  rewriteAccountEmail(accountId: string, email: string): Promise<boolean>
+}
+```
+
+It exists for one caller: the `authkit:users:normalize-emails` migration, which
+canonicalises addresses that were stored under a different spelling than the one the login
+looks up. It is **not** a way to change mailbox — that goes through `requestEmailChange` /
+`confirmEmailChange`, with a token the new address has to receive. Accordingly it leaves
+`email_verified_at` **untouched**: the mailbox is the same one, only the stored spelling
+changes, so there is no new proof to record. It returns `false` when the account is gone or
+the address already belongs to another account (the migration never merges accounts).
+Without this capability the migration still **reports**; only `--apply` refuses, and you
+normalize the column with your own SQL. See [Security](/docs/security#email-identity-and-normalization).
 
 </Accordion>
 

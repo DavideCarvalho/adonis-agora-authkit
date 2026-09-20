@@ -154,6 +154,24 @@
       "filePath": "import_users.js"
     },
     {
+      "commandName": "authkit:users:normalize-emails",
+      "description": "Migra os e-mails gravados para a forma normalizada da identidade (trim + lowercase). Sem --apply apenas relata.",
+      "namespace": "authkit",
+      "aliases": [],
+      "flags": [
+        {
+          "name": "apply",
+          "flagName": "apply",
+          "required": false,
+          "type": "boolean",
+          "description": "Grava a normalização (sem ele, apenas relata)."
+        }
+      ],
+      "args": [],
+      "options": { "startApp": true },
+      "filePath": "normalize_emails.js"
+    },
+    {
       "commandName": "authkit:settings:list",
       "description": "Lista todas as runtime settings presentes em `auth_settings`.",
       "namespace": "authkit",

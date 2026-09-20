@@ -466,6 +466,29 @@ export interface AccountImportCapability {
 }
 
 /**
+ * Regravação ADMINISTRATIVA do endereço da conta (comando
+ * `authkit:users:normalize-emails`). CAPACIDADE opcional, presente no store
+ * Lucid default.
+ *
+ * Distinta de {@link AccountSecurityCapability.requestEmailChange}: NÃO há
+ * cerimônia de confirmação (nenhum token viaja, nenhum e-mail é enviado) e o
+ * estado de "e-mail verificado" fica COMO ESTÁ — a migração só canonicaliza a
+ * grafia de uma caixa postal que já era a mesma (`trim` + `toLowerCase`), então
+ * marcar como verificado seria conceder uma prova que ninguém deu.
+ *
+ * Não é um caminho para trocar de titular: quem quer mudar de caixa postal passa
+ * pelo fluxo com confirmação. Um store pode simplesmente não a implementar — aí
+ * o `--apply` do comando recusa e a base é migrada por SQL do host.
+ */
+export interface AccountEmailRewriteCapability {
+  /**
+   * Regrava o e-mail da conta. Retorna `false` quando a conta não existe ou
+   * quando o endereço já pertence a OUTRA conta (a migração nunca funde contas).
+   */
+  rewriteAccountEmail(accountId: string, email: string): Promise<boolean>;
+}
+
+/**
  * Login sem senha por "magic link" — um token de uso único e curta duração
  * enviado por e-mail. CAPACIDADE opcional: stores sem suporte omitem os métodos e
  * a UI esconde o botão "me envie um link".
@@ -699,6 +722,7 @@ export type AccountStore = CoreAccountStore & {
       EmailVerificationStatusCapability &
       AccountDeletionCapability &
       AccountImportCapability &
+      AccountEmailRewriteCapability &
       OrganizationsCapability &
       PasswordHistoryCapability &
       PasswordExpirationCapability &
@@ -814,6 +838,13 @@ export function supportsAccountImport(
   store: AccountStore,
 ): store is AccountStore & AccountImportCapability {
   return typeof store.importAccount === 'function';
+}
+
+/** Type guard: o store implementa a regravação administrativa do e-mail. */
+export function supportsAccountEmailRewrite(
+  store: AccountStore,
+): store is AccountStore & AccountEmailRewriteCapability {
+  return typeof store.rewriteAccountEmail === 'function';
 }
 
 /** Type guard: o store implementa histórico de senhas (disallow_password_reuse). */
