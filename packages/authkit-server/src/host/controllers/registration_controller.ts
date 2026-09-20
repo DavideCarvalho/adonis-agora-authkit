@@ -10,6 +10,7 @@ import {
   sendMagicLinkEmail,
   sendPasswordResetEmail,
 } from '../default_mailer.js';
+import { resolveEmailIdentifier } from '../email_identifier.js';
 import { translate } from '../i18n.js';
 import { authkitOrigin } from '../origin.js';
 import { RuntimeSettings, resolveRuntimeSettings } from '../runtime_settings.js';
@@ -161,7 +162,13 @@ export default class AuthRegistrationController {
     const data = await ctx.request.validateUsing(signupValidator);
 
     const accountStore = cfg.accountStore;
-    const existing = await accountStore.findByEmail(data.email);
+    // Duplicado: além do endereço normalizado, enxerga a conta que o cadastro
+    // antigo gravou mutilada — senão a mesma pessoa ganharia uma SEGUNDA conta.
+    const existing = (
+      await resolveEmailIdentifier(accountStore, data.email, {
+        legacyFallback: cfg.login?.legacyEmailFallback ?? true,
+      })
+    ).account;
     if (existing) {
       return render(ctx, 'signup', {
         uid: ctx.request.param('uid'),
@@ -265,7 +272,11 @@ export default class AuthRegistrationController {
 
     // Cria a conta se ainda não existe. Senha random inutilizável: o login é 100%
     // passwordless (mesmo precedente das contas criadas por identidade social).
-    const existing = await accountStore.findByEmail(data.email);
+    const existing = (
+      await resolveEmailIdentifier(accountStore, data.email, {
+        legacyFallback: cfg.login?.legacyEmailFallback ?? true,
+      })
+    ).account;
     if (!existing) {
       const created = await accountStore.create({
         email: data.email,
@@ -282,14 +293,18 @@ export default class AuthRegistrationController {
     }
 
     // Emite + envia o magic link (mesma construção do login por magic link).
-    const issued = await accountStore.issueMagicLinkToken(data.email);
+    // Conta já existente entra pelo endereço sob o qual está GRAVADA (pode ser a
+    // forma mutilada pelo cadastro antigo); conta nova, pelo endereço digitado.
+    const issueFor = existing?.email ?? data.email;
+    const issued = await accountStore.issueMagicLinkToken(issueFor);
     if (issued) {
       const origin = authkitOrigin(cfg);
       const magicUrl = `${origin}/auth/interaction/${uid}/magic?token=${encodeURIComponent(issued.token)}`;
+      const to = issued.account.email;
       if (cfg.mail?.onMagicLink) {
-        await cfg.mail.onMagicLink({ email: data.email, magicUrl, token: issued.token });
+        await cfg.mail.onMagicLink({ email: to, magicUrl, token: issued.token });
       } else {
-        await sendMagicLinkEmail(ctx, { email: data.email, magicUrl });
+        await sendMagicLinkEmail(ctx, { email: to, magicUrl });
       }
     }
 
@@ -387,20 +402,32 @@ export default class AuthRegistrationController {
 
     const { email } = await ctx.request.validateUsing(forgotPasswordValidator);
     const accountStore = cfg.accountStore;
-    const result = await accountStore.issuePasswordResetToken(email);
+    let result = await accountStore.issuePasswordResetToken(email);
+    // Ponte legada: quem teve o endereço mutilado pelo cadastro antigo precisa
+    // conseguir resetar a senha digitando o endereço REAL. Só entra quando o
+    // endereço normalizado não achou nada — o caminho feliz segue com UMA
+    // chamada só. Resposta uniforme (a tela abaixo é a mesma, ache ou não).
+    if (!result && (cfg.login?.legacyEmailFallback ?? true)) {
+      const resolved = await resolveEmailIdentifier(accountStore, email);
+      if (resolved.viaLegacyFallback) {
+        result = await accountStore.issuePasswordResetToken(resolved.lookupEmail);
+      }
+    }
     if (result) {
       await cfg.audit?.record({
         type: 'password_reset.issued',
-        email,
+        email: result.account.email,
         ip: ctx.request.ip?.() ?? null,
       });
       const origin = authkitOrigin(cfg);
       const url = `${origin}/auth/reset-password?token=${result.token}`;
       // Hook do config tem prioridade (override); senão usa o mailer default do host.
+      // O link vai para a caixa postal sob a qual a conta está gravada.
+      const to = result.account.email;
       if (cfg.mail?.onPasswordReset) {
-        await cfg.mail.onPasswordReset({ email, resetUrl: url, token: result.token });
+        await cfg.mail.onPasswordReset({ email: to, resetUrl: url, token: result.token });
       } else {
-        await sendPasswordResetEmail(ctx, { email, resetUrl: url });
+        await sendPasswordResetEmail(ctx, { email: to, resetUrl: url });
       }
     }
     return render(ctx, 'forgot', {

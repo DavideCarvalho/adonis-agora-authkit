@@ -45,6 +45,54 @@ different questions must not consume one another's allowance:
   `rate_limit` runtime setting is stored and validated but is not read by the throttles.
 </Callout>
 
+## Email identity and normalization
+
+The email address is the account identity, so **it has to be normalized the same way on
+both sides** — where the account is written and where it is looked up. AuthKit applies one
+conservative rule, `normalizeEmailIdentifier`: `trim()` + `toLowerCase()`, nothing else.
+
+```ts
+import { normalizeEmailIdentifier } from '@adonis-agora/authkit-server';
+
+normalizeEmailIdentifier('  Davi.Carvalho96+lastro@Gmail.com  ');
+// → 'davi.carvalho96+lastro@gmail.com'  (dots and +tag preserved)
+```
+
+The address someone typed is their identity. AuthKit does **not** decide that
+`a.b@gmail.com` and `ab@gmail.com` are the same person, and it does not drop the
+subaddress they chose to use.
+
+<Callout type="warn">
+  **Changed in 0.69.** Until 0.68 signup ran the address through VineJS'
+  `.normalizeEmail()` (the validator.js defaults), which for Gmail **removed dots and the
+  `+tag`**, while the login identifier step normalized nothing and matched exactly. Accounts
+  were stored under an address different from the one typed, and their owners could not log
+  in — with no error message, because the login screen is enumeration-proof. If you depended
+  on the old collapsing behavior (two spellings sharing one account), that no longer happens:
+  new signups keep the address as typed.
+</Callout>
+
+### The compatibility bridge
+
+Changing the rule does not by itself rescue the accounts that were already stored mangled.
+When the normalized address finds nothing, the login identifier step (and the account
+console login, and "forgot password") retries with the address exactly as typed and with
+the legacy validator.js normalization — and accepts the result **only when those point at
+exactly one account**. A tie is treated as "not found": the library does not guess.
+
+It is on by default (`login.legacyEmailFallback: true`); turning it off locks those accounts
+out again. It is a **temporary bridge** — migrate the stored addresses, then turn it off:
+
+```ts
+defineConfig({
+  login: { legacyEmailFallback: false },
+});
+```
+
+Nothing about it is observable from outside: same screen, same message, and the extra
+lookups only happen when the compatibility spellings actually differ from the normalized
+one.
+
 ## Account lockout
 
 Complementary to the IP-keyed rate-limit, **account lockout** throttles by *email*: after

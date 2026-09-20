@@ -15,9 +15,15 @@
  */
 
 import { test } from '@japa/runner';
-import type { AccountStore, AuthAccount } from '../../src/accounts/account_store.js';
+import type {
+  AccountStore,
+  AuthAccount,
+  CreateAccountInput,
+} from '../../src/accounts/account_store.js';
+import { importUsers } from '../../src/commands/import_users.js';
 import { resolveLogin, resolvePasswordless } from '../../src/define_config.js';
 import InteractionController from '../../src/host/controllers/interaction_controller.js';
+import AuthSocialController from '../../src/host/controllers/social_controller.js';
 import {
   legacyNormalizeEmailIdentifier,
   normalizeEmailIdentifier,
@@ -345,5 +351,124 @@ test.group('resolveEmailIdentifier', () => {
     assert.isFalse(called);
     assert.equal(out.email, '');
     assert.isNull(out.account);
+  });
+});
+
+// ─── 6) Cadastro social ─────────────────────────────────────────────────────
+
+/** ctx fake do callback social: provider devolve `email` e um id estável. */
+function fakeSocialCtx(service: any, providerEmail: string) {
+  const session: Record<string, unknown> = { authkit_social_uid: 'test-uid' };
+  const redirects: string[] = [];
+  return {
+    containerResolver: {
+      make: async (key: string) => {
+        if (key === 'authkit.server') return service;
+        throw new Error(`unknown: ${key}`);
+      },
+    },
+    request: { param: (_k: string) => 'google' },
+    session: {
+      get: (k: string) => session[k],
+      forget: (k: string) => {
+        delete session[k];
+      },
+    },
+    ally: {
+      use: (_name: string) => ({
+        accessDenied: () => false,
+        stateMisMatch: () => false,
+        hasError: () => false,
+        user: async () => ({ id: 'provider-uid-1', email: providerEmail, name: 'Davi' }),
+      }),
+    },
+    response: {
+      redirect: (url: string) => {
+        redirects.push(url);
+      },
+    },
+    __redirects: redirects,
+  } as any;
+}
+
+test.group('cadastro social', () => {
+  test('liga a identidade à conta legada em vez de criar uma SEGUNDA conta', async ({ assert }) => {
+    const legacy: AuthAccount = { id: 'acc-1', email: 'davicarvalho96@gmail.com' };
+    const created: CreateAccountInput[] = [];
+    const linked: Array<{ accountId: string }> = [];
+    const store: any = {
+      findById: async () => legacy,
+      findByEmail: async (email: string) => (email === legacy.email ? legacy : null),
+      findByProviderIdentity: async () => null,
+      linkProviderIdentity: async (input: { accountId: string }) => {
+        linked.push(input);
+      },
+      create: async (input: CreateAccountInput) => {
+        created.push(input);
+        return { id: 'acc-2', email: input.email };
+      },
+    };
+    const completeLoginCalls: any[] = [];
+    const service = {
+      config: { accountStore: store },
+      interactions: {
+        completeLogin: async (...args: any[]) => {
+          completeLoginCalls.push(args);
+        },
+      },
+    };
+
+    await new AuthSocialController().callback(fakeSocialCtx(service, 'Davi.Carvalho96@Gmail.com'));
+
+    assert.lengthOf(created, 0, 'não pode criar uma segunda conta para a mesma pessoa');
+    assert.deepEqual(
+      linked.map((l) => l.accountId),
+      ['acc-1'],
+    );
+    assert.equal(completeLoginCalls[0][1], 'acc-1');
+  });
+
+  test('conta nova nasce com o e-mail do provider normalizado', async ({ assert }) => {
+    const created: CreateAccountInput[] = [];
+    const store: any = {
+      findById: async () => null,
+      findByEmail: async () => null,
+      findByProviderIdentity: async () => null,
+      linkProviderIdentity: async () => {},
+      create: async (input: CreateAccountInput) => {
+        created.push(input);
+        return { id: 'acc-1', email: input.email };
+      },
+    };
+    const service = {
+      config: { accountStore: store },
+      interactions: { completeLogin: async () => {} },
+    };
+
+    await new AuthSocialController().callback(fakeSocialCtx(service, ' Davi.C@Gmail.COM '));
+
+    assert.equal(created[0].email, 'davi.c@gmail.com');
+  });
+});
+
+// ─── 7) Import de usuários ──────────────────────────────────────────────────
+
+test.group('import de usuários', () => {
+  test('grava o e-mail normalizado (senão o login não acha a conta)', async ({ assert }) => {
+    const imported: Array<{ email: string }> = [];
+    const store: any = {
+      findByEmail: async () => null,
+      importAccount: async (input: { email: string }) => {
+        imported.push(input);
+        return { id: 'acc-1', email: input.email };
+      },
+    };
+
+    const report = await importUsers(store, [
+      { line: 1, record: { email: '  Davi.Carvalho96@Gmail.com  ', password_hash: 'x' } },
+    ]);
+
+    assert.equal(report.created, 1);
+    assert.equal(imported[0].email, 'davi.carvalho96@gmail.com');
   });
 });

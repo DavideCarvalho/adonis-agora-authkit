@@ -1,5 +1,6 @@
 import vine from '@vinejs/vine';
 import type { ClientInput, TokenEndpointAuthMethod } from './admin_clients_service.js';
+import { normalizeEmailIdentifier } from './email_identifier.js';
 
 /**
  * Validators VineJS dos recursos administrativos (Admin REST API + console admin).
@@ -147,7 +148,7 @@ export function clientPartialInput(v: ClientInputFields): Partial<ClientInput> {
  */
 export const adminUserCreateValidator = vine.compile(
   vine.object({
-    email: vine.string().trim().email(),
+    email: vine.string().trim().email().transform(normalizeEmailIdentifier),
     name: vine.string().trim().maxLength(255).optional(),
     password: vine.string().maxLength(255).optional(),
     invite: vine.boolean().optional(),
@@ -208,7 +209,7 @@ export const orgMemberRoleValidator = vine.compile(
 /** Criação de convite: e-mail obrigatório e validado; role opcional (default `member`). */
 export const orgInvitationValidator = vine.compile(
   vine.object({
-    email: vine.string().trim().email(),
+    email: vine.string().trim().email().transform(normalizeEmailIdentifier),
     role: vine.string().trim().minLength(1).optional(),
   }),
 );

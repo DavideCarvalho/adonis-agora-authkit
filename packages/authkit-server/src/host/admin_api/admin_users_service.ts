@@ -13,6 +13,7 @@ import { PasswordPolicyError } from '../../password/password_manager.js';
 import type { OidcService } from '../../provider/oidc_service.js';
 import { AccountDeletionService, type DeletionResult } from '../account_deletion_service.js';
 import { sendPasswordResetEmail } from '../default_mailer.js';
+import { normalizeEmailIdentifier } from '../email_identifier.js';
 import { authkitOrigin } from '../origin.js';
 import type { SettingsCapability } from '../runtime_settings.js';
 import { resolveEffectiveRolesCatalog } from '../runtime_toggles.js';
@@ -84,7 +85,11 @@ export class AdminUsersService {
     actor: AdminActor,
   ): Promise<CreateUserResult> {
     const store = this.cfg.accountStore;
-    const existing = await store.findByEmail(input.email);
+    // MESMA normalização do cadastro/login. Os validators já a aplicam, mas o
+    // serviço também é chamado direto (console/API/host) — normaliza aqui para
+    // que nenhum caminho grave um endereço que o login não encontra.
+    const email = normalizeEmailIdentifier(input.email);
+    const existing = await store.findByEmail(email);
     if (existing) return { ok: false, reason: 'email_taken' };
 
     const hasPassword = !!input.password;
@@ -92,7 +97,7 @@ export class AdminUsersService {
     let account: AuthAccount;
     try {
       account = await store.create({
-        email: input.email,
+        email,
         password: initialPassword,
         fullName: input.name ?? null,
       });
@@ -112,7 +117,7 @@ export class AdminUsersService {
     await this.cfg.audit?.record({
       type: 'user.created',
       accountId: account.id,
-      email: input.email,
+      email: account.email,
       actorId: actor.actorId,
       ip: actor.ip,
       metadata: {

@@ -1,5 +1,6 @@
 import type { AccountStore } from '../accounts/account_store.js';
 import { supportsAccountImport } from '../accounts/account_store.js';
+import { normalizeEmailIdentifier } from '../host/email_identifier.js';
 
 /** Uma linha do arquivo de import (campos extras viram custom — globalRoles). */
 export interface ImportUserRecord {
@@ -82,7 +83,9 @@ export async function importUsers(
   const canImport = supportsAccountImport(store);
 
   for (const { line, record } of records) {
-    const email = record.email?.trim();
+    // MESMA normalização do cadastro/login (`trim` + `toLowerCase`) — sem ela o
+    // import gravava `Davi@Acme.com` e o login (normalizado) não achava a conta.
+    const email = normalizeEmailIdentifier(record.email);
     if (!email) {
       report.errors.push({ line, reason: 'missing email' });
       continue;

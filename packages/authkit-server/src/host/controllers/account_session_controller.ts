@@ -5,6 +5,7 @@ import { getAccountLoginUrl } from '../account_login_url.js';
 import type { AccountLoginProps } from '../account_screen_props.js';
 import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { syncAdonisAuthLogin, syncAdonisAuthLogout } from '../adonis_auth_sync.js';
+import { normalizeEmailIdentifier, resolveEmailIdentifier } from '../email_identifier.js';
 import { translate } from '../i18n.js';
 import { endBridgedIdpSession } from '../idp_session_bridge.js';
 import { attemptPasswordLogin } from '../login_attempt.js';
@@ -67,8 +68,9 @@ export default class AccountSessionController {
     const { email: rawEmail, password } = ctx.request.only(['email', 'password']);
     // L6: normaliza o e-mail (trim + lowercase) ANTES de usar — garante que o
     // lookup, o lockout (keyed por email) e a auditoria usem a forma canônica,
-    // independente do casing/espaços digitados.
-    const email = typeof rawEmail === 'string' ? rawEmail.trim().toLowerCase() : rawEmail;
+    // independente do casing/espaços digitados. MESMA função do cadastro e do
+    // passo de identificador do login OIDC.
+    const email = normalizeEmailIdentifier(rawEmail);
     const ip = ctx.request.ip?.() ?? null;
 
     // Lê e valida o return_to do corpo do formulário (hidden input) — nunca confiar sem revalidar.
@@ -78,8 +80,14 @@ export default class AccountSessionController {
     // Verificação + lockout + auditoria de falha centralizados (sem clientId no console).
     // M1: passa `settings` p/ o lockout (e verified-email/expiração) runtime valerem aqui também.
     const settings = await resolveRuntimeSettings(ctx);
+    // Ponte legada: a conta que nasceu com o endereço mutilado precisa entrar no
+    // console de conta pelo endereço REAL, como no login OIDC. A tela de erro é a
+    // mesma (credencial inválida), ache conta ou não.
+    const { lookupEmail } = await resolveEmailIdentifier(cfg.accountStore, email, {
+      legacyFallback: cfg.login?.legacyEmailFallback ?? true,
+    });
     const result = await attemptPasswordLogin(cfg, {
-      email,
+      email: lookupEmail,
       password,
       ip,
       logger: ctx.logger,
@@ -115,7 +123,7 @@ export default class AccountSessionController {
     // Opt-in: sincroniza ctx.auth.use(cfg.adonisAuth.guard) com a mesma conta —
     // no-op sem `adonisAuth` configurado ou sem @adonisjs/auth inicializado.
     await syncAdonisAuthLogin(ctx, cfg, acc);
-    await notifyLoginSuccess(ctx, cfg, { accountId: acc.id, email, ip });
+    await notifyLoginSuccess(ctx, cfg, { accountId: acc.id, email: acc.email, ip });
     // Redireciona pro destino original (validado), ou cai no accountHome configurado.
     return ctx.response.redirect(returnTo ?? accountHome(cfg));
   }

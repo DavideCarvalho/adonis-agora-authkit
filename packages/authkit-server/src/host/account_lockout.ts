@@ -1,5 +1,6 @@
 import type { AuditSink } from '../audit/audit_sink.js';
 import type { ResolvedLockoutConfig } from '../define_config.js';
+import { normalizeEmailIdentifier } from './email_identifier.js';
 
 /**
  * Bloqueio progressivo de conta (anti-brute-force keyed por EMAIL, não por IP).
@@ -49,9 +50,13 @@ export function __setLockoutLimiterLoaderForTests(
   }
 }
 
-/** Normaliza o email para virar chave estável (lowercase + trim). */
+/**
+ * Normaliza o email para virar chave estável. Delega à normalização ÚNICA da
+ * identidade ({@link normalizeEmailIdentifier}) para que a chave do lockout e a
+ * do lookup da conta nunca divirjam.
+ */
 function normalizeEmail(email: string | undefined | null): string {
-  return (email ?? '').trim().toLowerCase();
+  return normalizeEmailIdentifier(email);
 }
 
 /**

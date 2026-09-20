@@ -713,17 +713,34 @@ export interface LoginConfigInput {
    * idêntico ao de antes, e-mail idêntico). Ver `host/otp_login.ts`.
    */
   otp?: OtpLoginConfigInput;
+  /**
+   * PONTE TEMPORÁRIA: no passo de identificador, quando o e-mail normalizado
+   * (`trim` + `toLowerCase`) não acha conta nenhuma, tenta também o endereço
+   * exatamente como foi digitado e a normalização LEGADA (os defaults do
+   * validator.js que o cadastro aplicava até a v0.68 e que, no gmail, removiam
+   * pontos e sub-endereço `+tag`). Só aceita quando essas formas apontam para
+   * EXATAMENTE UMA conta — empate é tratado como "não achei".
+   *
+   * Existe para que as contas que nasceram com o endereço mutilado
+   * (`davi.carvalho96@gmail.com` gravado como `davicarvalho96@gmail.com`)
+   * continuem tendo caminho de volta. Default: `true` — desligar tranca essas
+   * contas do lado de fora. Depois de migrar os endereços gravados, desligue e,
+   * mais adiante, a ponte inteira sai da lib (ver `host/email_identifier.ts`).
+   */
+  legacyEmailFallback?: boolean;
 }
 
 export interface ResolvedLoginConfig {
   requireVerifiedEmail: boolean;
   otp: ResolvedOtpLoginConfig;
+  legacyEmailFallback: boolean;
 }
 
 export function resolveLogin(input?: LoginConfigInput): ResolvedLoginConfig {
   return {
     requireVerifiedEmail: input?.requireVerifiedEmail ?? false,
     otp: resolveOtpLoginConfig(input?.otp),
+    legacyEmailFallback: input?.legacyEmailFallback ?? true,
   };
 }
 

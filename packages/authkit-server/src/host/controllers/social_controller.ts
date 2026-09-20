@@ -8,6 +8,7 @@ import {
   supportsPasskeys,
   supportsProviderIdentity,
 } from '../../accounts/account_store.js';
+import { normalizeEmailIdentifier, resolveEmailIdentifier } from '../email_identifier.js';
 import { assertLoginAllowed } from '../login_attempt.js';
 import { type RuntimeSettings, resolveRuntimeSettingsOrNoop } from '../runtime_settings.js';
 import { resolveEffectiveAuthMethods } from '../runtime_toggles.js';
@@ -75,7 +76,10 @@ export default class AuthSocialController {
     const service = await ctx.containerResolver.make('authkit.server');
     const cfg = service.config;
     const store = cfg.accountStore;
-    const email = profile.email ?? undefined;
+    // Normaliza o e-mail do provider com a MESMA regra do cadastro/login: sem
+    // isto, um provider que devolve o endereço com maiúsculas criava uma conta
+    // que o login (normalizado) não encontrava mais.
+    const email = profile.email ? normalizeEmailIdentifier(profile.email) : undefined;
 
     // Account linking exige a capacidade de provider-identity (model wired no store).
     // Ausente → não há como ligar a identidade; volta ao login em vez de quebrar.
@@ -91,7 +95,14 @@ export default class AuthSocialController {
     let user = await store.findByProviderIdentity(provider, profile.id);
 
     if (!user && email) {
-      const byEmail = await store.findByEmail(email);
+      // Ponte legada: sem ela, quem tem a conta gravada com o endereço mutilado
+      // pelo cadastro antigo ganharia uma SEGUNDA conta ao "Continuar com o
+      // Google" em vez de ligar a identidade à conta que já tem.
+      const byEmail = (
+        await resolveEmailIdentifier(store, email, {
+          legacyFallback: cfg.login?.legacyEmailFallback ?? true,
+        })
+      ).account;
       if (byEmail) {
         await store.linkProviderIdentity({
           accountId: byEmail.id,
