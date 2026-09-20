@@ -38,6 +38,8 @@ import {
   supportsOrganizations,
   supportsPasskeys,
   supportsProfile,
+  supportsRecoveryCodeCount,
+  supportsRecoveryCodeRegeneration,
 } from '../../accounts/account_store.js';
 import { PasswordPolicyError } from '../../password/password_manager.js';
 import type { PatRecord } from '../../pat/pat_store.js';
@@ -795,6 +797,16 @@ export default class AccountApiController {
       }
     }
 
+    // Quantos recovery codes restam (capability-probed, fail-safe).
+    let recoveryRemaining: number | null = null;
+    if (supportsRecoveryCodeCount(cfg.accountStore)) {
+      try {
+        recoveryRemaining = await cfg.accountStore.countRecoveryCodes(userId);
+      } catch {
+        /* fail-safe */
+      }
+    }
+
     return {
       enabled,
       totp: { enrolled: enabled },
@@ -807,8 +819,17 @@ export default class AccountApiController {
           createdAt: p.createdAt ?? null,
         })),
       },
-      // Recovery codes are shown once via the existing POST /account/mfa/confirm flow.
-      recovery: { available: enabled },
+      recovery: {
+        // Os códigos em si NUNCA voltam aqui — só no instante em que são
+        // criados (`/mfa/totp/confirm` ou `/mfa/recovery-codes`), porque é só
+        // o hash deles que fica guardado.
+        available: enabled,
+        // `remaining` é `null` quando o store não sabe contar (capacidade
+        // opcional) — diferente de `0`, que significa "acabaram, gere novos".
+        remaining: recoveryRemaining,
+        // O host só mostra o botão "gerar novos códigos" se houver como.
+        regenerable: supportsRecoveryCodeRegeneration(cfg.accountStore),
+      },
     };
   }
 

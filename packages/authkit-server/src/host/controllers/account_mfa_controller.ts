@@ -6,12 +6,10 @@ import { accountPath } from '../account_paths.js';
 import type { AccountMfaProps } from '../account_screen_props.js';
 import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { translate } from '../i18n.js';
+import { PASSKEY_REG_CHALLENGE_KEY } from '../passkey_registration_challenge.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { dispatchSecurityNotice } from '../security_notice_service.js';
 import { requireSudo } from '../sudo_mode.js';
-
-/** Desafio WebAuthn pendente (registro) guardado na sessão entre begin/finish. */
-const PASSKEY_REG_CHALLENGE_KEY = 'authkit_passkey_reg_challenge';
 
 /**
  * `true` quando a requisição é uma NAVEGAÇÃO (form/browser) e não um XHR/fetch:

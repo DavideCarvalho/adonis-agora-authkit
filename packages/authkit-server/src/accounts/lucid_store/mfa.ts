@@ -108,6 +108,28 @@ export function buildMfa(ctx: LucidStoreContext): MfaCapability {
       return true;
     },
 
+    async countRecoveryCodes(accountId) {
+      const state = await repo.read(accountId);
+      // Sem MFA ativo não há conjunto de códigos a contar — `null` diz "não se
+      // aplica", diferente de `0` ("acabaram, gere novos").
+      if (!state || !state.mfaEnabledAt) return null;
+      return Array.isArray(state.recoveryCodes) ? state.recoveryCodes.length : 0;
+    },
+
+    async regenerateRecoveryCodes(accountId) {
+      const state = await repo.read(accountId);
+      // Só regenera sobre MFA JÁ ATIVO. Num enrollment pendente os códigos saem
+      // do `confirmTotpEnrollment`; deixar regenerar antes disso criaria um
+      // conjunto válido de credenciais de recuperação para um fator que o
+      // usuário ainda não provou possuir.
+      if (!state || !state.mfaEnabledAt) return null;
+      const codes = Array.from({ length: recoveryCodeCount }, () => generateRecoveryCode());
+      // Substitui o conjunto inteiro: os antigos (inclusive os não usados)
+      // param de valer no mesmo instante — é esse o ponto de "regenerar".
+      await repo.upsert(accountId, { recoveryCodes: codes.map(sha256) });
+      return codes;
+    },
+
     async disableMfa(accountId) {
       // Limpa todo o estado de MFA. Inclui o anti-replay: um futuro re-enroll começa do zero.
       await repo.clear(accountId);

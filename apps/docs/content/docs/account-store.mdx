@@ -136,11 +136,24 @@ interface MfaCapability {
   verifyTotp(accountId: string, code: string): Promise<boolean>
   consumeRecoveryCode(accountId: string, code: string): Promise<boolean>
   disableMfa(accountId: string): Promise<void>
+
+  // Optional — probed individually, see below.
+  countRecoveryCodes?(accountId: string): Promise<number | null>
+  regenerateRecoveryCodes?(accountId: string): Promise<string[] | null>
 }
 ```
 
 `enabledAt` (epoch ms) is the moment MFA was last enrolled. Trusted-device cookies issued
 before that instant are rejected, so re-enrolling MFA revokes every remembered device.
+
+The last two methods are **optional within the capability** — a store written against an
+earlier version still satisfies the type, and callers probe for them with
+`supportsRecoveryCodeCount` / `supportsRecoveryCodeRegeneration` before calling. They back
+the recovery-code section of a self-service screen: how many are left
+(`GET /account/api/mfa` → `recovery.remaining`) and the "generate new codes" action
+(`POST /account/api/mfa/recovery-codes`). `lucidAccountStore` implements both. Without them
+the status reports `remaining: null`, `regenerable: false`, and the regeneration endpoint
+answers `422 capability_unsupported` rather than failing.
 
 </Accordion>
 

@@ -21,6 +21,8 @@ export {
 } from './src/client/context.js';
 // Tipos das superfícies do client (desacoplados do server)
 export type {
+  // Account – Orgs (escrita headless)
+  AcceptOrgInvitationResult,
   // Account – Apps
   AccountAppEntry,
   AccountAppsResult,
@@ -41,6 +43,7 @@ export type {
   // Account – Sessions
   AccountSessionsResult,
   AccountTokensResult,
+  ActivateOrgResult,
   // Admin – Clients
   AdminClient,
   AdminClientListResult,
@@ -63,8 +66,11 @@ export type {
   AuditListResult,
   // Account – Senha / E-mail
   ChangePasswordInput,
+  CreateAccountOrgInput,
   CreateClientInput,
+  CreatedAccountOrgResult,
   CreatedClientResult,
+  CreatedOrgInvitationResult,
   CreatedPatResult,
   CreateOrgInput,
   CreateRoleInput,
@@ -72,26 +78,37 @@ export type {
   CreateUserInput,
   // Admin – Overview
   DailyPoint,
+  DeactivateOrgResult,
   EmailChangeResult,
   // Admin – Impersonation
   ImpersonationPanel,
+  InviteOrgMemberInput,
   KeysRotateInput,
   KeysRotateResult,
   // Admin – Keys
   KeysStatus,
+  LeaveOrgResult,
   // Paginação
   ListMeta,
   ManagedKeyInfo,
+  // Account – MFA (escrita headless)
+  MfaConfirmResult,
+  MfaDisableResult,
+  MfaEnrollResult,
+  MfaRecoveryCodesResult,
   OkResult,
+  PasskeyRegistrationOptions,
   // Account – MFA / Passkeys
   PasskeySummaryEntry,
   // Account – Tokens
   PatEntry,
   RegenerateSecretResult,
+  RemoveOrgMemberResult,
   RemovePasskeyResult,
   RequestEmailChangeInput,
   RevokeAllResult,
   RevokeAppResult,
+  RevokeOrgInvitationResult,
   RevokeOthersResult,
   RevokeSessionResult,
   RevokeSessionsResult,
@@ -105,6 +122,7 @@ export type {
   UpdateClientInput,
   UpdateLoginMethodsResult,
   UpdateOrgInput,
+  UpdateOrgMemberRoleResult,
   // Account – Perfil
   UpdateProfileInput,
   UpdateProfileResult,
@@ -261,6 +279,10 @@ export type {
 } from './src/passkey/classic_form.js';
 // Headless: form clássico + "dance" de sudo/passkey para telas React próprias.
 export { submitClassicForm } from './src/passkey/classic_form.js';
+// Cerimônia de registro de passkey em JSON (sem React — o par headless do
+// `runPasskeyRegistration`, que é por form clássico).
+export type { RegisterPasskeyJsonDeps } from './src/passkey/json_registration.js';
+export { registerPasskeyJson } from './src/passkey/json_registration.js';
 export type {
   RunPasskeyAssertionDeps,
   RunPasskeyFlowOptions,
@@ -271,21 +293,37 @@ export type { AuthProviderProps } from './src/provider.js';
 export { AuthContext, AuthProvider } from './src/provider.js';
 // ─── Hooks TanStack Query — Account ──────────────────────────────────────────
 export {
+  useAccountAcceptOrgInvitationMutationOptions,
+  useAccountActivateOrgMutationOptions,
+  // Orgs — ESCRITA (espelho JSON de /account/orgs, para telas do próprio host).
+  // Prefixo `useAccount…` porque a superfície ADMIN exporta homônimos que agem
+  // sobre qualquer org; estas agem sobre as orgs do usuário logado.
+  useAccountCreateOrgMutationOptions,
+  useAccountDeactivateOrgMutationOptions,
+  useAccountInviteOrgMemberMutationOptions,
+  useAccountLeaveOrgMutationOptions,
   useAccountOrgInvitationsQueryOptions,
   useAccountOrgQueryOptions,
   // Orgs
   useAccountOrgsQueryOptions,
+  useAccountRemoveOrgMemberMutationOptions,
   useAccountRevokeAllSessionsMutationOptions,
+  useAccountRevokeOrgInvitationMutationOptions,
   // Sessions
   useAccountSessionsQueryOptions,
+  useAccountUpdateOrgMemberRoleMutationOptions,
   // Apps
   useAppsQueryOptions,
   useCancelEmailChangeMutationOptions,
   // Password
   useChangePasswordMutationOptions,
+  useConfirmTotpMutationOptions,
   useCreateTokenMutationOptions,
+  useDisableTotpMutationOptions,
   // Email change
   useEmailChangeMutationOptions,
+  // Segundo fator — ESCRITA headless (TOTP, recovery codes, passkey em JSON)
+  useEnrollTotpMutationOptions,
   // Login methods (preferência por usuário de tipos de login)
   useLoginMethodsQueryOptions,
   // Me / Security
@@ -294,6 +332,8 @@ export {
   useMfaQueryOptions,
   // Passkeys
   usePasskeysQueryOptions,
+  useRegenerateRecoveryCodesMutationOptions,
+  useRegisterPasskeyMutationOptions,
   useRemovePasskeyMutationOptions,
   useRevokeAppMutationOptions,
   useRevokeOtherSessionsMutationOptions,

@@ -16,6 +16,7 @@
  */
 
 import type {
+  AcceptOrgInvitationResult,
   AccountAppsResult,
   // Account
   AccountLoginMethodsResult,
@@ -28,6 +29,7 @@ import type {
   AccountSecurityOverview,
   AccountSessionsResult,
   AccountTokensResult,
+  ActivateOrgResult,
   AdminClient,
   AdminClientListResult,
   AdminOrgDetail,
@@ -41,24 +43,37 @@ import type {
   AuditListParams,
   AuditListResult,
   ChangePasswordInput,
+  CreateAccountOrgInput,
   CreateClientInput,
+  CreatedAccountOrgResult,
   CreatedClientResult,
+  CreatedOrgInvitationResult,
   CreatedPatResult,
   CreateOrgInput,
   CreateRoleInput,
   CreateTokenInput,
   CreateUserInput,
+  DeactivateOrgResult,
   EmailChangeResult,
   ImpersonationPanel,
+  InviteOrgMemberInput,
   KeysRotateInput,
   KeysRotateResult,
   KeysStatus,
+  LeaveOrgResult,
+  MfaConfirmResult,
+  MfaDisableResult,
+  MfaEnrollResult,
+  MfaRecoveryCodesResult,
   OkResult,
+  PasskeyRegistrationOptions,
   RegenerateSecretResult,
+  RemoveOrgMemberResult,
   RemovePasskeyResult,
   RequestEmailChangeInput,
   RevokeAllResult,
   RevokeAppResult,
+  RevokeOrgInvitationResult,
   RevokeOthersResult,
   RevokeSessionResult,
   RevokeSessionsResult,
@@ -70,6 +85,7 @@ import type {
   UpdateClientInput,
   UpdateLoginMethodsResult,
   UpdateOrgInput,
+  UpdateOrgMemberRoleResult,
   UpdateProfileInput,
   UpdateProfileResult,
   UpdateRoleInput,
@@ -507,8 +523,46 @@ class AuthkitClient {
         this.delete<RevokeAppResult>(this.a(`/apps/${encodeURIComponent(clientId)}`)),
     },
 
-    /** GET /account/api/mfa */
-    mfa: () => this.get<AccountMfaStatus>(this.a('/mfa')),
+    /**
+     * Segundo fator. `mfa()` continua sendo a LEITURA do status
+     * (`GET /account/api/mfa`) — assinatura preservada, ninguém quebra — e as
+     * escritas penduram nela como propriedades: `mfa.enroll()`,
+     * `mfa.confirm()`, `mfa.disable()`, `mfa.regenerateRecoveryCodes()` e
+     * `mfa.passkeys.*`.
+     *
+     * Função COM propriedades, e não um objeto com `.status()`, porque
+     * `client.account.mfa()` já está publicado: trocar a forma quebraria todo
+     * consumidor da 0.69 para ganhar só simetria.
+     *
+     * As escritas exigem SUDO (menos `confirm`, que é o passo seguinte do
+     * `enroll`): sem confirmação de identidade recente o servidor responde
+     * `403 sudo_required`, e a tela do host deve mandar o usuário reconfirmar.
+     */
+    mfa: Object.assign(() => this.get<AccountMfaStatus>(this.a('/mfa')), {
+      /** POST /account/api/mfa/totp/enroll — segredo + otpauth URI + QR. Exige sudo. */
+      enroll: () => this.post<MfaEnrollResult>(this.a('/mfa/totp/enroll')),
+      /**
+       * POST /account/api/mfa/totp/confirm — liga o MFA e devolve os recovery
+       * codes uma única vez. Sem sudo (o `enroll` já exigiu), mas com throttle.
+       */
+      confirm: (code: string) => this.post<MfaConfirmResult>(this.a('/mfa/totp/confirm'), { code }),
+      /** POST /account/api/mfa/totp/disable — desliga o MFA. Exige sudo. */
+      disable: () => this.post<MfaDisableResult>(this.a('/mfa/totp/disable')),
+      /**
+       * POST /account/api/mfa/recovery-codes — troca o conjunto inteiro; os
+       * antigos (inclusive os não usados) deixam de valer. Exige sudo.
+       */
+      regenerateRecoveryCodes: () =>
+        this.post<MfaRecoveryCodesResult>(this.a('/mfa/recovery-codes')),
+      /** Cerimônia de REGISTRO de passkey em JSON (a clássica responde 302). */
+      passkeys: {
+        /** POST /account/api/mfa/passkeys/options — options para `startRegistration()`. */
+        options: () => this.post<PasskeyRegistrationOptions>(this.a('/mfa/passkeys/options')),
+        /** POST /account/api/mfa/passkeys/verify — persiste a credencial. Exige sudo. */
+        verify: (response: unknown) =>
+          this.post<OkResult>(this.a('/mfa/passkeys/verify'), { response }),
+      },
+    }),
 
     loginMethods: {
       /** GET /account/api/login-methods */
@@ -536,6 +590,11 @@ class AuthkitClient {
         this.delete<RevokeTokenResult>(this.a(`/tokens/${encodeURIComponent(id)}`)),
     },
 
+    /**
+     * Organizações do ponto de vista do MEMBRO (não do admin). As escritas são
+     * o espelho JSON dos formulários de `/account/orgs`: mesmos guards, mesma
+     * política efetiva, mesmos erros — só a resposta muda de redirect para JSON.
+     */
     orgs: {
       /** GET /account/api/orgs */
       list: () => this.get<AccountOrgsResult>(this.a('/orgs')),
@@ -543,6 +602,55 @@ class AuthkitClient {
       invitations: () => this.get<AccountOrgInvitationsResult>(this.a('/orgs/invitations')),
       /** GET /account/api/orgs/:id */
       get: (id: string) => this.get<AccountOrgDetail>(this.a(`/orgs/${encodeURIComponent(id)}`)),
+
+      /**
+       * POST /account/api/orgs — cria uma org (quem cria vira `owner`).
+       * `403 self_create_disabled` quando `allowSelfCreate` está desligado na
+       * política efetiva; `409 slug_taken` quando o slug já existe.
+       */
+      create: (data: CreateAccountOrgInput) =>
+        this.post<CreatedAccountOrgResult>(this.a('/orgs'), data),
+      /** POST /account/api/orgs/:id/activate — define a org ativa (cookie). */
+      activate: (id: string) =>
+        this.post<ActivateOrgResult>(this.a(`/orgs/${encodeURIComponent(id)}/activate`)),
+      /** POST /account/api/orgs/deactivate — limpa a org ativa. */
+      deactivate: () => this.post<DeactivateOrgResult>(this.a('/orgs/deactivate')),
+      /** POST /account/api/orgs/:id/leave — sai da org (`409 last_owner` recusa o último owner). */
+      leave: (id: string) =>
+        this.post<LeaveOrgResult>(this.a(`/orgs/${encodeURIComponent(id)}/leave`)),
+      /** POST /account/api/orgs/:id/invitations — convida por e-mail. Exige owner/admin. */
+      invite: (orgId: string, data: InviteOrgMemberInput) =>
+        this.post<CreatedOrgInvitationResult>(
+          this.a(`/orgs/${encodeURIComponent(orgId)}/invitations`),
+          data,
+        ),
+      /** DELETE /account/api/orgs/:id/invitations/:invitationId — revoga um convite pendente. */
+      revokeInvitation: (orgId: string, invitationId: string) =>
+        this.delete<RevokeOrgInvitationResult>(
+          this.a(
+            `/orgs/${encodeURIComponent(orgId)}/invitations/${encodeURIComponent(invitationId)}`,
+          ),
+        ),
+      /** PATCH /account/api/orgs/:id/members/:accountId — troca o papel de um membro. */
+      updateMemberRole: (orgId: string, accountId: string, role: string) =>
+        this.patch<UpdateOrgMemberRoleResult>(
+          this.a(`/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(accountId)}`),
+          { role },
+        ),
+      /** DELETE /account/api/orgs/:id/members/:accountId — remove um membro. */
+      removeMember: (orgId: string, accountId: string) =>
+        this.delete<RemoveOrgMemberResult>(
+          this.a(`/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(accountId)}`),
+        ),
+      /**
+       * POST /account/api/orgs/invitations/:token/accept — aceita um convite.
+       * `410 expired` para convite vencido, `403 email_mismatch` quando o
+       * convite é de outro e-mail.
+       */
+      acceptInvitation: (token: string) =>
+        this.post<AcceptOrgInvitationResult>(
+          this.a(`/orgs/invitations/${encodeURIComponent(token)}/accept`),
+        ),
     },
   } as const;
 }

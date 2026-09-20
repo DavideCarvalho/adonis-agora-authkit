@@ -501,6 +501,10 @@ const C = {
   apiKeys: () => import('./admin_api/api_keys_controller.js'),
   // Account self-service JSON API (session-authed, under /account/api/*).
   accountApi: () => import('./account_api/account_api_controller.js'),
+  // Espelhos JSON das ESCRITAS de org e do segundo fator — mesmos guards e
+  // mesma política do console HTML, resposta em JSON (ver os docblocks deles).
+  accountOrgsApi: () => import('./account_api/account_orgs_api_controller.js'),
+  accountMfaApi: () => import('./account_api/account_mfa_api_controller.js'),
   // API headless (Clerk-style) — host-session-authed via `headless.resolveAccountId`.
   headlessLoginMethods: () => import('./controllers/headless_login_methods_controller.js'),
 };
@@ -978,6 +982,55 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
       router.get(`${apiBase}/orgs`, [C.accountApi, 'listOrgs']);
       router.get(`${apiBase}/orgs/invitations`, [C.accountApi, 'listOrgInvitations']);
       router.get(`${apiBase}/orgs/:id`, [C.accountApi, 'showOrg']);
+
+      // ─── Orgs: ESCRITA em JSON (espelho dos POSTs de formulário) ─────────
+      // SEMPRE montadas, como as leituras JSON logo acima — e NÃO amarradas ao
+      // `mountOrgs` da TELA. A tela é a UI do console; `/account/api/*` é a
+      // superfície de máquina, e quem desliga a tela é justamente o host que
+      // desenha as próprias telas e mais precisa destes endpoints. Amarrar as
+      // duas coisas tornaria o modo headless inalcançável.
+      //
+      // Desligar a tela não afrouxa nada: o que decide quem pode o quê aqui é o
+      // `accountGuard` + capability-probe do store + política efetiva
+      // (`allowSelfCreate` continua `false` por default) + papel na org — os
+      // mesmos gates do formulário, nunca a presença de uma rota HTML.
+      // ⚠️ ORDER MATTERS, de novo: segmento fixo antes de paramétrico.
+      router.post(`${apiBase}/orgs`, [C.accountOrgsApi, 'createOrg']);
+      router.post(`${apiBase}/orgs/deactivate`, [C.accountOrgsApi, 'deactivateOrg']);
+      router.post(`${apiBase}/orgs/invitations/:token/accept`, [
+        C.accountOrgsApi,
+        'acceptInvitation',
+      ]);
+      router.post(`${apiBase}/orgs/:id/activate`, [C.accountOrgsApi, 'activateOrg']);
+      router.post(`${apiBase}/orgs/:id/leave`, [C.accountOrgsApi, 'leaveOrg']);
+      router.post(`${apiBase}/orgs/:id/invitations`, [C.accountOrgsApi, 'inviteMember']);
+      router.delete(`${apiBase}/orgs/:id/invitations/:invId`, [
+        C.accountOrgsApi,
+        'revokeInvitation',
+      ]);
+      router.patch(`${apiBase}/orgs/:id/members/:accountId`, [
+        C.accountOrgsApi,
+        'updateMemberRole',
+      ]);
+      router.delete(`${apiBase}/orgs/:id/members/:accountId`, [C.accountOrgsApi, 'removeMember']);
+
+      // ─── Segundo fator em JSON (espelho do console de MFA) ───────────────
+      // Mesma decisão das de org: superfície de máquina, montada sempre. Sem a
+      // capacidade de MFA no store, cada handler responde 422
+      // `capability_unsupported` — capability-probed, como o resto do
+      // `/account/api/*`.
+      router.post(`${apiBase}/mfa/totp/enroll`, [C.accountMfaApi, 'enrollTotp']);
+      // THROTTLE no confirm: o código TOTP é adivinhável (6 dígitos), e o
+      // `accountGuard` sozinho só exige uma sessão viva — que quem está
+      // tentando adivinhar tem. Bucket de SUDO (por IP): mesma natureza —
+      // usuário autenticado reprovando um fator —, contagem separada do login.
+      // O form clássico não tem isto; o JSON fica MAIS apertado, que é a única
+      // direção em que os dois caminhos podem divergir.
+      withSudo(router.post(`${apiBase}/mfa/totp/confirm`, [C.accountMfaApi, 'confirmTotp']));
+      router.post(`${apiBase}/mfa/totp/disable`, [C.accountMfaApi, 'disableTotp']);
+      router.post(`${apiBase}/mfa/recovery-codes`, [C.accountMfaApi, 'regenerateRecoveryCodes']);
+      router.post(`${apiBase}/mfa/passkeys/options`, [C.accountMfaApi, 'passkeyRegisterOptions']);
+      router.post(`${apiBase}/mfa/passkeys/verify`, [C.accountMfaApi, 'passkeyRegisterVerify']);
     })
     .use([accountGuard]);
 

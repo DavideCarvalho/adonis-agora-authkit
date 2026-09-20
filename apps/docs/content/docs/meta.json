@@ -30,6 +30,7 @@
     "react",
     "components",
     "data-fetching",
+    "headless-account",
     "---Reference---",
     "host-kit",
     "client",

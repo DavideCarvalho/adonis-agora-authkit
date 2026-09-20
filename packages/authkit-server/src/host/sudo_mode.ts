@@ -169,6 +169,38 @@ export function isSudoActive(ctx: HttpContext, graceMinutes: number): boolean {
 }
 
 /**
+ * A DECISÃO de sudo, sem efeito colateral nenhum na resposta: `true` quando a
+ * requisição pode seguir, `false` quando o usuário precisa reconfirmar a
+ * identidade.
+ *
+ * Existe porque há DUAS formas de recusar a mesma coisa. O console HTML
+ * redireciona para `/account/confirm` (`requireSudo`); o espelho JSON de
+ * `/account/api/*` responde `403 { error: { code: 'sudo_required' } }`, porque
+ * uma SPA que recebe uma página de login onde esperava JSON não tem como
+ * reagir. A POLÍTICA — toggle `sudo_mode`, janela de graça, vinculação à conta,
+ * fail-safe da setting e fail-closed da marca — tem de ser UMA só: duas cópias
+ * dela são como o caminho JSON acaba mais frouxo que o formulário.
+ *
+ * Toda a discussão de fail-safe × fail-closed do {@link requireSudo} vale aqui
+ * sem mudança: é literalmente o mesmo código.
+ */
+export async function isSudoSatisfied(
+  ctx: HttpContext,
+  settings: SettingsCapability | null,
+): Promise<boolean> {
+  try {
+    const cfg = settings ? await resolveEffectiveSudoMode(settings) : SUDO_MODE_DEFAULTS;
+    if (!cfg.enabled) return true;
+    return isSudoActive(ctx, cfg.graceMinutes);
+  } catch {
+    // FAIL-SAFE: erro ao resolver a setting → deixa passar. Disponibilidade, não
+    // identidade — ver o docblock de `requireSudo` para o porquê de isto NÃO
+    // contradizer o fail-closed de `isSudoActive`.
+    return true;
+  }
+}
+
+/**
  * Guard de sudo mode. Verifica se a confirmação de identidade está ativa e
  * dentro da janela de graça. Se estiver, retorna `true`. Se não, redireciona
  * para `/account/confirm?return_to=<path atual>` e retorna a resposta.
@@ -227,16 +259,7 @@ export async function requireSudo(
   ctx: HttpContext,
   settings: SettingsCapability | null,
 ): Promise<true | unknown> {
-  try {
-    const cfg = settings ? await resolveEffectiveSudoMode(settings) : SUDO_MODE_DEFAULTS;
-    if (!cfg.enabled) return true;
-    if (isSudoActive(ctx, cfg.graceMinutes)) return true;
-  } catch {
-    // FAIL-SAFE: erro ao resolver a setting → deixa passar. Disponibilidade, não
-    // identidade — ver o docblock acima para o porquê de isto NÃO contradizer o
-    // fail-closed de `isSudoActive`.
-    return true;
-  }
+  if (await isSudoSatisfied(ctx, settings)) return true;
 
   // Fora da graça: redireciona para confirmação.
   const rawUrl = ctx.request.url?.() ?? '';

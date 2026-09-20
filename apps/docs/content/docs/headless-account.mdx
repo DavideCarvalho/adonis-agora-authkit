@@ -1,0 +1,306 @@
+---
+icon: LayoutDashboard
+title: Host-owned account screens
+description: Run organizations, TOTP and passkeys from your own UI — the JSON mirror of the /account console, screen by screen.
+---
+
+AuthKit ships a server-rendered account console at `/account/*`. It works, and for many apps
+it is the right answer — but it is *AuthKit's* UI, with AuthKit's layout, inside AuthKit's
+navigation. If your product already has a settings area, sending the user out to a different
+shell to add a second factor or invite a teammate is a seam your users will feel.
+
+This page is the other path: **your screens, AuthKit's backend.** Every write the console
+does has a JSON mirror under `/account/api/*`, with the same guards, the same effective
+policy and the same errors. The library stays backend + hooks; the UI is yours.
+
+<Callout type="info">
+  Nothing here replaces the console. Both surfaces are mounted, both stay supported, and they
+  share the same policy resolution — you can move one screen at a time, or run both.
+</Callout>
+
+## The shape of it
+
+```
+Your screen (React)                  AuthKit
+─────────────────────                ────────────────────────────────────
+useAccountOrgsQueryOptions()   ──►   GET    /account/api/orgs
+useAccountCreateOrgMutation…() ──►   POST   /account/api/orgs
+useEnrollTotpMutationOptions() ──►   POST   /account/api/mfa/totp/enroll
+                                     (accountGuard + CSRF + sudo + policy)
+```
+
+Three rules hold across the whole surface:
+
+1. **Session, not a body field.** The actor is always the account in the session cookie.
+   No endpoint accepts an account id from the request body.
+2. **CSRF on every write.** None of these routes is in `authkitCsrfExceptions`. The typed
+   client sends `X-CSRF-TOKEN` for you.
+3. **Sudo is the same sudo.** Sensitive writes need a recent identity confirmation. The
+   console redirects to `/account/confirm`; here you get
+   `403 { error: { code: 'sudo_required' } }` instead, because a SPA cannot do anything
+   useful with an HTML page it did not ask for.
+
+## Setup
+
+Mount the host kit as usual and wrap your tree with the client provider. If you want *only*
+your screens, turn the console screens off — the JSON API stays mounted either way:
+
+```ts title="start/routes.ts"
+registerAuthHost(router, {
+  mountPath: '/oidc',
+  // Optional: no HTML console for these two screens; the JSON API is unaffected.
+  account: { orgs: false, mfa: false },
+})
+```
+
+```tsx title="app/ui/root.tsx"
+import {
+  AuthkitClientProvider,
+  createAuthkitQueryClient,
+} from '@adonis-agora/authkit-react'
+import { QueryClientProvider } from '@tanstack/react-query'
+
+const queryClient = createAuthkitQueryClient()
+
+<QueryClientProvider client={queryClient}>
+  <AuthkitClientProvider opts={{ csrfToken }}>
+    <App />
+  </AuthkitClientProvider>
+</QueryClientProvider>
+```
+
+See [Typed Client & TanStack Query](/docs/data-fetching) for the provider details and the
+full hook catalogue.
+
+## Screen: organizations list
+
+What the screen needs: the orgs the user belongs to, which one is active, and — when policy
+allows — a "create organization" form.
+
+| You need | Call |
+| --- | --- |
+| The list + active org | `useAccountOrgsQueryOptions()` |
+| Pending invitations for this user | `useAccountOrgInvitationsQueryOptions()` |
+| Create an org | `useAccountCreateOrgMutationOptions()` |
+| Switch the active org | `useAccountActivateOrgMutationOptions()` |
+| Clear the active org | `useAccountDeactivateOrgMutationOptions()` |
+| Leave an org | `useAccountLeaveOrgMutationOptions()` |
+| Accept an invitation | `useAccountAcceptOrgInvitationMutationOptions()` |
+
+```tsx title="app/ui/pages/organizations.tsx"
+const { data } = useQuery(useAccountOrgsQueryOptions())
+const create = useMutation(useAccountCreateOrgMutationOptions())
+const queryClient = useQueryClient()
+
+async function onCreate(name: string, slug: string) {
+  try {
+    await create.mutateAsync({ name, slug })
+    queryClient.invalidateQueries({ queryKey: authkitKeys.account.orgs() })
+  } catch (err) {
+    if (err instanceof AuthkitClientError && err.code === 'slug_taken') {
+      setSlugError('That URL is already taken.')
+    }
+  }
+}
+```
+
+**Whether to show the create form at all** is a policy question, not a UI preference.
+Self-service creation is off by default and is turned on by the `organizations_policy`
+setting or `config.organizations.allowSelfCreate` — see
+[Organizations](/docs/organizations#configuration). The endpoint answers
+`403 self_create_disabled` when it is off; read the same policy on the server when you render
+the page so the button is not there to be clicked in the first place.
+
+## Screen: one organization (members and invitations)
+
+| You need | Call |
+| --- | --- |
+| Members, role, `canManage` | `useAccountOrgQueryOptions(orgId)` |
+| Invite by email | `useAccountInviteOrgMemberMutationOptions()` |
+| Revoke a pending invitation | `useAccountRevokeOrgInvitationMutationOptions()` |
+| Change a member's role | `useAccountUpdateOrgMemberRoleMutationOptions()` |
+| Remove a member | `useAccountRemoveOrgMemberMutationOptions()` |
+
+The detail query returns `canManage` — use it to decide whether to render the management
+controls. The server does **not** trust that flag: invite, revoke, role change and removal
+all re-check that the actor is an `owner`/`admin` **of the org in the path**, which is what
+stops one org's admin from touching another's.
+
+Two escalation rules worth surfacing in the UI, because the server enforces them regardless:
+
+- Only an `owner` may grant the `owner` role (`403 forbidden` otherwise).
+- The last `owner` cannot be removed, demoted, or leave (`409 last_owner`).
+
+The invitation response deliberately **does not include the accept token** — that token is
+the credential, and it travels by email. Your screen shows "invitation sent", not a link.
+
+## Screen: second factor (TOTP)
+
+Enrollment is two calls, and the first one needs sudo:
+
+```tsx
+const enroll = useMutation(useEnrollTotpMutationOptions())
+const confirm = useMutation(useConfirmTotpMutationOptions())
+
+// 1. Start: returns the secret, the otpauth:// URI, and a ready-to-render QR.
+const { secret, otpauthUri, qrDataUrl } = await enroll.mutateAsync()
+//    <img src={qrDataUrl} alt="" />  — or render otpauthUri yourself
+
+// 2. Confirm with the code from the authenticator app. MFA turns on here.
+const { recoveryCodes } = await confirm.mutateAsync(code)
+//    Show these ONCE. The server stores only their hashes.
+```
+
+| You need | Call | Sudo |
+| --- | --- | --- |
+| Current status | `useMfaQueryOptions()` | — |
+| Start enrollment | `useEnrollTotpMutationOptions()` | **yes** |
+| Confirm the code | `useConfirmTotpMutationOptions()` | no (throttled) |
+| Turn MFA off | `useDisableTotpMutationOptions()` | **yes** |
+| New recovery codes | `useRegenerateRecoveryCodesMutationOptions()` | **yes** |
+
+`confirm` does not ask for sudo on purpose: `enroll` already did, and asking again would
+break enrollment for anyone who took a while to type the code. It is rate-limited instead —
+a six-digit code is guessable, and a live session is not a high bar for whoever is guessing.
+
+A wrong code returns `422 invalid_code` and **does not** rotate the pending secret: the user
+already scanned the QR, so the screen asks for another code against the same secret.
+
+### Recovery codes
+
+`useMfaQueryOptions()` gives you what the screen needs to decide what to show:
+
+```ts
+data.recovery.remaining    // number | null — null = the store cannot count
+data.recovery.regenerable  // boolean — false = don't render the button
+```
+
+`remaining: 0` means "they ran out, generate new ones". `remaining: null` means the store
+does not implement counting (an optional capability) — render the section without a count
+rather than claiming zero.
+
+Regenerating replaces the **whole set**: the old codes, including unused ones, stop working
+at that instant. That is the point of the button, and it is worth saying so next to it. The
+event is audited as `mfa.recovery_codes_regenerated`.
+
+## Screen: passkeys
+
+Listing and removal already had JSON endpoints. What was missing was **registration**: the
+classic endpoints answer `302`, because the built-in flow posts a full page form. A screen of
+yours cannot do that — the browser cannot navigate between `startRegistration()` and sending
+its result.
+
+`registerPasskeyJson` runs the whole ceremony over `fetch`:
+
+```tsx
+const register = useMutation(useRegisterPasskeyMutationOptions())
+
+await register.mutateAsync()
+// options → startRegistration() → verify, all JSON
+queryClient.invalidateQueries({ queryKey: authkitKeys.account.passkeys() })
+```
+
+`@simplewebauthn/browser` is an **optional peer dependency** — install it in your app
+(`pnpm add @simplewebauthn/browser`). Without it the mutation fails with the exact install
+instruction; AuthKit will not pull a third party into the authentication path from a CDN.
+
+Outside React, call `registerPasskeyJson(client)` directly with an `AuthkitClient`.
+
+The classic `usePasskeyRegistration` hook still exists and is unchanged — use it when you are
+rendering inside the console's own pages.
+
+## Handling `sudo_required`
+
+Every sudo-gated call can fail this way, and it is not an error to show the user raw. It is a
+routing decision:
+
+```tsx
+import { AuthkitClientError } from '@adonis-agora/authkit-react'
+
+try {
+  await enroll.mutateAsync()
+} catch (err) {
+  if (err instanceof AuthkitClientError && err.code === 'sudo_required') {
+    // Send them to confirm identity, then bring them back here.
+    window.location.href =
+      `/account/confirm?return_to=${encodeURIComponent(window.location.pathname)}`
+    return
+  }
+  throw err
+}
+```
+
+There is no JSON re-authentication endpoint: confirming identity means a password, a passkey
+or a magic link, and those are interactive flows that live on the console's confirm screen.
+Sending the user there and back is the intended shape. See
+[Sudo mode](/docs/security#sudo-mode) for the grace window and how to configure it.
+
+## Error codes
+
+All of these arrive as `AuthkitClientError` with `.status` and `.code`:
+
+| Code | Status | Meaning |
+| --- | --- | --- |
+| `challenge_expired` | 400 | No pending WebAuthn challenge — call `passkeys.options()` again |
+| `invalid_response` | 400 | The attestation was rejected; the challenge is burned, so start over |
+| `unauthorized` | 401 | No account session |
+| `sudo_required` | 403 | Identity confirmation expired — send the user to confirm |
+| `forbidden` | 403 | Not an owner/admin of that org, or escalating to `owner` |
+| `self_create_disabled` | 403 | Org self-service creation is off in the effective policy |
+| `email_mismatch` | 403 | The invitation was issued to a different address |
+| `not_found` | 404 | No such org/member/invitation — or not a member (deliberately identical) |
+| `not_supported` | 404 | The account store has no organizations capability |
+| `slug_taken` | 409 | Org slug already in use — including the race the unique index catches |
+| `last_owner` | 409 | Cannot remove, demote, or leave as the last owner |
+| `expired` | 410 | The invitation's TTL has passed |
+| `invalid_input` | 422 | A required field is missing |
+| `invalid_role` | 422 | Role is not in the effective role catalogue |
+| `invalid_code` | 422 | Wrong TOTP code — the pending secret is unchanged, ask for another code |
+| `enroll_failed` | 422 | The store could not start TOTP enrollment |
+| `mfa_not_enabled` | 422 | Nothing to regenerate — MFA is off |
+| `capability_unsupported` | 422 | The store does not implement this capability |
+
+`not_found` covers both "no such org" and "not a member" on purpose: telling them apart would
+leak the existence of other people's organizations.
+
+The two 400s are the passkey ceremony's, and they mean the same thing to the screen: **start
+over.** The registration challenge is single-use and is burned on any outcome, successful or
+not, so a rejected attestation cannot be retried against it. Call
+`useRegisterPasskeyMutationOptions()` again — it re-fetches options — rather than re-sending
+the same attestation.
+
+A store failure that is *not* a duplicate slug (database down, timeout) is **not** mapped to
+`slug_taken`: it propagates as a 500. Telling a host to pick a different slug during an outage
+would have it retry forever and hide the real problem.
+
+## Route table
+
+| Method | Path | Sudo |
+| --- | --- | --- |
+| `POST` | `/account/api/orgs` | — |
+| `POST` | `/account/api/orgs/deactivate` | — |
+| `POST` | `/account/api/orgs/invitations/:token/accept` | — |
+| `POST` | `/account/api/orgs/:id/activate` | — |
+| `POST` | `/account/api/orgs/:id/leave` | — |
+| `POST` | `/account/api/orgs/:id/invitations` | — |
+| `DELETE` | `/account/api/orgs/:id/invitations/:invId` | — |
+| `PATCH` | `/account/api/orgs/:id/members/:accountId` | — |
+| `DELETE` | `/account/api/orgs/:id/members/:accountId` | — |
+| `POST` | `/account/api/mfa/totp/enroll` | **yes** |
+| `POST` | `/account/api/mfa/totp/confirm` | — (throttled) |
+| `POST` | `/account/api/mfa/totp/disable` | **yes** |
+| `POST` | `/account/api/mfa/recovery-codes` | **yes** |
+| `POST` | `/account/api/mfa/passkeys/options` | — |
+| `POST` | `/account/api/mfa/passkeys/verify` | **yes** |
+
+Organization writes do not require sudo — the HTML console does not require it either, and a
+mirror that is stricter than what it mirrors is a different policy, not a different format.
+Changing that is a policy decision for the whole feature, not for one surface.
+
+## What still lives on the console
+
+- **Confirming identity** (`/account/confirm`) — password, passkey and magic-link flows.
+- **Login, signup and consent** — server-rendered postback by design; see
+  [Security](/docs/security).
+
+Everything else on this page can be a screen of yours.

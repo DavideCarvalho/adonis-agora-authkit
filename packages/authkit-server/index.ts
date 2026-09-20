@@ -393,6 +393,9 @@ export type {
 // Sudo mode — helpers for host controllers that require step-up authentication.
 export {
   isSudoActive,
+  // A DECISÃO de sudo sem efeito na resposta — o que o host chama quando quer
+  // recusar em JSON em vez de redirecionar para `/account/confirm`.
+  isSudoSatisfied,
   markSudo,
   requireSudo,
   resolveEffectiveSudoMode,
