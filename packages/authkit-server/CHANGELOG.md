@@ -1,5 +1,71 @@
 # @adonis-agora/authkit-server
 
+## 0.69.0
+
+### Minor Changes
+
+- [#221](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/221) [`7a56652`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/7a566522678cf4ab8136e0e4e7124ee8f686b0e9) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - feat(authkit-server): área de conta aceita a sessão do IdP (SSO) — `accountSession.acceptIdpSession`
+  
+  O console de conta (`/account/*`, admin) só aceitava a própria sessão
+  (`ACCOUNT_SESSION_KEY`, criada pelo `POST /account/login`); o login da interaction OIDC
+  cria só a sessão do oidc-provider. Resultado: quem acabou de entrar num app OIDC (ou no
+  próprio host, quando ele é IdP e RP) levava um segundo pedido de login ao abrir
+  `/account/*`.
+  
+  Com `accountSession: { acceptIdpSession: true }`, os guards do console (e o
+  `AccountAuthMiddleware`/aceite de convite de org) abrem o console para a conta de uma
+  sessão do IdP válida (cookie assinado, não expirada, conta existente e habilitada). O
+  console aberto assim fica amarrado a essa sessão: termina quando ela termina, e o "Sair"
+  do console encerra também a sessão do IdP. Novo helper público `ensureConsoleSession(ctx)`
+  para guards do host. Default `false` — nada muda para quem não liga.
+
+- [#221](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/221) [`7a56652`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/7a566522678cf4ab8136e0e4e7124ee8f686b0e9) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - feat(authkit-server): política de redirect URI no registro dinâmico (RFC 7591/7592)
+  
+  O `/reg` aceitava qualquer redirect sintaticamente válido (qualquer `https://`): com
+  registro aberto, qualquer um registrava um client com callback no próprio domínio e
+  usava a tela de consent do IdP como isca. Nova opção
+  `dynamicRegistration.redirectUriPolicy` (`loopback`, `exact`, `appSchemes`, `anyHttps`),
+  aplicada antes do provider no `POST /reg` e no `PUT /reg/:id`, que também restringe o
+  client ao fluxo de código (`authorization_code` + `refresh_token`, `response_type=code`)
+  e registra clientes só-loopback/app instalado como `application_type: native`. Gancho
+  `dynamicRegistration.validateRegistration` para regras do host (`RegistrationPolicyError`
+  → `400`).
+  
+  **Mudança de default:** registro **aberto** (sem `initialAccessToken`) passa a aceitar só
+  redirects loopback (`http://localhost|127.0.0.1|[::1]`, qualquer porta). Callbacks web de
+  fornecedores e esquemas de app precisam ser listados em `exact`/`appSchemes`
+  (`anyHttps: true` ou `redirectUriPolicy: false` restauram o comportamento anterior).
+  Registro com `initialAccessToken` não muda.
+
+- [#221](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/221) [`7a56652`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/7a566522678cf4ab8136e0e4e7124ee8f686b0e9) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - feat(authkit-server): resource indicators (RFC 8707) com access tokens opacos
+  
+  A feature `resourceIndicators` do oidc-provider só era montada quando algum AT era JWT;
+  com tokens opacos, um `resource` no authorize (clientes MCP sempre mandam) era recusado
+  com `invalid_target`. Agora `accessTokens.resources` também liga a feature com tokens
+  opacos: o `resource` declarado (tolerando barra final) é concedido no consent e amarrado
+  ao AT (`aud`), que continua opaco, encontrável por `AccessToken.find` e introspecionável.
+  Pedidos sem `resource` não mudam (AT opaco sem `aud`, userinfo funciona).
+  
+  `resource` fora da lista declarada (chaves de `resources` + o `audience` no modo JWT)
+  passa a ser recusado com `invalid_target` também no modo JWT — antes, um resource
+  desconhecido saía como token opaco com `aud` arbitrário.
+
+### Patch Changes
+
+- [#221](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/221) [`7a56652`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/7a566522678cf4ab8136e0e4e7124ee8f686b0e9) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - fix(authkit-server): política de organizations (`allowSelfCreate`, `roles`, `invitationTtlHours`) volta a valer
+  
+  Desde a remoção da config de política legada, `resolveOrganizations` fixava
+  `allowSelfCreate: false` (e roles/TTL no default), e o `AccountOrgsController` lia só
+  esse valor estático — nunca a setting `organizations_policy` que a doc manda usar. Pior:
+  declarar `organizations` no `defineConfig` **trava** a setting, então um host com
+  `organizations: { enabled: true }` não tinha jeito nenhum de ligar o self-create
+  (`POST /account/orgs` → 403).
+  
+  - `OrganizationsConfigInput` aceita de novo `allowSelfCreate`, `roles` e
+    `invitationTtlHours` — com a setting travada, eles são a política efetiva.
+  - `/account/orgs` (tela, criação e convites) e o TTL dos convites do admin/Admin API
+    resolvem a política **efetiva**: setting da org → setting global → config → default.
+
 ## 0.68.4
 
 ### Patch Changes
