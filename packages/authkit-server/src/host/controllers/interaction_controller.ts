@@ -506,57 +506,23 @@ export default class AuthInteractionController {
       // Admin: prossegue normalmente (sem bloqueio).
     }
 
-    // Step-up auth (acr_values): o client pode EXIGIR MFA nesta requisição
-    // solicitando o `mfaAcr` em acr_values, mesmo que a conta tenha MFA opcional.
-    const mfaRequired = this.acrRequiresMfa(cfg, details);
-
-    // MFA gate: força o 2º fator se a conta tem TOTP ativo OU se o client exige MFA
-    // via acr. Não finaliza a interaction agora — guarda o accountId pendente.
-    const mfa = (await cfg.accountStore.getMfaState?.(acc.id)) ?? { enabled: false };
-    if (mfa.enabled || mfaRequired) {
-      if (mfaRequired && !mfa.enabled) {
-        // Client exige MFA mas a conta não tem MFA enrolado: bloqueia este login
-        // com a instrução de configurar MFA no console (não há 2º fator a desafiar).
-        return render(ctx, 'mfa-challenge', {
-          uid: ctx.request.param('uid'),
-          csrfToken: ctx.request.csrfToken,
-          brand,
-          passkeyAvailable: false,
-          error: translate(cfg.messages, 'mfa_challenge.required_no_enrollment'),
-          noEnrollment: true,
-        });
-      }
-      // Trusted device: se o mecanismo está ligado, a conta JÁ tem MFA enrolado e
-      // o request NÃO é um step-up (que sempre força o MFA), um cookie de confiança
-      // válido para ESTA conta pula o 2º fator. amr fica `['pwd']` (sem acr de MFA).
-      if (cfg.trustedDevices.enabled && mfa.enabled && !mfaRequired) {
-        const trusted = await this.checkTrustedDevice(ctx, acc.id, mfa.enabledAt ?? null);
-        if (trusted) {
-          await service.interactions.completeLogin(ctx, acc.id, { amr: ['pwd'] });
-          await notifyLoginSuccess(ctx, cfg, {
-            accountId: acc.id,
-            email,
-            ip,
-            clientId,
-            trustedDevice: true,
-          });
-          forgetLoginEmail(ctx);
-          return;
-        }
-      }
-
-      ctx.session.put(MFA_PENDING_KEY, acc.id);
-      // Passkey disponível como alternativa ao TOTP se o store suporta E a conta
-      // tem ao menos uma credencial registrada.
-      const passkeyAvailable = await this.hasPasskeys(cfg, acc.id);
-      return render(ctx, 'mfa-challenge', {
-        uid: ctx.request.param('uid'),
-        csrfToken: ctx.request.csrfToken,
-        brand,
-        passkeyAvailable,
-        trustedDevicesEnabled: cfg.trustedDevices.enabled,
-        trustedDeviceDays: cfg.trustedDevices.days,
+    // Gate do 2º fator — a MESMA regra dos três caminhos de login (ver
+    // `secondFactorGate`). Quando desafia, não finaliza a interaction: guarda o
+    // accountId pendente e devolve a tela.
+    const gate = await this.secondFactorGate(ctx, cfg, acc.id, details);
+    if (gate.kind === 'challenge') return gate.response;
+    if (gate.kind === 'trusted') {
+      // Dispositivo confiável: pula o 2º fator. amr fica `['pwd']` (sem acr de MFA).
+      await service.interactions.completeLogin(ctx, acc.id, { amr: ['pwd'] });
+      await notifyLoginSuccess(ctx, cfg, {
+        accountId: acc.id,
+        email,
+        ip,
+        clientId,
+        trustedDevice: true,
       });
+      forgetLoginEmail(ctx);
+      return;
     }
 
     // Sem MFA: finaliza a interaction (escreve o 303 de volta para o client).
@@ -652,6 +618,7 @@ export default class AuthInteractionController {
         error: translate(cfg.messages, 'errors.otp_locked'),
         brand,
         passkeyAvailable: await this.hasPasskeys(cfg, accountId),
+        totpAvailable: await this.hasTotp(cfg, accountId),
         trustedDevicesEnabled: cfg.trustedDevices.enabled,
         trustedDeviceDays: cfg.trustedDevices.days,
         otpLocked: true,
@@ -689,6 +656,7 @@ export default class AuthInteractionController {
           error: translate(cfg.messages, 'errors.otp_locked'),
           brand,
           passkeyAvailable: await this.hasPasskeys(cfg, accountId),
+          totpAvailable: await this.hasTotp(cfg, accountId),
           trustedDevicesEnabled: cfg.trustedDevices.enabled,
           trustedDeviceDays: cfg.trustedDevices.days,
           otpLocked: true,
@@ -701,6 +669,7 @@ export default class AuthInteractionController {
         error: translate(cfg.messages, 'errors.invalid_code'),
         brand,
         passkeyAvailable: await this.hasPasskeys(cfg, accountId),
+        totpAvailable: await this.hasTotp(cfg, accountId),
         trustedDevicesEnabled: cfg.trustedDevices.enabled,
         trustedDeviceDays: cfg.trustedDevices.days,
       });
@@ -753,6 +722,97 @@ export default class AuthInteractionController {
   ): { acr: string; amr: string[] } | undefined {
     if (!this.acrRequiresMfa(cfg, details)) return undefined;
     return { acr: cfg.stepUp.mfaAcr, amr: ['mfa', method] };
+  }
+
+  /**
+   * Gate do segundo fator, compartilhado pelos caminhos de login: senha, link
+   * mágico, código por e-mail e troca forçada de senha. Antes disto só o login
+   * por senha passava pelo MFA — link e código completavam a interaction direto,
+   * então uma conta com TOTP ou passkey entrava apresentando só o e-mail e o
+   * segundo fator virava enfeite.
+   *
+   * A pergunta que o gate responde é "existe um fator que esta pessoa consegue
+   * apresentar AGORA?", e não `mfa.enabled` — que liga ao registrar uma passkey
+   * e não desliga ao remover a última. Fator utilizável = TOTP confirmado
+   * (`mfa.totp`) OU ao menos uma passkey registrada. Pela regra antiga, quem
+   * registrava uma passkey e depois a removia ficava preso num desafio TOTP que
+   * não tinha como responder.
+   *
+   *  - sem fator e sem step-up → `none`, o login segue;
+   *  - step-up (acr) exigindo MFA numa conta sem fator → `challenge` com a
+   *    instrução de enrolar (não há o que desafiar);
+   *  - fator presente, trusted-device válido e sem step-up → `trusted`; quem
+   *    chamou decide como finalizar, porque o amr muda conforme o caminho;
+   *  - caso geral → `challenge`, com o accountId em `MFA_PENDING_KEY`.
+   */
+  private async secondFactorGate(
+    ctx: HttpContext,
+    cfg: any,
+    accountId: string,
+    details: any,
+  ): Promise<{ kind: 'none' } | { kind: 'trusted' } | { kind: 'challenge'; response: any }> {
+    const mfaRequired = this.acrRequiresMfa(cfg, details);
+    const mfa = (await cfg.accountStore.getMfaState?.(accountId)) ?? { enabled: false };
+    // Passkey disponível como alternativa ao TOTP se o store suporta E a conta
+    // tem ao menos uma credencial registrada.
+    const passkeyAvailable = await this.hasPasskeys(cfg, accountId);
+    // Store que não reporta `totp` (a chave é opcional) cai no `enabled` — o
+    // comportamento antigo. Nunca o contrário: assumir "sem TOTP" por omissão
+    // deixaria de desafiar quem tem o fator.
+    const totpAvailable = mfa.totp ?? !!mfa.enabled;
+    const hasFactor = passkeyAvailable || totpAvailable;
+    if (!hasFactor && !mfaRequired) return { kind: 'none' };
+
+    const render = cfg.render!;
+    const brand = brandFor(
+      cfg.branding,
+      details.params.client_id as string | undefined,
+      details.params.audience as string | undefined,
+    );
+    const uid = ctx.request.param('uid');
+
+    if (!hasFactor) {
+      return {
+        kind: 'challenge',
+        response: await render(ctx, 'mfa-challenge', {
+          uid,
+          csrfToken: ctx.request.csrfToken,
+          brand,
+          passkeyAvailable: false,
+          error: translate(cfg.messages, 'mfa_challenge.required_no_enrollment'),
+          noEnrollment: true,
+        }),
+      };
+    }
+
+    if (cfg.trustedDevices.enabled && !mfaRequired) {
+      const trusted = await this.checkTrustedDevice(ctx, accountId, mfa.enabledAt ?? null);
+      if (trusted) return { kind: 'trusted' };
+    }
+
+    ctx.session.put(MFA_PENDING_KEY, accountId);
+    return {
+      kind: 'challenge',
+      response: await render(ctx, 'mfa-challenge', {
+        uid,
+        csrfToken: ctx.request.csrfToken,
+        brand,
+        passkeyAvailable,
+        totpAvailable,
+        trustedDevicesEnabled: cfg.trustedDevices.enabled,
+        trustedDeviceDays: cfg.trustedDevices.days,
+      }),
+    };
+  }
+
+  /**
+   * true se a conta tem um app autenticador CONFIRMADO. Stores que não reportam
+   * `totp` (a chave é opcional em {@link MfaCapability}) caem no `enabled`, o
+   * comportamento antigo.
+   */
+  private async hasTotp(cfg: any, accountId: string): Promise<boolean> {
+    const mfa = (await cfg.accountStore.getMfaState?.(accountId)) ?? { enabled: false };
+    return mfa.totp ?? !!mfa.enabled;
   }
 
   /** true se o store suporta passkeys E a conta tem ao menos uma registrada. */
@@ -1077,6 +1137,15 @@ export default class AuthInteractionController {
       });
     }
 
+    // Conta com segundo fator não termina o login só com o e-mail.
+    const magicGate = await this.secondFactorGate(
+      ctx,
+      cfg,
+      acc.id,
+      await service.interactions.details(ctx),
+    );
+    if (magicGate.kind === 'challenge') return magicGate.response;
+
     await notifyLoginSuccess(ctx, cfg, {
       accountId: acc.id,
       email: acc.email,
@@ -1201,6 +1270,15 @@ export default class AuthInteractionController {
         ip,
         clientId,
       });
+      // Conta com segundo fator não termina o login só com o código do e-mail.
+      const otpGate = await this.secondFactorGate(
+        ctx,
+        cfg,
+        result.account.id,
+        await service.interactions.details(ctx),
+      );
+      if (otpGate.kind === 'challenge') return otpGate.response;
+
       await notifyLoginSuccess(ctx, cfg, {
         accountId: result.account.id,
         email: result.account.email,
@@ -1407,6 +1485,7 @@ export default class AuthInteractionController {
         error: translate(cfg.messages, 'mfa_challenge.passkey_error'),
         brand,
         passkeyAvailable: await this.hasPasskeys(cfg, accountId),
+        totpAvailable: await this.hasTotp(cfg, accountId),
         trustedDevicesEnabled: cfg.trustedDevices.enabled,
         trustedDeviceDays: cfg.trustedDevices.days,
       });
@@ -1430,6 +1509,7 @@ export default class AuthInteractionController {
         error: translate(cfg.messages, 'errors.email_unverified'),
         brand,
         passkeyAvailable: await this.hasPasskeys(cfg, accountId),
+        totpAvailable: await this.hasTotp(cfg, accountId),
         trustedDevicesEnabled: cfg.trustedDevices.enabled,
         trustedDeviceDays: cfg.trustedDevices.days,
       });
@@ -1461,6 +1541,7 @@ export default class AuthInteractionController {
         error: translate(cfg.messages, accountStatusErrorKey(passkeyStatusGate.reason)),
         brand,
         passkeyAvailable: await this.hasPasskeys(cfg, accountId),
+        totpAvailable: await this.hasTotp(cfg, accountId),
         trustedDevicesEnabled: cfg.trustedDevices.enabled,
         trustedDeviceDays: cfg.trustedDevices.days,
       });
@@ -1577,20 +1658,9 @@ export default class AuthInteractionController {
     // Senha trocada: limpa o step e finaliza o login.
     ctx.session.forget(PASSWORD_EXPIRED_KEY);
 
-    // Verifica se precisa de MFA mesmo após a troca.
-    const mfa = (await cfg.accountStore.getMfaState?.(accountId)) ?? { enabled: false };
-    if (mfa.enabled) {
-      ctx.session.put(MFA_PENDING_KEY, accountId);
-      const passkeyAvailable = await this.hasPasskeys(cfg, accountId);
-      return render(ctx, 'mfa-challenge', {
-        uid: ctx.request.param('uid'),
-        csrfToken: ctx.request.csrfToken,
-        brand,
-        passkeyAvailable,
-        trustedDevicesEnabled: cfg.trustedDevices.enabled,
-        trustedDeviceDays: cfg.trustedDevices.days,
-      });
-    }
+    // Verifica se precisa de MFA mesmo após a troca — mesma regra do resto.
+    const expiredGate = await this.secondFactorGate(ctx, cfg, accountId, details);
+    if (expiredGate.kind === 'challenge') return expiredGate.response;
 
     await service.interactions.completeLogin(ctx, accountId);
     const account = await cfg.accountStore.findById(accountId);

@@ -91,6 +91,14 @@ type StoreOpts = {
    * nunca definiu senha produz.
    */
   passwordChangedAt?: Date | null;
+  /**
+   * Conta COM passkey registrada. Default: nenhuma — porque uma passkey é um 2º
+   * fator, e desde o gate compartilhado (`secondFactorGate`) o link mágico e o
+   * código por e-mail DESAFIAM quem tem um fator em vez de completar o login.
+   * Estes testes são sobre o gate de STATUS; quem quer o fluxo passkey-first
+   * (`passkeyVerify`) liga isto explicitamente.
+   */
+  passkeys?: boolean;
 };
 
 function makeStore(opts: StoreOpts = {}) {
@@ -115,7 +123,7 @@ function makeStore(opts: StoreOpts = {}) {
     issueMagicLinkWithCode: async () => null,
     verifyLoginCode: async () => ({ status: 'ok' as const, account }),
     // Passkey (passkey-first: precisa listPasskeys p/ hasPasskeys() achar credenciais)
-    listPasskeys: async () => [{ id: 'cred-1' }],
+    listPasskeys: async () => (opts.passkeys ? [{ id: 'cred-1' }] : []),
     verifyPasskeyAuthentication: async () => true,
   };
   if (opts.statusCapability) {
@@ -321,7 +329,7 @@ test.group('account status gate — passkey (passkeyVerify, passkey-first)', () 
   test('conta desabilitada: NÃO completa o login, re-renderiza mfa-challenge com erro', async ({
     assert,
   }) => {
-    const store = makeStore({ statusCapability: true, disabled: true });
+    const store = makeStore({ statusCapability: true, disabled: true, passkeys: true });
     const { service, rendered, completeLoginCalls } = buildService(store);
     const ctx = fakeCtx(
       service,
@@ -340,7 +348,7 @@ test.group('account status gate — passkey (passkeyVerify, passkey-first)', () 
   });
 
   test('conta saudável: completa o login normalmente', async ({ assert }) => {
-    const store = makeStore({ statusCapability: true, disabled: false });
+    const store = makeStore({ statusCapability: true, disabled: false, passkeys: true });
     const { service, completeLoginCalls } = buildService(store);
     const ctx = fakeCtx(
       service,
