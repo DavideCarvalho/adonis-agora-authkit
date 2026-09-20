@@ -135,6 +135,8 @@ function fakeCtx(opts: {
   params?: Record<string, string>;
   inputs?: Record<string, string>;
   cfg: any;
+  /** DB fake de `auth_settings` (runtime settings). Ausente → fail-safe (config). */
+  db?: any;
 }) {
   let status = 200;
   let body: any;
@@ -178,7 +180,10 @@ function fakeCtx(opts: {
       // make('lucid.db') rejeita → getRuntimeSettings cai no fail-safe (null → config catalog).
       // make('authkit.server') resolve a config.
       make: async (name: string) => {
-        if (name === 'lucid.db') throw new Error('no db in test');
+        if (name === 'lucid.db') {
+          if (opts.db) return opts.db;
+          throw new Error('no db in test');
+        }
         if (name === 'authkit.server') return { config: opts.cfg };
         throw new Error(`unknown binding: ${name}`);
       },
@@ -344,5 +349,119 @@ test.group('AccountOrgsController — member-facing security (H3/H4)', () => {
     const pending = await (store as any).listPendingInvitationsForOrg(org.id);
     assert.lengthOf(pending, 1);
     assert.equal(pending[0].role, 'member');
+  });
+});
+
+/** DB mínimo compatível com `RuntimeSettings` servindo linhas GLOBAIS de `auth_settings`. */
+function fakeSettingsDb(rows: Record<string, unknown>) {
+  const chain = (filters: Record<string, string | null>) => ({
+    where: (col: string, val: string) => chain({ ...filters, [col]: val }),
+    whereNull: (col: string) => chain({ ...filters, [col]: null }),
+    first: async () => {
+      if (filters.organization_id !== null) return null;
+      const key = filters.key as string;
+      return key in rows
+        ? { key, organization_id: null, value: JSON.stringify(rows[key]), updated_at: null }
+        : null;
+    },
+  });
+  const table = () => ({
+    select: () => ({ limit: async () => [] }),
+    where: (col: string, val: string) => chain({ [col]: val }),
+    whereNull: (col: string) => chain({ [col]: null }),
+  });
+  return { from: table, table };
+}
+
+test.group('AccountOrgsController — política efetiva de organizations', () => {
+  test('allowSelfCreate do config libera o POST /account/orgs', async ({ assert }) => {
+    const store = buildMemoryStore();
+    const cfg = buildCfg(store); // allowSelfCreate: true
+    const user = await store.create({ email: 'u@x.com', password: 'x' });
+
+    const { ctx, captured } = fakeCtx({
+      actorId: user.id,
+      inputs: { name: 'Acme', slug: 'acme' },
+      cfg,
+    });
+    await new AccountOrgsController().store(ctx);
+
+    assert.equal(captured.redirected(), '/account/orgs');
+    assert.notEqual(captured.status(), 403);
+  });
+
+  test('config com allowSelfCreate false → 403', async ({ assert }) => {
+    const store = buildMemoryStore();
+    const cfg = buildCfg(store);
+    cfg.organizations.allowSelfCreate = false;
+    const user = await store.create({ email: 'u@x.com', password: 'x' });
+
+    const { ctx, captured } = fakeCtx({
+      actorId: user.id,
+      inputs: { name: 'Acme', slug: 'acme' },
+      cfg,
+    });
+    await new AccountOrgsController().store(ctx);
+    assert.equal(captured.status(), 403);
+  });
+
+  test('a setting organizations_policy sobrescreve o config (liga o self-create)', async ({
+    assert,
+  }) => {
+    const store = buildMemoryStore();
+    const cfg = buildCfg(store);
+    cfg.organizations.allowSelfCreate = false;
+    const user = await store.create({ email: 'u@x.com', password: 'x' });
+
+    const { ctx, captured } = fakeCtx({
+      actorId: user.id,
+      inputs: { name: 'Acme', slug: 'acme' },
+      cfg,
+      db: fakeSettingsDb({ organizations_policy: { allowSelfCreate: true } }),
+    });
+    await new AccountOrgsController().store(ctx);
+
+    assert.notEqual(captured.status(), 403);
+    assert.equal(captured.redirected(), '/account/orgs');
+  });
+
+  test('a setting organizations_policy desliga o self-create ligado no config', async ({
+    assert,
+  }) => {
+    const store = buildMemoryStore();
+    const cfg = buildCfg(store); // allowSelfCreate: true
+    const user = await store.create({ email: 'u@x.com', password: 'x' });
+
+    const { ctx, captured } = fakeCtx({
+      actorId: user.id,
+      inputs: { name: 'Acme', slug: 'acme' },
+      cfg,
+      db: fakeSettingsDb({ organizations_policy: { allowSelfCreate: false } }),
+    });
+    await new AccountOrgsController().store(ctx);
+    assert.equal(captured.status(), 403);
+  });
+
+  test('convite usa o TTL da política efetiva (setting), não só o do config', async ({
+    assert,
+  }) => {
+    const store = buildMemoryStore();
+    const cfg = buildCfg(store); // invitationTtlHours: 72
+    const owner = await store.create({ email: 'o@x.com', password: 'x' });
+    const org = await (store as any).createOrg({ name: 'A', slug: 'a', ownerAccountId: owner.id });
+
+    const { ctx } = fakeCtx({
+      actorId: owner.id,
+      params: { id: org.id },
+      inputs: { email: 'n@x.com', role: 'member' },
+      cfg,
+      db: fakeSettingsDb({ organizations_policy: { invitationTtlHours: 2 } }),
+    });
+    await new AccountOrgsController().invite(ctx);
+
+    const [inv] = await (store as any).listPendingInvitationsForOrg(org.id);
+    const hours = (new Date(inv.expiresAt).getTime() - Date.now()) / 3600000;
+    assert.isBelow(hours, 2.01);
+    assert.isAbove(hours, 1.9);
   });
 });

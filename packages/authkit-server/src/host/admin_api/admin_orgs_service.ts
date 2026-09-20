@@ -6,7 +6,11 @@ import { ADMIN_LIST_DEFAULT_SIZE, LIST_FIRST_PAGE } from '../../pagination.js';
 import { accountPath } from '../account_paths.js';
 import { sendOrgInvitationEmail } from '../default_mailer.js';
 import type { SettingsCapability } from '../runtime_settings.js';
-import { isRoleInCatalog, resolveRoleCatalogList } from '../runtime_toggles.js';
+import {
+  isRoleInCatalog,
+  resolveEffectiveOrganizationsPolicy,
+  resolveRoleCatalogList,
+} from '../runtime_toggles.js';
 import type { AdminActor } from './admin_users_service.js';
 
 export interface OrgWithMemberCount extends OrgSummary {
@@ -410,7 +414,10 @@ export class AdminOrgsService {
       email: input.email,
       role: input.role,
       invitedBy: actor.actorId ?? 'admin',
-      ttlHours: this.cfg.organizations.invitationTtlHours,
+      // TTL da política efetiva da org (setting org → global → config).
+      ttlHours: (
+        await resolveEffectiveOrganizationsPolicy(settings, this.orgPolicyConfigDefaults(), orgId)
+      ).invitationTtlHours,
     });
 
     // Sends the invitation email (best-effort). The host hook wins when present;

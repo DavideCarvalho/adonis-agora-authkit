@@ -16,11 +16,20 @@ import { OidcService } from '../../src/provider/oidc_service.js';
 // signature validable purely from the jwks_uri.
 // ---------------------------------------------------------------------------
 
-const PORT = 9855;
-const ISSUER = `http://localhost:${PORT}`;
+// Each group listens on its OWN port (see `usePort`): reusing one port across
+// groups let the client's keep-alive pool hand the next group a socket of the
+// previous (closed) server, failing its first request with ECONNRESET.
+let PORT = 9855;
+let ISSUER = `http://localhost:${PORT}`;
 const CLIENT_ID = 'app1';
 const CLIENT_SECRET = 's';
-const REDIRECT_URI = `${ISSUER}/cb`;
+let REDIRECT_URI = `${ISSUER}/cb`;
+
+function usePort(port: number) {
+  PORT = port;
+  ISSUER = `http://localhost:${PORT}`;
+  REDIRECT_URI = `${ISSUER}/cb`;
+}
 const APP_KEY = 'a'.repeat(32);
 
 const PASSWORD = 'correct-horse';
@@ -145,7 +154,7 @@ function recordingRenderer(ctx: any, view: string, props: Record<string, unknown
 async function startServer(
   accessTokens?: AuthServerConfigInput['accessTokens'],
   grants: string[] = ['authorization_code', 'refresh_token'],
-): Promise<{ server: Server }> {
+): Promise<{ server: Server; service: OidcService }> {
   const fakeApp = {
     container: { make: async () => ({ connection: () => new RedisMock() }) },
   } as any;
@@ -202,7 +211,12 @@ async function startServer(
     }
   });
   await new Promise<void>((r) => server.listen(PORT, r));
-  return { server };
+  return { server, service };
+}
+
+async function stopServer(server: Server): Promise<void> {
+  server.closeAllConnections();
+  await new Promise<void>((r) => server.close(() => r()));
 }
 
 function readBody(req: IncomingMessage): Promise<Record<string, string>> {
@@ -355,7 +369,10 @@ async function postForm(jar: Jar, url: string, fields: Record<string, string>): 
 }
 
 /** Login → consent → token, returning the token response. */
-async function loginAndExchange(extraAuthorize: Record<string, string> = {}): Promise<any> {
+async function loginAndExchange(
+  extraAuthorize: Record<string, string> = {},
+  extraToken: Record<string, string> = {},
+): Promise<any> {
   const jar = new Jar();
   const { verifier, challenge } = pkce();
   const uid = await followToInteraction(jar, authorizeUrl(challenge, extraAuthorize));
@@ -364,7 +381,7 @@ async function loginAndExchange(extraAuthorize: Record<string, string> = {}): Pr
     password: PASSWORD,
   });
   const code = await resumeToCode(jar, login);
-  return exchangeCode(code, verifier);
+  return exchangeCode(code, verifier, extraToken);
 }
 
 // ===========================================================================
@@ -375,8 +392,9 @@ test.group('e2e access tokens — opaque default', (group) => {
   let server: Server;
   group.setup(async () => {
     SESSIONS.clear();
+    usePort(9855);
     ({ server } = await startServer(/* no accessTokens config */));
-    return async () => new Promise<void>((r) => server.close(() => r()));
+    return () => stopServer(server);
   });
 
   test('default AT is opaque (not a JWT) and introspectable', async ({ assert }) => {
@@ -395,8 +413,9 @@ test.group('e2e access tokens — simple JWT (RFC 9068)', (group) => {
   let server: Server;
   group.setup(async () => {
     SESSIONS.clear();
+    usePort(9857);
     ({ server } = await startServer({ format: 'jwt' }));
-    return async () => new Promise<void>((r) => server.close(() => r()));
+    return () => stopServer(server);
   });
 
   test('AT is a JWT with typ=at+jwt and RFC 9068 claims', async ({ assert }) => {
@@ -442,6 +461,7 @@ test.group('e2e access tokens — per-resource JWT', (group) => {
   const API = 'https://api.acme.test';
   group.setup(async () => {
     SESSIONS.clear();
+    usePort(9858);
     ({ server } = await startServer({
       // root stays opaque; only the named API issues JWT with a custom audience
       format: 'opaque',
@@ -449,7 +469,7 @@ test.group('e2e access tokens — per-resource JWT', (group) => {
         [API]: { audience: 'acme-api', scopes: ['openid', 'profile'], format: 'jwt' },
       },
     }));
-    return async () => new Promise<void>((r) => server.close(() => r()));
+    return () => stopServer(server);
   });
 
   test('requesting resource=<API> yields a JWT with that resource audience', async ({ assert }) => {
@@ -461,5 +481,61 @@ test.group('e2e access tokens — per-resource JWT', (group) => {
     const claims = decodeJwt(tokens.access_token) as any;
     assert.equal(claims.aud, 'acme-api');
     assert.equal(claims.iss, ISSUER);
+  });
+});
+
+// ===========================================================================
+// VARIANT 4 — resource indicators with OPAQUE tokens only (e.g. MCP clients)
+// ===========================================================================
+
+test.group('e2e access tokens — opaque resource indicator (RFC 8707)', (group) => {
+  let server: Server;
+  let service: OidcService;
+  const MCP = 'https://app.acme.test/mcp';
+  group.setup(async () => {
+    SESSIONS.clear();
+    // All opaque: no JWT anywhere. Declaring the resource is the allowlist.
+    usePort(9859);
+    ({ server, service } = await startServer({ resources: { [MCP]: {} } }));
+    return () => stopServer(server);
+  });
+
+  test('resource=<declared> is accepted and bound to the opaque AT (aud)', async ({ assert }) => {
+    // MCP clients send `resource` at both authorize and token.
+    const tokens = await loginAndExchange({ resource: MCP }, { resource: MCP });
+    assert.isString(tokens.access_token, JSON.stringify(tokens));
+    assert.notInclude(tokens.access_token, '.'); // still opaque
+    const stored = await (service.provider as any).AccessToken.find(tokens.access_token);
+    assert.isOk(stored);
+    assert.equal(stored.aud, MCP);
+    assert.isString(stored.grantId);
+  });
+
+  test('trailing slash on the resource is tolerated', async ({ assert }) => {
+    const tokens = await loginAndExchange({ resource: `${MCP}/` });
+    assert.isString(tokens.access_token, JSON.stringify(tokens));
+    assert.notInclude(tokens.access_token, '.');
+  });
+
+  test('without resource the web login token is unchanged (no aud, userinfo works)', async ({
+    assert,
+  }) => {
+    const tokens = await loginAndExchange();
+    assert.notInclude(tokens.access_token, '.');
+    const stored = await (service.provider as any).AccessToken.find(tokens.access_token);
+    assert.isUndefined(stored.aud);
+    const me = await fetch(`${ISSUER}/me`, {
+      headers: { authorization: `Bearer ${tokens.access_token}` },
+    });
+    assert.equal(me.status, 200);
+  });
+
+  test('undeclared resource → invalid_target on authorize', async ({ assert }) => {
+    const { challenge } = pkce();
+    const res = await fetch(authorizeUrl(challenge, { resource: 'https://evil.example/api' }), {
+      redirect: 'manual',
+    });
+    const loc = res.headers.get('location') ?? '';
+    assert.include(loc, 'error=invalid_target');
   });
 });

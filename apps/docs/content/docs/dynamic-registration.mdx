@@ -27,12 +27,82 @@ defineConfig({
 | `enabled` | `boolean` | `false` | Exposes the registration endpoint (`oidc-provider`'s `registration` feature). |
 | `initialAccessToken` | `string?` | — | Requires this Initial Access Token (IAT) as a bearer to register (RFC 7591 §3). When absent, registration is **open**. |
 | `management` | `boolean` | `false` | Enables Registration Management (RFC 7592): read/update/delete a registered client via its `registration_access_token`. |
+| `redirectUriPolicy` | `RedirectUriPolicy \| false` | open registration: `{ loopback: true }`; with an IAT: none | Where the authorization code may go. See [Redirect URI policy](#redirect-uri-policy). |
+| `validateRegistration` | `(metadata, { operation, ctx }) => void \| metadata` | — | Host hook run after the redirect policy, on create and on RFC 7592 update. |
 
 <Callout type="warn">
   Without an `initialAccessToken`, registration is **open** — anyone can register a client.
   That is rarely desirable in production; always set an IAT unless you have another gate in
   front of the endpoint.
 </Callout>
+
+## Redirect URI policy
+
+On its own, `oidc-provider` accepts any syntactically valid redirect — any `https://` URL
+included. With **open** registration that lets anyone register a client whose callback is
+an attacker's domain and use your consent screen as bait. What protects the user is *where
+the authorization code can go*, so AuthKit applies a policy **before** the provider, on
+`POST /reg` and on the RFC 7592 `PUT /reg/:clientId`:
+
+1. every `redirect_uris` / `post_logout_redirect_uris` entry must match the policy;
+2. the client is restricted to the code flow: `grant_types` ⊆ `authorization_code`,
+   `refresh_token` and `response_types` = `['code']` (PKCE is already mandatory);
+3. a client whose redirects are all loopback / private-use schemes is registered as
+   `application_type: 'native'` (unless it says otherwise);
+4. `validateRegistration` runs, if configured.
+
+A rejected registration gets `400 { "error": "invalid_redirect_uri" | "invalid_client_metadata" }`.
+
+```ts title="config/authkit.ts"
+dynamicRegistration: {
+  enabled: true, // open: MCP clients cannot obtain an IAT
+  redirectUriPolicy: {
+    loopback: true, // http://localhost|127.0.0.1|[::1], any port and path (RFC 8252 §7.3)
+    exact: [
+      'https://claude.ai/api/mcp/auth_callback',
+      'https://chatgpt.com/connector_platform_oauth_redirect',
+      'https://vscode.dev/redirect',
+    ],
+    appSchemes: ['cursor', 'vscode'], // private-use URI schemes (RFC 8252 §7.1)
+  },
+},
+```
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `loopback` | `boolean` | `true` | Plain-`http` loopback hosts on any port. Embedded credentials and fragments are always rejected. |
+| `exact` | `string[]` | `[]` | Redirects accepted by exact string equality. |
+| `appSchemes` | `string[]` | `[]` | Private-use schemes, without `:`. |
+| `anyHttps` | `boolean` | `false` | Accept any `https://` redirect — the unrestricted provider behaviour. |
+
+**Defaults.** With open registration (no `initialAccessToken`) the policy defaults to
+loopback only. With an `initialAccessToken` there is no policy unless you declare one —
+whoever holds the IAT is trusted. `redirectUriPolicy: false` switches the policy off
+explicitly.
+
+<Callout type="warn">
+  Before this policy existed, open registration accepted any redirect. If you run open
+  registration for web clients, list their callbacks in `exact` (or set `anyHttps: true`
+  knowingly).
+</Callout>
+
+### Custom validation
+
+`validateRegistration` receives the (already policy-checked) metadata. Return nothing to
+accept it, return an object to replace it, or throw `RegistrationPolicyError` to reject:
+
+```ts
+import { RegistrationPolicyError } from '@adonis-agora/authkit-server'
+
+dynamicRegistration: {
+  enabled: true,
+  validateRegistration: (metadata, { operation }) => {
+    if (typeof metadata.client_name !== 'string') {
+      throw new RegistrationPolicyError('invalid_client_metadata', 'client_name is required')
+    }
+  },
+},
+```
 
 ## Registering a client
 
