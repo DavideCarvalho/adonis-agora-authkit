@@ -1,16 +1,29 @@
 import vine from '@vinejs/vine';
+import { normalizeEmailIdentifier } from './email_identifier.js';
+
+/**
+ * E-mail usado como IDENTIDADE da conta. Normalização ÚNICA e conservadora
+ * ({@link normalizeEmailIdentifier}: `trim` + `toLowerCase`) — a MESMA aplicada
+ * no passo de identificador do login, para que os dois lados concordem.
+ *
+ * NÃO use `.normalizeEmail()` do VineJS aqui: ele aplica os defaults do
+ * validator.js, que no gmail REMOVEM os pontos e o sub-endereço `+tag` — a
+ * conta nascia com um endereço diferente do digitado e a pessoa ficava trancada
+ * do lado de fora (ver `host/email_identifier.ts`).
+ */
+const emailIdentifier = () => vine.string().trim().email().transform(normalizeEmailIdentifier);
 
 /** Cadastro passwordless: só e-mail + nome (sem senha). O login vem por magic link. */
 export const passwordlessSignupValidator = vine.compile(
   vine.object({
-    email: vine.string().trim().email().normalizeEmail(),
+    email: emailIdentifier(),
     fullName: vine.string().trim().minLength(2).maxLength(255),
   }),
 );
 
 export const signupValidator = vine.compile(
   vine.object({
-    email: vine.string().trim().email().normalizeEmail(),
+    email: emailIdentifier(),
     fullName: vine.string().trim().minLength(2).maxLength(255),
     password: vine.string().minLength(8).maxLength(255),
   }),
@@ -18,7 +31,7 @@ export const signupValidator = vine.compile(
 
 export const forgotPasswordValidator = vine.compile(
   vine.object({
-    email: vine.string().trim().email().normalizeEmail(),
+    email: emailIdentifier(),
   }),
 );
 
@@ -48,7 +61,7 @@ export const changePasswordValidator = vine.compile(
 export const changeEmailValidator = vine.compile(
   vine.object({
     currentPassword: vine.string().minLength(1).optional(),
-    newEmail: vine.string().trim().email().normalizeEmail(),
+    newEmail: emailIdentifier(),
   }),
 );
 
@@ -78,7 +91,7 @@ export const deleteAccountValidator = vine.compile(
 /** Criação de usuário no console admin (email obrigatório; nome/senha opcionais). */
 export const adminCreateUserValidator = vine.compile(
   vine.object({
-    email: vine.string().trim().email().normalizeEmail(),
+    email: emailIdentifier(),
     name: vine.string().trim().maxLength(255).optional(),
     password: vine.string().minLength(8).maxLength(255).optional(),
   }),

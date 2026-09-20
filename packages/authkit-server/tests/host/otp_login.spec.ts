@@ -33,6 +33,9 @@ test.group('otp login — config', () => {
     assert.deepEqual(resolveLogin(), {
       requireVerifiedEmail: false,
       otp: OTP_LOGIN_DEFAULTS,
+      // Ponte de compatibilidade da identidade por e-mail: ligada por default —
+      // desligar tranca as contas gravadas com o endereço mutilado.
+      legacyEmailFallback: true,
     });
   });
 

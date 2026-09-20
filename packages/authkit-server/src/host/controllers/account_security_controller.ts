@@ -21,6 +21,7 @@ import {
   sendEmailChangedCompletedEmail,
   sendEmailChangeNoticeEmail,
 } from '../default_mailer.js';
+import { normalizeEmailIdentifier } from '../email_identifier.js';
 import { translate } from '../i18n.js';
 import { authkitOrigin } from '../origin.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
@@ -203,7 +204,8 @@ export default class AccountSecurityController {
       confirmed = !!(await store.verifyCredentials(account.email, currentPassword));
     }
     if (!confirmed && confirmEmail) {
-      confirmed = confirmEmail.trim().toLowerCase() === account.email.toLowerCase();
+      confirmed =
+        normalizeEmailIdentifier(confirmEmail) === normalizeEmailIdentifier(account.email);
     }
     if (!confirmed) {
       ctx.session.flash(

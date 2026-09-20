@@ -1,5 +1,6 @@
 import type { AccountStore } from '../accounts/account_store.js';
 import { supportsAccountImport } from '../accounts/account_store.js';
+import { normalizeEmailIdentifier, resolveEmailIdentifier } from '../host/email_identifier.js';
 
 /** Uma linha do arquivo de import (campos extras viram custom — globalRoles). */
 export interface ImportUserRecord {
@@ -72,24 +73,37 @@ export function parseImportFile(content: string): {
  *
  * Lógica PURA quanto a I/O de arquivo (recebe os registros já parseados) — fácil
  * de testar. Lança se o store não suporta import nem create.
+ *
+ * `legacyFallback` (default ligado, como no resto da lib) faz a checagem de
+ * duplicado enxergar também a conta que o cadastro antigo gravou com o endereço
+ * mutilado — importar a grafia REAL do dono dela pula como duplicado em vez de
+ * criar uma SEGUNDA conta. O comando não tem acesso ao config, então o flag
+ * chega por aqui.
  */
 export async function importUsers(
   store: AccountStore,
   records: { line: number; record: ImportUserRecord }[],
-  options: { dryRun?: boolean } = {},
+  options: { dryRun?: boolean; legacyFallback?: boolean } = {},
 ): Promise<ImportReport> {
   const report: ImportReport = { created: 0, skippedDuplicate: 0, errors: [] };
   const canImport = supportsAccountImport(store);
 
   for (const { line, record } of records) {
-    const email = record.email?.trim();
+    // MESMA normalização do cadastro/login (`trim` + `toLowerCase`) — sem ela o
+    // import gravava `Davi@Acme.com` e o login (normalizado) não achava a conta.
+    const email = normalizeEmailIdentifier(record.email);
     if (!email) {
       report.errors.push({ line, reason: 'missing email' });
       continue;
     }
 
-    // Duplicado: e-mail já existe → pula.
-    const existing = await store.findByEmail(email);
+    // Duplicado: e-mail já existe → pula. Enxerga também a conta gravada com o
+    // endereço mutilado (ponte legada) — empate segue criando, como no cadastro.
+    const existing = (
+      await resolveEmailIdentifier(store, record.email, {
+        legacyFallback: options.legacyFallback,
+      })
+    ).account;
     if (existing) {
       report.skippedDuplicate++;
       continue;

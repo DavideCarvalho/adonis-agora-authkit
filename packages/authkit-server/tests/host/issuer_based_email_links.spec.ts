@@ -88,7 +88,12 @@ function fakeCtx(
 function buildRegistrationService(opts: { issuer?: string; mailOrigin?: string } = {}) {
   const captured: { resetUrl?: string } = {};
   const store: any = {
-    issuePasswordResetToken: async (_email: string) => ({ token: 'reset-tok-1' }),
+    // O contrato do store devolve `{ token, account }` — o controller endereça o
+    // e-mail de reset pela caixa postal sob a qual a conta está gravada.
+    issuePasswordResetToken: async (email: string) => ({
+      token: 'reset-tok-1',
+      account: { id: 'acc-1', email },
+    }),
   };
   const config: any = {
     issuer: opts.issuer ?? REAL_ISSUER,

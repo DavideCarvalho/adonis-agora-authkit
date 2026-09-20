@@ -11,6 +11,7 @@ import { AdminSessionsService } from '../admin_sessions_service.js';
 import { guardBotProtection, resolveEffectiveBotProtection } from '../bot_protection.js';
 import { brandFor, isFirstParty } from '../branding.js';
 import { sendMagicLinkEmail, sendOtpUnlockEmail } from '../default_mailer.js';
+import { resolveEmailIdentifier } from '../email_identifier.js';
 import { translate } from '../i18n.js';
 import type { AccountStatusReason } from '../login_attempt.js';
 import {
@@ -68,11 +69,41 @@ function accountStatusErrorKey(reason: AccountStatusReason): string {
   }
 }
 
+/**
+ * E-mail DIGITADO no passo de identificador, já normalizado (`trim` +
+ * `toLowerCase`). É o que a tela SEMPRE mostra — nunca o endereço gravado —,
+ * para que a canonicalização não vire um oráculo de "esta conta existe".
+ */
 const SESSION_KEY = 'authkit_login_email';
+/**
+ * E-mail sob o qual a conta está GRAVADA, quando a ponte de compatibilidade
+ * precisou de uma forma diferente da digitada ({@link resolveEmailIdentifier}).
+ * É o e-mail que vai para o account store em TODA busca/emissão de token.
+ * Ausente = igual ao digitado.
+ */
+const SESSION_LOOKUP_KEY = 'authkit_login_email_lookup';
 /** accountId aguardando o 2º fator depois da senha verificada. */
 const MFA_PENDING_KEY = 'authkit_mfa_pending';
 /** Desafio WebAuthn pendente (autenticação) guardado entre begin/finish no login. */
 const PASSKEY_AUTH_CHALLENGE_KEY = 'authkit_passkey_auth_challenge';
+
+/**
+ * E-mail para BUSCAR a conta no store. Cai no e-mail digitado quando não há
+ * forma de compatibilidade gravada — inclusive nas sessões que já estavam
+ * abertas antes deste deploy.
+ */
+function lookupEmail(ctx: HttpContext): string | undefined {
+  return (
+    (ctx.session.get(SESSION_LOOKUP_KEY) as string | undefined) ??
+    (ctx.session.get(SESSION_KEY) as string | undefined)
+  );
+}
+
+/** Esquece o e-mail do login (digitado + forma de busca) de uma vez só. */
+function forgetLoginEmail(ctx: HttpContext): void {
+  ctx.session.forget(SESSION_KEY);
+  ctx.session.forget(SESSION_LOOKUP_KEY);
+}
 
 export default class AuthInteractionController {
   /**
@@ -215,6 +246,8 @@ export default class AuthInteractionController {
     }
 
     const email = ctx.session.get(SESSION_KEY) as string | undefined;
+    // O que a tela mostra é `email` (o digitado); o que busca a conta é este.
+    const storeEmail = lookupEmail(ctx);
 
     // Métodos de login efetivos (magic link, OTP, social) — account-independent
     // neste ponto (passkey-first depende da conta, resolvido no step 2). Reusa o
@@ -225,7 +258,7 @@ export default class AuthInteractionController {
     // Com email na sessão (passo 2+), aplica a preferência POR USUÁRIO — os
     // métodos que o dono da conta desligou não aparecem nem aqui nem nos POSTs.
     const loginMethods = email
-      ? await this.#userScopedLoginMethods(ctx, cfg, email, runtimeSettingsForMaintenance)
+      ? await this.#userScopedLoginMethods(ctx, cfg, storeEmail, runtimeSettingsForMaintenance)
       : await this.#loginMethods(ctx, cfg, runtimeSettingsForMaintenance);
     const authMethods = loginMethods.authMethods;
 
@@ -247,7 +280,7 @@ export default class AuthInteractionController {
     }
 
     // Step 2: password — look up user for personalisation (enumeration-safe: always show step 2)
-    const acc = await cfg.accountStore.findByEmail(email);
+    const acc = await cfg.accountStore.findByEmail(storeEmail ?? email);
     const account = acc ? { fullName: acc.name ?? null, globalRoles: acc.globalRoles ?? [] } : null;
 
     // Passwordless: magic link disponível vem do helper (`loginMethods`).
@@ -287,10 +320,27 @@ export default class AuthInteractionController {
    * POST /auth/interaction/:uid/identifier
    * Step 1: receive email, store in session, redirect to step 2.
    * ENUMERATION-SAFE: always advances regardless of whether the email exists.
+   *
+   * Normaliza o e-mail com a MESMA regra do cadastro (`normalizeEmailIdentifier`:
+   * `trim` + `toLowerCase`) — antes disto o valor cru ia para a sessão e a busca
+   * no store era por igualdade exata, então nem `Davi@x.com` achava `davi@x.com`.
+   *
+   * A resolução acontece AQUI (uma vez, onde o valor digitado ainda existe) e
+   * não a cada request do passo 2. Guarda DUAS coisas: o digitado (o que a tela
+   * mostra) e, se a ponte de compatibilidade precisou de outra forma, o endereço
+   * sob o qual a conta está gravada (o que vai para o store). A resposta continua
+   * sendo o mesmo redirect incondicional, ache conta ou não.
    */
   async identifier(ctx: HttpContext) {
+    const service = await ctx.containerResolver.make('authkit.server');
+    const cfg = service.config;
     const { email } = ctx.request.only(['email']);
-    ctx.session.put(SESSION_KEY, email);
+    const resolved = await resolveEmailIdentifier(cfg.accountStore, email, {
+      legacyFallback: cfg.login?.legacyEmailFallback ?? true,
+    });
+    ctx.session.put(SESSION_KEY, resolved.email);
+    if (resolved.viaLegacyFallback) ctx.session.put(SESSION_LOOKUP_KEY, resolved.lookupEmail);
+    else ctx.session.forget(SESSION_LOOKUP_KEY);
     return ctx.response.redirect(`/auth/interaction/${ctx.request.param('uid')}`);
   }
 
@@ -313,6 +363,8 @@ export default class AuthInteractionController {
       // Session expired or tampered — send back to step 1
       return ctx.response.redirect(`/auth/interaction/${ctx.request.param('uid')}`);
     }
+    // `email` é o digitado (o que a tela mostra); `storeEmail` é o que busca a conta.
+    const storeEmail = lookupEmail(ctx) ?? email;
 
     const { password } = ctx.request.only(['password']);
     const ip = ctx.request.ip?.() ?? null;
@@ -338,14 +390,17 @@ export default class AuthInteractionController {
     const cfgWithEffectiveBot =
       effectiveBotLogin !== cfg.botProtection ? { ...cfg, botProtection: effectiveBotLogin } : cfg;
     if (
-      !(await guardBotProtection(ctx, cfgWithEffectiveBot as any, 'login', { email, clientId }))
+      !(await guardBotProtection(ctx, cfgWithEffectiveBot as any, 'login', {
+        email: storeEmail,
+        clientId,
+      }))
     ) {
-      const found = await cfg.accountStore.findByEmail(email);
+      const found = await cfg.accountStore.findByEmail(storeEmail);
       const account = found
         ? { fullName: found.name ?? null, globalRoles: found.globalRoles ?? [] }
         : null;
       return render(ctx, 'login', {
-        ...(await this.#userScopedLoginMethods(ctx, cfg, email, runtimeSettings)),
+        ...(await this.#userScopedLoginMethods(ctx, cfg, storeEmail, runtimeSettings)),
         uid: ctx.request.param('uid'),
         csrfToken: ctx.request.csrfToken,
         step: 'password',
@@ -363,11 +418,11 @@ export default class AuthInteractionController {
     const userMethodsForLogin = await this.#userScopedLoginMethods(
       ctx,
       cfg,
-      email,
+      storeEmail,
       runtimeSettings,
     );
     if (!userMethodsForLogin.authMethods.password) {
-      const found = await cfg.accountStore.findByEmail(email);
+      const found = await cfg.accountStore.findByEmail(storeEmail);
       const account = found
         ? { fullName: found.name ?? null, globalRoles: found.globalRoles ?? [] }
         : null;
@@ -397,7 +452,7 @@ export default class AuthInteractionController {
     // ainda. A sequência verificação + lockout + auditoria de falha é centralizada
     // em attemptPasswordLogin; a renderização (lookup p/ personalização) fica aqui.
     const result = await attemptPasswordLogin(cfg, {
-      email,
+      email: storeEmail,
       password,
       ip,
       clientId,
@@ -423,7 +478,7 @@ export default class AuthInteractionController {
         });
       }
 
-      const found = await cfg.accountStore.findByEmail(email);
+      const found = await cfg.accountStore.findByEmail(storeEmail);
       const account = found
         ? { fullName: found.name ?? null, globalRoles: found.globalRoles ?? [] }
         : null;
@@ -508,7 +563,7 @@ export default class AuthInteractionController {
             clientId,
             trustedDevice: true,
           });
-          ctx.session.forget(SESSION_KEY);
+          forgetLoginEmail(ctx);
           return;
         }
       }
@@ -556,7 +611,7 @@ export default class AuthInteractionController {
     }
 
     await service.interactions.completeLogin(ctx, acc.id, { remember });
-    await notifyLoginSuccess(ctx, cfg, { accountId: acc.id, email, ip, clientId });
+    await notifyLoginSuccess(ctx, cfg, { accountId: acc.id, email: acc.email, ip, clientId });
 
     // single-session: após o completeLogin, revoga sessões que existiam ANTES.
     // A sessão nova foi criada pelo provider no resume — ela NÃO está em prevSessionIds.
@@ -578,7 +633,7 @@ export default class AuthInteractionController {
     }
 
     // Clean up the session key after a successful login.
-    ctx.session.forget(SESSION_KEY);
+    forgetLoginEmail(ctx);
   }
 
   /**
@@ -681,7 +736,7 @@ export default class AuthInteractionController {
     await this.maybeTrustDevice(ctx, cfg, accountId);
     // Finaliza a interaction para o accountId pendente.
     ctx.session.forget(MFA_PENDING_KEY);
-    ctx.session.forget(SESSION_KEY);
+    forgetLoginEmail(ctx);
     await notifyLoginSuccess(ctx, cfg, {
       accountId,
       ip,
@@ -817,7 +872,7 @@ export default class AuthInteractionController {
     const pending = ctx.session.get(MFA_PENDING_KEY) as string | undefined;
     if (pending) return pending;
     if (!cfg.passwordless?.passkeyFirst) return undefined;
-    const email = ctx.session.get(SESSION_KEY) as string | undefined;
+    const email = lookupEmail(ctx);
     if (!email) return undefined;
     const acc = await cfg.accountStore.findByEmail(email);
     if (!acc) return undefined;
@@ -841,6 +896,9 @@ export default class AuthInteractionController {
       details.params.audience as string | undefined,
     );
     const email = ctx.session.get(SESSION_KEY) as string | undefined;
+    // `email` é o digitado (o que a tela mostra); `storeEmail` emite e ENDEREÇA o
+    // magic link — precisa ser a caixa postal sob a qual a conta está gravada.
+    const storeEmail = lookupEmail(ctx);
     const uid = ctx.request.param('uid');
     // Login por OTP: liga o campo de código na tela "link enviado" quando a config
     // está ligada E o store suporta a capacidade.
@@ -854,7 +912,7 @@ export default class AuthInteractionController {
     // token (resposta uniforme "enviado", sem vazar a preferência).
     const userScopedMethods =
       email && cfg.passwordless.magicLink && supportsMagicLink(cfg.accountStore)
-        ? await this.#userScopedLoginMethods(ctx, cfg, email)
+        ? await this.#userScopedLoginMethods(ctx, cfg, storeEmail)
         : null;
     if (userScopedMethods && !userScopedMethods.authMethods.magicLink) {
       return render(ctx, 'login', {
@@ -870,23 +928,23 @@ export default class AuthInteractionController {
       });
     }
 
-    if (cfg.passwordless.magicLink && supportsMagicLink(cfg.accountStore) && email) {
+    if (cfg.passwordless.magicLink && supportsMagicLink(cfg.accountStore) && storeEmail) {
       const ip = ctx.request.ip?.() ?? null;
       const clientId = (details.params.client_id as string | undefined) ?? null;
       // Com OTP ligado, emite link E código no MESMO disparo (issueMagicLinkWithCode);
       // senão, o magic link puro de sempre.
       const issued = otpEnabled
-        ? await cfg.accountStore.issueMagicLinkWithCode(email, uid, {
+        ? await cfg.accountStore.issueMagicLinkWithCode(storeEmail, uid, {
             digits: cfg.login.otp.digits,
             ttlMinutes: cfg.login.otp.ttlMinutes,
           })
-        : await cfg.accountStore.issueMagicLinkToken(email);
+        : await cfg.accountStore.issueMagicLinkToken(storeEmail);
       if (issued) {
         const code = 'code' in issued ? issued.code : undefined;
         await cfg.audit?.record({
           type: 'login.magic_link_sent',
           accountId: issued.account.id,
-          email,
+          email: issued.account.email,
           ip,
           clientId,
         });
@@ -894,17 +952,18 @@ export default class AuthInteractionController {
           await cfg.audit?.record({
             type: 'login.otp_sent',
             accountId: issued.account.id,
-            email,
+            email: issued.account.email,
             ip,
             clientId,
           });
         }
         const origin = authkitOrigin(cfg);
         const magicUrl = `${origin}/auth/interaction/${uid}/magic?token=${encodeURIComponent(issued.token)}`;
+        const to = issued.account.email;
         if (cfg.mail?.onMagicLink) {
-          await cfg.mail.onMagicLink({ email, magicUrl, token: issued.token, code, channel });
+          await cfg.mail.onMagicLink({ email: to, magicUrl, token: issued.token, code, channel });
         } else {
-          await sendMagicLinkEmail(ctx, { email, magicUrl, code, channel });
+          await sendMagicLinkEmail(ctx, { email: to, magicUrl, code, channel });
         }
       }
     }
@@ -914,7 +973,7 @@ export default class AuthInteractionController {
     // local usado acima para decidir a emissão) — não re-declarado aqui.
     return render(ctx, 'login', {
       ...(email
-        ? await this.#userScopedLoginMethods(ctx, cfg, email)
+        ? await this.#userScopedLoginMethods(ctx, cfg, storeEmail)
         : await this.#loginMethods(ctx, cfg)),
       uid,
       csrfToken: ctx.request.csrfToken,
@@ -1051,7 +1110,7 @@ export default class AuthInteractionController {
       clientId: clientId ?? null,
       metadata: { method: 'magic_link' },
     });
-    ctx.session.forget(SESSION_KEY);
+    forgetLoginEmail(ctx);
     await service.interactions.completeLogin(ctx, acc.id, { amr: ['email'] });
   }
 
@@ -1075,10 +1134,12 @@ export default class AuthInteractionController {
       | string
       | undefined;
     const email = ctx.session.get(SESSION_KEY) as string | undefined;
+    // `email` é o digitado (o que a tela mostra); `storeEmail` verifica o código.
+    const storeEmail = lookupEmail(ctx);
 
     // Guardas: OTP desligado, store sem suporte ou sem e-mail na sessão → volta ao login.
     const otpEnabled = cfg.login.otp.enabled && supportsOtpLogin(cfg.accountStore);
-    if (!otpEnabled || !email) {
+    if (!otpEnabled || !email || !storeEmail) {
       return ctx.response.redirect(`/auth/interaction/${uid}`);
     }
 
@@ -1088,7 +1149,7 @@ export default class AuthInteractionController {
     // POSTar `channel=code`). Ausente = both (histórico).
     const channel = normalizeLoginChannel(ctx.request.input('channel'));
 
-    const result = await cfg.accountStore.verifyLoginCode(email, uid, code, {
+    const result = await cfg.accountStore.verifyLoginCode(storeEmail, uid, code, {
       maxAttempts: cfg.login.otp.maxAttempts,
     });
 
@@ -1097,7 +1158,7 @@ export default class AuthInteractionController {
     // preferência do usuário que desligou magic link já foi barrada acima).
     const renderOtpError = async (messageKey: string) =>
       render(ctx, 'login', {
-        ...(await this.#userScopedLoginMethods(ctx, cfg, email)),
+        ...(await this.#userScopedLoginMethods(ctx, cfg, storeEmail)),
         uid,
         csrfToken: ctx.request.csrfToken,
         step: 'password',
@@ -1175,19 +1236,19 @@ export default class AuthInteractionController {
         clientId: clientId ?? null,
         metadata: { method: 'otp' },
       });
-      ctx.session.forget(SESSION_KEY);
+      forgetLoginEmail(ctx);
       return service.interactions.completeLogin(ctx, result.account.id, { amr: ['email'] });
     }
 
     if (result.status === 'locked') {
       // 5ª falha (ou já travado): código invalidado, o LINK continua válido.
-      await cfg.audit?.record({ type: 'login.otp_invalidated', email, ip, clientId });
+      await cfg.audit?.record({ type: 'login.otp_invalidated', email: storeEmail, ip, clientId });
       return renderOtpError('login.otp_locked');
     }
     if (result.status === 'expired') {
       await cfg.audit?.record({
         type: 'login.otp_failed',
-        email,
+        email: storeEmail,
         ip,
         clientId,
         metadata: { reason: 'expired' },
@@ -1197,7 +1258,7 @@ export default class AuthInteractionController {
     // 'invalid' (tentativa contabilizada) ou 'no_code'.
     await cfg.audit?.record({
       type: 'login.otp_failed',
-      email,
+      email: storeEmail,
       ip,
       clientId,
       metadata: { reason: result.status },
@@ -1436,7 +1497,7 @@ export default class AuthInteractionController {
     // Passkey OK: opcionalmente confia neste dispositivo (checkbox no challenge).
     await this.maybeTrustDevice(ctx, cfg, accountId);
     ctx.session.forget(MFA_PENDING_KEY);
-    ctx.session.forget(SESSION_KEY);
+    forgetLoginEmail(ctx);
     await notifyLoginSuccess(ctx, cfg, {
       accountId,
       ip,
@@ -1457,7 +1518,7 @@ export default class AuthInteractionController {
    * Clears the stored email and redirects back to step 1.
    */
   async switchIdentifier(ctx: HttpContext) {
-    ctx.session.forget(SESSION_KEY);
+    forgetLoginEmail(ctx);
     return ctx.response.redirect(`/auth/interaction/${ctx.request.param('uid')}`);
   }
 
