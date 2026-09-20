@@ -93,7 +93,7 @@ export class AdminUsersService {
     // cadastro antigo (ponte legada) — senão o admin criaria uma SEGUNDA conta
     // para quem o cadastro público recusaria com `email_taken`.
     const existing = (
-      await resolveEmailIdentifier(store, email, {
+      await resolveEmailIdentifier(store, input.email, {
         legacyFallback: this.cfg.login?.legacyEmailFallback ?? true,
       })
     ).account;

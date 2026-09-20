@@ -99,7 +99,7 @@ export default class AuthSocialController {
       // pelo cadastro antigo ganharia uma SEGUNDA conta ao "Continuar com o
       // Google" em vez de ligar a identidade à conta que já tem.
       const byEmail = (
-        await resolveEmailIdentifier(store, email, {
+        await resolveEmailIdentifier(store, profile.email, {
           legacyFallback: cfg.login?.legacyEmailFallback ?? true,
         })
       ).account;

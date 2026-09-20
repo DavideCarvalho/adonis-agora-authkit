@@ -536,6 +536,27 @@ test.group('import de usuários', () => {
     assert.equal(report.created, 0);
   });
 
+  test('nem para a conta gravada com maiúsculas (a dedupe recebe o valor CRU)', async ({
+    assert,
+  }) => {
+    // Só funciona porque a resolução recebe `record.email` cru: normalizar antes
+    // apagaria a candidata "forma exatamente como digitada".
+    const upper: AuthAccount = { id: 'acc-1', email: 'Davi@Acme.com' };
+    const imported: Array<{ email: string }> = [];
+    const store: any = {
+      findByEmail: async (email: string) => (email === upper.email ? upper : null),
+      importAccount: async (input: { email: string }) => {
+        imported.push(input);
+        return { id: 'acc-2', email: input.email };
+      },
+    };
+
+    const report = await importUsers(store, [{ line: 1, record: { email: 'Davi@Acme.com' } }]);
+
+    assert.lengthOf(imported, 0);
+    assert.equal(report.skippedDuplicate, 1);
+  });
+
   test('`legacyFallback: false` volta a tratar como conta nova', async ({ assert }) => {
     const legacy: AuthAccount = { id: 'acc-1', email: 'davicarvalho96@gmail.com' };
     const imported: Array<{ email: string }> = [];

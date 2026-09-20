@@ -203,6 +203,11 @@ export interface ResolvedEmailIdentifier {
 /**
  * Resolve o e-mail digitado na conta correspondente.
  *
+ * Passe o valor **CRU** (como veio do formulário, do provider ou do arquivo): a
+ * normalização acontece aqui dentro, e a forma crua é uma das candidatas da
+ * ponte. Passar um valor já normalizado apaga essa candidata e reduz o alcance
+ * da ponte às contas gravadas com o endereço mutilado.
+ *
  * 1. Busca pela forma normalizada NOVA (trim + lowercase) — o caminho de sempre,
  *    uma única query por igualdade (indexada).
  * 2. Não achando, e com a ponte ligada (`login.legacyEmailFallback`, default

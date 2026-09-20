@@ -100,7 +100,9 @@ export async function importUsers(
     // Duplicado: e-mail já existe → pula. Enxerga também a conta gravada com o
     // endereço mutilado (ponte legada) — empate segue criando, como no cadastro.
     const existing = (
-      await resolveEmailIdentifier(store, email, { legacyFallback: options.legacyFallback })
+      await resolveEmailIdentifier(store, record.email, {
+        legacyFallback: options.legacyFallback,
+      })
     ).account;
     if (existing) {
       report.skippedDuplicate++;

@@ -164,8 +164,10 @@ export default class AuthRegistrationController {
     const accountStore = cfg.accountStore;
     // Duplicado: além do endereço normalizado, enxerga a conta que o cadastro
     // antigo gravou mutilada — senão a mesma pessoa ganharia uma SEGUNDA conta.
+    // Usa o valor CRU do formulário (o validator já normalizou `data.email`, e a
+    // ponte precisa da grafia original entre as candidatas).
     const existing = (
-      await resolveEmailIdentifier(accountStore, data.email, {
+      await resolveEmailIdentifier(accountStore, ctx.request.input('email'), {
         legacyFallback: cfg.login?.legacyEmailFallback ?? true,
       })
     ).account;
@@ -272,8 +274,9 @@ export default class AuthRegistrationController {
 
     // Cria a conta se ainda não existe. Senha random inutilizável: o login é 100%
     // passwordless (mesmo precedente das contas criadas por identidade social).
+    // Valor CRU do formulário pelo mesmo motivo do cadastro com senha.
     const existing = (
-      await resolveEmailIdentifier(accountStore, data.email, {
+      await resolveEmailIdentifier(accountStore, ctx.request.input('email'), {
         legacyFallback: cfg.login?.legacyEmailFallback ?? true,
       })
     ).account;
@@ -408,7 +411,7 @@ export default class AuthRegistrationController {
     // endereço normalizado não achou nada — o caminho feliz segue com UMA
     // chamada só. Resposta uniforme (a tela abaixo é a mesma, ache ou não).
     if (!result && (cfg.login?.legacyEmailFallback ?? true)) {
-      const resolved = await resolveEmailIdentifier(accountStore, email);
+      const resolved = await resolveEmailIdentifier(accountStore, ctx.request.input('email'));
       if (resolved.viaLegacyFallback) {
         result = await accountStore.issuePasswordResetToken(resolved.lookupEmail);
       }
