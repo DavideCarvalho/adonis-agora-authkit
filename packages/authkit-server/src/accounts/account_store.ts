@@ -261,8 +261,17 @@ export interface MfaCapability {
    * mecanismo de "trusted devices": um cookie de confiança emitido ANTES desse
    * instante é considerado inválido (re-enrolar MFA revoga a confiança). Pode ser
    * `null`/ausente quando o MFA não está ativo ou o store não rastreia o instante.
+   *
+   * `totp` diz se há um app autenticador CONFIRMADO (segredo + códigos de
+   * recuperação). É diferente de `enabled`: registrar uma passkey também liga o
+   * MFA, e remover a última passkey não o desliga — então `enabled` sozinho não
+   * responde "existe um segundo fator que esta pessoa consegue apresentar?".
+   * Quem decide mostrar (ou não) o desafio precisa de `totp`; stores antigos que
+   * o omitem continuam funcionando, só não distinguem os dois casos.
    */
-  getMfaState(accountId: string): Promise<{ enabled: boolean; enabledAt?: number | null }>;
+  getMfaState(
+    accountId: string,
+  ): Promise<{ enabled: boolean; enabledAt?: number | null; totp?: boolean }>;
   /**
    * Inicia o enrollment TOTP: gera um segredo PENDENTE (mfaEnabledAt continua
    * null) e devolve o segredo + otpauth URI (keyuri). Não ativa o MFA ainda.

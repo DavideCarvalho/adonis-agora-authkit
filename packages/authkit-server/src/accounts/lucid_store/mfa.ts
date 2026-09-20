@@ -35,7 +35,15 @@ export function buildMfa(ctx: LucidStoreContext): MfaCapability {
       const state = await repo.read(accountId);
       // `enabledAt` (epoch ms) habilita o trusted-device check: um cookie de
       // confiança emitido ANTES deste instante é inválido (re-enrolar revoga).
-      return { enabled: !!state?.mfaEnabledAt, enabledAt: state?.mfaEnabledAt ?? null };
+      // `totp` é o fator REALMENTE utilizável: segredo confirmado + códigos de
+      // recuperação gravados. `enabled` também liga ao registrar passkey (ver
+      // `webauthn.ts`) e não desliga ao remover a última — sozinho, não diz se
+      // sobrou algum fator para desafiar.
+      return {
+        enabled: !!state?.mfaEnabledAt,
+        enabledAt: state?.mfaEnabledAt ?? null,
+        totp: !!(state?.mfaEnabledAt && state?.totpSecret && state?.recoveryCodes),
+      };
     },
 
     async startTotpEnrollment(accountId) {

@@ -132,7 +132,7 @@ TOTP as a second factor. When the capability is absent the interaction flow trea
 
 ```ts
 interface MfaCapability {
-  getMfaState(accountId: string): Promise<{ enabled: boolean; enabledAt?: number | null }>
+  getMfaState(accountId: string): Promise<{ enabled: boolean; enabledAt?: number | null; totp?: boolean }>
   startTotpEnrollment(accountId: string): Promise<{ secret: string; otpauthUri: string } | null>
   confirmTotpEnrollment(accountId: string, code: string): Promise<{ ok: boolean; recoveryCodes?: string[] }>
   verifyTotp(accountId: string, code: string): Promise<boolean>
@@ -147,6 +147,12 @@ interface MfaCapability {
 
 `enabledAt` (epoch ms) is the moment MFA was last enrolled. Trusted-device cookies issued
 before that instant are rejected, so re-enrolling MFA revokes every remembered device.
+
+`totp` says whether there is a **confirmed authenticator** — a secret plus recovery codes —
+as opposed to `enabled`, which also turns on when a passkey is registered and does not turn
+off when the last one is removed. The login gate needs the difference to avoid prompting for
+a six-digit code that nothing can produce; see [MFA](/docs/mfa). The key is optional, and
+omitting it falls back to `enabled`.
 
 The last two methods are **optional within the capability** — a store written against an
 earlier version still satisfies the type, and callers probe for them with

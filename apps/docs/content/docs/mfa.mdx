@@ -62,6 +62,25 @@ who has lost their device can submit a **recovery code** instead — `consumeRec
 validates and removes it (single-use). If the account has a passkey enrolled, the same step
 also offers a [passkey](/docs/webauthn) challenge as an alternative to typing a code.
 
+The challenge is not specific to the password form. Every way of finishing a login goes
+through the same gate: password, [magic link, email OTP](/docs/passwordless), and the forced
+password change after expiry. A magic link is a **single factor** — an account with a second
+factor gets the challenge after clicking it, exactly as it would after typing a password.
+
+What the gate asks is not "is MFA enabled?" but "is there a factor this person can actually
+present right now?" — that is, a confirmed authenticator (`getMfaState().totp`) or at least
+one registered passkey. The distinction matters because registering a passkey also flips
+`enabled`, and removing the last one does not flip it back: deciding on `enabled` alone would
+hand a six-digit code prompt to someone who has no authenticator to read it from. Stores that
+do not report `totp` — the key is optional on `MfaCapability` — fall back to `enabled`, which
+is the pre-existing behaviour.
+
+<Callout type="warn">
+  Before 0.72.0 the magic link and the email OTP completed the login directly, so an account
+  with TOTP or a passkey could be entered with the email alone. If you rely on MFA, upgrade:
+  the second factor was decorative on those two paths.
+</Callout>
+
 ## Recovery codes
 
 `confirmTotpEnrollment` returns N recovery codes in plaintext exactly once, at activation
