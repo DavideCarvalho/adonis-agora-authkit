@@ -95,6 +95,28 @@ test.group('authkit:users:normalize-emails — relatório (sem --apply)', () => 
     assert.lengthOf(report.changes, 0);
   });
 
+  test('DUAS linhas em branco continuam em `unusable` (não viram colisão em "")', async ({
+    assert,
+  }) => {
+    // Elas compartilham o balde `""`, então a checagem de colisão as pegaria
+    // primeiro e o relatório anunciaria "colisão no endereço ''" — que não
+    // descreve nada e contradiz o contrato do `unusable`.
+    const { store, accounts } = makeStore(['   ', '', 'davi@acme.com']);
+
+    const report = await normalizeAccountEmails(store, { apply: true });
+
+    assert.lengthOf(report.collisions, 0);
+    assert.deepEqual(
+      report.unusable.map((a) => a.accountId),
+      ['acc-1', 'acc-2'],
+    );
+    assert.equal(report.applied, 0);
+    assert.deepEqual(
+      accounts.map((a) => a.email),
+      ['   ', '', 'davi@acme.com'],
+    );
+  });
+
   test('a varredura pagina até o fim', async ({ assert }) => {
     const emails = Array.from({ length: 25 }, (_, i) => `User${i}@Acme.com`);
     const { store } = makeStore(emails);

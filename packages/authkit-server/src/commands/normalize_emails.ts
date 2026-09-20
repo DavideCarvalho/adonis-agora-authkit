@@ -113,6 +113,15 @@ export async function normalizeAccountEmails(
   // 2) Classificação: colisão, mudança ou já normalizada.
   const pending: EmailNormalizationChange[] = [];
   for (const [normalized, accounts] of buckets) {
+    // `normalized` vazio (coluna nula/vazia/só espaços) não é migrável. Sai
+    // LISTADO, não somado às "já normalizadas": o relatório não pode dar
+    // atestado de saúde para a linha que ele deliberadamente deixou para trás.
+    // ANTES da checagem de colisão: duas linhas em branco caem no mesmo balde
+    // `""` e sairiam como "colisão no endereço ''", que não descreve nada.
+    if (!normalized) {
+      report.unusable.push(...accounts);
+      continue;
+    }
     if (accounts.length > 1) {
       // Duas contas distintas no mesmo endereço normalizado. NENHUMA é tocada —
       // nem a que já está normalizada, porque a decisão (fundir? renomear? qual
@@ -122,13 +131,6 @@ export async function normalizeAccountEmails(
       continue;
     }
     const [account] = accounts;
-    // `normalized` vazio (coluna nula/vazia/só espaços) não é migrável. Sai
-    // LISTADO, não somado às "já normalizadas": o relatório não pode dar
-    // atestado de saúde para a linha que ele deliberadamente deixou para trás.
-    if (!normalized) {
-      report.unusable.push(account);
-      continue;
-    }
     if (account.email === normalized) {
       report.alreadyNormalized++;
       continue;
@@ -145,6 +147,9 @@ export async function normalizeAccountEmails(
   // do ICU da máquina, e aí "diffável" valeria só dentro de um host.
   pending.sort((a, b) => byCodeUnit(a.from, b.from));
   report.collisions.sort((a, b) => byCodeUnit(a.email, b.email));
+  // `unusable` tambem: sem isto a lista sairia na ordem da varredura, que e a
+  // ordem do store — a mesma garantia nao valeria para ela.
+  report.unusable.sort((a, b) => byCodeUnit(a.accountId, b.accountId));
   report.changes = pending;
 
   if (!options.apply) return report;
