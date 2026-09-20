@@ -1,5 +1,69 @@
 # @adonis-agora/authkit-server
 
+## 0.70.0
+
+### Minor Changes
+
+- [#223](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/223) [`6adae6d`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/6adae6dff8cf9d81892a0377ee25395bf36b632f) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - feat(authkit-server): escritas de organização e de segundo fator em JSON (`/account/api/*`)
+  
+  Um host que desenha as PRÓPRIAS telas de conta não tinha como criar org, convidar, trocar
+  papel, remover membro, revogar/aceitar convite nem gerenciar TOTP/passkeys sem mandar o
+  usuário ao console `/account/*`: essas operações só existiam como POST de formulário, com
+  redirect. As leituras já eram JSON; faltava o outro lado.
+  
+  - **Orgs**: `POST /account/api/orgs`, `/orgs/deactivate`, `/orgs/invitations/:token/accept`,
+    `/orgs/:id/{activate,leave,invitations}`, `DELETE /orgs/:id/invitations/:invId`,
+    `PATCH|DELETE /orgs/:id/members/:accountId`. Mesmos guards do formulário (escopo por
+    conta, owner/admin na org do path, catálogo de papéis, `owner` só por owner) e a MESMA
+    política efetiva — o resolver saiu para `host/org_policy.ts`, compartilhado com o console.
+  - **Segundo fator**: `POST /account/api/mfa/totp/{enroll,confirm,disable}`,
+    `/mfa/recovery-codes` e a cerimônia de passkey em JSON
+    (`/mfa/passkeys/{options,verify}`) — a clássica responde 302 e não cabe numa SPA. Mesmos
+    gates de sudo do console; a recusa vira `403 sudo_required` em vez de um redirect.
+    `requireSudo` passa a delegar a decisão ao novo `isSudoSatisfied`, que é o que o caminho
+    JSON consome — uma política só, duas formas de recusar. O `confirm` leva o throttle do
+    bucket de sudo (o form não tem; o JSON fica mais apertado, nunca mais frouxo).
+  - **`MfaCapability`** ganha `countRecoveryCodes` e `regenerateRecoveryCodes` OPCIONAIS
+    (capability-probe via `supportsRecoveryCodeCount` / `supportsRecoveryCodeRegeneration`),
+    implementados no `lucidAccountStore`. `GET /account/api/mfa` passa a devolver
+    `recovery.remaining` e `recovery.regenerable`. Novo evento de auditoria
+    `mfa.recovery_codes_regenerated`.
+  
+  Compatível: o console HTML não muda: rota nova, resposta nova. As rotas JSON são montadas
+  mesmo com as telas `orgs`/`mfa` desligadas — é justamente o host com telas próprias que
+  precisa delas.
+
+- [#224](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/224) [`db70f9d`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/db70f9d27a5c5226a6bc74d927cc294069efa5e2) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - fix(authkit-server): uma normalização só para a identidade por e-mail (cadastro e login)
+  
+  O cadastro validava o e-mail com `.normalizeEmail()` do VineJS — os defaults do
+  validator.js, que no gmail **removem os pontos e o sub-endereço `+tag`** — enquanto o passo
+  de identificador do login não normalizava nada e buscava por igualdade exata. Quem se
+  cadastrou com `davi.carvalho96@gmail.com` teve a conta gravada como
+  `davicarvalho96@gmail.com` e, ao tentar entrar com o endereço certo, nunca recebia e-mail;
+  por a tela ser à prova de enumeração, sem nenhuma mensagem de erro. E, por o login ser
+  sensível a maiúsculas, nem `Davi@x.com` achava `davi@x.com`.
+  
+  Agora há UMA normalização, conservadora e exportada — `normalizeEmailIdentifier`
+  (`trim` + `toLowerCase`, nada além disso) —, aplicada no cadastro (com e sem senha), no
+  "esqueci a senha", na troca de e-mail, na criação de usuário por admin, no convite de
+  organização, no import de usuários, no cadastro social e **no passo de identificador do
+  login**, que antes não usava nenhuma.
+  
+  **Mudança de comportamento observável:** o cadastro passa a gravar o endereço que a pessoa
+  digitou. `davi.carvalho96@gmail.com` e `davi.carvalho96+lastro@gmail.com` deixam de colapsar
+  em `davicarvalho96@gmail.com` — são identidades distintas, como em qualquer outro provedor.
+  Contas já gravadas não são alteradas.
+  
+  **Compatibilidade:** `login.legacyEmailFallback` (default `true`) é uma ponte temporária —
+  quando o endereço normalizado não acha conta, o login (OIDC e console de conta) e o
+  "esqueci a senha" tentam a forma exatamente como digitada e a normalização legada, e só
+  aceitam se apontarem para **exatamente uma** conta; empate é tratado como "não achei". O
+  cadastro, o "Continuar com o Google", a criação de usuário por admin e o
+  `authkit:users:import` usam a mesma resolução para não criar uma SEGUNDA conta para quem já
+  tem uma gravada mutilada (`importUsers` recebe o flag por `options.legacyFallback`). Nada
+  disso muda a tela, a mensagem ou o comportamento à prova de enumeração. Migre os endereços
+  gravados e desligue a ponte.
+
 ## 0.69.0
 
 ### Minor Changes
