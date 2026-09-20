@@ -283,6 +283,26 @@ export interface MfaCapability {
   consumeRecoveryCode(accountId: string, code: string): Promise<boolean>;
   /** Desliga o MFA: limpa segredo + mfaEnabledAt + recovery codes. */
   disableMfa(accountId: string): Promise<void>;
+  /**
+   * Quantos recovery codes AINDA não foram consumidos. OPCIONAL: existe para a
+   * tela de segundo fator dizer "restam N" sem revelar os códigos (só o hash
+   * fica guardado). `null` quando o MFA não está ativo.
+   *
+   * Opcional de propósito: um store de terceiro escrito contra a versão
+   * anterior de {@link MfaCapability} continua satisfazendo o tipo, e os
+   * callers fazem capability-probe (`typeof store.countRecoveryCodes ===
+   * 'function'`) antes de chamar.
+   */
+  countRecoveryCodes?(accountId: string): Promise<number | null>;
+  /**
+   * Regenera os recovery codes de uma conta com MFA ATIVO: descarta os antigos
+   * (inclusive os não usados) e devolve os novos em claro — uma única vez, como
+   * no {@link MfaCapability.confirmTotpEnrollment}. `null` quando o MFA não
+   * está ativo (não há o que regenerar).
+   *
+   * Opcional pelo mesmo motivo de {@link MfaCapability.countRecoveryCodes}.
+   */
+  regenerateRecoveryCodes?(accountId: string): Promise<string[] | null>;
 }
 
 /**
@@ -704,6 +724,36 @@ export function supportsCountByGlobalRole(
 /** Type guard: o store implementa a capacidade de passkeys / WebAuthn. */
 export function supportsPasskeys(store: AccountStore): store is AccountStore & WebauthnCapability {
   return typeof store.listPasskeys === 'function';
+}
+
+/**
+ * Type guard: o store sabe REGENERAR recovery codes
+ * ({@link MfaCapability.regenerateRecoveryCodes}).
+ *
+ * Guard PRÓPRIO, separado de {@link supportsMfa}, porque o método é opcional
+ * dentro da capacidade: um store escrito antes desta versão implementa MFA
+ * inteiro e não implementa este método. Quem oferece o botão "gerar novos
+ * códigos" pergunta por aqui.
+ */
+export function supportsRecoveryCodeRegeneration(
+  store: AccountStore,
+): store is AccountStore &
+  MfaCapability & {
+    regenerateRecoveryCodes(accountId: string): Promise<string[] | null>;
+  } {
+  return typeof store.regenerateRecoveryCodes === 'function';
+}
+
+/**
+ * Type guard: o store sabe CONTAR recovery codes restantes
+ * ({@link MfaCapability.countRecoveryCodes}). Mesmo motivo do
+ * {@link supportsRecoveryCodeRegeneration} para ser um guard separado.
+ */
+export function supportsRecoveryCodeCount(
+  store: AccountStore,
+): store is AccountStore &
+  MfaCapability & { countRecoveryCodes(accountId: string): Promise<number | null> } {
+  return typeof store.countRecoveryCodes === 'function';
 }
 
 /** Type guard: o store implementa account linking por identidade de provider. */

@@ -29,6 +29,10 @@ export const AUDIT_EVENT_TYPES = [
   'impersonation.stopped',
   'mfa.enabled',
   'mfa.disabled',
+  // Os recovery codes foram TROCADOS: os antigos (inclusive os não usados)
+  // deixaram de valer no mesmo instante. Evento próprio, e não `mfa.enabled`,
+  // porque o fator não mudou — mudou o conjunto de credenciais de contorno.
+  'mfa.recovery_codes_regenerated',
   'account.locked',
   'passkey.registered',
   'passkey.removed',
