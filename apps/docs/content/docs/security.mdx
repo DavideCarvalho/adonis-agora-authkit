@@ -781,6 +781,30 @@ JWT ATs carry: `iss`, `sub`, `aud`, `exp`, `iat`, `jti`, `client_id`, `scope`, a
 | `resources[*].scopes` | `string[]` | all scopes | Allowed scopes for this API. |
 | `resources[*].expiresIn` | `number` | `ttl.accessToken` | Per-API TTL in seconds. |
 
+### Resource indicators with opaque tokens
+
+`resources` is also the **allowlist** of resource indicators (RFC 8707), and it works
+with opaque tokens too — no JWT required. Clients that always send `resource` (MCP
+clients do: the MCP authorization spec requires it) are accepted as long as the value is
+declared:
+
+```ts
+accessTokens: {
+  // format stays 'opaque'
+  resources: {
+    'https://app.acme.com/mcp': {}, // opaque, aud = the key
+  },
+},
+```
+
+- A declared `resource` (a trailing `/` is tolerated) is granted on consent and bound to
+  the access token: the opaque token's `aud` is the resource, and it is still found by
+  `provider.AccessToken.find` and introspectable.
+- A `resource` that is not declared (nor the JWT `audience`) is rejected with
+  `invalid_target` (RFC 8707 §2).
+- Requests **without** `resource` are unchanged: in opaque mode they get the usual token,
+  without `aud`, usable at `userinfo` — your web login does not move.
+
 ## Signing key rotation
 
 When the JWKS is **managed with a store file** (`jwks: { source: 'managed', store: 'storage/authkit-keys.json' }`),

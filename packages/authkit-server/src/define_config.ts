@@ -46,6 +46,13 @@ import { KeystoreCodec } from './keys/keystore_codec.js';
 import { loadEncryptionService } from './keys/keystore_crypto.js';
 import { KeystoreManager, resolveKeystoreVault } from './keys/keystore_manager.js';
 import type { PatStore } from './pat/pat_store.js';
+import {
+  OPEN_REGISTRATION_REDIRECT_POLICY,
+  type RedirectUriPolicy,
+  type ResolvedRedirectUriPolicy,
+  resolveRedirectUriPolicy,
+  type ValidateRegistrationHook,
+} from './provider/registration_policy.js';
 
 export type { AuthAccount };
 export { adapters };
@@ -382,12 +389,38 @@ export interface DynamicRegistrationConfigInput {
    * registrado via o `registration_access_token` devolvido no registro. Default: false.
    */
   management?: boolean;
+  /**
+   * Política de redirect URIs aplicada a TODO registro (`POST /reg`) e update
+   * (`PUT /reg/:id`) ANTES do oidc-provider. Com a política ativa, o client
+   * também fica restrito ao fluxo de código (`authorization_code` +
+   * `refresh_token`, `response_type=code`; PKCE já é obrigatório no IdP), e
+   * um client só-loopback/app instalado é registrado como `application_type: native`.
+   *
+   * Default:
+   *   - registro ABERTO (sem `initialAccessToken`): `{ loopback: true }` — só
+   *     `http://localhost|127.0.0.1|[::1]` em qualquer porta. Callbacks web de
+   *     fornecedores (ex.: `https://claude.ai/api/mcp/auth_callback`) e esquemas
+   *     de app (`cursor`, `vscode`) precisam ser listados em `exact`/`appSchemes`.
+   *   - registro com `initialAccessToken`: sem política (quem tem o IAT é confiável).
+   *
+   * `false` desliga a política explicitamente (comportamento puro do oidc-provider).
+   */
+  redirectUriPolicy?: RedirectUriPolicy | false;
+  /**
+   * Gancho do host rodado depois da política de redirect: valida/ajusta o
+   * metadata do registro. Lance {@link RegistrationPolicyError} para recusar com
+   * `400`; retorne um objeto para substituir o metadata.
+   */
+  validateRegistration?: ValidateRegistrationHook;
 }
 
 export interface ResolvedDynamicRegistrationConfig {
   enabled: boolean;
   initialAccessToken?: string;
   management: boolean;
+  /** `null` = sem política de redirect (oidc-provider puro). */
+  redirectUriPolicy: ResolvedRedirectUriPolicy | null;
+  validateRegistration?: ValidateRegistrationHook;
 }
 
 /**
@@ -407,10 +440,21 @@ export function resolveDynamicRegistration(
         'ou desligue o management.',
     );
   }
+  const declared = input?.redirectUriPolicy;
+  const redirectUriPolicy =
+    declared === false
+      ? null
+      : declared
+        ? resolveRedirectUriPolicy(declared)
+        : input?.initialAccessToken
+          ? null
+          : { ...OPEN_REGISTRATION_REDIRECT_POLICY };
   return {
     enabled,
     initialAccessToken: input?.initialAccessToken,
     management,
+    redirectUriPolicy,
+    validateRegistration: input?.validateRegistration,
   };
 }
 
@@ -864,6 +908,9 @@ export function resolveAdminApi(input?: AdminApiConfigInput): ResolvedAdminApiCo
  * A role `'owner'` é reservada: uma org SEMPRE precisa de pelo menos um owner.
  * `allowSelfCreate`: se um usuário autenticado pode criar sua própria org (default false).
  * `invitationTtlHours`: TTL dos convites em horas (default 168 = 7 dias).
+ * Os três são o default estático da política; a setting `organizations_policy`
+ * os sobrescreve em runtime — exceto quando `organizations` está declarado no
+ * config, o que trava a setting e faz destes campos a política efetiva.
  * `claimStrategy: 'active'`: emite claims da org ATIVA da sessão (única estratégia implementada).
  */
 export interface OrganizationsConfigInput {
@@ -875,6 +922,21 @@ export interface OrganizationsConfigInput {
    * Default: 'active'.
    */
   claimStrategy?: 'active';
+  /**
+   * Catálogo de roles de org aceitas em convites/membros. `owner` é sempre
+   * garantido. Default: `['owner', 'admin', 'member']`.
+   *
+   * Declarar `organizations` TRAVA a setting `organizations_policy` (ver
+   * `config-locks`): com a chave travada, os campos de política daqui SÃO a
+   * política efetiva. Sem eles, a política trava no default da lib — era o
+   * que acontecia antes destes campos existirem (e.g. `allowSelfCreate` preso
+   * em `false`, sem jeito de ligar).
+   */
+  roles?: string[];
+  /** Usuário autenticado pode criar a própria org em `/account/orgs`. Default: false. */
+  allowSelfCreate?: boolean;
+  /** TTL dos convites em horas. Default: 168 (7 dias). */
+  invitationTtlHours?: number;
 }
 
 export interface ResolvedOrganizationsConfig {
@@ -891,9 +953,12 @@ export function resolveOrganizations(
 ): ResolvedOrganizationsConfig {
   return {
     enabled: input?.enabled,
-    roles: ['owner', 'admin', 'member'],
-    allowSelfCreate: false,
-    invitationTtlHours: 168,
+    roles: input?.roles && input.roles.length > 0 ? input.roles : ['owner', 'admin', 'member'],
+    allowSelfCreate: input?.allowSelfCreate ?? false,
+    invitationTtlHours:
+      typeof input?.invitationTtlHours === 'number' && input.invitationTtlHours >= 1
+        ? Math.floor(input.invitationTtlHours)
+        : 168,
     claimStrategy: input?.claimStrategy ?? 'active',
   };
 }
@@ -1320,6 +1385,20 @@ export interface AuthServerConfigInput {
    * existe no ctx (host com `@adonisjs/auth` de fato inicializado).
    */
   adonisAuth?: { guard: string };
+  /**
+   * Sessão do console de conta (`/account/*`, e o `/admin/*`).
+   *
+   * `acceptIdpSession: true` — SSO: o console aceita a sessão ATIVA do IdP (o
+   * login feito na interaction OIDC — senha, magic link, OTP, passkey, social)
+   * em vez de pedir um segundo login. A sessão de console aberta assim fica
+   * amarrada à sessão do IdP: termina quando ela termina (logout OIDC,
+   * expiração), e o "Sair" do console encerra também a sessão do IdP. Contas
+   * desabilitadas não entram. Operações sensíveis continuam pedindo sudo.
+   *
+   * Default `false`: o console só aceita a própria sessão (`POST /account/login`),
+   * como sempre.
+   */
+  accountSession?: { acceptIdpSession?: boolean };
 }
 
 export interface ResolvedServerConfig {
@@ -1452,6 +1531,8 @@ export interface ResolvedServerConfig {
   lockedRouteOptions: PolicyRouteOption[];
   /** Integração opt-in com `@adonisjs/auth` (ausente = não integrado; comportamento de sempre). */
   adonisAuth?: { guard: string };
+  /** Sessão do console. Ver {@link AuthServerConfigInput.accountSession}. */
+  accountSession: { acceptIdpSession: boolean };
 }
 
 const UNITS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
@@ -1693,6 +1774,7 @@ export function defineConfig(config: AuthServerConfigInput) {
       lockedRouteOptions: deriveLockedRouteOptions(config as Record<string, any>),
       // Opt-in: ausente = authkit nunca toca `ctx.auth` (comportamento de sempre).
       adonisAuth: config.adonisAuth,
+      accountSession: { acceptIdpSession: config.accountSession?.acceptIdpSession === true },
     };
   });
 }

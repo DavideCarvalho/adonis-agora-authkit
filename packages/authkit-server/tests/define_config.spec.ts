@@ -552,3 +552,26 @@ test.group('resolveAccessTokens', () => {
     assert.isTrue(r.anyJwt);
   });
 });
+
+test.group('resolveOrganizations', () => {
+  test('sem input: política default da lib', async ({ assert }) => {
+    const { resolveOrganizations } = await import('../src/define_config.js');
+    const r = resolveOrganizations();
+    assert.deepEqual(r.roles, ['owner', 'admin', 'member']);
+    assert.isFalse(r.allowSelfCreate);
+    assert.equal(r.invitationTtlHours, 168);
+  });
+
+  test('campos de política do config são respeitados (não mais ignorados)', async ({ assert }) => {
+    const { resolveOrganizations } = await import('../src/define_config.js');
+    const r = resolveOrganizations({
+      enabled: true,
+      allowSelfCreate: true,
+      roles: ['owner', 'analyst'],
+      invitationTtlHours: 24,
+    });
+    assert.isTrue(r.allowSelfCreate);
+    assert.deepEqual(r.roles, ['owner', 'analyst']);
+    assert.equal(r.invitationTtlHours, 24);
+  });
+});

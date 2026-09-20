@@ -1477,12 +1477,12 @@ export async function resolveEffectiveRolesCatalog(
  *
  * Invariante mantida: 'owner' é sempre incluído na lista de roles (governance).
  *
- * @param settings - SettingsCapability
+ * @param settings - SettingsCapability, ou null (runtime settings indisponível → config/defaults)
  * @param configDefault - defaults estáticos do config do host
  * @param orgId - opcional; quando fornecido, tenta settings da org antes do global
  */
 export async function resolveEffectiveOrganizationsPolicy(
-  settings: SettingsCapability,
+  settings: SettingsCapability | null,
   configDefault: OrganizationsPolicyConfigDefaults = {},
   orgId?: string | null,
 ): Promise<ResolvedOrganizationsPolicySetting> {
@@ -1516,6 +1516,7 @@ export async function resolveEffectiveOrganizationsPolicy(
     };
   }
 
+  if (!settings) return defaults;
   try {
     // Resolução org → global → defaults
     if (orgId) {

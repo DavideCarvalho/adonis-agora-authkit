@@ -4,6 +4,7 @@ import type { ResolvedServerConfig } from '../define_config.js';
 import { normalizeActiveOrg, readActiveOrgFromKoaCtx } from '../host/active_org_cookie.js';
 import { createDeviceSources } from './device_sources.js';
 import { createLogoutSources } from './logout_sources.js';
+import { registrationPolicyMiddleware } from './registration_policy.js';
 
 export interface BuildProviderOptions {
   /** APP_KEY do consumidor; usado p/ derivar cookies.keys se não houver. */
@@ -101,50 +102,74 @@ export function buildProvider(
       }
     : {};
 
-  // Access Tokens RFC 9068 (JWT) via Resource Indicators (RFC 8707). Só montamos a
-  // feature quando ALGUM AT deve ser JWT — caso contrário (default opaque) o
-  // oidc-provider mantém o comportamento atual (AT opaco introspecionável) intocado.
+  // Resource Indicators (RFC 8707). A feature do oidc-provider é montada quando:
   //
-  // Um JWT AT no oidc-provider SEMPRE exige um resource indicator com `aud`: o
-  // `defaultResource` injeta a resource default (o `audience`, default issuer) quando
-  // o client não pede `resource` explicitamente, e o `getResourceServerInfo` descreve
-  // a API (scope/audience/formato/TTL) — onde `accessTokenFormat: 'jwt'` faz o token
-  // sair como JWS `typ: at+jwt` assinado com a chave corrente do JWKS.
+  //   - ALGUM AT deve ser JWT (RFC 9068): um JWT AT SEMPRE exige um resource com
+  //     `aud`, então o `defaultResource` injeta o `audience` (default issuer)
+  //     quando o client não pede `resource` — comportamento histórico; ou
+  //   - há `accessTokens.resources` declarados, mesmo todos OPACOS: clientes que
+  //     mandam `resource` (ex.: clientes MCP, cuja spec exige o parâmetro) passam
+  //     a ser aceitos. Sem `resource` no pedido, NADA muda: o `defaultResource`
+  //     devolve `undefined` e o AT continua o opaco de sempre (userinfo, sessão
+  //     web), sem `aud`.
+  //
+  // Nos dois casos o `resource` pedido é validado contra a lista declarada
+  // (chaves de `resources` + o `audience` no modo JWT): fora dela → `invalid_target`
+  // (RFC 8707 §2). O resource concedido fica registrado no Grant (consent) e no
+  // AT (`aud` = `audience` da resource), inclusive no token opaco, que continua
+  // encontrável por `AccessToken.find` e introspecionável.
   const at = config.accessTokens;
   const allScopes = ['openid', 'profile', 'email', 'offline_access', 'roles'];
-  const resourceIndicatorFeatures = at.anyJwt
-    ? {
-        resourceIndicators: {
-          enabled: true,
-          defaultResource: async (_ctx: any, _client: any, oneOf?: string[]) => {
-            // Nas trocas (code/refresh/device), o provider passa `oneOf` com as
-            // resources já concedidas — devolvemos para não falhar a request.
-            if (oneOf) return oneOf;
-            // Authorize/sem resource explícito: liga ao resource default (modo simples).
-            return at.audience;
+  const declaredResources = Object.keys(at.resources);
+  const findResource = (indicator: string) => {
+    if (at.resources[indicator]) return { key: indicator, rc: at.resources[indicator] };
+    // Tolerância à barra final (`https://app/mcp` ≡ `https://app/mcp/`).
+    const trimmed = indicator.replace(/\/+$/, '');
+    const key = declaredResources.find((k) => k.replace(/\/+$/, '') === trimmed);
+    return key ? { key, rc: at.resources[key] } : null;
+  };
+  const resourceIndicatorFeatures =
+    at.anyJwt || declaredResources.length > 0
+      ? {
+          resourceIndicators: {
+            enabled: true,
+            defaultResource: async (_ctx: any, _client: any, oneOf?: string[]) => {
+              // Nas trocas (code/refresh/device), o provider passa `oneOf` com as
+              // resources já concedidas — devolvemos para não falhar a request.
+              if (oneOf) return oneOf;
+              // Authorize/sem resource explícito: no modo JWT, liga ao resource
+              // default (modo simples). Só opaco: sem resource (AT de sempre).
+              return at.anyJwt ? at.audience : undefined;
+            },
+            useGrantedResource: async () => true,
+            getResourceServerInfo: (_ctx: any, resourceIndicator: string, _client: any) => {
+              const found = findResource(resourceIndicator);
+              const isDefault = at.anyJwt && resourceIndicator === at.audience;
+              if (!found && !isDefault) {
+                throw new oidc.errors.InvalidTarget(
+                  `resource indicator not allowed: ${resourceIndicator}`,
+                );
+              }
+              const rc = found?.rc;
+              const format = rc?.format ?? at.format;
+              const audience = rc?.audience ?? found?.key ?? resourceIndicator;
+              const scope = (rc?.scopes ?? allScopes).join(' ');
+              const info: Record<string, any> = {
+                scope,
+                audience,
+                accessTokenFormat: format,
+              };
+              const ttl = rc?.expiresIn;
+              if (ttl !== undefined) info.accessTokenTTL = ttl;
+              if (format === 'jwt') {
+                // Assina com a chave de assinatura corrente do keystore (mesma do JWKS).
+                info.jwt = { sign: { alg: config.jwks.keys[0]?.alg ?? 'RS256' } };
+              }
+              return info;
+            },
           },
-          useGrantedResource: async () => true,
-          getResourceServerInfo: (_ctx: any, resourceIndicator: string, _client: any) => {
-            const rc = at.resources[resourceIndicator];
-            const format = rc?.format ?? (resourceIndicator === at.audience ? at.format : 'opaque');
-            const audience = rc?.audience ?? resourceIndicator;
-            const scope = (rc?.scopes ?? allScopes).join(' ');
-            const info: Record<string, any> = {
-              scope,
-              audience,
-              accessTokenFormat: format,
-            };
-            const ttl = rc?.expiresIn;
-            if (ttl !== undefined) info.accessTokenTTL = ttl;
-            if (format === 'jwt') {
-              // Assina com a chave de assinatura corrente do keystore (mesma do JWKS).
-              info.jwt = { sign: { alg: config.jwks.keys[0]?.alg ?? 'RS256' } };
-            }
-            return info;
-          },
-        },
-      }
-    : {};
+        }
+      : {};
 
   const provider = new oidc.Provider(config.issuer, {
     // Dispatcher por modelo (suportado pelo oidc-provider: `Adapter` aceita
@@ -336,6 +361,18 @@ export function buildProvider(
     writable: true,
     configurable: true,
   });
+
+  // Política do registro dinâmico (redirect URIs + só fluxo de código + gancho do
+  // host). Middleware PRÉ-rota: roda antes do `/reg` do provider, que sozinho
+  // aceitaria qualquer redirect sintaticamente válido. Ver registration_policy.ts.
+  if (dynReg.enabled && (dynReg.redirectUriPolicy || dynReg.validateRegistration)) {
+    provider.use(
+      registrationPolicyMiddleware({
+        policy: dynReg.redirectUriPolicy,
+        validate: dynReg.validateRegistration,
+      }) as any,
+    );
+  }
 
   provider.proxy = true;
   return provider;

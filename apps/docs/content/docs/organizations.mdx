@@ -56,9 +56,7 @@ schema.createTable('auth_organization_invitations', (table) => {
 
 ## Configuration
 
-Configure organizations in `defineConfig`. Only the `enabled` override and `claimStrategy`
-belong here — policy fields (`roles`, `allowSelfCreate`, `invitationTtlHours`) are managed
-via the `organizations_policy` runtime setting:
+Configure organizations in `defineConfig`:
 
 ```ts title="config/authkit.ts"
 defineConfig({
@@ -66,6 +64,9 @@ defineConfig({
   organizations: {
     // enabled: true,        // default: auto (on when tables exist)
     claimStrategy: 'active', // emit claims from the session's active org (default)
+    allowSelfCreate: true,   // signed-in users may create their own org
+    roles: ['owner', 'admin', 'analyst'],
+    invitationTtlHours: 72,
   },
 })
 ```
@@ -74,9 +75,19 @@ defineConfig({
 | --- | --- | --- | --- |
 | `enabled` | `boolean` | auto | Intent signal for `authkit:doctor`: with `true` it warns when the store has no `OrganizationsCapability`. It does **not** gate routes — those are mounted from the capability (see *Lucid store models* below). |
 | `claimStrategy` | `'active'` | `'active'` | Emit claims from the current active org cookie. The only supported strategy. |
+| `allowSelfCreate` | `boolean` | `false` | `POST /account/orgs` is allowed (the creator becomes `owner`). |
+| `roles` | `string[]` | `['owner', 'admin', 'member']` | Org role catalog. `owner` is always kept. |
+| `invitationTtlHours` | `number` | `168` | Invitation lifetime. |
 
-Policy fields (`roles`, `allowSelfCreate`, `invitationTtlHours`) are managed via the
-`organizations_policy` runtime setting — see [Runtime Settings](/docs/settings):
+The effective policy is resolved **org setting → global setting → `config.organizations` →
+library default**, and the member-facing `/account/orgs` screens, the admin console and the
+Admin API all read it. Declaring `organizations` in `defineConfig` **locks** the
+`organizations_policy` setting (see [Config locks](/docs/config-locks)), so the policy
+fields above *are* the policy; leave `organizations` out of the config to manage the policy
+from the console instead.
+
+Without the config key, the policy lives in the `organizations_policy` runtime setting —
+see [Runtime Settings](/docs/settings):
 
 ```bash
 node ace authkit:settings:set organizations_policy \
