@@ -5,6 +5,7 @@
 export { configure } from './commands/configure.js';
 export type {
   AccountDeletionCapability,
+  AccountEmailRewriteCapability,
   AccountImportCapability,
   AccountSecurityCapability,
   AccountStatusCapability,
@@ -36,6 +37,7 @@ export type {
 } from './src/accounts/account_store.js';
 export {
   supportsAccountDeletion,
+  supportsAccountEmailRewrite,
   supportsAccountImport,
   supportsAccountSecurity,
   supportsAccountStatus,

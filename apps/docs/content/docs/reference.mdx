@@ -333,7 +333,9 @@ them back, and it is a **required step when upgrading from 0.70 or earlier** —
 Without `--apply` it writes nothing: it reports how many addresses would change, which, and
 the **collisions** — two accounts that collapse onto the same normalized address. With
 `--apply` it writes, refusing to touch any account involved in a collision and listing them
-for a human decision; it never merges accounts and never picks a winner. It exits non-zero
+for a human decision; it never merges accounts and never picks a winner. Rows whose address
+normalizes to nothing (a null or blank column) are listed separately rather than counted as
+"already normalized" — the report never vouches for a row it left behind. It exits non-zero
 when collisions (or write failures) remain. See
 [Security](/docs/security#migrating-the-stored-addresses--a-required-upgrade-step).
 

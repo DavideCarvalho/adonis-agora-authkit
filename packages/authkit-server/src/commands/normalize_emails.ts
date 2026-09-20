@@ -41,6 +41,19 @@ export interface NormalizeEmailsReport {
   collisions: EmailNormalizationCollision[];
   /** Contas que a colisão impediu de mexer (soma das contas de `collisions`). */
   skippedByCollision: number;
+  /**
+   * Contas cujo endereço gravado NÃO normaliza para nada (coluna nula, vazia ou
+   * só espaços). Não entram em `alreadyNormalized`: gravar string vazia como
+   * identidade seria pior que deixar como está, e um operador que lê "já
+   * normalizada" não pode achar que estas linhas estão bem.
+   */
+  unusable: { accountId: string; email: string }[];
+}
+
+/** Comparação por code unit — mesma ordem em qualquer máquina, sem depender do ICU. */
+function byCodeUnit(a: string, b: string): number {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
 }
 
 /**
@@ -78,6 +91,7 @@ export async function normalizeAccountEmails(
     applied: 0,
     collisions: [],
     skippedByCollision: 0,
+    unusable: [],
   };
 
   // 1) Varredura completa. Guarda só id + e-mail (strings), agrupados pela forma
@@ -108,13 +122,14 @@ export async function normalizeAccountEmails(
       continue;
     }
     const [account] = accounts;
-    if (account.email === normalized) {
-      report.alreadyNormalized++;
+    // `normalized` vazio (coluna nula/vazia/só espaços) não é migrável. Sai
+    // LISTADO, não somado às "já normalizadas": o relatório não pode dar
+    // atestado de saúde para a linha que ele deliberadamente deixou para trás.
+    if (!normalized) {
+      report.unusable.push(account);
       continue;
     }
-    // `normalized` vazio (e-mail nulo/estranho na base) não é migrável: gravar
-    // string vazia como identidade seria pior que deixar como está.
-    if (!normalized) {
+    if (account.email === normalized) {
       report.alreadyNormalized++;
       continue;
     }
@@ -125,9 +140,11 @@ export async function normalizeAccountEmails(
       applied: false,
     });
   }
-  // Ordem estável (por endereço gravado) para o relatório ser diffável entre runs.
-  pending.sort((a, b) => a.from.localeCompare(b.from));
-  report.collisions.sort((a, b) => a.email.localeCompare(b.email));
+  // Ordem estável (por endereço gravado) para o relatório ser diffável entre
+  // runs. Comparação por code unit, NÃO `localeCompare`: a ordem desta depende
+  // do ICU da máquina, e aí "diffável" valeria só dentro de um host.
+  pending.sort((a, b) => byCodeUnit(a.from, b.from));
+  report.collisions.sort((a, b) => byCodeUnit(a.email, b.email));
   report.changes = pending;
 
   if (!options.apply) return report;

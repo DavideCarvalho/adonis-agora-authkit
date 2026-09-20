@@ -76,6 +76,23 @@ test.group('authkit:users:normalize-emails — relatório (sem --apply)', () => 
     assert.equal(report.alreadyNormalized, 2);
     assert.lengthOf(report.changes, 0);
     assert.lengthOf(report.collisions, 0);
+    assert.lengthOf(report.unusable, 0);
+  });
+
+  test('e-mail vazio sai LISTADO, não como "já normalizada"', async ({ assert }) => {
+    // Coluna nula/vazia/só espaços: normalizar daria string vazia como
+    // identidade. A linha fica como está, mas NÃO pode se esconder dentro de uma
+    // métrica que o operador lê como "essa está bem".
+    const { store } = makeStore(['   ', 'davi@acme.com']);
+
+    const report = await normalizeAccountEmails(store);
+
+    assert.equal(report.alreadyNormalized, 1);
+    assert.deepEqual(
+      report.unusable.map((a) => a.email),
+      ['   '],
+    );
+    assert.lengthOf(report.changes, 0);
   });
 
   test('a varredura pagina até o fim', async ({ assert }) => {

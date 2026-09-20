@@ -88,6 +88,17 @@ export default class AuthkitNormalizeEmails extends BaseCommand {
       this.exitCode = 1;
     }
 
+    if (report.unusable.length > 0) {
+      // Não entram em "já normalizada": o relatório não dá por boa uma linha que
+      // deixou para trás.
+      this.logger.warning(
+        `⚠️  ${report.unusable.length} conta(s) com e-mail vazio/inutilizável — NÃO migrada(s):`,
+      );
+      for (const account of report.unusable) {
+        this.logger.warning(`   id ${account.accountId}: ${JSON.stringify(account.email)}`);
+      }
+    }
+
     if (report.collisions.length > 0) {
       this.logger.logError(
         `❌ ${report.collisions.length} colisão(ões) — ${report.skippedByCollision} conta(s) NÃO tocada(s). Decida à mão (a migração não funde contas):`,
