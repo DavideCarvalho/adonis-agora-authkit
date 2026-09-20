@@ -984,57 +984,53 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
       router.get(`${apiBase}/orgs/:id`, [C.accountApi, 'showOrg']);
 
       // ─── Orgs: ESCRITA em JSON (espelho dos POSTs de formulário) ─────────
-      // Montadas junto com a TELA `orgs`: um host que desmontou o console de
-      // organizações não ganha os endpoints de escrita de organização de
-      // brinde. (As leituras acima seguem sempre montadas — já respondiam
-      // `supported: false` sem a capacidade, e mudar isso quebraria quem lê.)
+      // SEMPRE montadas, como as leituras JSON logo acima — e NÃO amarradas ao
+      // `mountOrgs` da TELA. A tela é a UI do console; `/account/api/*` é a
+      // superfície de máquina, e quem desliga a tela é justamente o host que
+      // desenha as próprias telas e mais precisa destes endpoints. Amarrar as
+      // duas coisas tornaria o modo headless inalcançável.
+      //
+      // Desligar a tela não afrouxa nada: o que decide quem pode o quê aqui é o
+      // `accountGuard` + capability-probe do store + política efetiva
+      // (`allowSelfCreate` continua `false` por default) + papel na org — os
+      // mesmos gates do formulário, nunca a presença de uma rota HTML.
       // ⚠️ ORDER MATTERS, de novo: segmento fixo antes de paramétrico.
-      if (mountOrgs) {
-        router.post(`${apiBase}/orgs`, [C.accountOrgsApi, 'createOrg']);
-        router.post(`${apiBase}/orgs/deactivate`, [C.accountOrgsApi, 'deactivateOrg']);
-        router.post(`${apiBase}/orgs/invitations/:token/accept`, [
-          C.accountOrgsApi,
-          'acceptInvitation',
-        ]);
-        router.post(`${apiBase}/orgs/:id/activate`, [C.accountOrgsApi, 'activateOrg']);
-        router.post(`${apiBase}/orgs/:id/leave`, [C.accountOrgsApi, 'leaveOrg']);
-        router.post(`${apiBase}/orgs/:id/invitations`, [C.accountOrgsApi, 'inviteMember']);
-        router.delete(`${apiBase}/orgs/:id/invitations/:invId`, [
-          C.accountOrgsApi,
-          'revokeInvitation',
-        ]);
-        router.patch(`${apiBase}/orgs/:id/members/:accountId`, [
-          C.accountOrgsApi,
-          'updateMemberRole',
-        ]);
-        router.delete(`${apiBase}/orgs/:id/members/:accountId`, [
-          C.accountOrgsApi,
-          'removeMember',
-        ]);
-      }
+      router.post(`${apiBase}/orgs`, [C.accountOrgsApi, 'createOrg']);
+      router.post(`${apiBase}/orgs/deactivate`, [C.accountOrgsApi, 'deactivateOrg']);
+      router.post(`${apiBase}/orgs/invitations/:token/accept`, [
+        C.accountOrgsApi,
+        'acceptInvitation',
+      ]);
+      router.post(`${apiBase}/orgs/:id/activate`, [C.accountOrgsApi, 'activateOrg']);
+      router.post(`${apiBase}/orgs/:id/leave`, [C.accountOrgsApi, 'leaveOrg']);
+      router.post(`${apiBase}/orgs/:id/invitations`, [C.accountOrgsApi, 'inviteMember']);
+      router.delete(`${apiBase}/orgs/:id/invitations/:invId`, [
+        C.accountOrgsApi,
+        'revokeInvitation',
+      ]);
+      router.patch(`${apiBase}/orgs/:id/members/:accountId`, [
+        C.accountOrgsApi,
+        'updateMemberRole',
+      ]);
+      router.delete(`${apiBase}/orgs/:id/members/:accountId`, [C.accountOrgsApi, 'removeMember']);
 
       // ─── Segundo fator em JSON (espelho do console de MFA) ───────────────
-      // Montadas junto com a TELA `mfa`, pelo mesmo motivo das de org.
-      if (mountMfa) {
-        router.post(`${apiBase}/mfa/totp/enroll`, [C.accountMfaApi, 'enrollTotp']);
-        // THROTTLE no confirm: o código TOTP é adivinhável (6 dígitos), e o
-        // `accountGuard` sozinho só exige uma sessão viva — que quem está
-        // tentando adivinhar tem. Bucket de SUDO (por IP): mesma natureza —
-        // usuário autenticado reprovando um fator —, contagem separada do
-        // login. O form clássico não tem isto; o JSON fica MAIS apertado, que
-        // é a única direção em que os dois caminhos podem divergir.
-        withSudo(router.post(`${apiBase}/mfa/totp/confirm`, [C.accountMfaApi, 'confirmTotp']));
-        router.post(`${apiBase}/mfa/totp/disable`, [C.accountMfaApi, 'disableTotp']);
-        router.post(`${apiBase}/mfa/recovery-codes`, [
-          C.accountMfaApi,
-          'regenerateRecoveryCodes',
-        ]);
-        router.post(`${apiBase}/mfa/passkeys/options`, [
-          C.accountMfaApi,
-          'passkeyRegisterOptions',
-        ]);
-        router.post(`${apiBase}/mfa/passkeys/verify`, [C.accountMfaApi, 'passkeyRegisterVerify']);
-      }
+      // Mesma decisão das de org: superfície de máquina, montada sempre. Sem a
+      // capacidade de MFA no store, cada handler responde 422
+      // `capability_unsupported` — capability-probed, como o resto do
+      // `/account/api/*`.
+      router.post(`${apiBase}/mfa/totp/enroll`, [C.accountMfaApi, 'enrollTotp']);
+      // THROTTLE no confirm: o código TOTP é adivinhável (6 dígitos), e o
+      // `accountGuard` sozinho só exige uma sessão viva — que quem está
+      // tentando adivinhar tem. Bucket de SUDO (por IP): mesma natureza —
+      // usuário autenticado reprovando um fator —, contagem separada do login.
+      // O form clássico não tem isto; o JSON fica MAIS apertado, que é a única
+      // direção em que os dois caminhos podem divergir.
+      withSudo(router.post(`${apiBase}/mfa/totp/confirm`, [C.accountMfaApi, 'confirmTotp']));
+      router.post(`${apiBase}/mfa/totp/disable`, [C.accountMfaApi, 'disableTotp']);
+      router.post(`${apiBase}/mfa/recovery-codes`, [C.accountMfaApi, 'regenerateRecoveryCodes']);
+      router.post(`${apiBase}/mfa/passkeys/options`, [C.accountMfaApi, 'passkeyRegisterOptions']);
+      router.post(`${apiBase}/mfa/passkeys/verify`, [C.accountMfaApi, 'passkeyRegisterVerify']);
     })
     .use([accountGuard]);
 

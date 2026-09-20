@@ -54,7 +54,7 @@ import { translate } from '../i18n.js';
 import { PASSKEY_REG_CHALLENGE_KEY } from '../passkey_registration_challenge.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { dispatchSecurityNotice } from '../security_notice_service.js';
-import { requireSudo } from '../sudo_mode.js';
+import { isSudoSatisfied } from '../sudo_mode.js';
 
 /** Erro JSON padrão — mesmo envelope do `account_api_controller`. */
 function apiErr(code: string, message: string) {
@@ -238,7 +238,8 @@ export default class AccountMfaApiController {
     }
 
     const body = ctx.request.input('response', ctx.request.body());
-    const ok = (await cfg.accountStore.verifyPasskeyRegistration?.(userId, body, challenge)) ?? false;
+    const ok =
+      (await cfg.accountStore.verifyPasskeyRegistration?.(userId, body, challenge)) ?? false;
     // Queima o desafio em QUALQUER desfecho: um attestation recusado não pode
     // ser retentado contra o mesmo challenge.
     ctx.session.forget(PASSKEY_REG_CHALLENGE_KEY);
@@ -300,19 +301,22 @@ export default class AccountMfaApiController {
   }
 
   /**
-   * Gate de sudo em versão JSON: a MESMA `requireSudo` do console (mesma
-   * setting, mesma janela de graça, mesmo fail-closed), só que a recusa vira
-   * 403 em vez do redirect para `/account/confirm`. Devolve `false` quando já
-   * respondeu.
+   * Gate de sudo em versão JSON. A DECISÃO é a mesmíssima do console —
+   * `isSudoSatisfied`, de onde o `requireSudo` do form também tira a dele
+   * (mesma setting, mesma janela de graça, mesma vinculação à conta, mesmo
+   * fail-safe) —, só a RECUSA muda de forma: `403 sudo_required` em vez do
+   * redirect para `/account/confirm`.
+   *
+   * Chama a decisão, e não o `requireSudo`, porque aquele ESCREVE na resposta
+   * ao recusar (`response.redirect`): sobrepor um 403 depois deixaria um
+   * `Location` pendurado numa resposta que não é redirect. Devolve `false`
+   * quando já respondeu.
    */
   async #requireSudoJson(ctx: HttpContext): Promise<boolean> {
     const settings = await resolveRuntimeSettings(ctx);
-    const result = await requireSudo(ctx, settings);
-    if (result !== true) {
-      ctx.response.status(403).send(apiErr('sudo_required', 'Identity confirmation required.'));
-      return false;
-    }
-    return true;
+    if (await isSudoSatisfied(ctx, settings)) return true;
+    ctx.response.status(403).send(apiErr('sudo_required', 'Identity confirmation required.'));
+    return false;
   }
 
   /** Notificação de segurança best-effort (nunca derruba a operação). */

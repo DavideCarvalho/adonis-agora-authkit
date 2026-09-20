@@ -735,9 +735,7 @@ export function supportsPasskeys(store: AccountStore): store is AccountStore & W
  * inteiro e não implementa este método. Quem oferece o botão "gerar novos
  * códigos" pergunta por aqui.
  */
-export function supportsRecoveryCodeRegeneration(
-  store: AccountStore,
-): store is AccountStore &
+export function supportsRecoveryCodeRegeneration(store: AccountStore): store is AccountStore &
   MfaCapability & {
     regenerateRecoveryCodes(accountId: string): Promise<string[] | null>;
   } {

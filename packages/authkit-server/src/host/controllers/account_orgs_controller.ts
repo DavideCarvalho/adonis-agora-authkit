@@ -11,37 +11,12 @@ import {
 } from '../active_org_cookie.js';
 import { sendOrgInvitationEmail } from '../default_mailer.js';
 import { ensureConsoleSession } from '../idp_session_bridge.js';
+// Política efetiva compartilhada com o espelho JSON (`account_orgs_api_controller`):
+// ponto de verdade único, para as duas superfícies nunca divergirem.
+import { effectiveOrgPolicy, orgPolicyDefaults } from '../org_policy.js';
 import { authkitOrigin } from '../origin.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
-import {
-  isRoleInCatalog,
-  type OrganizationsPolicyConfigDefaults,
-  type ResolvedOrganizationsPolicySetting,
-  resolveEffectiveOrganizationsPolicy,
-} from '../runtime_toggles.js';
-
-/** Defaults estáticos da política de org (config do host) — o fallback da setting. */
-function orgPolicyDefaults(cfg: any): OrganizationsPolicyConfigDefaults {
-  return {
-    roles: cfg.organizations.roles,
-    allowSelfCreate: cfg.organizations.allowSelfCreate,
-    invitationTtlHours: cfg.organizations.invitationTtlHours,
-  };
-}
-
-/**
- * Política EFETIVA de organizações: setting `organizations_policy` (org → global)
- * → `config.organizations` → default da lib. É o que a doc promete; antes este
- * controller lia só o config estático, e a setting não tinha efeito aqui.
- */
-async function effectiveOrgPolicy(
-  ctx: HttpContext,
-  cfg: any,
-  orgId?: string | null,
-): Promise<ResolvedOrganizationsPolicySetting> {
-  const settings = await resolveRuntimeSettings(ctx);
-  return resolveEffectiveOrganizationsPolicy(settings, orgPolicyDefaults(cfg), orgId);
-}
+import { isRoleInCatalog, resolveEffectiveOrganizationsPolicy } from '../runtime_toggles.js';
 
 /**
  * Console de conta — Organizations. Server-rendered, padrão dos outros controllers

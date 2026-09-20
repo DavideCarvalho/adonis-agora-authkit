@@ -237,6 +237,12 @@ All methods under `admin.*` hit `{adminBase}/api/*` — the prefix is derived fr
 | `account.apps.list()` | `GET /account/api/apps` | Authorized OAuth grants |
 | `account.apps.revoke(clientId)` | `DELETE /account/api/apps/:clientId` | — |
 | `account.mfa()` | `GET /account/api/mfa` | TOTP + passkeys + recovery status |
+| `account.mfa.enroll()` | `POST /account/api/mfa/totp/enroll` | Requires sudo; returns secret + otpauth URI + QR data-URL |
+| `account.mfa.confirm(code)` | `POST /account/api/mfa/totp/confirm` | Turns MFA on; recovery codes returned once |
+| `account.mfa.disable()` | `POST /account/api/mfa/totp/disable` | Requires sudo |
+| `account.mfa.regenerateRecoveryCodes()` | `POST /account/api/mfa/recovery-codes` | Requires sudo; old codes stop working |
+| `account.mfa.passkeys.options()` | `POST /account/api/mfa/passkeys/options` | Registration ceremony options (JSON) |
+| `account.mfa.passkeys.verify(response)` | `POST /account/api/mfa/passkeys/verify` | Requires sudo |
 | `account.passkeys.list()` | `GET /account/api/passkeys` | — |
 | `account.passkeys.remove(id)` | `DELETE /account/api/passkeys/:id` | Requires sudo |
 | `account.tokens.list()` | `GET /account/api/tokens` | Personal Access Tokens |
@@ -245,6 +251,20 @@ All methods under `admin.*` hit `{adminBase}/api/*` — the prefix is derived fr
 | `account.orgs.list()` | `GET /account/api/orgs` | Orgs the signed-in user belongs to |
 | `account.orgs.get(id)` | `GET /account/api/orgs/:id` | Org detail; requires membership |
 | `account.orgs.invitations()` | `GET /account/api/orgs/invitations` | Pending invitations |
+| `account.orgs.create(data)` | `POST /account/api/orgs` | Creator becomes `owner`; needs `allowSelfCreate` |
+| `account.orgs.activate(id)` | `POST /account/api/orgs/:id/activate` | Sets the active-org cookie |
+| `account.orgs.deactivate()` | `POST /account/api/orgs/deactivate` | Clears the active org |
+| `account.orgs.leave(id)` | `POST /account/api/orgs/:id/leave` | `409 last_owner` for the last owner |
+| `account.orgs.invite(orgId, data)` | `POST /account/api/orgs/:id/invitations` | Owner/admin only; the token is not returned |
+| `account.orgs.revokeInvitation(orgId, invitationId)` | `DELETE /account/api/orgs/:id/invitations/:invId` | Owner/admin only |
+| `account.orgs.updateMemberRole(orgId, accountId, role)` | `PATCH /account/api/orgs/:id/members/:accountId` | Owner/admin only |
+| `account.orgs.removeMember(orgId, accountId)` | `DELETE /account/api/orgs/:id/members/:accountId` | Owner/admin only |
+| `account.orgs.acceptInvitation(token)` | `POST /account/api/orgs/invitations/:token/accept` | `410 expired`, `403 email_mismatch` |
+
+`client.account.mfa` is a **function with properties**: `account.mfa()` is still the status
+read, and the writes hang off it. See
+[Host-owned account screens](/docs/headless-account) for the screen-by-screen guide to the
+write surface.
 
 All `account.*` methods use session authentication (the `accountGuard` cookie). Mutating
 operations (`PATCH`, `POST`, `DELETE`) send `X-CSRF-TOKEN` automatically.
@@ -385,6 +405,25 @@ full control.
 | `useRemovePasskeyMutationOptions()` | `string` (passkey id) | Requires sudo |
 | `useCreateTokenMutationOptions()` | `CreateTokenInput?` | Requires sudo; secret returned once |
 | `useRevokeTokenMutationOptions()` | `string` (token id) | Requires sudo |
+| `useAccountCreateOrgMutationOptions()` | `CreateAccountOrgInput` | Needs `allowSelfCreate` in the effective policy |
+| `useAccountActivateOrgMutationOptions()` | `string` (org id) | Sets the active org |
+| `useAccountDeactivateOrgMutationOptions()` | `void` | Clears the active org |
+| `useAccountLeaveOrgMutationOptions()` | `string` (org id) | `409 last_owner` |
+| `useAccountInviteOrgMemberMutationOptions()` | `{ orgId, email, role? }` | Owner/admin only |
+| `useAccountRevokeOrgInvitationMutationOptions()` | `{ orgId, invitationId }` | Owner/admin only |
+| `useAccountUpdateOrgMemberRoleMutationOptions()` | `{ orgId, accountId, role }` | Only an owner grants `owner` |
+| `useAccountRemoveOrgMemberMutationOptions()` | `{ orgId, accountId }` | Owner/admin only |
+| `useAccountAcceptOrgInvitationMutationOptions()` | `string` (token) | `410 expired`, `403 email_mismatch` |
+| `useEnrollTotpMutationOptions()` | `void` | Requires sudo; returns secret + QR |
+| `useConfirmTotpMutationOptions()` | `string` (code) | Recovery codes returned once |
+| `useDisableTotpMutationOptions()` | `void` | Requires sudo |
+| `useRegenerateRecoveryCodesMutationOptions()` | `void` | Requires sudo; replaces the whole set |
+| `useRegisterPasskeyMutationOptions(deps?)` | `void` | Full WebAuthn ceremony over JSON; requires sudo on verify |
+
+The `useAccount…` prefix on the org hooks is not decoration: the **admin** surface exports
+`useCreateOrgMutationOptions`, `useRemoveOrgMemberMutationOptions` and friends from the same
+entry point, and those act on any org. These act on the signed-in user's orgs, with
+member-facing guards.
 
 ## Full example — users page
 
@@ -649,6 +688,25 @@ authkitKeys.account.tokens()
 authkitKeys.account.orgs()
 authkitKeys.account.org(id)
 authkitKeys.account.orgInvitations()
+
+// Mutation keys of the headless write surface (orgs + second factor).
+// The `orgs()`/`mfa()` entries are prefixes — useful with `useIsMutating`.
+authkitKeys.account.mutations.orgs()
+authkitKeys.account.mutations.orgCreate()
+authkitKeys.account.mutations.orgActivate()
+authkitKeys.account.mutations.orgDeactivate()
+authkitKeys.account.mutations.orgLeave()
+authkitKeys.account.mutations.orgInvite()
+authkitKeys.account.mutations.orgRevokeInvitation()
+authkitKeys.account.mutations.orgAcceptInvitation()
+authkitKeys.account.mutations.orgUpdateMemberRole()
+authkitKeys.account.mutations.orgRemoveMember()
+authkitKeys.account.mutations.mfa()
+authkitKeys.account.mutations.mfaEnroll()
+authkitKeys.account.mutations.mfaConfirm()
+authkitKeys.account.mutations.mfaDisable()
+authkitKeys.account.mutations.mfaRecoveryCodes()
+authkitKeys.account.mutations.passkeyRegister()
 ```
 
 ## SSR and testing
@@ -714,6 +772,21 @@ Routes registered by `registerAuthHost` (always on when the account console is m
 | `GET` | `/account/api/orgs` | List orgs the user belongs to |
 | `GET` | `/account/api/orgs/invitations` | List pending org invitations |
 | `GET` | `/account/api/orgs/:id` | Org detail (requires membership) |
+| `POST` | `/account/api/orgs` | Create an org (needs `allowSelfCreate`) |
+| `POST` | `/account/api/orgs/deactivate` | Clear the active org |
+| `POST` | `/account/api/orgs/invitations/:token/accept` | Accept an invitation |
+| `POST` | `/account/api/orgs/:id/activate` | Set the active org |
+| `POST` | `/account/api/orgs/:id/leave` | Leave the org |
+| `POST` | `/account/api/orgs/:id/invitations` | Invite by email (owner/admin) |
+| `DELETE` | `/account/api/orgs/:id/invitations/:invId` | Revoke an invitation (owner/admin) |
+| `PATCH` | `/account/api/orgs/:id/members/:accountId` | Change a member's role (owner/admin) |
+| `DELETE` | `/account/api/orgs/:id/members/:accountId` | Remove a member (owner/admin) |
+| `POST` | `/account/api/mfa/totp/enroll` | Start TOTP enrollment (sudo required) |
+| `POST` | `/account/api/mfa/totp/confirm` | Confirm and enable MFA (throttled) |
+| `POST` | `/account/api/mfa/totp/disable` | Disable MFA (sudo required) |
+| `POST` | `/account/api/mfa/recovery-codes` | Regenerate recovery codes (sudo required) |
+| `POST` | `/account/api/mfa/passkeys/options` | Passkey registration options (JSON) |
+| `POST` | `/account/api/mfa/passkeys/verify` | Verify and store the passkey (sudo required) |
 
 All endpoints are capability-probed — if the underlying store doesn't support a feature
 (e.g. passkeys, orgs, PATs), the route returns `{ supported: false, ... }` rather than

@@ -258,31 +258,38 @@ function fakeCtx(opts: {
 }
 
 /**
- * `lucid.db` fake com uma única linha em `auth_settings`, o suficiente para o
- * `RuntimeSettings` resolver a setting `organizations_policy`.
+ * `lucid.db` fake com as linhas de `auth_settings` — mesma forma do helper de
+ * `tests/organizations/account_orgs_member_facing.spec.ts` (o `value` chega ao
+ * `RuntimeSettings` como TEXTO JSON, que é como a coluna guarda). Rows com
+ * `organization_id` respondem só à consulta escopada naquela org.
  */
-function fakeSettingsDb(rows: Array<{ key: string; organization_id: string | null; value: any }>) {
-  const builder = (key?: string) => {
-    let k = key;
-    let orgId: string | null | undefined;
-    const b: any = {
-      select: () => b,
-      limit: async () => [],
-      where: (col: string, val: any) => {
-        if (col === 'key') k = val;
-        if (col === 'organization_id') orgId = val;
-        return b;
-      },
-      whereNull: () => {
-        orgId = null;
-        return b;
-      },
-      first: async () =>
-        rows.find((r) => r.key === k && (r.organization_id ?? null) === (orgId ?? null)) ?? null,
-    };
-    return b;
-  };
-  return { from: () => builder() };
+function fakeSettingsDb(
+  rows: Array<{ key: string; organizationId?: string | null; value: unknown }>,
+) {
+  const chain = (filters: Record<string, string | null>) => ({
+    where: (col: string, val: string) => chain({ ...filters, [col]: val }),
+    whereNull: (col: string) => chain({ ...filters, [col]: null }),
+    first: async () => {
+      const row = rows.find(
+        (r) =>
+          r.key === filters.key && (r.organizationId ?? null) === (filters.organization_id ?? null),
+      );
+      return row
+        ? {
+            key: row.key,
+            organization_id: row.organizationId ?? null,
+            value: JSON.stringify(row.value),
+            updated_at: null,
+          }
+        : null;
+    },
+  });
+  const table = () => ({
+    select: () => ({ limit: async () => [] }),
+    where: (col: string, val: string) => chain({ [col]: val }),
+    whereNull: (col: string) => chain({ [col]: null }),
+  });
+  return { from: table, table };
 }
 
 // ─── POST /account/api/orgs ──────────────────────────────────────────────────
@@ -357,9 +364,7 @@ test.group('AccountOrgsApiController — POST /account/api/orgs', () => {
       actorId: actor.id,
       inputs: { name: 'Acme', slug: 'acme' },
       cfg,
-      db: fakeSettingsDb([
-        { key: 'organizations_policy', organization_id: null, value: { allowSelfCreate: true } },
-      ]),
+      db: fakeSettingsDb([{ key: 'organizations_policy', value: { allowSelfCreate: true } }]),
     });
     await new AccountOrgsApiController().createOrg(ctx);
 
@@ -369,7 +374,11 @@ test.group('AccountOrgsApiController — POST /account/api/orgs', () => {
   test('name/slug ausentes → 400 invalid_input', async ({ assert }) => {
     const store = buildMemoryStore();
     const actor = await (store as any).create({ email: 'o@x.com' });
-    const { ctx, captured } = fakeCtx({ actorId: actor.id, inputs: { name: '  ' }, cfg: buildCfg(store) });
+    const { ctx, captured } = fakeCtx({
+      actorId: actor.id,
+      inputs: { name: '  ' },
+      cfg: buildCfg(store),
+    });
     await new AccountOrgsApiController().createOrg(ctx);
     assert.equal(captured.status(), 400);
     assert.equal(captured.body().error.code, 'invalid_input');
@@ -520,8 +529,16 @@ test.group('AccountOrgsApiController — invite', () => {
     const cfg = buildCfg(store);
     const ownerA = await (store as any).create({ email: 'a@x.com' });
     const ownerB = await (store as any).create({ email: 'b@x.com' });
-    const orgA = await (store as any).createOrg({ name: 'A', slug: 'a', ownerAccountId: ownerA.id });
-    const orgB = await (store as any).createOrg({ name: 'B', slug: 'b', ownerAccountId: ownerB.id });
+    const orgA = await (store as any).createOrg({
+      name: 'A',
+      slug: 'a',
+      ownerAccountId: ownerA.id,
+    });
+    const orgB = await (store as any).createOrg({
+      name: 'B',
+      slug: 'b',
+      ownerAccountId: ownerB.id,
+    });
     void orgA;
 
     const { ctx, captured } = fakeCtx({
@@ -603,8 +620,16 @@ test.group('AccountOrgsApiController — revokeInvitation', () => {
     const cfg = buildCfg(store);
     const ownerA = await (store as any).create({ email: 'a@x.com' });
     const ownerB = await (store as any).create({ email: 'b@x.com' });
-    const orgA = await (store as any).createOrg({ name: 'A', slug: 'a', ownerAccountId: ownerA.id });
-    const orgB = await (store as any).createOrg({ name: 'B', slug: 'b', ownerAccountId: ownerB.id });
+    const orgA = await (store as any).createOrg({
+      name: 'A',
+      slug: 'a',
+      ownerAccountId: ownerA.id,
+    });
+    const orgB = await (store as any).createOrg({
+      name: 'B',
+      slug: 'b',
+      ownerAccountId: ownerB.id,
+    });
     const { invitation: invB } = await (store as any).createOrgInvitation({
       organizationId: orgB.id,
       email: 'v@x.com',
@@ -712,9 +737,7 @@ test.group('AccountOrgsApiController — membros', () => {
 
     assert.equal(captured.status(), 200);
     assert.deepEqual(await (store as any).getOrgMembership(org.id, member.id), { role: 'admin' });
-    assert.isTrue(
-      cfg.audit.events.some((e: any) => e.type === 'organization.member_role_updated'),
-    );
+    assert.isTrue(cfg.audit.events.some((e: any) => e.type === 'organization.member_role_updated'));
   });
 
   test('admin promovendo alguém a owner → 403 (escalonamento)', async ({ assert }) => {
@@ -806,9 +829,7 @@ test.group('AccountOrgsApiController — acceptInvitation', () => {
 
     assert.equal(captured.status(), 200);
     assert.equal(result.organizationId, org.id);
-    assert.isTrue(
-      cfg.audit.events.some((e: any) => e.type === 'organization.invitation_accepted'),
-    );
+    assert.isTrue(cfg.audit.events.some((e: any) => e.type === 'organization.invitation_accepted'));
   });
 
   test('token desconhecido → 404', async ({ assert }) => {

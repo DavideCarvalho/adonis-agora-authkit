@@ -225,6 +225,11 @@ Every authenticated user has access to `/account/orgs`:
 | `POST /account/orgs/:id/members/:accountId/remove` | Remove a member |
 | `POST /account/orgs/:id/invitations/:invId/revoke` | Cancel a pending invitation |
 
+Every one of those writes has a **JSON mirror** under `/account/api/orgs/*` — same guards,
+same effective policy, JSON errors instead of a redirect — for hosts that render their own
+organization screens. Role changes, which the console only offers through the admin path, are
+there too. See [Host-owned account screens](/docs/headless-account).
+
 ### Invitation flow
 
 Invitations are sent by email (`mail.onOrgInvitation`) and carry a short-lived signed token

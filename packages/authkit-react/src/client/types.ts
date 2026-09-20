@@ -488,8 +488,58 @@ export interface AccountMfaStatus {
     count: number;
     items: PasskeySummaryEntry[];
   };
-  recovery: { available: boolean };
+  recovery: {
+    available: boolean;
+    /**
+     * Quantos recovery codes ainda não foram consumidos. `null` quando o store
+     * não sabe contar (capacidade opcional) — DIFERENTE de `0`, que significa
+     * "acabaram, gere novos".
+     */
+    remaining: number | null;
+    /** `true` quando o store sabe regenerar — o host só mostra o botão se houver como. */
+    regenerable: boolean;
+  };
 }
+
+// ---------------------------------------------------------------------------
+// Account – MFA (escrita headless: TOTP + recovery codes + passkey)
+// ---------------------------------------------------------------------------
+
+/** Enrolamento TOTP iniciado. O segredo só sai AQUI — depois só o hash fica. */
+export interface MfaEnrollResult {
+  secret: string;
+  otpauthUri: string;
+  /** O mesmo `otpauthUri` já renderizado como QR (data-URL PNG), pronto para `<img src>`. */
+  qrDataUrl: string;
+}
+
+/**
+ * Enrolamento confirmado. `recoveryCodes` vem em claro UMA ÚNICA vez — o
+ * servidor guarda só o hash, e nenhuma leitura posterior os devolve.
+ */
+export interface MfaConfirmResult {
+  ok: boolean;
+  enabled: boolean;
+  recoveryCodes: string[];
+}
+
+export interface MfaDisableResult {
+  ok: boolean;
+  enabled: boolean;
+}
+
+/** Recovery codes regenerados — também em claro uma única vez. */
+export interface MfaRecoveryCodesResult {
+  ok: boolean;
+  recoveryCodes: string[];
+}
+
+/**
+ * `PublicKeyCredentialCreationOptions` serializadas (o que `startRegistration()`
+ * do `@simplewebauthn/browser` espera). Opaco de propósito: o formato é do
+ * WebAuthn, não do AuthKit.
+ */
+export type PasskeyRegistrationOptions = Record<string, unknown>;
 
 // ---------------------------------------------------------------------------
 // Account – Passkeys
@@ -621,6 +671,83 @@ export interface AccountOrgInvitationsResult {
     expiresAt: string;
     createdAt: string;
   }>;
+}
+
+// ---------------------------------------------------------------------------
+// Account – Orgs (escrita headless)
+// ---------------------------------------------------------------------------
+
+export interface CreateAccountOrgInput {
+  name: string;
+  slug: string;
+}
+
+/** Org recém-criada. Quem cria entra como `owner`. */
+export interface CreatedAccountOrgResult {
+  id: string;
+  name: string;
+  slug: string;
+  logoUrl: string | null;
+  role: string;
+}
+
+export interface ActivateOrgResult {
+  ok: boolean;
+  activeOrgId: string;
+  slug: string;
+  role: string;
+}
+
+export interface DeactivateOrgResult {
+  ok: boolean;
+  activeOrgId: null;
+}
+
+export interface LeaveOrgResult {
+  ok: boolean;
+  orgId: string;
+}
+
+export interface InviteOrgMemberInput {
+  email: string;
+  role?: string;
+}
+
+/**
+ * Convite criado. O TOKEN DE ACEITE NÃO VOLTA: ele é a credencial que viaja por
+ * e-mail, e um admin que o lesse aqui entraria na org como o convidado.
+ */
+export interface CreatedOrgInvitationResult {
+  id: string;
+  organizationId: string;
+  email: string;
+  role: string;
+  expiresAt: string | null;
+  createdAt: string | null;
+}
+
+export interface RevokeOrgInvitationResult {
+  ok: boolean;
+  revoked: string;
+}
+
+export interface UpdateOrgMemberRoleResult {
+  ok: boolean;
+  orgId: string;
+  accountId: string;
+  role: string;
+}
+
+export interface RemoveOrgMemberResult {
+  ok: boolean;
+  orgId: string;
+  accountId: string;
+}
+
+export interface AcceptOrgInvitationResult {
+  ok: boolean;
+  organizationId: string;
+  role: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -38,13 +38,12 @@
  * outra direção — e a decisão de qual superfície é sensível pertence a uma
  * mudança de política, não a um espelho de formato.
  *
- * Política EFETIVA, não o config estático. `allowSelfCreate` e o TTL do convite
- * saem de `resolveEffectiveOrganizationsPolicy` (setting da org → setting
- * global → config → default da lib), o ponto de verdade documentado em
- * `docs/organizations`. O `resolveOrganizations` do `defineConfig` fixa
- * `allowSelfCreate: false`, então ler só o config estático daria um endpoint
- * que responde 403 para todo mundo, sempre. Não é afrouxamento: continua
- * fechado por default, e só um admin — por setting auditável — abre.
+ * Política EFETIVA, não o config estático. `allowSelfCreate`, o catálogo de
+ * papéis e o TTL do convite saem do MESMO módulo que o console HTML usa
+ * (`host/org_policy.ts`: setting da org → setting global → config → default da
+ * lib). Ler só o config estático daria uma superfície que diverge da outra na
+ * primeira vez que um admin mexesse na setting — e divergência entre o form e
+ * o espelho é exatamente o bug que este controller não pode ter.
  */
 
 import { createHash } from 'node:crypto';
@@ -59,9 +58,12 @@ import {
   encodeActiveOrgCookie,
 } from '../active_org_cookie.js';
 import { sendOrgInvitationEmail } from '../default_mailer.js';
+// Política efetiva: o MESMO módulo que o console HTML usa. Duas cópias da
+// resolução são como o espelho JSON acabaria mais frouxo que o formulário.
+import { effectiveOrgPolicy, orgPolicyDefaults } from '../org_policy.js';
 import { authkitOrigin } from '../origin.js';
-import { resolveRuntimeSettingsOrNoop } from '../runtime_settings.js';
-import { isRoleInCatalog, resolveEffectiveOrganizationsPolicy } from '../runtime_toggles.js';
+import { resolveRuntimeSettings } from '../runtime_settings.js';
+import { isRoleInCatalog } from '../runtime_toggles.js';
 
 /** Erro JSON padrão — mesmo envelope do `account_api_controller`. */
 function apiErr(code: string, message: string) {
@@ -86,12 +88,7 @@ export default class AccountOrgsApiController {
     const c = await this.#context(ctx);
     if (!c) return;
 
-    const settings = await resolveRuntimeSettingsOrNoop(ctx);
-    const policy = await resolveEffectiveOrganizationsPolicy(
-      settings,
-      this.#configDefaults(c.cfg),
-      null,
-    );
+    const policy = await effectiveOrgPolicy(ctx, c.cfg);
     if (!policy.allowSelfCreate) {
       return ctx.response.forbidden(
         apiErr('self_create_disabled', 'Organization self-service creation is off.'),
@@ -230,9 +227,8 @@ export default class AccountOrgsApiController {
       return ctx.response.badRequest(apiErr('invalid_input', '`email` is required.'));
     }
 
-    const settings = await resolveRuntimeSettingsOrNoop(ctx);
-    const configDefaults = this.#configDefaults(c.cfg);
-    if (!(await isRoleInCatalog(role, settings, configDefaults, orgId))) {
+    const settings = await resolveRuntimeSettings(ctx);
+    if (!(await isRoleInCatalog(role, settings, orgPolicyDefaults(c.cfg), orgId))) {
       return ctx.response.unprocessableEntity(apiErr('invalid_role', 'Role inválida.'));
     }
     // Só um OWNER concede `owner` — um admin tentando isso é escalonamento.
@@ -240,7 +236,7 @@ export default class AccountOrgsApiController {
       return ctx.response.forbidden(apiErr('forbidden', 'Only an owner can grant the owner role.'));
     }
 
-    const policy = await resolveEffectiveOrganizationsPolicy(settings, configDefaults, orgId);
+    const policy = await effectiveOrgPolicy(ctx, c.cfg, orgId);
     const { invitation, token } = await c.store.createOrgInvitation({
       organizationId: orgId,
       email,
@@ -374,8 +370,8 @@ export default class AccountOrgsApiController {
       return ctx.response.badRequest(apiErr('invalid_input', '`role` is required.'));
     }
 
-    const settings = await resolveRuntimeSettingsOrNoop(ctx);
-    if (!(await isRoleInCatalog(role, settings, this.#configDefaults(c.cfg), orgId))) {
+    const settings = await resolveRuntimeSettings(ctx);
+    if (!(await isRoleInCatalog(role, settings, orgPolicyDefaults(c.cfg), orgId))) {
       return ctx.response.unprocessableEntity(apiErr('invalid_role', 'Role inválida.'));
     }
     if (role === 'owner' && membership.role !== 'owner') {
@@ -464,15 +460,6 @@ export default class AccountOrgsApiController {
       return null;
     }
     return { cfg, store, accountId };
-  }
-
-  /** Defaults estáticos do config, no shape que os resolvers de política pedem. */
-  #configDefaults(cfg: any) {
-    return {
-      roles: cfg.organizations.roles,
-      allowSelfCreate: cfg.organizations.allowSelfCreate,
-      invitationTtlHours: cfg.organizations.invitationTtlHours,
-    };
   }
 
   /**

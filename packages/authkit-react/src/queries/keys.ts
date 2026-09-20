@@ -62,5 +62,47 @@ export const authkitKeys = {
     org: (id: string) => ['authkit', 'account', 'orgs', id] as const,
     orgInvitations: () => ['authkit', 'account', 'orgs', 'invitations'] as const,
     loginMethods: () => ['authkit', 'account', 'login-methods'] as const,
+
+    /**
+     * Chaves de MUTATION da superfície de ESCRITA headless (orgs + segundo
+     * fator) — o espelho JSON de `/account/api/*` que um host com telas
+     * próprias consome.
+     *
+     * Ficam aqui, e não inline no hook, por dois motivos práticos:
+     *
+     *   - `useIsMutating({ mutationKey: authkitKeys.account.mutations.orgs() })`
+     *     desabilita a tela inteira de organizações enquanto QUALQUER escrita
+     *     de org está no ar, sem o host reescrever o prefixo à mão;
+     *   - são quinze chaves que precisam ser distintas entre si; um prefixo
+     *     repetido por engano faz duas mutações compartilharem estado, e o bug
+     *     aparece só sob concorrência.
+     *
+     * Os hooks mais antigos ainda declaram a `mutationKey` inline. Não foram
+     * migrados aqui de propósito: a chave é contrato público de quem já usa
+     * `useIsMutating`/`useMutationState`, e trocá-la seria breaking change sem
+     * relação com esta mudança.
+     */
+    mutations: {
+      orgs: () => ['authkit', 'account', 'orgs', 'mutation'] as const,
+      orgCreate: () => ['authkit', 'account', 'orgs', 'mutation', 'create'] as const,
+      orgActivate: () => ['authkit', 'account', 'orgs', 'mutation', 'activate'] as const,
+      orgDeactivate: () => ['authkit', 'account', 'orgs', 'mutation', 'deactivate'] as const,
+      orgLeave: () => ['authkit', 'account', 'orgs', 'mutation', 'leave'] as const,
+      orgInvite: () => ['authkit', 'account', 'orgs', 'mutation', 'invite'] as const,
+      orgRevokeInvitation: () =>
+        ['authkit', 'account', 'orgs', 'mutation', 'revoke-invitation'] as const,
+      orgAcceptInvitation: () =>
+        ['authkit', 'account', 'orgs', 'mutation', 'accept-invitation'] as const,
+      orgUpdateMemberRole: () =>
+        ['authkit', 'account', 'orgs', 'mutation', 'update-member-role'] as const,
+      orgRemoveMember: () => ['authkit', 'account', 'orgs', 'mutation', 'remove-member'] as const,
+
+      mfa: () => ['authkit', 'account', 'mfa', 'mutation'] as const,
+      mfaEnroll: () => ['authkit', 'account', 'mfa', 'mutation', 'totp-enroll'] as const,
+      mfaConfirm: () => ['authkit', 'account', 'mfa', 'mutation', 'totp-confirm'] as const,
+      mfaDisable: () => ['authkit', 'account', 'mfa', 'mutation', 'totp-disable'] as const,
+      mfaRecoveryCodes: () => ['authkit', 'account', 'mfa', 'mutation', 'recovery-codes'] as const,
+      passkeyRegister: () => ['authkit', 'account', 'mfa', 'mutation', 'passkey-register'] as const,
+    },
   },
 } as const;

@@ -44,6 +44,11 @@ Under the hood these call `startTotpEnrollment` (generates a *pending* secret + 
 without activating), then `confirmTotpEnrollment` (verifies the code, activates MFA, and
 generates the recovery codes).
 
+Rendering your own MFA screen instead of using the console? The same three steps have JSON
+endpoints under `/account/api/mfa/*` (plus recovery-code regeneration and a JSON passkey
+registration ceremony), with the same sudo gates — see
+[Host-owned account screens](/docs/headless-account).
+
 ## The login challenge
 
 When an account has MFA enabled, the interaction flow inserts a challenge step:
@@ -62,6 +67,17 @@ also offers a [passkey](/docs/webauthn) challenge as an alternative to typing a 
 `confirmTotpEnrollment` returns N recovery codes in plaintext exactly once, at activation
 time. Persisted hashed, each is single-use via `consumeRecoveryCode`. Enabling and
 disabling MFA emit the `mfa.enabled` / `mfa.disabled` [audit events](/docs/security).
+
+Two optional `MfaCapability` methods back the self-service screens — `lucidAccountStore`
+implements both, and custom stores are capability-probed, so leaving them out is fine:
+
+| Method | Purpose |
+| --- | --- |
+| `countRecoveryCodes(accountId)` | How many are left, so a screen can say "3 remaining" without revealing them. `null` when MFA is off. |
+| `regenerateRecoveryCodes(accountId)` | Replaces the whole set — unused codes included — and returns the new ones once. `null` when MFA is off, so a pending enrollment cannot mint bypass credentials. |
+
+Regeneration emits `mfa.recovery_codes_regenerated`: a separate audit event from
+`mfa.enabled`, because the factor did not change — the bypass set did.
 
 ## Trusted devices
 
