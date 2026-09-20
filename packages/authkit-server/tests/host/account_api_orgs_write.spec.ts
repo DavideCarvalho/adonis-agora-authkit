@@ -55,8 +55,13 @@ function buildMemoryStore(): AccountStore & Record<string, any> {
     setGlobalRoles: async () => {},
 
     createOrg: async (input: any) => {
-      // Slug único: é o que dá ao endpoint o 409 `slug_taken`.
-      if (slugs.has(input.slug)) throw new Error('duplicate slug');
+      // Slug único. O erro imita o do driver (pg `23505`), porque o endpoint
+      // agora distingue violação de unicidade de falha de infraestrutura.
+      if (slugs.has(input.slug)) {
+        throw Object.assign(new Error('duplicate key value violates unique constraint'), {
+          code: '23505',
+        });
+      }
       slugs.add(input.slug);
       const org = {
         id: newId(),
@@ -71,7 +76,8 @@ function buildMemoryStore(): AccountStore & Record<string, any> {
       return org;
     },
     findOrgById: async (orgId: string) => orgs.get(orgId) ?? null,
-    findOrgBySlug: async () => null,
+    findOrgBySlug: async (slug: string) =>
+      [...orgs.values()].find((o: any) => o.slug === slug) ?? null,
     listOrgsForAccount: async () => [],
     updateOrg: async () => null,
     deleteOrg: async () => false,
@@ -382,6 +388,49 @@ test.group('AccountOrgsApiController — POST /account/api/orgs', () => {
     await new AccountOrgsApiController().createOrg(ctx);
     assert.equal(captured.status(), 400);
     assert.equal(captured.body().error.code, 'invalid_input');
+  });
+
+  test('falha de INFRAESTRUTURA no createOrg NÃO vira 409 (sobe como 500)', async ({ assert }) => {
+    const store = buildMemoryStore();
+    const cfg = buildCfg(store);
+    const actor = await (store as any).create({ email: 'o@x.com' });
+    // Banco fora do ar: dizer "escolha outro slug" mandaria o host tentar slug
+    // após slug sem nunca conseguir, e esconderia a indisponibilidade.
+    (store as any).createOrg = async () => {
+      throw Object.assign(new Error('connection terminated'), { code: 'ECONNRESET' });
+    };
+
+    const { ctx, captured } = fakeCtx({
+      actorId: actor.id,
+      inputs: { name: 'Acme', slug: 'acme' },
+      cfg,
+    });
+
+    await assert.rejects(async () => {
+      await new AccountOrgsApiController().createOrg(ctx);
+    });
+    assert.notEqual(captured.status(), 409);
+    assert.isFalse(cfg.audit.events.some((e: any) => e.type === 'organization.created'));
+  });
+
+  test('corrida com o índice único (violação do driver) → 409 slug_taken', async ({ assert }) => {
+    const store = buildMemoryStore();
+    const cfg = buildCfg(store);
+    const actor = await (store as any).create({ email: 'o@x.com' });
+    // A pré-checagem passa (ninguém tinha o slug), o insert é quem recusa.
+    (store as any).createOrg = async () => {
+      throw Object.assign(new Error('duplicate key'), { code: '23505' });
+    };
+
+    const { ctx, captured } = fakeCtx({
+      actorId: actor.id,
+      inputs: { name: 'Acme', slug: 'acme' },
+      cfg,
+    });
+    await new AccountOrgsApiController().createOrg(ctx);
+
+    assert.equal(captured.status(), 409);
+    assert.equal(captured.body().error.code, 'slug_taken');
   });
 
   test('slug duplicado → 409 slug_taken (o form só redirecionava em silêncio)', async ({

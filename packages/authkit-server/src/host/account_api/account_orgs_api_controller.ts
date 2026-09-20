@@ -73,6 +73,35 @@ function apiErr(code: string, message: string) {
 /** Papéis que podem administrar uma org no fluxo member-facing. */
 const MANAGER_ROLES = new Set(['owner', 'admin']);
 
+/**
+ * O erro é uma violação de UNICIDADE do banco (slug já existe), e não uma falha
+ * de infraestrutura?
+ *
+ * A distinção importa: mapear TODA exceção do `createOrg` para `409 slug_taken`
+ * — como o form e o caminho admin fazem, porque lá o desfecho é um redirect sem
+ * mensagem — diria "escolha outro slug" para um banco fora do ar. O host
+ * tentaria slug após slug sem nunca conseguir, e o 409 esconderia a
+ * indisponibilidade do monitoramento. Aqui, só a violação reconhecida vira 409;
+ * qualquer outra coisa sobe e o handler de erro do app responde 500.
+ *
+ * Os códigos cobrem os drivers que o Lucid suporta. Um store customizado que
+ * lance outra coisa cai no caminho "não reconhecido" — que é o conservador: um
+ * 500 espúrio é ruído, um 409 espúrio é uma mentira sobre o estado do sistema.
+ */
+function isUniqueViolation(err: unknown): boolean {
+  const code = (err as { code?: unknown })?.code;
+  if (typeof code === 'string') {
+    // pg: unique_violation. mysql/mariadb: ER_DUP_ENTRY. sqlite: família
+    // SQLITE_CONSTRAINT (…_UNIQUE, …_PRIMARYKEY).
+    if (code === '23505' || code === 'ER_DUP_ENTRY' || code.startsWith('SQLITE_CONSTRAINT')) {
+      return true;
+    }
+  }
+  const errno = (err as { errno?: unknown })?.errno;
+  // mysql/mariadb (1062) e mssql (2627 unique constraint, 2601 unique index).
+  return errno === 1062 || errno === 2627 || errno === 2601;
+}
+
 /** Contexto resolvido de um handler: config + store com orgs + a conta da sessão. */
 interface OrgsApiContext {
   cfg: any;
@@ -103,13 +132,25 @@ export default class AccountOrgsApiController {
       );
     }
 
+    // Pré-checagem determinística do slug: dá o 409 pelo caminho normal, sem
+    // depender de reconhecer o erro do driver. O form engole a falha e
+    // redireciona; aqui a tela do host precisa poder dizer "esse slug já
+    // existe" em vez de recarregar sem explicação.
+    if (await c.store.findOrgBySlug(slug)) {
+      return ctx.response.conflict(apiErr('slug_taken', 'Slug already in use.'));
+    }
+
     let org: { id: string; name: string; slug: string; logoUrl?: string | null };
     try {
       org = await c.store.createOrg({ name, slug, ownerAccountId: c.accountId });
-    } catch {
-      // O form engole o erro e redireciona; aqui a tela do host precisa poder
-      // dizer "esse slug já existe" em vez de recarregar sem explicação.
-      return ctx.response.conflict(apiErr('slug_taken', 'Slug already in use.'));
+    } catch (err) {
+      // Corrida entre a pré-checagem e o insert: o índice único é quem decide.
+      if (isUniqueViolation(err)) {
+        return ctx.response.conflict(apiErr('slug_taken', 'Slug already in use.'));
+      }
+      // Banco fora do ar, timeout, constraint de outra natureza: NÃO é "escolha
+      // outro slug". Sobe para o handler de erro do app (500).
+      throw err;
     }
 
     await c.cfg.audit?.record({

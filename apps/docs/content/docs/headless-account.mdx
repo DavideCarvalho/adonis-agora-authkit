@@ -241,6 +241,8 @@ All of these arrive as `AuthkitClientError` with `.status` and `.code`:
 
 | Code | Status | Meaning |
 | --- | --- | --- |
+| `challenge_expired` | 400 | No pending WebAuthn challenge — call `passkeys.options()` again |
+| `invalid_response` | 400 | The attestation was rejected; the challenge is burned, so start over |
 | `unauthorized` | 401 | No account session |
 | `sudo_required` | 403 | Identity confirmation expired — send the user to confirm |
 | `forbidden` | 403 | Not an owner/admin of that org, or escalating to `owner` |
@@ -248,17 +250,28 @@ All of these arrive as `AuthkitClientError` with `.status` and `.code`:
 | `email_mismatch` | 403 | The invitation was issued to a different address |
 | `not_found` | 404 | No such org/member/invitation — or not a member (deliberately identical) |
 | `not_supported` | 404 | The account store has no organizations capability |
-| `slug_taken` | 409 | Org slug already in use |
+| `slug_taken` | 409 | Org slug already in use — including the race the unique index catches |
 | `last_owner` | 409 | Cannot remove, demote, or leave as the last owner |
 | `expired` | 410 | The invitation's TTL has passed |
 | `invalid_input` | 422 | A required field is missing |
 | `invalid_role` | 422 | Role is not in the effective role catalogue |
-| `invalid_code` | 422 | Wrong TOTP code |
+| `invalid_code` | 422 | Wrong TOTP code — the pending secret is unchanged, ask for another code |
+| `enroll_failed` | 422 | The store could not start TOTP enrollment |
 | `mfa_not_enabled` | 422 | Nothing to regenerate — MFA is off |
 | `capability_unsupported` | 422 | The store does not implement this capability |
 
 `not_found` covers both "no such org" and "not a member" on purpose: telling them apart would
 leak the existence of other people's organizations.
+
+The two 400s are the passkey ceremony's, and they mean the same thing to the screen: **start
+over.** The registration challenge is single-use and is burned on any outcome, successful or
+not, so a rejected attestation cannot be retried against it. Call
+`useRegisterPasskeyMutationOptions()` again — it re-fetches options — rather than re-sending
+the same attestation.
+
+A store failure that is *not* a duplicate slug (database down, timeout) is **not** mapped to
+`slug_taken`: it propagates as a 500. Telling a host to pick a different slug during an outage
+would have it retry forever and hide the real problem.
 
 ## Route table
 
