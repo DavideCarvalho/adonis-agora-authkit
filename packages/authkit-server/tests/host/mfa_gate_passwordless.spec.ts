@@ -19,6 +19,7 @@
 import { test } from '@japa/runner';
 import { resolveLogin, resolvePasswordless } from '../../src/define_config.js';
 import InteractionController from '../../src/host/controllers/interaction_controller.js';
+import { TRUSTED_DEVICE_COOKIE } from '../../src/host/trusted_device.js';
 
 const EMAIL = 'user@example.com';
 const ACCOUNT_ID = 'acc-1';
@@ -77,7 +78,16 @@ function makeStore(opts: StoreOpts = {}) {
   return store;
 }
 
-function buildService(store: any, trustedDevices = { enabled: false, days: 30 }) {
+/** Cookie de confiança válido para a conta (mesmo shape de `buildTrustedDevicePayload`). */
+function trustedCookie(now = Date.now()) {
+  return { a: ACCOUNT_ID, d: 'device-1', iat: now, exp: now + 7 * 24 * 60 * 60 * 1000 };
+}
+
+function buildService(
+  store: any,
+  trustedDevices = { enabled: false, days: 30 },
+  opts: { acrValues?: string; stepUp?: { mfaAcr: string } } = {},
+) {
   const rendered: Array<{ view: string; props: Record<string, any> }> = [];
   const completeLoginCalls: any[] = [];
   const config: any = {
@@ -102,11 +112,15 @@ function buildService(store: any, trustedDevices = { enabled: false, days: 30 })
     audit: { record: async () => {} },
     notifications: { newLoginEmail: false, newDeviceEmail: false },
     trustedDevices,
+    stepUp: opts.stepUp,
   };
   const interactions = {
     details: async () => ({
       uid: 'test-uid',
-      params: { client_id: 'web' },
+      params: {
+        client_id: 'web',
+        ...(opts.acrValues ? { acr_values: opts.acrValues } : {}),
+      },
       prompt: { name: 'login' },
     }),
     completeLogin: async (...args: any[]) => {
@@ -119,7 +133,12 @@ function buildService(store: any, trustedDevices = { enabled: false, days: 30 })
 function fakeCtx(
   service: any,
   session: Record<string, unknown>,
-  opts: { input?: (k: string, def?: any) => any; qs?: () => Record<string, any> } = {},
+  opts: {
+    input?: (k: string, def?: any) => any;
+    qs?: () => Record<string, any>;
+    /** Payload devolvido por `request.encryptedCookie(TRUSTED_DEVICE_COOKIE)`. */
+    trusted?: unknown;
+  } = {},
 ) {
   return {
     containerResolver: {
@@ -137,6 +156,8 @@ function fakeCtx(
       qs: opts.qs ?? (() => ({})),
       ip: () => '1.2.3.4',
       header: () => undefined,
+      encryptedCookie: (name: string) =>
+        name === TRUSTED_DEVICE_COOKIE ? opts.trusted : undefined,
     },
     session: {
       get: (k: string) => session[k],
@@ -151,14 +172,14 @@ function fakeCtx(
   } as any;
 }
 
-const magicCtx = (service: any, session: Record<string, unknown> = {}) =>
-  fakeCtx(service, session, { qs: () => ({ token: 'good-token' }) });
+const magicCtx = (service: any, session: Record<string, unknown> = {}, trusted?: unknown) =>
+  fakeCtx(service, session, { qs: () => ({ token: 'good-token' }), trusted });
 
-const otpCtx = (service: any) =>
+const otpCtx = (service: any, trusted?: unknown) =>
   fakeCtx(
     service,
     { [SESSION_KEY]: EMAIL },
-    { input: (k: string, def?: any) => (k === 'code' ? '123456' : def) },
+    { input: (k: string, def?: any) => (k === 'code' ? '123456' : def), trusted },
   );
 
 test.group('gate do 2º fator — link mágico', () => {
@@ -249,5 +270,118 @@ test.group('gate do 2º fator — código por e-mail', () => {
 
     assert.lengthOf(completeLoginCalls, 1);
     assert.deepEqual(completeLoginCalls[0][2], { amr: ['email'] });
+  });
+});
+
+/**
+ * Trusted device e step-up eram cobertos só pelo caminho da senha. Como o gate
+ * agora é compartilhado, estes testes provam que as duas mecânicas valem também
+ * no link e no código — e, no caso do step-up, que a confiança NÃO vence um
+ * `acr_values` que exige MFA.
+ */
+test.group('gate do 2º fator — dispositivo confiável (link e código)', () => {
+  test('link mágico: cookie válido pula o desafio e completa com amr `email`', async ({
+    assert,
+  }) => {
+    const store = makeStore({ mfa: { enabled: true, enabledAt: 1, totp: true } });
+    const { service, rendered, completeLoginCalls } = buildService(store, {
+      enabled: true,
+      days: 7,
+    });
+
+    await new InteractionController().magicLinkConsume(magicCtx(service, {}, trustedCookie()));
+
+    assert.lengthOf(completeLoginCalls, 1, `renderizou ${rendered[0]?.view} em vez de completar`);
+    assert.deepEqual(completeLoginCalls[0][2], { amr: ['email'] }, 'o fator primário foi o e-mail');
+  });
+
+  test('link mágico: cookie de OUTRA conta não pula o desafio', async ({ assert }) => {
+    const store = makeStore({ mfa: { enabled: true, enabledAt: 1, totp: true } });
+    const { service, rendered, completeLoginCalls } = buildService(store, {
+      enabled: true,
+      days: 7,
+    });
+    const alheio = { ...trustedCookie(), a: 'outra-conta' };
+
+    await new InteractionController().magicLinkConsume(magicCtx(service, {}, alheio));
+
+    assert.lengthOf(completeLoginCalls, 0);
+    assert.equal(rendered[0]?.view, 'mfa-challenge');
+  });
+
+  test('link mágico: trustedDevices desligado ignora o cookie', async ({ assert }) => {
+    const store = makeStore({ mfa: { enabled: true, enabledAt: 1, totp: true } });
+    const { service, rendered, completeLoginCalls } = buildService(store, {
+      enabled: false,
+      days: 7,
+    });
+
+    await new InteractionController().magicLinkConsume(magicCtx(service, {}, trustedCookie()));
+
+    assert.lengthOf(completeLoginCalls, 0);
+    assert.equal(rendered[0]?.view, 'mfa-challenge');
+  });
+
+  test('código por e-mail: cookie válido pula o desafio', async ({ assert }) => {
+    const store = makeStore({ mfa: { enabled: true, enabledAt: 1, totp: true } });
+    const { service, rendered, completeLoginCalls } = buildService(store, {
+      enabled: true,
+      days: 7,
+    });
+
+    await new InteractionController().otpVerify(otpCtx(service, trustedCookie()));
+
+    assert.lengthOf(completeLoginCalls, 1, `renderizou ${rendered[0]?.view} em vez de completar`);
+  });
+});
+
+test.group('gate do 2º fator — step-up via acr_values (link e código)', () => {
+  const stepUp = { mfaAcr: 'urn:acme:mfa' };
+
+  test('link mágico: acr exigindo MFA desafia mesmo com dispositivo confiável', async ({
+    assert,
+  }) => {
+    const store = makeStore({ mfa: { enabled: true, enabledAt: 1, totp: true } });
+    const { service, rendered, completeLoginCalls } = buildService(
+      store,
+      { enabled: true, days: 7 },
+      { acrValues: stepUp.mfaAcr, stepUp },
+    );
+
+    await new InteractionController().magicLinkConsume(magicCtx(service, {}, trustedCookie()));
+
+    assert.lengthOf(completeLoginCalls, 0, 'step-up não aceita confiança de ontem');
+    assert.equal(rendered[0]?.view, 'mfa-challenge');
+  });
+
+  test('link mágico: acr exigindo MFA numa conta SEM fator bloqueia com a instrução', async ({
+    assert,
+  }) => {
+    const store = makeStore({ mfa: { enabled: false } });
+    const { service, rendered, completeLoginCalls } = buildService(
+      store,
+      { enabled: false, days: 7 },
+      { acrValues: stepUp.mfaAcr, stepUp },
+    );
+
+    await new InteractionController().magicLinkConsume(magicCtx(service));
+
+    assert.lengthOf(completeLoginCalls, 0);
+    assert.equal(rendered[0]?.view, 'mfa-challenge');
+    assert.isTrue(rendered[0]?.props.noEnrollment);
+  });
+
+  test('código por e-mail: acr exigindo MFA desafia', async ({ assert }) => {
+    const store = makeStore({ mfa: { enabled: true, enabledAt: 1, totp: true } });
+    const { service, rendered, completeLoginCalls } = buildService(
+      store,
+      { enabled: true, days: 7 },
+      { acrValues: stepUp.mfaAcr, stepUp },
+    );
+
+    await new InteractionController().otpVerify(otpCtx(service, trustedCookie()));
+
+    assert.lengthOf(completeLoginCalls, 0);
+    assert.equal(rendered[0]?.view, 'mfa-challenge');
   });
 });

@@ -1152,6 +1152,11 @@ export default class AuthInteractionController {
       ip,
       clientId: clientId ?? null,
       metadata: { method: 'magic_link' },
+      // `trusted` = o gate já validou o cookie de confiança nesta request; dizer
+      // isso aqui poupa `notifyLoginSuccess` de reler o mesmo cookie para decidir
+      // se é dispositivo novo. O amr continua `['email']`: o fator primário foi o
+      // e-mail, a confiança só dispensou o segundo.
+      trustedDevice: magicGate.kind === 'trusted',
     });
     forgetLoginEmail(ctx);
     await service.interactions.completeLogin(ctx, acc.id, { amr: ['email'] });
@@ -1285,6 +1290,7 @@ export default class AuthInteractionController {
         ip,
         clientId: clientId ?? null,
         metadata: { method: 'otp' },
+        trustedDevice: otpGate.kind === 'trusted',
       });
       forgetLoginEmail(ctx);
       return service.interactions.completeLogin(ctx, result.account.id, { amr: ['email'] });
