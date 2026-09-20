@@ -433,6 +433,52 @@ test.group('AccountOrgsApiController — POST /account/api/orgs', () => {
     assert.equal(captured.body().error.code, 'slug_taken');
   });
 
+  test('violação de constraint que NÃO é de unicidade não vira 409', async ({ assert }) => {
+    const store = buildMemoryStore();
+    const cfg = buildCfg(store);
+    const actor = await (store as any).create({ email: 'o@x.com' });
+    // `SQLITE_CONSTRAINT` cru cobre NOTNULL/CHECK/FOREIGNKEY além de UNIQUE —
+    // reportar isso como "slug já existe" mandaria o host caçar um slug livre
+    // para um problema que não é de slug.
+    (store as any).createOrg = async () => {
+      throw Object.assign(new Error('NOT NULL constraint failed: organizations.name'), {
+        code: 'SQLITE_CONSTRAINT',
+      });
+    };
+
+    const { ctx, captured } = fakeCtx({
+      actorId: actor.id,
+      inputs: { name: 'Acme', slug: 'acme' },
+      cfg,
+    });
+
+    await assert.rejects(async () => {
+      await new AccountOrgsApiController().createOrg(ctx);
+    });
+    assert.notEqual(captured.status(), 409);
+  });
+
+  test('sqlite legado (código genérico + mensagem de UNIQUE) → 409', async ({ assert }) => {
+    const store = buildMemoryStore();
+    const cfg = buildCfg(store);
+    const actor = await (store as any).create({ email: 'o@x.com' });
+    (store as any).createOrg = async () => {
+      throw Object.assign(new Error('UNIQUE constraint failed: organizations.slug'), {
+        code: 'SQLITE_CONSTRAINT',
+      });
+    };
+
+    const { ctx, captured } = fakeCtx({
+      actorId: actor.id,
+      inputs: { name: 'Acme', slug: 'acme' },
+      cfg,
+    });
+    await new AccountOrgsApiController().createOrg(ctx);
+
+    assert.equal(captured.status(), 409);
+    assert.equal(captured.body().error.code, 'slug_taken');
+  });
+
   test('slug duplicado → 409 slug_taken (o form só redirecionava em silêncio)', async ({
     assert,
   }) => {

@@ -91,10 +91,24 @@ const MANAGER_ROLES = new Set(['owner', 'admin']);
 function isUniqueViolation(err: unknown): boolean {
   const code = (err as { code?: unknown })?.code;
   if (typeof code === 'string') {
-    // pg: unique_violation. mysql/mariadb: ER_DUP_ENTRY. sqlite: família
-    // SQLITE_CONSTRAINT (…_UNIQUE, …_PRIMARYKEY).
-    if (code === '23505' || code === 'ER_DUP_ENTRY' || code.startsWith('SQLITE_CONSTRAINT')) {
+    // pg: unique_violation. mysql/mariadb: ER_DUP_ENTRY. sqlite: os códigos
+    // ESTENDIDOS da família de unicidade — e só eles. `SQLITE_CONSTRAINT` cru
+    // cobre também NOTNULL, CHECK e FOREIGNKEY, que não são "slug repetido".
+    if (
+      code === '23505' ||
+      code === 'ER_DUP_ENTRY' ||
+      code === 'SQLITE_CONSTRAINT_UNIQUE' ||
+      code === 'SQLITE_CONSTRAINT_PRIMARYKEY'
+    ) {
       return true;
+    }
+    // Drivers sqlite antigos reportam só o código genérico e põem a natureza da
+    // violação na mensagem. Checar a mensagem é frágil, então vale apenas
+    // ESTREITADO a esse caso: sem ele, um sqlite legado devolveria 500 na
+    // corrida; com ele, nenhum outro driver muda de comportamento.
+    if (code === 'SQLITE_CONSTRAINT') {
+      const message = (err as { message?: unknown })?.message;
+      return typeof message === 'string' && /UNIQUE constraint failed/i.test(message);
     }
   }
   const errno = (err as { errno?: unknown })?.errno;
