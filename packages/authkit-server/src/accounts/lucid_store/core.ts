@@ -16,6 +16,7 @@ import {
   resolveListPage,
 } from '../../pagination.js';
 import type {
+  AccountEmailRewriteCapability,
   AccountImportCapability,
   AccountSecurityCapability,
   CoreAccountStore,
@@ -82,7 +83,8 @@ export function buildCore(
   AccountSecurityCapability &
   MagicLinkCapability &
   OtpLoginCapability &
-  AccountImportCapability {
+  AccountImportCapability &
+  AccountEmailRewriteCapability {
   const { Model, toAccount } = ctx;
 
   return {
@@ -470,6 +472,21 @@ export function buildCore(
       row.emailVerificationToken = dbValue;
       await row.save();
       return { token, account: toAccount(row), newEmail };
+    },
+
+    async rewriteAccountEmail(accountId, email) {
+      const row = await Model.find(accountId);
+      if (!row) return false;
+      // Nunca funde contas: se o endereço já é de OUTRA conta, recusa. O comando
+      // já detecta a colisão antes de chegar aqui; isto é a rede de baixo, para
+      // a corrida (outra conta gravada entre o relatório e a escrita).
+      const taken = await Model.query().where('email', email).first();
+      if (taken && taken.id !== row.id) return false;
+      row.email = email;
+      // `emailVerifiedAt` fica COMO ESTÁ: a caixa postal é a mesma, só a grafia
+      // gravada muda — não há prova nova para registrar.
+      await row.save();
+      return true;
     },
 
     async confirmEmailChange(token) {

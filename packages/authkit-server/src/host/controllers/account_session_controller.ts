@@ -5,7 +5,7 @@ import { getAccountLoginUrl } from '../account_login_url.js';
 import type { AccountLoginProps } from '../account_screen_props.js';
 import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { syncAdonisAuthLogin, syncAdonisAuthLogout } from '../adonis_auth_sync.js';
-import { resolveEmailIdentifier } from '../email_identifier.js';
+import { normalizeEmailIdentifier } from '../email_identifier.js';
 import { translate } from '../i18n.js';
 import { endBridgedIdpSession } from '../idp_session_bridge.js';
 import { attemptPasswordLogin } from '../login_attempt.js';
@@ -75,18 +75,13 @@ export default class AccountSessionController {
     // Verificação + lockout + auditoria de falha centralizados (sem clientId no console).
     // M1: passa `settings` p/ o lockout (e verified-email/expiração) runtime valerem aqui também.
     const settings = await resolveRuntimeSettings(ctx);
-    // L6: `resolveEmailIdentifier` normaliza (trim + lowercase, a MESMA função do
-    // cadastro e do passo de identificador do login OIDC) e devolve o endereço sob
-    // o qual a conta está gravada — de modo que o lookup, o lockout (keyed por
+    // L6: normaliza (trim + lowercase, a MESMA função do cadastro e do passo de
+    // identificador do login OIDC) para que o lookup, o lockout (keyed por
     // e-mail) e a auditoria usem a forma canônica, independente do casing/espaços
-    // digitados. A ponte legada faz a conta que nasceu com o endereço mutilado
-    // entrar no console pelo endereço REAL, como no login OIDC. A tela de erro é a
-    // mesma (credencial inválida), ache conta ou não.
-    const { lookupEmail } = await resolveEmailIdentifier(cfg.accountStore, rawEmail, {
-      legacyFallback: cfg.login?.legacyEmailFallback ?? true,
-    });
+    // digitados. A tela de erro é a mesma (credencial inválida), ache conta ou não.
+    const email = normalizeEmailIdentifier(rawEmail);
     const result = await attemptPasswordLogin(cfg, {
-      email: lookupEmail,
+      email,
       password,
       ip,
       logger: ctx.logger,

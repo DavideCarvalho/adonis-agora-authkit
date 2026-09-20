@@ -50,7 +50,7 @@ description: The full defineConfig option tables for server and client.
 | `uploads` | `{ avatars?: { disk?: string; directory?: string; maxSizeMb?: number } }` | app's default drive disk, `authkit/avatars`, 5MB | Avatar upload via the app's `@adonisjs/drive`; degrades to URL input when drive is absent. See [Host Kit](/docs/host-kit#avatar-uploads). |
 | `passwordless` | `PasswordlessConfigInput` | all disabled | Magic-link email login, passkey-first login, and password-free public sign-up. See [Passwordless](/docs/passwordless). |
 | `authMethods` | `AuthMethodsConfigInput` | `{}` | Pin login methods in the file. Each field you declare wins over the `auth_methods` runtime setting and the console shows it read-only. **Declaring this key locks the `auth_methods` setting.** See [Config locks](/docs/config-locks). |
-| `login` | `LoginConfigInput` | all off; `legacyEmailFallback` on | Login policy: `requireVerifiedEmail` (capability-probed), `otp` (six-digit email codes — see [Passwordless](/docs/passwordless#email-login-codes-otp)) and `legacyEmailFallback` (temporary bridge for accounts stored under the pre-0.69 mangled address — see [Security](/docs/security#email-identity-and-normalization)). **Declaring `login.requireVerifiedEmail` locks the `require_verified_email` setting.** |
+| `login` | `LoginConfigInput` | all off | Login policy: `requireVerifiedEmail` (capability-probed) and `otp` (six-digit email codes — see [Passwordless](/docs/passwordless#email-login-codes-otp)). **Declaring `login.requireVerifiedEmail` locks the `require_verified_email` setting.** |
 | `registration` | `{ enabled?: boolean }` | `{ enabled: true }` | Allow public sign-up. **Declaring this key locks the `registration` setting** — the console can no longer open or close sign-up. Leave it out to keep that switch in the console. |
 | `accessTokens` | `AccessTokensConfig` | `{ format: 'opaque' }` | JWT access tokens (RFC 9068) and per-resource config. See [Security](/docs/security#jwt-access-tokens-rfc-9068). |
 | `botProtection` | `BotProtectionConfigInput` | disabled | Pluggable CAPTCHA/challenge for login, signup, reset; the host supplies `verify`. Fail-safe: a `verify` error or timeout lets the request through. **Declaring this key locks the `bot_protection` setting.** See [Security](/docs/security#bot-protection). |
@@ -268,6 +268,7 @@ Commands provided by `@adonis-agora/authkit-server`:
 | `node ace authkit:doctor` | Validate the config and peer dependencies; emits findings with `ok`/`warn`/`error` levels. Includes `checkSettings` (bot_protection orphan, require_verified_email capability) and `checkClients` (informational: adapter volatility warning). |
 | `node ace authkit:eject` | Copy the bundled host-kit controllers/pages into your project for customization. |
 | `node ace authkit:users:import --file <path> [--dry-run]` | Bulk-import users from a JSON array or NDJSON file, preserving hashes as-is for lazy rehash on login. |
+| `node ace authkit:users:normalize-emails [--apply]` | Migrate stored addresses to the normalized identity form (`trim` + `toLowerCase`). Reports by default; `--apply` writes, refusing to touch accounts involved in a collision. **Required upgrade step** from 0.70 or earlier — see [below](#authkitusersnormalize-emails). |
 | `node ace authkit:keys:rotate [--keep=N] [--retire] [--dry-run]` | Rotate signing keys in a managed keystore file; keeps a grace-period window of N previous keys (default 2). |
 | `node ace authkit:clients:create --redirect-uri=<uri> [--client-id] [--public] [--grant] [--post-logout-uri] [--backchannel-logout-uri] [--json]` | Create an OIDC client in the adapter/DB at runtime. For confidential clients a secret is generated and printed **once** — save it immediately. See [below](#authkitclientscreate). |
 | `node ace authkit:settings:list [--json]` | List all runtime settings currently persisted in the `auth_settings` table. |
@@ -320,6 +321,23 @@ it covers is switched off — an opt-in feature you never enabled is not a findi
 ### `authkit:users:import`
 
 See [Passwords & Migration](/docs/passwords-and-migration#user-import-command) for the file format and field list.
+
+### `authkit:users:normalize-emails`
+
+The login looks up **one** form of the address — `trim()` + `toLowerCase()`. Accounts
+stored under any other spelling (the pre-0.69 mangled form, or mixed case from an import,
+an invitation or a social provider) are unreachable, silently. This command is what brings
+them back, and it is a **required step when upgrading from 0.70 or earlier** — the
+`login.legacyEmailFallback` bridge that used to cover them at login time is gone.
+
+Without `--apply` it writes nothing: it reports how many addresses would change, which, and
+the **collisions** — two accounts that collapse onto the same normalized address. With
+`--apply` it writes, refusing to touch any account involved in a collision and listing them
+for a human decision; it never merges accounts and never picks a winner. Rows whose address
+normalizes to nothing (a null or blank column) are listed separately rather than counted as
+"already normalized" — the report never vouches for a row it left behind. It exits non-zero
+when collisions (or write failures) remain. See
+[Security](/docs/security#migrating-the-stored-addresses--a-required-upgrade-step).
 
 ### `authkit:keys:rotate`
 

@@ -5,6 +5,7 @@
 export { configure } from './commands/configure.js';
 export type {
   AccountDeletionCapability,
+  AccountEmailRewriteCapability,
   AccountImportCapability,
   AccountSecurityCapability,
   AccountStatusCapability,
@@ -36,6 +37,7 @@ export type {
 } from './src/accounts/account_store.js';
 export {
   supportsAccountDeletion,
+  supportsAccountEmailRewrite,
   supportsAccountImport,
   supportsAccountSecurity,
   supportsAccountStatus,
@@ -258,15 +260,7 @@ export {
 } from './src/host/console_session.js';
 export type { AuthkitCsrfOptions } from './src/host/csrf.js';
 export { authkitCsrfExceptions } from './src/host/csrf.js';
-export type {
-  EmailIdentifierLookup,
-  ResolvedEmailIdentifier,
-} from './src/host/email_identifier.js';
-export {
-  legacyNormalizeEmailIdentifier,
-  normalizeEmailIdentifier,
-  resolveEmailIdentifier,
-} from './src/host/email_identifier.js';
+export { normalizeEmailIdentifier } from './src/host/email_identifier.js';
 export type { ResolveGeo } from './src/host/geo.js';
 export { GEO_RESOLVE_TIMEOUT_MS, resolveGeoSafe } from './src/host/geo.js';
 export type { AuthMessages, I18nConfig } from './src/host/i18n.js';

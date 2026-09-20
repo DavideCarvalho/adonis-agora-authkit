@@ -8,7 +8,7 @@ import {
   supportsPasskeys,
   supportsProviderIdentity,
 } from '../../accounts/account_store.js';
-import { normalizeEmailIdentifier, resolveEmailIdentifier } from '../email_identifier.js';
+import { normalizeEmailIdentifier } from '../email_identifier.js';
 import { assertLoginAllowed } from '../login_attempt.js';
 import { type RuntimeSettings, resolveRuntimeSettingsOrNoop } from '../runtime_settings.js';
 import { resolveEffectiveAuthMethods } from '../runtime_toggles.js';
@@ -95,14 +95,10 @@ export default class AuthSocialController {
     let user = await store.findByProviderIdentity(provider, profile.id);
 
     if (!user && email) {
-      // Ponte legada: sem ela, quem tem a conta gravada com o endereço mutilado
-      // pelo cadastro antigo ganharia uma SEGUNDA conta ao "Continuar com o
-      // Google" em vez de ligar a identidade à conta que já tem.
-      const byEmail = (
-        await resolveEmailIdentifier(store, profile.email, {
-          legacyFallback: cfg.login?.legacyEmailFallback ?? true,
-        })
-      ).account;
+      // Busca pela MESMA forma normalizada que o login usa. Uma conta gravada
+      // com outra grafia não é encontrada aqui e a pessoa ganharia uma SEGUNDA
+      // conta — por isso `authkit:users:normalize-emails` é passo de upgrade.
+      const byEmail = await store.findByEmail(email);
       if (byEmail) {
         await store.linkProviderIdentity({
           accountId: byEmail.id,

@@ -72,38 +72,48 @@ subaddress they chose to use.
   new signups keep the address as typed.
 </Callout>
 
-### The compatibility bridge
+### Migrating the stored addresses — a required upgrade step
 
-Changing the rule does not by itself rescue the accounts that were already stored mangled.
-When the normalized address finds nothing, the login identifier step (and the account
-console login, and "forgot password") retries with the address exactly as typed and with
-the legacy validator.js normalization — and accepts the result **only when those point at
-exactly one account**. A tie is treated as "not found": the library does not guess.
-
-It is on by default (`login.legacyEmailFallback: true`); turning it off locks those accounts
-out again. It is a **temporary bridge** — migrate the stored addresses, then turn it off:
-
-```ts
-defineConfig({
-  login: { legacyEmailFallback: false },
-});
-```
-
-Nothing about it is observable from outside: same screen, same message, and the extra
-lookups only happen when the compatibility spellings actually differ from the normalized
-one. The same resolution guards the dedupe checks in signup, social login, admin user
-creation and `authkit:users:import`, so none of them creates a *second* account for someone
-who already has a mangled one.
+Changing the rule does not by itself rescue the accounts that were **already stored** under
+another spelling: the ones the old signup mangled, and the ones import, invitations or a
+social provider wrote with mixed case. The login looks up **one** form — the normalized one
+— so those accounts are unreachable, and, because the screen is enumeration-proof, their
+owners get no error message at all. There is no fallback in the login path on purpose:
+every extra spelling tried is an extra query per unknown address, which is exactly the
+attack path.
 
 <Callout type="warn">
-  **What the bridge cannot reach.** It only tries spellings it can derive from what was
-  typed. An account stored as `Davi@Acme.com` is reachable by someone typing
-  `Davi@Acme.com`, but **not** by someone typing `davi@acme.com` — there all three forms
-  collapse to the same string, and finding it would need a case-insensitive store query,
-  i.e. a table scan on every login with an unknown address (exactly the attack path). Those
-  accounts need their stored address migrated, not a bridge. If your table was populated by
-  imports, invites or a provider that returns mixed case, normalize the column before
-  relying on this.
+  **Required on upgrade from 0.70 or earlier.** Run `authkit:users:normalize-emails` when
+  you upgrade. Skip it and any account stored under a mangled or mixed-case address stays
+  locked out, silently. Version 0.70 shipped a `login.legacyEmailFallback` bridge that
+  tried alternative spellings at login time; **that option is gone** — delete it from your
+  config (an unknown key is ignored, but it no longer does anything).
+</Callout>
+
+```sh
+# Report only — writes nothing. Shows what would change and, crucially, the collisions.
+node ace authkit:users:normalize-emails
+
+# Apply. Refuses to touch any account involved in a collision.
+node ace authkit:users:normalize-emails --apply
+```
+
+A **collision** is two accounts that collapse onto the same normalized address — say
+`Davi@Acme.com` and `davi@acme.com`. The migration never merges accounts and never picks a
+winner: it leaves **both** untouched, lists them, and exits non-zero so an operator has to
+decide. Everything else is rewritten in place; `email_verified_at` is left as it was,
+because the mailbox is the same one and only the stored spelling changed.
+
+Writing needs `AccountEmailRewriteCapability` on the account store (the bundled Lucid store
+has it). A store without it still gets the report — `--apply` refuses and you normalize the
+column yourself.
+
+<Callout type="info">
+  The same address has to be normalized on the **write** side too, or the migration is a
+  one-off with a leak: signup, "forgot password", email change, admin user creation, org
+  invitations, `authkit:users:import` and social signup all go through
+  `normalizeEmailIdentifier` already. If you write accounts through your own code path, do
+  the same there.
 </Callout>
 
 ## Account lockout
