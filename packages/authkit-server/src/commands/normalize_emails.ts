@@ -147,8 +147,8 @@ export async function normalizeAccountEmails(
   // do ICU da máquina, e aí "diffável" valeria só dentro de um host.
   pending.sort((a, b) => byCodeUnit(a.from, b.from));
   report.collisions.sort((a, b) => byCodeUnit(a.email, b.email));
-  // `unusable` tambem: sem isto a lista sairia na ordem da varredura, que e a
-  // ordem do store — a mesma garantia nao valeria para ela.
+  // `unusable` também: sem isto a lista sairia na ordem da varredura, que é a
+  // ordem do store — a mesma garantia não valeria para ela.
   report.unusable.sort((a, b) => byCodeUnit(a.accountId, b.accountId));
   report.changes = pending;
 
