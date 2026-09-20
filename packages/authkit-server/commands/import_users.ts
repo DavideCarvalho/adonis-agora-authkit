@@ -62,7 +62,12 @@ export default class AuthkitImportUsers extends BaseCommand {
     }
 
     const { records, parseErrors } = parseImportFile(content);
-    const report = await importUsers(store, records, { dryRun: this.dryRun });
+    const report = await importUsers(store, records, {
+      dryRun: this.dryRun,
+      // Ponte legada do config (default ligada) — a checagem de duplicado
+      // enxerga as contas gravadas com o endereço mutilado pelo cadastro antigo.
+      legacyFallback: (authkitConfig as any)?.login?.legacyEmailFallback ?? true,
+    });
     // Erros de parsing entram no relatório agregado.
     report.errors.unshift(...parseErrors);
 

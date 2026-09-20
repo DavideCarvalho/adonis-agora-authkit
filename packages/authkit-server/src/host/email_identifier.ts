@@ -21,8 +21,8 @@ import type { AuthAccount } from '../accounts/account_store.js';
  * "esqueci a senha", troca de e-mail, criação por admin, convite de organização,
  * import de usuários, cadastro social e o passo de identificador do login.
  */
-export function normalizeEmailIdentifier(raw: string | null | undefined): string {
-  return (raw ?? '').trim().toLowerCase();
+export function normalizeEmailIdentifier(raw: unknown): string {
+  return typeof raw === 'string' ? raw.trim().toLowerCase() : '';
 }
 
 // ─── Ponte de compatibilidade com a normalização LEGADA ─────────────────────
@@ -153,7 +153,7 @@ function stripSingleDots(local: string): string {
  * Retorna `null` para entradas que o validator.js também recusaria (local part
  * vazio depois do colapso) ou que não são um endereço com `@`.
  */
-export function legacyNormalizeEmailIdentifier(raw: string | null | undefined): string | null {
+export function legacyNormalizeEmailIdentifier(raw: unknown): string | null {
   const email = normalizeEmailIdentifier(raw);
   const at = email.lastIndexOf('@');
   if (at <= 0 || at === email.length - 1) return null;
@@ -217,6 +217,13 @@ export interface ResolvedEmailIdentifier {
  *    pelo social E `davic@gmail.com` criada pelo cadastro legado) são um empate:
  *    a lib não adivinha qual é a pessoa e trata como "não achei".
  *
+ * LIMITE CONHECIDO: a ponte só alcança grafias que dá para derivar do que foi
+ * digitado. Uma conta gravada `Davi@Acme.com` é alcançada por quem digita
+ * `Davi@Acme.com` (a forma crua), mas NÃO por quem digita `davi@acme.com` — aí as
+ * três formas coincidem e só uma busca case-insensitive no store resolveria, o
+ * que exigiria varrer a tabela a cada login com e-mail desconhecido (justamente o
+ * caminho de ataque). Essas contas pedem migração do endereço gravado, não ponte.
+ *
  * À PROVA DE ENUMERAÇÃO: nunca lança, nunca sinaliza nada para fora — quem chama
  * segue com `account: null` exatamente como seguia antes. As buscas extras só
  * acontecem quando as formas de compatibilidade DIFEREM da normalizada (e-mail
@@ -224,7 +231,7 @@ export interface ResolvedEmailIdentifier {
  */
 export async function resolveEmailIdentifier(
   store: EmailIdentifierLookup,
-  raw: string | null | undefined,
+  raw: unknown,
   options: { legacyFallback?: boolean } = {},
 ): Promise<ResolvedEmailIdentifier> {
   const email = normalizeEmailIdentifier(raw);
@@ -241,7 +248,7 @@ export async function resolveEmailIdentifier(
 
   if (options.legacyFallback === false) return miss;
 
-  const typed = (raw ?? '').trim();
+  const typed = typeof raw === 'string' ? raw.trim() : '';
   const legacy = legacyNormalizeEmailIdentifier(email);
   const candidates = [typed, legacy].filter(
     (candidate): candidate is string => !!candidate && candidate !== email,

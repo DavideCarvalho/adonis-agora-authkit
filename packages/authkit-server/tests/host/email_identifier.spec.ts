@@ -22,6 +22,7 @@ import type {
 } from '../../src/accounts/account_store.js';
 import { importUsers } from '../../src/commands/import_users.js';
 import { resolveLogin, resolvePasswordless } from '../../src/define_config.js';
+import { AdminUsersService } from '../../src/host/admin_api/admin_users_service.js';
 import InteractionController from '../../src/host/controllers/interaction_controller.js';
 import AuthSocialController from '../../src/host/controllers/social_controller.js';
 import {
@@ -174,6 +175,13 @@ test.group('normalizeEmailIdentifier', () => {
     assert.equal(normalizeEmailIdentifier(undefined), '');
   });
 
+  test('entrada não-string vira string vazia (o passo 1 não pode virar 500)', ({ assert }) => {
+    // `request.only(['email'])` não valida o tipo: `email[]=x` chega como array.
+    assert.equal(normalizeEmailIdentifier(['a@b.com'] as unknown), '');
+    assert.equal(normalizeEmailIdentifier({ a: 1 } as unknown), '');
+    assert.equal(normalizeEmailIdentifier(null), '');
+  });
+
   test('NÃO remove ponto nem sub-endereço (a identidade é o que a pessoa digitou)', ({
     assert,
   }) => {
@@ -301,12 +309,38 @@ test.group('ponte legada', () => {
     assert.isUndefined(session.authkit_login_email_lookup);
   });
 
+  test('LIMITE: conta gravada com maiúsculas é inalcançável quando se digita minúsculas', async ({
+    assert,
+  }) => {
+    // As três formas (normalizada, crua, legada) coincidem em `davi@acme.com`, e
+    // achar `Davi@Acme.com` exigiria busca case-insensitive no store — scan de
+    // tabela a cada login com e-mail desconhecido. Estas contas pedem MIGRAÇÃO do
+    // endereço gravado, não ponte. Teste trava o limite (e avisa se ele mudar).
+    const store = storeWith(['Davi@Acme.com']);
+    const { props } = await loginWith(store, 'davi@acme.com');
+    assert.isNull(props.account);
+  });
+
   test('`login.legacyEmailFallback: false` desliga a ponte', async ({ assert }) => {
     const store = storeWith(['davicarvalho96@gmail.com']);
     const { props } = await loginWith(store, 'davi.carvalho96@gmail.com', {
       legacyEmailFallback: false,
     });
     assert.isNull(props.account);
+  });
+});
+
+test.group('login — passo de identificador, entrada hostil', () => {
+  test('`email` não-string não quebra o passo 1 (segue o redirect incondicional)', async ({
+    assert,
+  }) => {
+    const { service } = buildService(storeWith(['davi@acme.com']));
+    const step1 = fakeCtx(service, noTableDb(), { email: ['davi@acme.com'] });
+
+    await new InteractionController().identifier(step1.ctx);
+
+    assert.deepEqual(step1.redirects, ['/auth/interaction/test-uid']);
+    assert.equal(step1.session.authkit_login_email, '');
   });
 });
 
@@ -451,9 +485,78 @@ test.group('cadastro social', () => {
   });
 });
 
-// ─── 7) Import de usuários ──────────────────────────────────────────────────
+// ─── 7) Criação por admin ───────────────────────────────────────────────────
+
+test.group('criação de usuário por admin', () => {
+  test('recusa como `email_taken` o dono de uma conta legada mutilada', async ({ assert }) => {
+    const legacy: AuthAccount = { id: 'acc-1', email: 'davicarvalho96@gmail.com' };
+    const created: CreateAccountInput[] = [];
+    const store: any = {
+      findByEmail: async (email: string) => (email === legacy.email ? legacy : null),
+      create: async (input: CreateAccountInput) => {
+        created.push(input);
+        return { id: 'acc-2', email: input.email };
+      },
+    };
+    const service = new AdminUsersService({ accountStore: store, login: resolveLogin() } as any);
+
+    const result = await service.create(
+      null as any,
+      { email: 'Davi.Carvalho96@Gmail.com', password: 'senha-super-segura' },
+      { actorId: 'admin-1', ip: null, source: 'admin-api' } as any,
+    );
+
+    assert.deepEqual(result, { ok: false, reason: 'email_taken' });
+    assert.lengthOf(created, 0);
+  });
+});
+
+// ─── 8) Import de usuários ──────────────────────────────────────────────────
 
 test.group('import de usuários', () => {
+  test('não cria uma SEGUNDA conta para o dono de uma conta legada mutilada', async ({
+    assert,
+  }) => {
+    const legacy: AuthAccount = { id: 'acc-1', email: 'davicarvalho96@gmail.com' };
+    const imported: Array<{ email: string }> = [];
+    const store: any = {
+      findByEmail: async (email: string) => (email === legacy.email ? legacy : null),
+      importAccount: async (input: { email: string }) => {
+        imported.push(input);
+        return { id: 'acc-2', email: input.email };
+      },
+    };
+
+    const report = await importUsers(store, [
+      { line: 1, record: { email: 'davi.carvalho96@gmail.com', password_hash: 'x' } },
+    ]);
+
+    assert.lengthOf(imported, 0);
+    assert.equal(report.skippedDuplicate, 1);
+    assert.equal(report.created, 0);
+  });
+
+  test('`legacyFallback: false` volta a tratar como conta nova', async ({ assert }) => {
+    const legacy: AuthAccount = { id: 'acc-1', email: 'davicarvalho96@gmail.com' };
+    const imported: Array<{ email: string }> = [];
+    const store: any = {
+      findByEmail: async (email: string) => (email === legacy.email ? legacy : null),
+      importAccount: async (input: { email: string }) => {
+        imported.push(input);
+        return { id: 'acc-2', email: input.email };
+      },
+    };
+
+    const report = await importUsers(
+      store,
+      [{ line: 1, record: { email: 'davi.carvalho96@gmail.com', password_hash: 'x' } }],
+      { legacyFallback: false },
+    );
+
+    assert.equal(report.created, 1);
+    assert.equal(imported[0].email, 'davi.carvalho96@gmail.com');
+  });
+
   test('grava o e-mail normalizado (senão o login não acha a conta)', async ({ assert }) => {
     const imported: Array<{ email: string }> = [];
     const store: any = {

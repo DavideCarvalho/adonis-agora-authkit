@@ -27,6 +27,8 @@ Contas já gravadas não são alteradas.
 quando o endereço normalizado não acha conta, o login (OIDC e console de conta) e o
 "esqueci a senha" tentam a forma exatamente como digitada e a normalização legada, e só
 aceitam se apontarem para **exatamente uma** conta; empate é tratado como "não achei". O
-cadastro e o "Continuar com o Google" usam a mesma resolução para não criar uma SEGUNDA
-conta para quem já tem uma gravada mutilada. Nada disso muda a tela, a mensagem ou o
-comportamento à prova de enumeração. Migre os endereços gravados e desligue a ponte.
+cadastro, o "Continuar com o Google", a criação de usuário por admin e o
+`authkit:users:import` usam a mesma resolução para não criar uma SEGUNDA conta para quem já
+tem uma gravada mutilada (`importUsers` recebe o flag por `options.legacyFallback`). Nada
+disso muda a tela, a mensagem ou o comportamento à prova de enumeração. Migre os endereços
+gravados e desligue a ponte.

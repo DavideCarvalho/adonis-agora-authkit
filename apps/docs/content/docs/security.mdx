@@ -91,7 +91,20 @@ defineConfig({
 
 Nothing about it is observable from outside: same screen, same message, and the extra
 lookups only happen when the compatibility spellings actually differ from the normalized
-one.
+one. The same resolution guards the dedupe checks in signup, social login, admin user
+creation and `authkit:users:import`, so none of them creates a *second* account for someone
+who already has a mangled one.
+
+<Callout type="warn">
+  **What the bridge cannot reach.** It only tries spellings it can derive from what was
+  typed. An account stored as `Davi@Acme.com` is reachable by someone typing
+  `Davi@Acme.com`, but **not** by someone typing `davi@acme.com` — there all three forms
+  collapse to the same string, and finding it would need a case-insensitive store query,
+  i.e. a table scan on every login with an unknown address (exactly the attack path). Those
+  accounts need their stored address migrated, not a bridge. If your table was populated by
+  imports, invites or a provider that returns mixed case, normalize the column before
+  relying on this.
+</Callout>
 
 ## Account lockout
 
