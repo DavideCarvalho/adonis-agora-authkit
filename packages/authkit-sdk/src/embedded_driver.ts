@@ -401,7 +401,8 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
       },
     },
     organizations: (() => {
-      const orgsService = new AdminOrgsService(cfg);
+      // `service` é obrigatório para a remoção revogar os grants da org na hora.
+      const orgsService = new AdminOrgsService(cfg, service);
       const ACTOR = { actorId: null, ip: null, source: 'admin-api' as const };
       const origin = (cfg.issuer ?? '').replace(/\/+$/, '');
 

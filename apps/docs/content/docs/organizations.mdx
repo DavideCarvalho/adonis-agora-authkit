@@ -164,8 +164,9 @@ the account store before emitting anything:
   the values captured at consent.
 
 If the check fails, the token is still issued, just **without** `org_*`. `resolveTokenRoles`
-receives the verified `activeOrg` (or `null`). A store **without** the
-`OrganizationsCapability` has nothing to check against, so it never emits org claims.
+receives the verified `activeOrg` (or `null`). A store without `findOrgById` and
+`getOrgMembership` (the `OrganizationsCapability`, or a partial one) has nothing to check
+against, so it never emits org claims.
 
 A store error is not swallowed: the token request fails rather than silently dropping the
 org or re-emitting the stale one.
@@ -180,8 +181,8 @@ the session on their next request. This happens on every removal path:
 | Path | Revoked |
 | --- | --- |
 | Leave (`POST /account/orgs/:id/leave`, `POST /account/api/orgs/:id/leave`) | the leaver's grants for that org |
-| Remove member (`/account/orgs`, `/account/api/orgs`, admin console, Admin API) | the removed member's grants for that org |
-| Delete org (admin console, Admin API) | every account's grants for that org |
+| Remove member (`/account/orgs`, `/account/api/orgs`, admin console, Admin API, SDK) | the removed member's grants for that org |
+| Delete org (admin console, Admin API, SDK) | every account's grants for that org |
 
 Grants for other orgs, or without an org, are left alone. The relying party sees
 `invalid_grant` on the next refresh and sends the user back through `/authorize`; the new

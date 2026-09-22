@@ -251,3 +251,79 @@ test.group('embedded driver — same interface, same shapes', () => {
     assert.isArray(res.grants);
   });
 });
+
+/**
+ * Removing a member (or deleting an org) through the SDK must revoke the grants that
+ * carry that org right away — same as the admin console and the Admin API. The SDK
+ * builds its own `AdminOrgsService`; without the live `service` it had no OIDC adapter
+ * to revoke in, and the grant (with its refresh token) outlived the membership.
+ */
+test.group('embedded driver — organizations revoke grants on removal', () => {
+  function serverWithOrgGrant() {
+    const { service } = buildFakeServer();
+    const grants = new Map<string, any>([
+      [
+        'g-org1',
+        {
+          accountId: 'u2',
+          clientId: 'app',
+          activeOrg: { orgId: 'org-1', orgSlug: 'acme', orgRole: 'member' },
+        },
+      ],
+      ['g-none', { accountId: 'u2', clientId: 'app' }],
+    ]);
+    class ListingAdapter {
+      constructor(private model: string) {}
+      async list() {
+        if (this.model !== 'Grant') return [];
+        return [...grants.entries()].map(([id, payload]) => ({ id, payload }));
+      }
+      async destroy(id: string) {
+        if (this.model === 'Grant') grants.delete(id);
+      }
+      async revokeByGrantId() {}
+      async find() {
+        return undefined;
+      }
+      async upsert() {}
+      async consume() {}
+      async findByUid() {
+        return undefined;
+      }
+      async findByUserCode() {
+        return undefined;
+      }
+    }
+    const members = new Map<string, string>([
+      ['u1', 'owner'],
+      ['u2', 'member'],
+    ]);
+    const store = service.config.accountStore as any;
+    Object.assign(store, {
+      createOrg: async () => {
+        throw new Error('not used');
+      },
+      findOrgById: async (id: string) =>
+        id === 'org-1' ? { id, name: 'Acme', slug: 'acme', createdAt: '' } : null,
+      deleteOrg: async () => true,
+      removeOrgMember: async (_orgId: string, accountId: string) =>
+        members.delete(accountId) ? { ok: true } : { ok: false, reason: 'not_found' },
+    });
+    (service.config as any).AdapterClass = ListingAdapter;
+    return { service, grants };
+  }
+
+  test('members.remove revokes the removed member grant for that org only', async ({ assert }) => {
+    const { service, grants } = serverWithOrgGrant();
+    const sdk = await createAuthkit({ mode: 'embedded', app: fakeApp(service) });
+    await sdk.organizations.members.remove('org-1', 'u2');
+    assert.deepEqual([...grants.keys()], ['g-none']);
+  });
+
+  test('organizations.delete revokes the grants that carry the org', async ({ assert }) => {
+    const { service, grants } = serverWithOrgGrant();
+    const sdk = await createAuthkit({ mode: 'embedded', app: fakeApp(service) });
+    await sdk.organizations.delete('org-1');
+    assert.deepEqual([...grants.keys()], ['g-none']);
+  });
+});

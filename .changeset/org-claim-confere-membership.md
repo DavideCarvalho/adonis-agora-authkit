@@ -1,5 +1,6 @@
 ---
 '@adonis-agora/authkit-server': minor
+'@adonis-agora/authkit-sdk': patch
 ---
 
 O claim de organização passa a refletir a membership atual, e remover um membro revoga o acesso na hora
@@ -20,7 +21,9 @@ o papel antigo.
   para aquela conta (ou para todas, no `deleteOrg`), com os access/refresh tokens deles,
   e grava a revogação por `sub` para clients cookie-based. Grants de outras orgs e sem
   org ficam intactos. Novo método `AdminSessionsService.revokeOrgGrants(orgId, accountId?)`.
+  O driver embedded do `@adonis-agora/authkit-sdk` (`organizations.delete`,
+  `organizations.members.remove`) revoga do mesmo jeito.
 
-Mudança de comportamento: um store **sem** a capacidade de Organizations não tem como
+Mudança de comportamento: um store sem `findOrgById`/`getOrgMembership` não tem como
 conferir a membership, então deixa de emitir `org_*` (antes emitia o que viesse do
 cookie/grant). As rotas que gravam o cookie de org só existem com a capacidade.

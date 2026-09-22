@@ -501,3 +501,28 @@ test.group('org claims — store sem a capacidade de Organizations', (group) => 
     assert.isUndefined(claims.org_role);
   });
 });
+
+test.group('org claims — store com a capacidade PARCIAL', (group) => {
+  let harness: Harness;
+
+  group.setup(async () => {
+    // Tem `createOrg` (o probe de `supportsOrganizations`) mas não `getOrgMembership`:
+    // o mint não pode quebrar — só deixa de emitir a org.
+    harness = await startServer({
+      accountStore: fakeAccountStore({
+        createOrg: async () => {
+          throw new Error('not used');
+        },
+        findOrgById: async (id: string) => ({ id, name: 'acme', slug: 'acme', createdAt: '' }),
+      } as any),
+    });
+    return async () => new Promise<void>((r) => harness.server.close(() => r()));
+  });
+
+  test('sem getOrgMembership: o token sai, sem org_*', async ({ assert }) => {
+    const tokens = await loginWithOrg(harness.issuer, ORG, 'st-partial');
+    const claims = decodeJwtPayload(tokens.id_token);
+    assert.equal(claims.sub, ACCOUNT_ID);
+    assert.isUndefined(claims.org_id);
+  });
+});

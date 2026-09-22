@@ -1,8 +1,8 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
-import {
-  type AccountStore,
-  type ActiveOrgInfo,
-  supportsOrganizations,
+import type {
+  AccountStore,
+  ActiveOrgInfo,
+  OrganizationsCapability,
 } from '../accounts/account_store.js';
 
 /** Nome do cookie da org ativa. HttpOnly, SameSite=Lax, Secure em prod. */
@@ -183,8 +183,8 @@ export function readActiveOrgFromHostCtx(
  *  - a org precisa existir AGORA (`findOrgById`) — o slug sai daqui, não do retrato;
  *  - o papel é o da membership ATUAL, nunca o `orgRole` do retrato.
  *
- * Store sem a capacidade de Organizations: não há como conferir, então não há claim
- * (fail-closed). As rotas que gravam o cookie de org só existem com a capacidade.
+ * Store sem `findOrgById`/`getOrgMembership`: não há como conferir, então não há
+ * claim (fail-closed). As rotas que gravam o cookie de org só existem com a capacidade.
  *
  * Erro do store PROPAGA: um banco fora do ar não pode virar, em silêncio, um token
  * sem org (que o app leria como "usuário sem tenant") nem um token com a org velha.
@@ -195,10 +195,17 @@ export async function verifyActiveOrgMembership(
   claimed: ActiveOrgInfo | null,
 ): Promise<ActiveOrgInfo | null> {
   if (!claimed) return null;
-  if (!supportsOrganizations(store)) return null;
-  const membership = await store.getOrgMembership(claimed.orgId, accountId);
-  if (!membership || typeof membership.role !== 'string' || !membership.role) return null;
-  const org = await store.findOrgById(claimed.orgId);
+  // Sonda os DOIS métodos que esta função usa — não o `createOrg` do
+  // `supportsOrganizations`. Um store com a capacidade PARCIAL (sem um deles)
+  // derrubaria todo mint com TypeError; aqui ele só deixa de emitir a claim.
+  const orgs = store as Partial<OrganizationsCapability>;
+  if (typeof orgs.findOrgById !== 'function' || typeof orgs.getOrgMembership !== 'function') {
+    return null;
+  }
+  // Org primeiro: apagada, nem pergunta pela membership.
+  const org = await orgs.findOrgById(claimed.orgId);
   if (!org) return null;
+  const membership = await orgs.getOrgMembership(claimed.orgId, accountId);
+  if (!membership || typeof membership.role !== 'string' || !membership.role) return null;
   return { orgId: org.id, orgSlug: org.slug, orgRole: membership.role };
 }
