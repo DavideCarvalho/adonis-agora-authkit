@@ -3,8 +3,10 @@ import type { OrgInvitation, OrgMember, OrgSummary } from '../../accounts/accoun
 import { supportsOrganizations } from '../../accounts/account_store.js';
 import type { ResolvedServerConfig } from '../../define_config.js';
 import { ADMIN_LIST_DEFAULT_SIZE, LIST_FIRST_PAGE } from '../../pagination.js';
+import type { OidcService } from '../../provider/oidc_service.js';
 import { accountPath } from '../account_paths.js';
 import { sendOrgInvitationEmail } from '../default_mailer.js';
+import { revokeOrgAccess } from '../org_access_revocation.js';
 import type { SettingsCapability } from '../runtime_settings.js';
 import {
   isRoleInCatalog,
@@ -56,7 +58,14 @@ export type InvalidRoleResult = { ok: false; reason: 'invalid_role' };
  * Todos os métodos de escrita auditam com o `actor` informado.
  */
 export class AdminOrgsService {
-  constructor(private cfg: ResolvedServerConfig) {}
+  /**
+   * @param oidc Serviço OIDC — onde vivem os grants a revogar quando um membro sai
+   *   ou a org é apagada ({@link revokeOrgAccess}). Opcional para quem só lê.
+   */
+  constructor(
+    private cfg: ResolvedServerConfig,
+    private oidc?: Pick<OidcService, 'config'>,
+  ) {}
 
   get supported() {
     return supportsOrganizations(this.cfg.accountStore);
@@ -234,6 +243,8 @@ export class AdminOrgsService {
     if (!existing) return { ok: false, reason: 'not_found' };
 
     await store.deleteOrg!(orgId);
+    // Grants que carregam esta org (de qualquer conta) caem já — não no refresh.
+    await revokeOrgAccess(this.oidc, orgId);
 
     await this.cfg.audit?.record({
       type: 'organization.deleted',
@@ -314,6 +325,7 @@ export class AdminOrgsService {
       if (result.reason === 'last_owner') return { ok: false, reason: 'last_owner' };
       return { ok: false, reason: 'member_not_found' };
     }
+    await revokeOrgAccess(this.oidc, orgId, accountId);
 
     await this.cfg.audit?.record({
       type: 'organization.member_removed',

@@ -32,7 +32,7 @@ import { resolveRuntimeSettings } from '../runtime_settings.js';
 export default class ConsoleOrgsController {
   private async svc(ctx: HttpContext) {
     const service = await ctx.containerResolver.make('authkit.server');
-    return new AdminOrgsService(service.config);
+    return new AdminOrgsService(service.config, service);
   }
 
   private actor(ctx: HttpContext) {

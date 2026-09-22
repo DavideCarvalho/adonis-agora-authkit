@@ -15,6 +15,14 @@
  *   2. consent WITHOUT the org cookie -> the claims are ABSENT (no invented org).
  *   3. the user switches org with a remembered consent -> the token follows the switch,
  *      not the stale org captured at first consent.
+ *
+ * And the second defect (the claim outliving reality): the org on the Grant is a
+ * SNAPSHOT from consent, re-emitted by every refresh for up to 30 days. At mint time
+ * it is now checked against the store:
+ *
+ *   4. member removed after consent -> the refreshed id_token has NO org_*.
+ *   5. role changed after consent -> org_role is the CURRENT role, never the snapshot's.
+ *   6. org deleted / never a member / store without the org capability -> no org_*.
  */
 
 import { createHash, randomBytes } from 'node:crypto';
@@ -33,6 +41,49 @@ const CLIENT_SECRET = 's';
 const ACCOUNT_ID = 'u1';
 const SCOPES = ['openid', 'profile', 'email', 'offline_access', 'roles'];
 
+/**
+ * Estado de orgs em memória, MUTÁVEL pelos testes (remover membro, trocar papel,
+ * apagar org) — o que o store diz AGORA é o que a emissão precisa refletir.
+ */
+const orgState = {
+  orgs: new Map<string, { id: string; slug: string }>(),
+  members: new Map<string, string>(), // `${orgId}:${accountId}` -> role
+  reset() {
+    this.orgs = new Map([
+      ['org-1', { id: 'org-1', slug: 'acme' }],
+      ['org-2', { id: 'org-2', slug: 'beta' }],
+    ]);
+    this.members = new Map([
+      [`org-1:${ACCOUNT_ID}`, 'admin'],
+      [`org-2:${ACCOUNT_ID}`, 'owner'],
+    ]);
+  },
+};
+
+/** `fakeAccountStore` + o mínimo da OrganizationsCapability que a emissão consulta. */
+function storeWithOrgs() {
+  const summary = (o: { id: string; slug: string }) => ({
+    id: o.id,
+    name: o.slug,
+    slug: o.slug,
+    createdAt: new Date(0).toISOString(),
+  });
+  return fakeAccountStore({
+    createOrg: async () => {
+      throw new Error('not used');
+    },
+    findOrgById: async (orgId: string) => {
+      const o = orgState.orgs.get(orgId);
+      return o ? summary(o) : null;
+    },
+    getOrgMembership: async (orgId: string, accountId: string) => {
+      if (!orgState.orgs.has(orgId)) return null;
+      const role = orgState.members.get(`${orgId}:${accountId}`);
+      return role ? { role } : null;
+    },
+  } as any);
+}
+
 function pkce() {
   const verifier = randomBytes(32).toString('base64url');
   const challenge = createHash('sha256').update(verifier).digest('base64url');
@@ -46,7 +97,9 @@ interface Harness {
 }
 
 /** Boots a real HTTP server on an ephemeral port so parallel spec files never collide. */
-async function startServer(): Promise<Harness> {
+async function startServer(
+  opts: { accountStore?: ReturnType<typeof fakeAccountStore> } = {},
+): Promise<Harness> {
   let service!: OidcService;
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
@@ -83,7 +136,7 @@ async function startServer(): Promise<Harness> {
       ],
       // Explicit first-party: org_* are bound to the `roles` scope and this gate.
       firstPartyClients: [CLIENT_ID],
-      accountStore: fakeAccountStore(),
+      accountStore: opts.accountStore ?? storeWithOrgs(),
     }),
   );
   service = new OidcService(cfg!, 'a'.repeat(32));
@@ -141,6 +194,8 @@ function authorizeUrl(issuer: string, challenge: string, state: string): string 
     code_challenge: challenge,
     code_challenge_method: 'S256',
     state,
+    // `offline_access` só vira refresh token com `prompt=consent` (OIDC Core §11).
+    prompt: 'consent',
   });
   return `${issuer}/auth?${params.toString()}`;
 }
@@ -217,6 +272,24 @@ async function exchangeCode(issuer: string, code: string, verifier: string): Pro
   return body;
 }
 
+/** Refresh server-to-server, sem cookie — como o app faz ao renovar a sessão. */
+async function refresh(issuer: string, refreshToken: string): Promise<any> {
+  const res = await fetch(`${issuer}/token`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      authorization: `Basic ${Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`).toString('base64')}`,
+    },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+    }).toString(),
+  });
+  const body = await res.json();
+  if (res.status !== 200) throw new Error(`refresh ${res.status}: ${JSON.stringify(body)}`);
+  return body;
+}
+
 function decodeJwtPayload(jwt: string): Record<string, any> {
   return JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString('utf8'));
 }
@@ -230,6 +303,7 @@ test.group('org claims — authorization code flow', (group) => {
     harness = await startServer();
     return async () => new Promise<void>((r) => harness.server.close(() => r()));
   });
+  group.each.setup(() => orgState.reset());
 
   test('consent COM org + token SEM cookie: id_token carrega org_id/org_slug/org_role', async ({
     assert,
@@ -313,5 +387,142 @@ test.group('org claims — authorization code flow', (group) => {
     assert.equal(claims2.org_id, 'org-2');
     assert.equal(claims2.org_slug, 'beta');
     assert.equal(claims2.org_role, 'owner');
+  });
+});
+
+/** Login + consent com a org no cookie; devolve os tokens do code exchange. */
+async function loginWithOrg(
+  issuer: string,
+  org: { orgId: string; orgSlug: string; orgRole: string },
+  state: string,
+) {
+  const { verifier, challenge } = pkce();
+  const jar = new Map<string, string>();
+  seedOrg(jar, org);
+  const code = await driveAuthorizeFlow(issuer, authorizeUrl(issuer, challenge, state), jar);
+  if (!code) throw new Error('authorize/consent não emitiu code');
+  return exchangeCode(issuer, code, verifier);
+}
+
+test.group('org claims — a emissão confere a membership no store', (group) => {
+  let harness: Harness;
+
+  group.setup(async () => {
+    harness = await startServer();
+    return async () => new Promise<void>((r) => harness.server.close(() => r()));
+  });
+  group.each.setup(() => orgState.reset());
+
+  test('membro REMOVIDO depois do consent: o refresh sai SEM org_*', async ({ assert }) => {
+    const tokens = await loginWithOrg(harness.issuer, ORG, 'st-removed');
+    assert.equal(decodeJwtPayload(tokens.id_token).org_id, ORG.orgId);
+    assert.isString(tokens.refresh_token, 'o fluxo precisa de refresh token para o cenário');
+
+    // Sanidade: enquanto é membro, o refresh reemite a org.
+    const stillMember = await refresh(harness.issuer, tokens.refresh_token);
+    assert.equal(decodeJwtPayload(stillMember.id_token).org_id, ORG.orgId);
+
+    // Removido da equipe. O Grant ainda carrega o retrato do consent.
+    orgState.members.delete(`${ORG.orgId}:${ACCOUNT_ID}`);
+
+    const after = await refresh(harness.issuer, stillMember.refresh_token);
+    const claims = decodeJwtPayload(after.id_token);
+    assert.equal(claims.sub, ACCOUNT_ID, 'o token continua saindo — só a org cai');
+    assert.deepEqual(claims.roles, ['ADMIN']);
+    assert.isUndefined(claims.org_id);
+    assert.isUndefined(claims.org_slug);
+    assert.isUndefined(claims.org_role);
+  });
+
+  test('papel TROCADO depois do consent: org_role é o papel ATUAL, nunca o do retrato', async ({
+    assert,
+  }) => {
+    const tokens = await loginWithOrg(harness.issuer, ORG, 'st-demoted');
+    assert.equal(decodeJwtPayload(tokens.id_token).org_role, 'admin');
+
+    orgState.members.set(`${ORG.orgId}:${ACCOUNT_ID}`, 'member');
+
+    const after = await refresh(harness.issuer, tokens.refresh_token);
+    const claims = decodeJwtPayload(after.id_token);
+    assert.equal(claims.org_id, ORG.orgId);
+    assert.equal(claims.org_role, 'member');
+  });
+
+  test('o cookie mente sobre o papel: o primeiro token já sai com o papel do store', async ({
+    assert,
+  }) => {
+    // Retrato velho no cookie (`owner`), store diz `admin`.
+    const tokens = await loginWithOrg(
+      harness.issuer,
+      { ...ORG, orgRole: 'owner' },
+      'st-stale-cookie',
+    );
+    assert.equal(decodeJwtPayload(tokens.id_token).org_role, 'admin');
+  });
+
+  test('org APAGADA depois do consent: o refresh sai SEM org_*', async ({ assert }) => {
+    const tokens = await loginWithOrg(harness.issuer, ORG, 'st-deleted');
+    orgState.orgs.delete(ORG.orgId);
+
+    const after = await refresh(harness.issuer, tokens.refresh_token);
+    const claims = decodeJwtPayload(after.id_token);
+    assert.isUndefined(claims.org_id);
+    assert.isUndefined(claims.org_role);
+  });
+
+  test('org da qual a conta NUNCA foi membro: nem o primeiro token carrega org_*', async ({
+    assert,
+  }) => {
+    orgState.orgs.set('org-x', { id: 'org-x', slug: 'alheia' });
+    const tokens = await loginWithOrg(
+      harness.issuer,
+      { orgId: 'org-x', orgSlug: 'alheia', orgRole: 'owner' },
+      'st-foreign',
+    );
+    const claims = decodeJwtPayload(tokens.id_token);
+    assert.isUndefined(claims.org_id);
+    assert.isUndefined(claims.org_role);
+  });
+});
+
+test.group('org claims — store sem a capacidade de Organizations', (group) => {
+  let harness: Harness;
+
+  group.setup(async () => {
+    harness = await startServer({ accountStore: fakeAccountStore() });
+    return async () => new Promise<void>((r) => harness.server.close(() => r()));
+  });
+
+  test('sem como conferir a membership, não há claim de org (fail-closed)', async ({ assert }) => {
+    const tokens = await loginWithOrg(harness.issuer, ORG, 'st-no-capability');
+    const claims = decodeJwtPayload(tokens.id_token);
+    assert.equal(claims.sub, ACCOUNT_ID);
+    assert.isUndefined(claims.org_id);
+    assert.isUndefined(claims.org_role);
+  });
+});
+
+test.group('org claims — store com a capacidade PARCIAL', (group) => {
+  let harness: Harness;
+
+  group.setup(async () => {
+    // Tem `createOrg` (o probe de `supportsOrganizations`) mas não `getOrgMembership`:
+    // o mint não pode quebrar — só deixa de emitir a org.
+    harness = await startServer({
+      accountStore: fakeAccountStore({
+        createOrg: async () => {
+          throw new Error('not used');
+        },
+        findOrgById: async (id: string) => ({ id, name: 'acme', slug: 'acme', createdAt: '' }),
+      } as any),
+    });
+    return async () => new Promise<void>((r) => harness.server.close(() => r()));
+  });
+
+  test('sem getOrgMembership: o token sai, sem org_*', async ({ assert }) => {
+    const tokens = await loginWithOrg(harness.issuer, ORG, 'st-partial');
+    const claims = decodeJwtPayload(tokens.id_token);
+    assert.equal(claims.sub, ACCOUNT_ID);
+    assert.isUndefined(claims.org_id);
   });
 });

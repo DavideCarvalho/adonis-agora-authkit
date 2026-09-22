@@ -151,6 +151,50 @@ these claims are added to every id_token, userinfo response, and JWT access toke
   is required to see claims for a newly joined organization.
 </Callout>
 
+### Claims follow the store, not the consent
+
+The active org is captured on the `Grant` at consent time and every refresh re-emits it —
+for as long as the refresh token lives (30 days by default). That capture is only a
+**snapshot**, so at every mint (code exchange, refresh, userinfo) AuthKit checks it against
+the account store before emitting anything:
+
+- the account must **still be a member** of the org (`getOrgMembership`);
+- the org must **still exist** (`findOrgById`);
+- `org_role` is the member's **current** role and `org_slug` the org's current slug — never
+  the values captured at consent.
+
+If the check fails, the token is still issued, just **without** `org_*`. `resolveTokenRoles`
+receives the verified `activeOrg` (or `null`). A store without `findOrgById` and
+`getOrgMembership` (the `OrganizationsCapability`, or a partial one) has nothing to check
+against, so it never emits org claims.
+
+A store error is not swallowed: the token request fails rather than silently dropping the
+org or re-emitting the stale one.
+
+### Removing a member revokes access immediately
+
+Checking at mint time only takes effect at the next refresh. So when a membership ends,
+AuthKit also revokes the grants that carry that org for that account — their access and
+refresh tokens included — and records a per-`sub` revocation so cookie-based clients drop
+the session on their next request. This happens on every removal path:
+
+| Path | Revoked |
+| --- | --- |
+| Leave (`POST /account/orgs/:id/leave`, `POST /account/api/orgs/:id/leave`) | the leaver's grants for that org |
+| Remove member (`/account/orgs`, `/account/api/orgs`, admin console, Admin API, SDK) | the removed member's grants for that org |
+| Delete org (admin console, Admin API, SDK) | every account's grants for that org |
+
+Grants for other orgs, or without an org, are left alone. The relying party sees
+`invalid_grant` on the next refresh and sends the user back through `/authorize`; the new
+grant comes out without the org. Revocation is best-effort: if it fails (for example, the
+adapter is down) the membership change still succeeds, the failure is logged at `error`,
+and the mint-time check drops the claim on the next refresh. Adapters that cannot enumerate
+grants (no `list`) rely on the mint-time check alone.
+
+To revoke by hand, use `AdminSessionsService#revokeOrgGrants(orgId, accountId?)`.
+
+A **role change** does not revoke anything: the next refresh simply carries the new role.
+
 ## Consuming the tenant in a relying party
 
 On the client side (`@adonis-agora/authkit-client`) the org claims are promoted to

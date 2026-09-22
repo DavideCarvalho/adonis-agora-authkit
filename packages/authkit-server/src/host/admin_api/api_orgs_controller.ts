@@ -34,8 +34,8 @@ function notSupported(ctx: HttpContext) {
 export default class ApiOrgsController {
   /** GET /organizations — lista todas as orgs com contagem de membros. */
   async index(ctx: HttpContext) {
-    const { cfg } = await ctxBits(ctx);
-    const svc = new AdminOrgsService(cfg);
+    const { cfg, service } = await ctxBits(ctx);
+    const svc = new AdminOrgsService(cfg, service);
 
     const result = await svc.listOrgs();
     if (!Array.isArray(result)) {
@@ -50,8 +50,8 @@ export default class ApiOrgsController {
 
   /** POST /organizations — cria uma org. Body: { name, slug, ownerAccountId, logoUrl? } */
   async store(ctx: HttpContext) {
-    const { cfg, actor } = await ctxBits(ctx);
-    const svc = new AdminOrgsService(cfg);
+    const { cfg, actor, service } = await ctxBits(ctx);
+    const svc = new AdminOrgsService(cfg, service);
 
     const { name, slug, ownerAccountId, logoUrl } =
       await ctx.request.validateUsing(orgCreateValidator);
@@ -72,8 +72,8 @@ export default class ApiOrgsController {
 
   /** GET /organizations/:id — obtém uma org com membros e convites. */
   async show(ctx: HttpContext) {
-    const { cfg } = await ctxBits(ctx);
-    const svc = new AdminOrgsService(cfg);
+    const { cfg, service } = await ctxBits(ctx);
+    const svc = new AdminOrgsService(cfg, service);
     const id = ctx.request.param('id');
 
     const result = await svc.getOrg(id);
@@ -88,8 +88,8 @@ export default class ApiOrgsController {
 
   /** PATCH /organizations/:id — atualiza nome e/ou logo. */
   async update(ctx: HttpContext) {
-    const { cfg, actor } = await ctxBits(ctx);
-    const svc = new AdminOrgsService(cfg);
+    const { cfg, actor, service } = await ctxBits(ctx);
+    const svc = new AdminOrgsService(cfg, service);
     const id = ctx.request.param('id');
 
     const { name, logoUrl } = await ctx.request.validateUsing(orgUpdateValidator);
@@ -112,8 +112,8 @@ export default class ApiOrgsController {
 
   /** DELETE /organizations/:id */
   async destroy(ctx: HttpContext) {
-    const { cfg, actor } = await ctxBits(ctx);
-    const svc = new AdminOrgsService(cfg);
+    const { cfg, actor, service } = await ctxBits(ctx);
+    const svc = new AdminOrgsService(cfg, service);
     const id = ctx.request.param('id');
 
     const result = await svc.deleteOrg(id, actor);
@@ -128,8 +128,8 @@ export default class ApiOrgsController {
 
   /** POST /organizations/:id/members — adiciona membro. Body: { accountId, role } */
   async addMember(ctx: HttpContext) {
-    const { cfg, actor } = await ctxBits(ctx);
-    const svc = new AdminOrgsService(cfg);
+    const { cfg, actor, service } = await ctxBits(ctx);
+    const svc = new AdminOrgsService(cfg, service);
     const orgId = ctx.request.param('id');
 
     const { accountId, role } = await ctx.request.validateUsing(orgAddMemberValidator);
@@ -158,8 +158,8 @@ export default class ApiOrgsController {
 
   /** DELETE /organizations/:id/members/:accountId */
   async removeMember(ctx: HttpContext) {
-    const { cfg, actor } = await ctxBits(ctx);
-    const svc = new AdminOrgsService(cfg);
+    const { cfg, actor, service } = await ctxBits(ctx);
+    const svc = new AdminOrgsService(cfg, service);
     const orgId = ctx.request.param('id');
     const accountId = ctx.request.param('accountId');
 
@@ -181,8 +181,8 @@ export default class ApiOrgsController {
 
   /** PATCH /organizations/:id/members/:accountId — troca o papel. Body: { role } */
   async updateMemberRole(ctx: HttpContext) {
-    const { cfg, actor } = await ctxBits(ctx);
-    const svc = new AdminOrgsService(cfg);
+    const { cfg, actor, service } = await ctxBits(ctx);
+    const svc = new AdminOrgsService(cfg, service);
     const orgId = ctx.request.param('id');
     const accountId = ctx.request.param('accountId');
     const { role } = await ctx.request.validateUsing(orgMemberRoleValidator);
@@ -215,8 +215,8 @@ export default class ApiOrgsController {
 
   /** POST /organizations/:id/invitations — cria convite. Body: { email, role } */
   async createInvitation(ctx: HttpContext) {
-    const { cfg, actor } = await ctxBits(ctx);
-    const svc = new AdminOrgsService(cfg);
+    const { cfg, actor, service } = await ctxBits(ctx);
+    const svc = new AdminOrgsService(cfg, service);
     const orgId = ctx.request.param('id');
 
     const { email, role } = await ctx.request.validateUsing(orgInvitationValidator);
@@ -246,8 +246,8 @@ export default class ApiOrgsController {
 
   /** DELETE /organizations/:id/invitations/:invitationId */
   async revokeInvitation(ctx: HttpContext) {
-    const { cfg, actor } = await ctxBits(ctx);
-    const svc = new AdminOrgsService(cfg);
+    const { cfg, actor, service } = await ctxBits(ctx);
+    const svc = new AdminOrgsService(cfg, service);
     const orgId = ctx.request.param('id');
     const invitationId = ctx.request.param('invitationId');
 
