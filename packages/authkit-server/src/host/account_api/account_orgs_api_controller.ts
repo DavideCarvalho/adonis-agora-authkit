@@ -58,6 +58,7 @@ import {
   encodeActiveOrgCookie,
 } from '../active_org_cookie.js';
 import { sendOrgInvitationEmail } from '../default_mailer.js';
+import { revokeOrgAccess } from '../org_access_revocation.js';
 // Política efetiva: o MESMO módulo que o console HTML usa. Duas cópias da
 // resolução são como o espelho JSON acabaria mais frouxo que o formulário.
 import { effectiveOrgPolicy, orgPolicyDefaults } from '../org_policy.js';
@@ -121,6 +122,8 @@ interface OrgsApiContext {
   cfg: any;
   store: any;
   accountId: string;
+  /** O `authkit.server` — onde vivem os grants a revogar quando alguém sai da org. */
+  service: any;
 }
 
 export default class AccountOrgsApiController {
@@ -256,6 +259,9 @@ export default class AccountOrgsApiController {
       return ctx.response.notFound(apiErr('not_found', 'Membership not found.'));
     }
 
+    // Os grants que carregam esta org para a conta caem já — não no refresh.
+    await revokeOrgAccess(c.service, orgId, c.accountId);
+
     await c.cfg.audit?.record({
       type: 'organization.member_removed',
       accountId: c.accountId,
@@ -390,6 +396,9 @@ export default class AccountOrgsApiController {
       return ctx.response.notFound(apiErr('not_found', 'Member not found in this organization.'));
     }
 
+    // Os grants que carregam esta org para a conta caem já — não no refresh.
+    await revokeOrgAccess(c.service, orgId, targetId);
+
     await c.cfg.audit?.record({
       type: 'organization.member_removed',
       actorId: c.accountId,
@@ -514,7 +523,7 @@ export default class AccountOrgsApiController {
       ctx.response.unauthorized(apiErr('unauthorized', 'Not authenticated.'));
       return null;
     }
-    return { cfg, store, accountId };
+    return { cfg, store, accountId, service };
   }
 
   /**

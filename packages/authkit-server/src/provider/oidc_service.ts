@@ -2,8 +2,13 @@ import { timingSafeEqual } from 'node:crypto';
 import { type ClientConfig, type MetricsRecorder, NoopRecorder } from '@adonis-agora/authkit-core';
 import Koa from 'koa';
 import mount from 'koa-mount';
+import type { ActiveOrgInfo } from '../accounts/account_store.js';
 import type { ResolvedServerConfig } from '../define_config.js';
-import { normalizeActiveOrg, readActiveOrgFromKoaCtx } from '../host/active_org_cookie.js';
+import {
+  normalizeActiveOrg,
+  readActiveOrgFromKoaCtx,
+  verifyActiveOrgMembership,
+} from '../host/active_org_cookie.js';
 import { isFirstPartyClient } from '../host/branding.js';
 import { listKeyInfos, type ManagedKeyInfo, signingKeyAgeDays } from '../keys/keystore.js';
 import type { KeystoreManager } from '../keys/keystore_manager.js';
@@ -118,9 +123,17 @@ export class OidcService {
           // — server-a-servidor, SEM cookies — então o cookie abaixo não existe
           // ali. O cookie continua como FALLBACK para fluxos em que o id_token
           // sai no próprio authorize (implicit/hybrid), onde a request é do browser.
-          const activeOrg =
+          const claimedOrg =
             normalizeActiveOrg(ctx?.oidc?.entities?.Grant?.activeOrg) ??
             readActiveOrgFromKoaCtx(ctx);
+          // O `claimedOrg` é um RETRATO do consent (ou do cookie): o refresh o
+          // reemite por até 30 dias. Antes de virar claim, ele é conferido no store
+          // — membership e org ATUAIS, papel ATUAL (ver `verifyActiveOrgMembership`).
+          // Memoizado por chamada de `findAccount`: `claims()` pode rodar mais de uma
+          // vez no mesmo mint (id_token + userinfo) e a pergunta é a mesma.
+          let verifiedOrg: Promise<ActiveOrgInfo | null> | undefined;
+          const currentOrg = () =>
+            (verifiedOrg ??= verifyActiveOrgMembership(config.accountStore, user.id, claimedOrg));
 
           // GATE de least-privilege: roles globais e claims de org só são emitidas
           // para clients FIRST-PARTY. Capturamos o clientId aqui (fora do closure
@@ -153,10 +166,12 @@ export class OidcService {
               };
               // roles/org_* são dados de autorização interna: só para first-party.
               if (firstParty) {
+                const activeOrg = await currentOrg();
                 base[config.globalRolesClaim] = config.resolveTokenRoles
                   ? await config.resolveTokenRoles(user, { clientId, activeOrg })
                   : (user.globalRoles ?? []);
-                // Emite claims de org somente quando há uma org ativa na sessão.
+                // Emite claims de org somente quando há uma org ativa na sessão E a
+                // conta ainda é membro dela (conferido no store, papel atual).
                 if (activeOrg) {
                   base.org_id = activeOrg.orgId;
                   base.org_slug = activeOrg.orgSlug;

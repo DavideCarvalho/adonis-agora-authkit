@@ -3,6 +3,7 @@ import type { AccountStore } from '../accounts/account_store.js';
 import type { EnumeratedArtifact, OidcAdapter } from '../adapters/adapter_contract.js';
 import { pickModelAdapterClass } from '../adapters/factory.js';
 import type { OidcService } from '../provider/oidc_service.js';
+import { normalizeActiveOrg } from './active_org_cookie.js';
 
 /** Uma sessão ativa do IdP (login do usuário no provider), apresentada ao admin. */
 export interface AdminSession {
@@ -388,6 +389,60 @@ export class AdminSessionsService {
     for (const g of grants) {
       await grantAdapter.revokeByGrantId(g.id);
       await grantAdapter.destroy(g.id);
+    }
+
+    return { sessions: 0, grants: grants.length, accessTokens, refreshTokens };
+  }
+
+  /**
+   * Revoga os grants que carregam a org `orgId` como org ativa (`Grant.activeOrg`,
+   * gravado no consent) — de UMA conta (`accountId`) ou de TODAS (omitido, usado
+   * quando a org é apagada). Destrói os AT/RT desses grants e os próprios grants,
+   * como {@link revokeClientGrants}; depois grava a revogação por `sub` de cada conta
+   * afetada, para que clients COOKIE-BASED derrubem a sessão já na próxima request.
+   *
+   * Por que existe: o `org_*` do token sai do grant. Quem é removido da org (ou
+   * perde a org inteira) seguiria com o access token e o refresh token daquele grant
+   * até o fim do TTL. A emissão já confere a membership no store a cada mint (ver
+   * `verifyActiveOrgMembership`); esta revogação faz a mudança valer AGORA — o
+   * access token opaco para de introspectar, o refresh falha e o client volta ao
+   * authorize, onde o novo grant sai sem a org.
+   *
+   * Grants de OUTRAS orgs (e sem org) ficam intactos. Sessões do IdP não carregam
+   * org (a org vive no grant e no cookie), então não são tocadas.
+   *
+   * Sem enumeração no adapter não há como achar os grants: devolve zeros e fica
+   * valendo só a conferência da emissão (no próximo refresh).
+   */
+  async revokeOrgGrants(orgId: string, accountId?: string): Promise<RevokeResult> {
+    const grantAdapter = this.#adapter('Grant');
+    const rows = await this.#listModel('Grant');
+    const grants = rows.filter((r) => {
+      if (normalizeActiveOrg(r.payload.activeOrg)?.orgId !== orgId) return false;
+      return accountId === undefined || r.payload.accountId === accountId;
+    });
+    if (grants.length === 0) {
+      return { sessions: 0, grants: 0, accessTokens: 0, refreshTokens: 0 };
+    }
+    const grantIds = new Set(grants.map((g) => g.id));
+
+    const accessTokens = await this.#destroyTokensOfGrants('AccessToken', grantIds);
+    const refreshTokens = await this.#destroyTokensOfGrants('RefreshToken', grantIds);
+
+    for (const g of grants) {
+      await grantAdapter.revokeByGrantId(g.id);
+      await grantAdapter.destroy(g.id);
+    }
+
+    // Clients cookie-based não têm refresh para falhar: sem a linha por `sub`, o
+    // id_token com a org velha seguiria valendo na sessão do client até expirar.
+    const accounts = new Set(
+      grants
+        .map((g) => g.payload.accountId)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0),
+    );
+    for (const id of accounts) {
+      await this.recordSubRevocation(id);
     }
 
     return { sessions: 0, grants: grants.length, accessTokens, refreshTokens };

@@ -1,5 +1,9 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
-import type { ActiveOrgInfo } from '../accounts/account_store.js';
+import {
+  type AccountStore,
+  type ActiveOrgInfo,
+  supportsOrganizations,
+} from '../accounts/account_store.js';
 
 /** Nome do cookie da org ativa. HttpOnly, SameSite=Lax, Secure em prod. */
 export const ACTIVE_ORG_COOKIE = 'authkit_active_org';
@@ -164,4 +168,37 @@ export function readActiveOrgFromHostCtx(
     // contexto sem `request.cookie` — tenta o caminho Koa abaixo
   }
   return readActiveOrgFromKoaCtx(ctx, opts);
+}
+
+/**
+ * Confere, NO STORE, se a org que a sessão diz ser a ativa ainda vale para a conta,
+ * e devolve os dados ATUAIS dela — ou `null` quando não vale mais.
+ *
+ * O `activeOrg` que chega aqui é um RETRATO: foi gravado no Grant no consent (ou lido
+ * do cookie) e o refresh token o reemite por até 30 dias. Sem esta conferência, quem
+ * é removido da equipe continua recebendo `org_*` até o grant expirar, e um rebaixado
+ * continua recebendo o papel antigo. Por isso:
+ *
+ *  - a conta precisa ser membro da org AGORA (`getOrgMembership`);
+ *  - a org precisa existir AGORA (`findOrgById`) — o slug sai daqui, não do retrato;
+ *  - o papel é o da membership ATUAL, nunca o `orgRole` do retrato.
+ *
+ * Store sem a capacidade de Organizations: não há como conferir, então não há claim
+ * (fail-closed). As rotas que gravam o cookie de org só existem com a capacidade.
+ *
+ * Erro do store PROPAGA: um banco fora do ar não pode virar, em silêncio, um token
+ * sem org (que o app leria como "usuário sem tenant") nem um token com a org velha.
+ */
+export async function verifyActiveOrgMembership(
+  store: AccountStore,
+  accountId: string,
+  claimed: ActiveOrgInfo | null,
+): Promise<ActiveOrgInfo | null> {
+  if (!claimed) return null;
+  if (!supportsOrganizations(store)) return null;
+  const membership = await store.getOrgMembership(claimed.orgId, accountId);
+  if (!membership || typeof membership.role !== 'string' || !membership.role) return null;
+  const org = await store.findOrgById(claimed.orgId);
+  if (!org) return null;
+  return { orgId: org.id, orgSlug: org.slug, orgRole: membership.role };
 }

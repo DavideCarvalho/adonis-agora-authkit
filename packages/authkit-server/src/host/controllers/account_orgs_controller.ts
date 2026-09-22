@@ -11,6 +11,7 @@ import {
 } from '../active_org_cookie.js';
 import { sendOrgInvitationEmail } from '../default_mailer.js';
 import { ensureConsoleSession } from '../idp_session_bridge.js';
+import { revokeOrgAccess } from '../org_access_revocation.js';
 // Política efetiva compartilhada com o espelho JSON (`account_orgs_api_controller`):
 // ponto de verdade único, para as duas superfícies nunca divergirem.
 import { effectiveOrgPolicy, orgPolicyDefaults } from '../org_policy.js';
@@ -178,6 +179,7 @@ export default class AccountOrgsController {
 
     const result = await store.removeOrgMember!(params.id, accountId);
     if (result.ok) {
+      await revokeOrgAccess(service, params.id, accountId);
       await cfg.audit?.record({
         type: 'organization.member_removed',
         accountId,
@@ -361,6 +363,7 @@ export default class AccountOrgsController {
 
     const result = await store.removeOrgMember!(params.id, params.accountId);
     if (result.ok) {
+      await revokeOrgAccess(service, params.id, params.accountId);
       await cfg.audit?.record({
         type: 'organization.member_removed',
         actorId,
