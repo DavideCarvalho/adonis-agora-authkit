@@ -81,6 +81,42 @@ is the pre-existing behaviour.
   the second factor was decorative on those two paths.
 </Callout>
 
+### What the id_token says: `amr`
+
+A login that went through the challenge completes with an `amr`
+([RFC 8176](https://www.rfc-editor.org/rfc/rfc8176)) naming **both** factors:
+
+```
+amr: [<primary>, 'mfa', <method>]
+```
+
+| | Values |
+| --- | --- |
+| `<primary>` | `pwd` — password, including the forced change after expiry; `email` — magic link or email code |
+| `<method>` | `totp`, `recovery` (a recovery code), `webauthn` (a passkey as the second factor) |
+
+So a password followed by an authenticator code yields `['pwd', 'mfa', 'totp']`, and a magic
+link followed by a passkey yields `['email', 'mfa', 'webauthn']`. This holds with or without
+[step-up](/docs/security#step-up-authentication); step-up additionally stamps the `acr`
+(`mfaAcr`).
+
+The gate stores the primary factor in the session next to the pending account, and the
+challenge reads both and clears both. A session written by an older version (pending
+account, no primary) completes with `['mfa', <method>]` rather than guessing.
+
+Logins that did **not** go through the challenge keep their single-factor `amr`: `['email']`
+for the magic link and email code, `['pwd']` for a password on a
+[trusted device](#trusted-devices), and `['webauthn']` for
+[passkey-first](/docs/passwordless#passkey-first).
+
+<Callout type="info">
+  Before this change, only step-up passed `amr` to the id_token, as `['mfa', <method>]`. A
+  plain login that cleared the challenge produced an id_token with **no** `amr`, so a relying
+  party could not tell that a second factor had been used, and the primary factor was never
+  recorded. If you matched `amr` exactly (`deepEqual(['mfa', 'totp'])`), check for membership
+  instead (`amr.includes('mfa')`).
+</Callout>
+
 ## Recovery codes
 
 `confirmTotpEnrollment` returns N recovery codes in plaintext exactly once, at activation

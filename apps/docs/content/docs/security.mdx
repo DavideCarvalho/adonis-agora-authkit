@@ -1018,8 +1018,8 @@ stepUp: {
 Behaviour when a client requests the `mfaAcr` in `acr_values`:
 
 - **Account has MFA enrolled** → the second factor is required for that login. On success the
-  id_token carries the real `acr` (`mfaAcr`) and `amr` (`['mfa', <method>]`, e.g. `totp`,
-  `recovery`, `webauthn`).
+  id_token carries the real `acr` (`mfaAcr`) and `amr` (`[<primary>, 'mfa', <method>]`, e.g.
+  `['pwd', 'mfa', 'totp']`; see [MFA — `amr`](/docs/mfa#what-the-id_token-says-amr)).
 - **Account has no MFA enrolled** → the login is **blocked** for that request, with a message
   to configure MFA in the account console (there is no second factor to challenge).
 
