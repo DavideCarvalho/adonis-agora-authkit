@@ -77,6 +77,15 @@ function accountStatusErrorKey(reason: AccountStatusReason): string {
 const SESSION_KEY = 'authkit_login_email';
 /** accountId aguardando o 2º fator depois da senha verificada. */
 const MFA_PENDING_KEY = 'authkit_mfa_pending';
+/**
+ * Fator PRIMÁRIO que levou ao desafio do 2º fator (`pwd` ou `email`), guardado JUNTO
+ * do {@link MFA_PENDING_KEY}. Sem ele, quem completa o 2º fator não sabe como o login
+ * começou e o `amr` do id_token perdia o primeiro fator (ver `mfaCompletion`).
+ */
+const MFA_PRIMARY_KEY = 'authkit_mfa_primary';
+
+/** Fator primário do login (RFC 8176): senha (`pwd`) ou posse do e-mail (`email`). */
+type PrimaryFactor = 'pwd' | 'email';
 /** Desafio WebAuthn pendente (autenticação) guardado entre begin/finish no login. */
 const PASSKEY_AUTH_CHALLENGE_KEY = 'authkit_passkey_auth_challenge';
 
@@ -509,7 +518,7 @@ export default class AuthInteractionController {
     // Gate do 2º fator — a MESMA regra dos três caminhos de login (ver
     // `secondFactorGate`). Quando desafia, não finaliza a interaction: guarda o
     // accountId pendente e devolve a tela.
-    const gate = await this.secondFactorGate(ctx, cfg, acc.id, details);
+    const gate = await this.secondFactorGate(ctx, cfg, acc.id, details, 'pwd');
     if (gate.kind === 'challenge') return gate.response;
     if (gate.kind === 'trusted') {
       // Dispositivo confiável: pula o 2º fator. amr fica `['pwd']` (sem acr de MFA).
@@ -681,7 +690,7 @@ export default class AuthInteractionController {
     // Sucesso no 2º fator: opcionalmente confia neste dispositivo (checkbox).
     await this.maybeTrustDevice(ctx, cfg, accountId);
     // Finaliza a interaction para o accountId pendente.
-    ctx.session.forget(MFA_PENDING_KEY);
+    const { primary } = this.takeMfaPending(ctx);
     forgetLoginEmail(ctx);
     await notifyLoginSuccess(ctx, cfg, {
       accountId,
@@ -689,12 +698,12 @@ export default class AuthInteractionController {
       clientId,
       metadata: { mfa: usedRecovery ? 'recovery' : 'totp' },
     });
-    // Step-up: um 2º fator foi de fato verificado — carimba acr/amr no id_token
-    // se o client solicitou o mfaAcr nesta requisição.
+    // Um 2º fator foi de fato verificado: amr = [primário, 'mfa', método]. Com
+    // step-up (mfaAcr solicitado nesta requisição), carimba também o acr.
     await service.interactions.completeLogin(
       ctx,
       accountId,
-      this.stepUpExtra(cfg, details, usedRecovery ? 'recovery' : 'totp'),
+      this.mfaCompletion(cfg, details, primary, usedRecovery ? 'recovery' : 'totp'),
     );
   }
 
@@ -725,6 +734,38 @@ export default class AuthInteractionController {
   }
 
   /**
+   * acr/amr de um login que PASSOU pelo desafio do 2º fator: `amr` =
+   * `[primário, 'mfa', método]` (RFC 8176), SEMPRE — não só no step-up. Antes o
+   * `completeLogin` só recebia amr no step-up; fora dele o id_token saía sem `amr`
+   * nenhum, e o fator primário (senha ou e-mail) se perdia. O step-up continua
+   * carimbando o `acr`.
+   *
+   * `primary` ausente (sessão gravada antes desta versão, ou valor adulterado):
+   * o amr sai sem o primário, em vez de inventar um.
+   */
+  private mfaCompletion(
+    cfg: any,
+    details: any,
+    primary: PrimaryFactor | undefined,
+    method: 'totp' | 'recovery' | 'webauthn',
+  ): { acr?: string; amr: string[] } {
+    const amr = [...(primary ? [primary] : []), 'mfa', method];
+    const stepUp = this.stepUpExtra(cfg, details, method);
+    return stepUp ? { acr: stepUp.acr, amr } : { amr };
+  }
+
+  /**
+   * Lê E esquece o desafio pendente do 2º fator (accountId + fator primário). Os
+   * dois saem juntos: um primário sobrando na sessão não pode colar no próximo login.
+   */
+  private takeMfaPending(ctx: HttpContext): { primary: PrimaryFactor | undefined } {
+    const raw = ctx.session.get(MFA_PRIMARY_KEY);
+    ctx.session.forget(MFA_PENDING_KEY);
+    ctx.session.forget(MFA_PRIMARY_KEY);
+    return { primary: raw === 'pwd' || raw === 'email' ? raw : undefined };
+  }
+
+  /**
    * Gate do segundo fator, compartilhado pelos caminhos de login: senha, link
    * mágico, código por e-mail e troca forçada de senha. Antes disto só o login
    * por senha passava pelo MFA — link e código completavam a interaction direto,
@@ -743,13 +784,15 @@ export default class AuthInteractionController {
    *    instrução de enrolar (não há o que desafiar);
    *  - fator presente, trusted-device válido e sem step-up → `trusted`; quem
    *    chamou decide como finalizar, porque o amr muda conforme o caminho;
-   *  - caso geral → `challenge`, com o accountId em `MFA_PENDING_KEY`.
+   *  - caso geral → `challenge`, com o accountId em `MFA_PENDING_KEY` e o fator
+   *    primário (`primary`) em `MFA_PRIMARY_KEY`.
    */
   private async secondFactorGate(
     ctx: HttpContext,
     cfg: any,
     accountId: string,
     details: any,
+    primary: PrimaryFactor,
   ): Promise<{ kind: 'none' } | { kind: 'trusted' } | { kind: 'challenge'; response: any }> {
     const mfaRequired = this.acrRequiresMfa(cfg, details);
     const mfa = (await cfg.accountStore.getMfaState?.(accountId)) ?? { enabled: false };
@@ -791,6 +834,9 @@ export default class AuthInteractionController {
     }
 
     ctx.session.put(MFA_PENDING_KEY, accountId);
+    // O fator primário viaja junto: quem completa o desafio (TOTP, recovery ou
+    // passkey) precisa dele para montar o `amr` inteiro.
+    ctx.session.put(MFA_PRIMARY_KEY, primary);
     return {
       kind: 'challenge',
       response: await render(ctx, 'mfa-challenge', {
@@ -1143,6 +1189,7 @@ export default class AuthInteractionController {
       cfg,
       acc.id,
       await service.interactions.details(ctx),
+      'email',
     );
     if (magicGate.kind === 'challenge') return magicGate.response;
 
@@ -1281,6 +1328,7 @@ export default class AuthInteractionController {
         cfg,
         result.account.id,
         await service.interactions.details(ctx),
+        'email',
       );
       if (otpGate.kind === 'challenge') return otpGate.response;
 
@@ -1555,7 +1603,10 @@ export default class AuthInteractionController {
 
     // Passkey OK: opcionalmente confia neste dispositivo (checkbox no challenge).
     await this.maybeTrustDevice(ctx, cfg, accountId);
-    ctx.session.forget(MFA_PENDING_KEY);
+    // Passkey como 2º fator (havia desafio pendente) ou passkey-first (não havia)?
+    // Lido ANTES de esquecer: é o que decide o amr abaixo.
+    const wasSecondFactor = ctx.session.get(MFA_PENDING_KEY) === accountId;
+    const { primary } = this.takeMfaPending(ctx);
     forgetLoginEmail(ctx);
     await notifyLoginSuccess(ctx, cfg, {
       accountId,
@@ -1563,12 +1614,15 @@ export default class AuthInteractionController {
       clientId,
       metadata: { mfa: 'webauthn' },
     });
-    // Step-up carimba acr/amr quando solicitado; senão a passkey conta como o fator
-    // forte do login (amr `['webauthn']`) — vale tanto p/ MFA quanto passkey-first.
+    // 2º fator: amr = [primário, 'mfa', 'webauthn'] (+ acr no step-up), igual ao
+    // TOTP. Passkey-first: a passkey É o login (amr `['webauthn']`); o step-up
+    // carimba acr/amr quando solicitado.
     await service.interactions.completeLogin(
       ctx,
       accountId,
-      this.stepUpExtra(cfg, details, 'webauthn') ?? { amr: ['webauthn'] },
+      wasSecondFactor
+        ? this.mfaCompletion(cfg, details, primary, 'webauthn')
+        : (this.stepUpExtra(cfg, details, 'webauthn') ?? { amr: ['webauthn'] }),
     );
   }
 
@@ -1665,7 +1719,7 @@ export default class AuthInteractionController {
     ctx.session.forget(PASSWORD_EXPIRED_KEY);
 
     // Verifica se precisa de MFA mesmo após a troca — mesma regra do resto.
-    const expiredGate = await this.secondFactorGate(ctx, cfg, accountId, details);
+    const expiredGate = await this.secondFactorGate(ctx, cfg, accountId, details, 'pwd');
     if (expiredGate.kind === 'challenge') return expiredGate.response;
 
     await service.interactions.completeLogin(ctx, accountId);
