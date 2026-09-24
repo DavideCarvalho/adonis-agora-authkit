@@ -405,13 +405,43 @@ test.group('verificação de access token (in-process e remoto)', (group) => {
     assert.isNull(await verifier.verify(tokens.body.access_token));
   });
 
-  test('remoto: credenciais de introspecção erradas → null (sem vazar)', async ({ assert }) => {
+  test('remoto: credenciais de introspecção erradas → erro de config (não "token inválido")', async ({
+    assert,
+  }) => {
     const { tokens } = await codeFlow(h);
     const verifier = remoteAccessTokenVerifier({
       issuer: h.issuer,
       introspection: { clientId: RS_CLIENT, clientSecret: 'errado' },
     });
-    assert.isNull(await verifier.verify(tokens.body.access_token));
+    await assert.rejects(() => verifier.verify(tokens.body.access_token), /introspecção falhou/);
+  });
+
+  test('remoto: introspecção fora do ar sobe como erro', async ({ assert }) => {
+    const { tokens } = await codeFlow(h);
+    const verifier = remoteAccessTokenVerifier({
+      issuer: h.issuer,
+      introspection: { clientId: RS_CLIENT, clientSecret: RS_SECRET },
+      fetch: async (input, init) =>
+        init?.method === 'POST' ? new Response('boom', { status: 503 }) : fetch(input, init),
+    });
+    await assert.rejects(() => verifier.verify(tokens.body.access_token), /HTTP 503/);
+  });
+
+  test('in-process: erro do adapter sobe (não vira 401 num apagão)', async ({ assert }) => {
+    const verifier = inProcessAccessTokenVerifier(
+      async () =>
+        ({
+          ...h.service,
+          provider: {
+            AccessToken: {
+              find: async () => {
+                throw new Error('banco fora do ar');
+              },
+            },
+          },
+        }) as any,
+    );
+    await assert.rejects(() => verifier.verify('opaco-qualquer'), /banco fora do ar/);
   });
 
   test('remoto: JWT verificado pelo jwks_uri da discovery', async ({ assert }) => {
@@ -429,6 +459,10 @@ test.group('verificação de access token (in-process e remoto)', (group) => {
     const verified = await verifier.verify(token);
     assert.equal(verified?.format, 'jwt');
     assert.equal(verified?.sub, ACCOUNT_ID);
+
+    // Issuer configurado com barra final: discovery e `iss` batem do mesmo jeito.
+    const withSlash = remoteAccessTokenVerifier({ issuer: `${h.issuer}/` });
+    assert.equal((await withSlash.verify(token))?.sub, ACCOUNT_ID);
 
     // Sem `introspection`, token opaco não tem como ser verificado → null.
     assert.isNull(await verifier.verify('opaco-qualquer'));

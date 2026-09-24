@@ -3,8 +3,23 @@ import {
   createRemoteJWKSet,
   customFetch,
   type JWTPayload,
+  errors as joseErrors,
   jwtVerify,
 } from 'jose';
+import { errors as providerErrors } from 'oidc-provider';
+
+/**
+ * Token recusado (assinatura, `iss`, `exp`, formato…) vira `null` → 401. Falha de
+ * infraestrutura (banco fora, rede, JWKS inalcançável) SOBE: responder
+ * `invalid_token` num apagão ensinaria o cliente a jogar fora um token bom.
+ */
+function rejectedJwt(error: unknown): boolean {
+  return (
+    error instanceof joseErrors.JOSEError &&
+    !(error instanceof joseErrors.JWKSTimeout) &&
+    !(error instanceof joseErrors.JWKSInvalid)
+  );
+}
 
 /**
  * Access token já verificado — a forma comum que o `oidcBearerGuard` consome,
@@ -136,16 +151,19 @@ export function inProcessAccessTokenVerifier(
             typ: 'at+jwt',
           });
           return fromJwtPayload(payload);
-        } catch {
-          return null;
+        } catch (error) {
+          if (rejectedJwt(error)) return null;
+          throw error;
         }
       }
 
       let at: any;
       try {
         at = await issuer.provider?.AccessToken?.find(token);
-      } catch {
-        return null;
+      } catch (error) {
+        // Só erro do próprio provider (token malformado) é recusa; erro do adapter sobe.
+        if (error instanceof providerErrors.OIDCProviderError) return null;
+        throw error;
       }
       if (!at) return null;
       // O oidc-provider já recusa artefato expirado no `find`; isto é guarda extra.
@@ -266,7 +284,8 @@ export function remoteAccessTokenVerifier(
       },
       body: new URLSearchParams({ token, token_type_hint: 'access_token' }).toString(),
     });
-    if (!res.ok) return null;
+    // 5xx ou credencial do resource server recusada: problema de infra/config, não do token.
+    if (!res.ok) throw new Error(`authkit: introspecção falhou (HTTP ${res.status})`);
     const body = (await res.json()) as Record<string, unknown>;
     if (body.active !== true) return null;
     if (typeof body.token_type !== 'string' || body.token_type.toLowerCase() !== 'bearer') {
@@ -292,19 +311,18 @@ export function remoteAccessTokenVerifier(
       if (looksLikeJwt(token)) {
         try {
           const { payload } = await jwtVerify(token, await remoteKeySet(), {
-            issuer: options.issuer,
+            // Mesma forma da discovery (sem barra final), aceitando o `iss` com ou sem ela.
+            issuer: [issuer, `${issuer}/`],
             typ: 'at+jwt',
           });
           return fromJwtPayload(payload);
-        } catch {
-          return null;
+        } catch (error) {
+          if (rejectedJwt(error)) return null;
+          throw error;
         }
       }
-      try {
-        return await introspect(token);
-      } catch {
-        return null;
-      }
+      // Introspecção fora do ar sobe como erro (não é "token inválido").
+      return introspect(token);
     },
   };
 }
