@@ -17,6 +17,7 @@
     "account-linking",
     "dynamic-registration",
     "device-flow",
+    "native-apps",
     "account-lockout",
     "organizations",
     "compliance",

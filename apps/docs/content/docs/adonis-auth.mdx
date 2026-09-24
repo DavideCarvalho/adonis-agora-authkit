@@ -22,6 +22,7 @@ The wiring depends on where the identity is actually established, and there are 
   <Card title="I am the IdP host" description="The app runs @adonis-agora/authkit-server and its account console is where people log in. Use authkitUserProvider() + adonisAuth: { guard }." href="#the-idp-host" />
   <Card title="I am a relying party on authkit-client" description="The app signs in against an AuthKit IdP over OIDC. Use authkitClientGuard()." href="#a-relying-party-on-the-client-kit" />
   <Card title="I drive my own OIDC callback" description="The app depends on authkit-server and stores the user id in the session itself. Use oidcRpGuard()." href="#a-relying-party-that-owns-its-own-session" />
+  <Card title="My API is called with a bearer token" description="A native app, SPA or service sends Authorization: Bearer. Use oidcBearerGuard()." href="#an-api-called-with-a-bearer-access-token" />
 </Cards>
 
 The rest of this page walks each one.
@@ -266,6 +267,25 @@ Both exist because they read different things, and the packaging follows from th
 - `oidcRpGuard` reads a **user id string** you put in the session yourself. Pick it when you drive
   the OIDC flow by hand and already depend on `@adonis-agora/authkit-server`; installing the server
   package purely to obtain this guard is not worth it, and `authkitClientGuard` covers that case.
+
+## An API called with a bearer access token
+
+Mobile apps (RFC 8252), SPAs talking straight to your API and services carry no web session — they
+send `Authorization: Bearer <access_token>`. `oidcBearerGuard` verifies that token against the
+AuthKit issuer (in-process, or as a remote resource server through JWKS / introspection) and
+resolves the user with the same user provider:
+
+```ts title="config/auth.ts"
+guards: {
+  web: oidcRpGuard({ provider }),
+  api: oidcBearerGuard({ provider, scopes: ['openid'] }),
+}
+```
+
+`middleware.auth({ guards: ['web', 'api'] })` then accepts either. Failures are always a 401
+(never a redirect), and `getAccountId(ctx)` falls back to the bearer identity when there is no
+session. The full walkthrough — creating a native client, the Expo sign-in, refresh rotation,
+options and verification modes — is in [Native apps](/docs/native-apps).
 
 ## The payoff
 

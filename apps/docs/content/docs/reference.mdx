@@ -447,6 +447,19 @@ See [Config locks](/docs/config-locks).
 | `authkitUserProvider(...)` | User provider for `config/auth.ts`'s `sessionGuard()`, backed by AuthKit's own account store. Pair with `adonisAuth: { guard }`. |
 | `oidcRpGuard(...)` / `OidcRpGuard` | Guard for a relying party: the identity comes from the session the OIDC callback wrote, so `ctx.auth.user` works without the RP authenticating anyone itself. |
 | `OidcRpGuardOptions` / `OidcRpGuardEvents` | Its option and event types. |
+| `oidcBearerGuard(...)` / `OidcBearerGuard` | Guard for APIs called with `Authorization: Bearer <access token>` (native apps, SPAs, services). Verifies in-process or as a remote resource server; 401 on failure, never a redirect. |
+| `OidcBearerGuardOptions` / `OidcBearerGuardPolicy` / `OidcBearerGuardEvents` | Its option, policy (`scopes`, `audience`, `clientIds`) and event types. |
+| `inProcessAccessTokenVerifier(...)` / `remoteAccessTokenVerifier(...)` | The two access-token verification strategies behind the guard (`AccessTokenVerifier`, `VerifiedAccessToken`). |
+
+See [Native apps](/docs/native-apps) for the bearer guard.
+
+### Native clients (RFC 8252)
+
+| Export | Purpose |
+| --- | --- |
+| `ApplicationType` | `'web' \| 'native'` — `ClientConfig.applicationType` / Admin API `applicationType`. |
+| `redirectUriProblem(uri, type?)` | Why a redirect URI is invalid for a client type, or `null`. |
+| `assertClientMetadata(input)` / `ClientMetadataError` | The type-aware checks `AdminClientsService` runs before persisting a client (the Admin API maps the error to `422 invalid_client_metadata`). |
 
 See [AdonisJS Auth integration](/docs/adonis-auth).
 

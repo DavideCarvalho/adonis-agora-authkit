@@ -15,7 +15,8 @@ implementation detail, and the helpers keep working if it changes.
 
 ```ts
 import {
-  getAccountId,       // string | null — the account this request is acting as
+  getAccountId,       // string | null — the account this request is acting as (session,
+                      //   else the bearer token oidcBearerGuard authenticated — see Native apps)
   realAccountId,      // string | null — the human behind the request (see below)
   hasAccountSession,  // boolean
   consoleLoginUrl,    // login URL with an optional return_to

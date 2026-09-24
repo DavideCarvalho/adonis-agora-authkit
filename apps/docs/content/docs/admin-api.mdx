@@ -209,7 +209,7 @@ otherwise.
 | Method | Path | Body | Notes |
 | --- | --- | --- | --- |
 | `GET` | `/clients` | — | List persisted clients. |
-| `POST` | `/clients` | `{ clientId?, redirectUris, postLogoutRedirectUris?, grantTypes, tokenEndpointAuthMethod, backchannelLogoutUri?, backchannelLogoutSessionRequired? }` | Create; returns `clientSecret` (once) for confidential clients. |
+| `POST` | `/clients` | `{ clientId?, applicationType?, redirectUris, postLogoutRedirectUris?, grantTypes, tokenEndpointAuthMethod, backchannelLogoutUri?, backchannelLogoutSessionRequired? }` | Create; returns `clientSecret` (once) for confidential clients. `applicationType: 'native'` = [native app](/docs/native-apps) (public, RFC 8252 redirects); metadata that doesn't fit the type → `422 invalid_client_metadata`. |
 | `GET` | `/clients/:id` | — | Single client (no secret). `404` if unknown. |
 | `PATCH` | `/clients/:id` | same as create body | Update metadata (including backchannel fields); preserves the secret. |
 | `POST` | `/clients/:id/regenerate-secret` | — | New secret (once). `409` for public clients. |
