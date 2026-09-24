@@ -30,13 +30,20 @@ export type UnauthorizedAccessConstructor = new (
 /** Memo do construtor entre instâncias — o `import()` só paga o custo uma vez. */
 let cachedUnauthorizedAccess: UnauthorizedAccessConstructor | undefined;
 
+/** O construtor já resolvido por {@link loadUnauthorizedAccess}, se houver. */
+export function cachedUnauthorizedAccessConstructor(): UnauthorizedAccessConstructor | undefined {
+  return cachedUnauthorizedAccess;
+}
+
 /**
  * Captura o `E_UNAUTHORIZED_ACCESS` real do `@adonisjs/auth` sem import
  * estático. Chamado no boot pelo {@link oidcRpGuard} (falha cedo e com uma
  * mensagem útil se o peer não estiver instalado) e, como rede de segurança, na
  * primeira `authenticate()` de um guard construído à mão.
  */
-export async function loadUnauthorizedAccess(): Promise<UnauthorizedAccessConstructor> {
+export async function loadUnauthorizedAccess(
+  guardFactoryName = 'oidcRpGuard',
+): Promise<UnauthorizedAccessConstructor> {
   if (cachedUnauthorizedAccess) return cachedUnauthorizedAccess;
   try {
     const auth = (await import('@adonisjs/auth')) as {
@@ -46,7 +53,7 @@ export async function loadUnauthorizedAccess(): Promise<UnauthorizedAccessConstr
     return cachedUnauthorizedAccess;
   } catch (error) {
     throw new RuntimeException(
-      'oidcRpGuard() precisa de "@adonisjs/auth" instalado (é um peer opcional do ' +
+      `${guardFactoryName}() precisa de "@adonisjs/auth" instalado (é um peer opcional do ` +
         '@adonis-agora/authkit-server, só necessário se você plugar este guard em config/auth.ts). ' +
         'Rode `npm i @adonisjs/auth` (ou pnpm/yarn).',
       { cause: error },

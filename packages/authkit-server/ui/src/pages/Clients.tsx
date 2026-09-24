@@ -21,6 +21,7 @@ interface FormState {
   postLogoutRedirectUris: string[];
   grantTypes: string[];
   tokenEndpointAuthMethod: string;
+  applicationType: 'web' | 'native';
   backchannelLogoutUri: string;
   backchannelLogoutSessionRequired: boolean;
 }
@@ -32,6 +33,7 @@ function defaultForm(): FormState {
     postLogoutRedirectUris: [],
     grantTypes: ['authorization_code', 'refresh_token'],
     tokenEndpointAuthMethod: 'client_secret_basic',
+    applicationType: 'web',
     backchannelLogoutUri: '',
     backchannelLogoutSessionRequired: false,
   };
@@ -69,6 +71,7 @@ export function Clients() {
       postLogoutRedirectUris: [...c.postLogoutRedirectUris],
       grantTypes: [...c.grants],
       tokenEndpointAuthMethod: c.tokenEndpointAuthMethod,
+      applicationType: c.applicationType ?? 'web',
       backchannelLogoutUri: c.backchannelLogoutUri ?? '',
       backchannelLogoutSessionRequired: c.backchannelLogoutSessionRequired,
     });
@@ -118,6 +121,7 @@ export function Clients() {
         postLogoutRedirectUris: formData.postLogoutRedirectUris,
         grantTypes: formData.grantTypes,
         tokenEndpointAuthMethod: formData.tokenEndpointAuthMethod,
+        applicationType: formData.applicationType,
         backchannelLogoutUri: formData.backchannelLogoutUri || undefined,
         backchannelLogoutSessionRequired: formData.backchannelLogoutSessionRequired,
       };
@@ -143,6 +147,7 @@ export function Clients() {
         postLogoutRedirectUris: formData.postLogoutRedirectUris,
         grantTypes: formData.grantTypes,
         tokenEndpointAuthMethod: formData.tokenEndpointAuthMethod,
+        applicationType: formData.applicationType,
         backchannelLogoutUri: formData.backchannelLogoutUri || undefined,
         backchannelLogoutSessionRequired: formData.backchannelLogoutSessionRequired,
       });
@@ -210,10 +215,32 @@ export function Clients() {
       </div>
 
       <div className="field">
+        <label>Application Type</label>
+        <select
+          className="input"
+          value={formData.applicationType}
+          onChange={(e) => {
+            const applicationType = e.target.value === 'native' ? 'native' : 'web';
+            // Native apps (RFC 8252) are always public clients: no secret.
+            setFormData((f) => ({
+              ...f,
+              applicationType,
+              tokenEndpointAuthMethod:
+                applicationType === 'native' ? 'none' : f.tokenEndpointAuthMethod,
+            }));
+          }}
+        >
+          <option value="web">web</option>
+          <option value="native">native (mobile / desktop app)</option>
+        </select>
+      </div>
+
+      <div className="field">
         <label>Token Endpoint Auth Method</label>
         <select
           className="input"
           value={formData.tokenEndpointAuthMethod}
+          disabled={formData.applicationType === 'native'}
           onChange={(e) => setFormData((f) => ({ ...f, tokenEndpointAuthMethod: e.target.value }))}
         >
           {AUTH_METHODS.map((m) => (
@@ -245,7 +272,11 @@ export function Clients() {
             className="input input-mono"
             value={redirectInput}
             onChange={(e) => setRedirectInput(e.target.value)}
-            placeholder="https://app.example.com/callback"
+            placeholder={
+              formData.applicationType === 'native'
+                ? 'com.example.app:/oauth or http://127.0.0.1/callback'
+                : 'https://app.example.com/callback'
+            }
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();

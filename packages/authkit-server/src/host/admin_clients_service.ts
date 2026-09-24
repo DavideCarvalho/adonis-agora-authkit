@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { EnumeratedClient, OidcAdapter } from '../adapters/adapter_contract.js';
 import type { OidcService } from '../provider/oidc_service.js';
+import { type ApplicationType, assertClientMetadata } from './client_metadata.js';
 
 /** Métodos de autenticação no token endpoint suportados pelo formulário admin. */
 export type TokenEndpointAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none';
@@ -15,6 +16,12 @@ export interface ClientInput {
   postLogoutRedirectUris: string[];
   grantTypes: string[];
   tokenEndpointAuthMethod: TokenEndpointAuthMethod;
+  /**
+   * `application_type` do client. Default `'web'`. `'native'` (RFC 8252) aceita
+   * redirect de esquema privado / https claimed / loopback e exige client público
+   * (`tokenEndpointAuthMethod: 'none'`). Ver `client_metadata.ts`.
+   */
+  applicationType?: ApplicationType;
   /**
    * Endpoint de OIDC Back-Channel Logout do RP. Quando definido, o IdP envia um
    * `logout_token` para esta URI ao encerrar a sessão/grant do usuário (RFC 7644).
@@ -35,6 +42,8 @@ export interface AdminClient {
   redirectUris: string[];
   postLogoutRedirectUris: string[];
   tokenEndpointAuthMethod: string;
+  /** `application_type` (payload sem a chave = `'web'`, o default do oidc-provider). */
+  applicationType: ApplicationType;
   /** Endpoint de OIDC Back-Channel Logout (opcional). */
   backchannelLogoutUri?: string;
   /** Exige sid no logout_token (opcional). */
@@ -153,6 +162,8 @@ export class AdminClientsService {
         input.tokenEndpointAuthMethod ??
         (existing.token_endpoint_auth_method as TokenEndpointAuthMethod) ??
         'client_secret_basic',
+      applicationType:
+        input.applicationType ?? (existing.application_type as ApplicationType) ?? 'web',
       backchannelLogoutUri:
         input.backchannelLogoutUri ?? (existing.backchannel_logout_uri as string | undefined),
       backchannelLogoutSessionRequired:
@@ -194,6 +205,20 @@ export class AdminClientsService {
   }
 
   /**
+   * Valida o input contra as regras do tipo de aplicação ANTES de gravar (ver
+   * `client_metadata.ts`). Lança `ClientMetadataError`.
+   */
+  #assertValid(input: ClientInput): void {
+    assertClientMetadata({
+      applicationType: input.applicationType ?? 'web',
+      tokenEndpointAuthMethod: input.tokenEndpointAuthMethod,
+      grantTypes: input.grantTypes,
+      redirectUris: input.redirectUris,
+      postLogoutRedirectUris: input.postLogoutRedirectUris,
+    });
+  }
+
+  /**
    * Monta o payload na forma snake_case que o oidc-provider espera/persiste —
    * verificada contra o que o registro dinâmico (RFC 7591) grava. As chaves de
    * metadata não enviadas (subject_type, id_token_signed_response_alg, etc.) são
@@ -204,6 +229,7 @@ export class AdminClientsService {
     input: ClientInput,
     clientSecret: string | undefined,
   ): Record<string, any> {
+    this.#assertValid(input);
     const grantTypes = input.grantTypes.length
       ? input.grantTypes
       : ['authorization_code', 'refresh_token'];
@@ -218,6 +244,9 @@ export class AdminClientsService {
       token_endpoint_auth_method: input.tokenEndpointAuthMethod,
     };
     if (clientSecret) payload.client_secret = clientSecret;
+    // Só grava a chave quando nativo: um client web continua com o payload de
+    // sempre (sem `application_type` o oidc-provider assume `web`).
+    if (input.applicationType === 'native') payload.application_type = 'native';
     if (input.backchannelLogoutUri) {
       payload.backchannel_logout_uri = input.backchannelLogoutUri;
       if (input.backchannelLogoutSessionRequired !== undefined) {
@@ -238,6 +267,7 @@ export class AdminClientsService {
       redirectUris: (p.redirect_uris as string[]) ?? [],
       postLogoutRedirectUris: (p.post_logout_redirect_uris as string[]) ?? [],
       tokenEndpointAuthMethod: authMethod,
+      applicationType: p.application_type === 'native' ? 'native' : 'web',
     };
     if (p.backchannel_logout_uri) {
       result.backchannelLogoutUri = p.backchannel_logout_uri as string;

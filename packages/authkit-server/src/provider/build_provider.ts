@@ -192,6 +192,9 @@ export function buildProvider(
         : [],
       token_endpoint_auth_method:
         c.tokenEndpointAuthMethod ?? (c.clientSecret ? 'client_secret_basic' : 'none'),
+      // App nativo (RFC 8252): libera redirect de esquema privado/loopback. Sem a
+      // chave, o oidc-provider assume `web` — o comportamento de sempre.
+      ...(c.applicationType === 'native' ? { application_type: 'native' } : {}),
       // OIDC Back-Channel Logout: só envia as chaves quando o client as declara,
       // p/ não forçar metadata vazio em clients que não usam o recurso.
       ...(c.backchannelLogoutUri ? { backchannel_logout_uri: c.backchannelLogoutUri } : {}),
@@ -277,6 +280,14 @@ export function buildProvider(
     // sobreviva ao authorize e fique disponivel em interactionDetails().params.audience.
     extraParams: ['audience'],
     pkce: { methods: ['S256'], required: () => true },
+    // Rotação SEMPRE: todo uso do refresh token emite um novo e invalida o
+    // anterior (reuso de um RT já rotacionado revoga o grant inteiro — detecção de
+    // replay do oidc-provider). Vale igual para clients públicos (SPA, app nativo
+    // RFC 8252), para os quais a rotação é a defesa exigida pelo OAuth 2.0 Security
+    // BCP, já que o RT não é amarrado a um secret. O `issueRefreshToken` fica no
+    // default do provider: emite RT quando o client tem o grant `refresh_token` e o
+    // escopo `offline_access` foi concedido (o que exige `prompt=consent` no
+    // authorize — OIDC Core §11), sem distinção entre client público e confidencial.
     rotateRefreshToken: true,
     features: {
       devInteractions: { enabled: false },

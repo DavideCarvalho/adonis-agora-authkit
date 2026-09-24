@@ -11,6 +11,7 @@ import type { CommandOptions } from '@adonisjs/core/types/ace';
  *   node ace authkit:clients:create --client-id=my-spa --redirect-uri=https://app/cb --public
  *   node ace authkit:clients:create --client-id=my-api --redirect-uri=https://api/cb --redirect-uri=https://api/cb2 --grant=client_credentials
  *   node ace authkit:clients:create --redirect-uri=https://app/cb --json
+ *   node ace authkit:clients:create --client-id=my-mobile --native --redirect-uri=com.example.app:/oauth
  */
 export default class AuthkitClientsCreate extends BaseCommand {
   static commandName = 'authkit:clients:create';
@@ -29,10 +30,15 @@ export default class AuthkitClientsCreate extends BaseCommand {
     '  --post-logout-uri   URI(s) de post-logout redirect.',
     '  --grant             Grant types. Default: authorization_code + refresh_token.',
     '',
+    'App nativo (React Native/Expo, iOS, Android, desktop — RFC 8252): use --native.',
+    'Implica client público (sem secret; PKCE já é obrigatório) e aceita redirect de',
+    'esquema privado (com.example.app:/oauth), https claimed e loopback http://127.0.0.1.',
+    '',
     'Exemplos:',
     '  node ace authkit:clients:create --client-id=my-spa --redirect-uri=https://app/cb --public',
     '  node ace authkit:clients:create --redirect-uri=https://app/cb --backchannel-logout-uri=https://app/bc',
     '  node ace authkit:clients:create --client-id=my-app --redirect-uri=https://a/cb --redirect-uri=https://b/cb --json',
+    '  node ace authkit:clients:create --client-id=my-mobile --native --redirect-uri=com.example.app:/oauth',
   ];
 
   static options: CommandOptions = { startApp: true };
@@ -56,6 +62,12 @@ export default class AuthkitClientsCreate extends BaseCommand {
       'Cria um client público (sem secret; token_endpoint_auth_method=none). Default: false (confidencial).',
   })
   declare public?: boolean;
+
+  @flags.boolean({
+    description:
+      'Client de app nativo (application_type=native, RFC 8252): aceita redirect de esquema privado/loopback. Implica --public.',
+  })
+  declare native?: boolean;
 
   @flags.string({
     description: 'Endpoint de OIDC Back-Channel Logout do RP (POST de logout_token).',
@@ -82,18 +94,31 @@ export default class AuthkitClientsCreate extends BaseCommand {
     const grantTypes =
       this.grant && this.grant.length > 0 ? this.grant : ['authorization_code', 'refresh_token'];
 
-    const tokenEndpointAuthMethod = this.public
-      ? ('none' as const)
-      : ('client_secret_basic' as const);
+    // App nativo é sempre público (RFC 8252 §8.5): `--native` implica `--public`.
+    const isPublic = !!this.public || !!this.native;
+    const applicationType = this.native ? ('native' as const) : ('web' as const);
+    const tokenEndpointAuthMethod = isPublic ? ('none' as const) : ('client_secret_basic' as const);
 
-    const created = await svc.create({
-      clientId: this.clientId,
-      redirectUris,
-      postLogoutRedirectUris: this.postLogoutUri ?? [],
-      grantTypes,
-      tokenEndpointAuthMethod,
-      backchannelLogoutUri: this.backchannelLogoutUri,
-    });
+    const { ClientMetadataError } = await import('../src/host/client_metadata.js');
+    let created: Awaited<ReturnType<typeof svc.create>>;
+    try {
+      created = await svc.create({
+        clientId: this.clientId,
+        applicationType,
+        redirectUris,
+        postLogoutRedirectUris: this.postLogoutUri ?? [],
+        grantTypes,
+        tokenEndpointAuthMethod,
+        backchannelLogoutUri: this.backchannelLogoutUri,
+      });
+    } catch (err) {
+      if (err instanceof ClientMetadataError) {
+        this.logger.logError(`❌ ${err.message}`);
+        this.exitCode = 1;
+        return;
+      }
+      throw err;
+    }
 
     if (this.json) {
       const out: Record<string, unknown> = {
@@ -102,7 +127,8 @@ export default class AuthkitClientsCreate extends BaseCommand {
         postLogoutRedirectUris: this.postLogoutUri ?? [],
         grantTypes,
         tokenEndpointAuthMethod,
-        confidential: !this.public,
+        applicationType,
+        confidential: !isPublic,
       };
       if (created.clientSecret) out.clientSecret = created.clientSecret;
       if (this.backchannelLogoutUri) out.backchannelLogoutUri = this.backchannelLogoutUri;
@@ -113,7 +139,8 @@ export default class AuthkitClientsCreate extends BaseCommand {
     this.logger.success(`Client criado: ${created.clientId}`);
     this.logger.info(`  redirect_uris: ${redirectUris.join(', ')}`);
     this.logger.info(`  grant_types:   ${grantTypes.join(', ')}`);
-    this.logger.info(`  type:          ${this.public ? 'publico (sem secret)' : 'confidencial'}`);
+    this.logger.info(`  type:          ${isPublic ? 'publico (sem secret)' : 'confidencial'}`);
+    if (this.native) this.logger.info('  application:   native (RFC 8252)');
     if (this.backchannelLogoutUri) {
       this.logger.info(`  backchannel:   ${this.backchannelLogoutUri}`);
     }

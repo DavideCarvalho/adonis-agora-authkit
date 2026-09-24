@@ -83,6 +83,7 @@ export async function importClients(
     // Determina o auth method a partir do config estático.
     const authMethod: TokenEndpointAuthMethod =
       client.tokenEndpointAuthMethod ?? (client.clientSecret ? 'client_secret_basic' : 'none');
+    const applicationType = client.applicationType ?? 'web';
 
     try {
       // Cria via AdminClientsService, que usa o mesmo caminho do console admin / registro dinâmico.
@@ -93,6 +94,7 @@ export async function importClients(
       const created = await svc.createWithSecret(
         {
           clientId,
+          applicationType,
           redirectUris: client.redirectUris ?? [],
           postLogoutRedirectUris: client.postLogoutRedirectUris ?? [],
           grantTypes: client.grants ?? ['authorization_code', 'refresh_token'],

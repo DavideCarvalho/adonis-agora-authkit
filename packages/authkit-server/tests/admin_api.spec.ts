@@ -191,6 +191,7 @@ function fakeCtx(opts: {
       unauthorized: err(401),
       badRequest: err(400),
       conflict: err(409),
+      unprocessableEntity: err(422),
     },
     containerResolver: { make: async () => opts.service },
     session: { get: () => undefined },
@@ -556,6 +557,53 @@ test.group('Admin REST API (controllers)', (group) => {
     const after: any = await users.sessions(fakeCtx({ service, params: { id } }).ctx);
     assert.lengthOf(after.grants, 0);
     assert.lengthOf(after.sessions, 0);
+  });
+
+  test('clients: app nativo (RFC 8252) → 201 público; esquema privado em web → 422', async ({
+    assert,
+  }) => {
+    const clients = new ApiClientsController();
+    const native = fakeCtx({
+      service,
+      inputs: {
+        applicationType: 'native',
+        redirectUris: ['com.example.app:/oauth', 'http://127.0.0.1/callback'],
+      },
+    });
+    const created: any = await clients.store(native.ctx);
+    assert.equal(native.captured.status(), 201);
+    assert.isNull(created.clientSecret, 'client nativo não recebe secret');
+    const got: any = await clients.show(fakeCtx({ service, params: { id: created.clientId } }).ctx);
+    assert.equal(got.applicationType, 'native');
+    assert.equal(got.tokenEndpointAuthMethod, 'none');
+
+    // Sem applicationType o client é web: esquema privado passa no Vine (o tipo
+    // ainda não é conhecido lá) e é recusado pelo service com 422.
+    const web = fakeCtx({ service, inputs: { redirectUris: ['com.example.app:/oauth'] } });
+    await clients.store(web.ctx);
+    assert.equal(web.captured.status(), 422);
+    assert.equal(web.captured.body().error.code, 'invalid_client_metadata');
+
+    // Nativo confidencial explícito → 422.
+    const conf = fakeCtx({
+      service,
+      inputs: {
+        applicationType: 'native',
+        redirectUris: ['com.example.app:/oauth'],
+        tokenEndpointAuthMethod: 'client_secret_basic',
+      },
+    });
+    await clients.store(conf.ctx);
+    assert.equal(conf.captured.status(), 422);
+
+    // PATCH que tenta tornar o nativo confidencial → 422, nada muda.
+    const patch = fakeCtx({
+      service,
+      params: { id: created.clientId },
+      inputs: { tokenEndpointAuthMethod: 'client_secret_post' },
+    });
+    await clients.update(patch.ctx);
+    assert.equal(patch.captured.status(), 422);
   });
 
   test('clients CRUD (+ secret mostrado uma vez) e regenerate', async ({ assert }) => {

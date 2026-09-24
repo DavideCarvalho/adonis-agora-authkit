@@ -10,7 +10,12 @@ import {
   verifyActiveOrgMembership,
 } from '../host/active_org_cookie.js';
 import { isFirstPartyClient } from '../host/branding.js';
-import { listKeyInfos, type ManagedKeyInfo, signingKeyAgeDays } from '../keys/keystore.js';
+import {
+  listKeyInfos,
+  type ManagedKeyInfo,
+  signingKeyAgeDays,
+  toPublicJwks,
+} from '../keys/keystore.js';
 import type { KeystoreManager } from '../keys/keystore_manager.js';
 import { wireProviderEvents } from '../observability/wire_provider_events.js';
 import { buildProvider, type SessionTtlHolder, type TokenTtlHolder } from './build_provider.js';
@@ -21,6 +26,7 @@ export class OidcService {
   #provider!: ReturnType<typeof buildProvider>;
   #callback!: (req: any, res: any) => void;
   #interactions!: InteractionActions;
+  #publicJwks!: { keys: Record<string, any>[] };
   #appKey: string;
 
   get provider(): ReturnType<typeof buildProvider> {
@@ -31,6 +37,14 @@ export class OidcService {
   }
   get interactions(): InteractionActions {
     return this.#interactions;
+  }
+  /**
+   * JWKS PÚBLICO do keystore em uso pelo provider ATUAL (o mesmo que o `jwks_uri`
+   * serve). Troca junto com o provider num `reloadKeys`/rotação — quem verifica JWT
+   * in-process (ex.: `oidcBearerGuard`) lê daqui a cada verificação.
+   */
+  get publicJwks(): { keys: Record<string, any>[] } {
+    return this.#publicJwks;
   }
 
   /** Pathname do issuer sem barra final (ex.: `/oidc`). Vazio quando montado na raiz. */
@@ -251,6 +265,7 @@ export class OidcService {
     this.#provider = provider;
     this.#callback = callback;
     this.#interactions = interactions;
+    this.#publicJwks = toPublicJwks(jwks);
   }
 
   /**
