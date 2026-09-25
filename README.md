@@ -16,6 +16,10 @@ It is built as an idiomatic wrapper around
 - **Protocol extensions** — Device Flow (RFC 8628), DPoP (RFC 9449, with client-side
   proof generation), PAR (RFC 9126), step-up auth via `acr_values`, Dynamic Client
   Registration (RFC 7591/7592).
+- **Native apps** — RFC 8252 native clients (private-use scheme / claimed https / loopback
+  redirects, public + PKCE, rotated refresh tokens) and `oidcBearerGuard`, an
+  `@adonisjs/auth` guard for APIs called with a bearer access token (in-process, or as a
+  remote resource server via JWKS / introspection).
 - **Consoles** — admin console (user & client CRUD, sessions, audit) and a self-service
   account console (apps/consent, security, profile).
 - **Tokens & sessions** — Personal Access Tokens, admin impersonation, back-channel

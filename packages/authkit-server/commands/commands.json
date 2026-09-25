@@ -110,6 +110,13 @@
           "description": "Cria um client público (sem secret; token_endpoint_auth_method=none)."
         },
         {
+          "name": "native",
+          "flagName": "native",
+          "required": false,
+          "type": "boolean",
+          "description": "Client de app nativo (application_type=native, RFC 8252): aceita redirect de esquema privado/loopback. Implica --public."
+        },
+        {
           "name": "backchannelLogoutUri",
           "flagName": "backchannel-logout-uri",
           "required": false,

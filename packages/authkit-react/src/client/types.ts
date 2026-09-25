@@ -123,6 +123,8 @@ export interface AdminClient {
   redirectUris: string[];
   postLogoutRedirectUris: string[];
   tokenEndpointAuthMethod: string;
+  /** `'native'` = app mobile/desktop (RFC 8252). Ausente em servidores antigos (= `'web'`). */
+  applicationType?: 'web' | 'native';
   backchannelLogoutUri: string | null;
   backchannelLogoutSessionRequired: boolean;
 }
@@ -148,6 +150,8 @@ export interface CreateClientInput {
   postLogoutRedirectUris?: string[];
   grantTypes?: string[];
   tokenEndpointAuthMethod?: string;
+  /** `'native'` (RFC 8252) aceita redirect de esquema privado/loopback e é sempre público. */
+  applicationType?: 'web' | 'native';
   backchannelLogoutUri?: string;
   backchannelLogoutSessionRequired?: boolean;
 }

@@ -11,6 +11,16 @@ export interface ClientConfig {
   /** 'none' para public clients (SPA com PKCE) */
   tokenEndpointAuthMethod?: 'client_secret_basic' | 'client_secret_post' | 'none';
   /**
+   * Tipo de aplicação (OIDC Registration §2, `application_type`). Default `'web'`.
+   *
+   * `'native'` (RFC 8252 — OAuth 2.0 for Native Apps) libera os redirects de app
+   * mobile/desktop: esquema privado (`com.example.app:/callback`), URL https
+   * "claimed" (universal/app links) e loopback `http://127.0.0.1` com qualquer
+   * porta. Client nativo é SEMPRE público (sem `clientSecret`,
+   * `tokenEndpointAuthMethod: 'none'`) — PKCE já é obrigatório no issuer.
+   */
+  applicationType?: 'web' | 'native';
+  /**
    * Endpoint do RP que recebe o POST de OIDC Back-Channel Logout. Quando definido,
    * o IdP envia um `logout_token` para esta URI ao encerrar a sessão/grant do usuário.
    */

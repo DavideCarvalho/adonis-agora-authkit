@@ -1,5 +1,6 @@
 import vine from '@vinejs/vine';
 import type { ClientInput, TokenEndpointAuthMethod } from './admin_clients_service.js';
+import { APPLICATION_TYPES, type ApplicationType, redirectUriProblem } from './client_metadata.js';
 import { normalizeEmailIdentifier } from './email_identifier.js';
 
 /**
@@ -47,8 +48,25 @@ const authMethod = vine.enum(['client_secret_basic', 'client_secret_post', 'none
  */
 const URL_OPTS = { require_protocol: true, require_tld: false, protocols: ['http', 'https'] };
 
-/** Array de URIs ABSOLUTAS http/https. Rejeita strings que não são URL válida. */
-const urlArray = vine.array(vine.string().trim().url(URL_OPTS));
+/**
+ * Regra de redirect URI ciente do `applicationType` do MESMO payload (RFC 8252):
+ * client web continua restrito a http/https (L10); client nativo aceita esquema
+ * privado (`com.example.app:/cb`), https claimed e loopback http. Sem o tipo no
+ * payload (PATCH parcial) só as regras universais valem aqui — URI absoluta, sem
+ * fragmento, sem `javascript:`/`data:`/… — e o `AdminClientsService` confere o
+ * resto contra o tipo EFETIVO do client (ver `client_metadata.ts`).
+ */
+const redirectUriRule = vine.createRule((value, _options, field) => {
+  if (typeof value !== 'string') return;
+  const declared = field.data?.applicationType;
+  const type: ApplicationType | undefined =
+    declared === 'web' || declared === 'native' ? declared : undefined;
+  const problem = redirectUriProblem(value, type);
+  if (problem) field.report(`The {{ field }} field ${problem}`, 'redirectUri', field);
+});
+
+/** Array de redirect URIs (ver {@link redirectUriRule}). Rejeita strings que não são URI válida. */
+const redirectUriArray = vine.array(vine.string().trim().use(redirectUriRule()));
 
 /**
  * Allowlist de grant_types aceitos no registro/edição de client (M10). Bloqueia
@@ -79,10 +97,12 @@ const grantTypeArray = vine.array(vine.enum(ALLOWED_GRANT_TYPES));
 export const clientInputValidator = vine.compile(
   vine.object({
     clientId: vine.string().trim().optional(),
-    // redirect/postLogout: URIs ABSOLUTAS (L10). `vine.string().url()` rejeita
-    // valores que não são URL (ex.: 'javascript:...', paths relativos).
-    redirectUris: urlArray.optional(),
-    postLogoutRedirectUris: urlArray.optional(),
+    // `web` (default) ou `native` (RFC 8252 — app mobile/desktop, sempre público).
+    applicationType: vine.enum(APPLICATION_TYPES).optional(),
+    // redirect/postLogout: URIs ABSOLUTAS (L10), http/https para client web;
+    // esquema privado/loopback só para `native` (ver `redirectUriRule`).
+    redirectUris: redirectUriArray.optional(),
+    postLogoutRedirectUris: redirectUriArray.optional(),
     // grant_types restrito à allowlist; `implicit` e desconhecidos viram 422 (M10).
     grantTypes: grantTypeArray.optional(),
     grants: grantTypeArray.optional(),
@@ -96,6 +116,7 @@ export const clientInputValidator = vine.compile(
 /** Forma validada de um client (saída do {@link clientInputValidator}). */
 export type ClientInputFields = {
   clientId?: string;
+  applicationType?: ApplicationType;
   redirectUris?: string[];
   postLogoutRedirectUris?: string[];
   grantTypes?: string[];
@@ -105,14 +126,21 @@ export type ClientInputFields = {
   backchannelLogoutSessionRequired?: boolean;
 };
 
-/** Mapeia o input validado para um {@link ClientInput} COMPLETO (create), com defaults. */
+/**
+ * Mapeia o input validado para um {@link ClientInput} COMPLETO (create), com defaults.
+ * Client nativo sem `tokenEndpointAuthMethod` explícito vira público (`none`); um
+ * nativo confidencial explícito é recusado pelo service (422).
+ */
 export function clientCreateInput(v: ClientInputFields): ClientInput {
+  const applicationType = v.applicationType ?? 'web';
   return {
     clientId: v.clientId?.trim() || undefined,
+    applicationType,
     redirectUris: v.redirectUris ?? [],
     postLogoutRedirectUris: v.postLogoutRedirectUris ?? [],
     grantTypes: v.grantTypes ?? v.grants ?? [],
-    tokenEndpointAuthMethod: v.tokenEndpointAuthMethod ?? 'client_secret_basic',
+    tokenEndpointAuthMethod:
+      v.tokenEndpointAuthMethod ?? (applicationType === 'native' ? 'none' : 'client_secret_basic'),
     backchannelLogoutUri: v.backchannelLogoutUri || undefined,
     backchannelLogoutSessionRequired: v.backchannelLogoutSessionRequired,
   };
@@ -124,6 +152,7 @@ export function clientCreateInput(v: ClientInputFields): ClientInput {
  */
 export function clientPartialInput(v: ClientInputFields): Partial<ClientInput> {
   const out: Partial<ClientInput> = {};
+  if (v.applicationType !== undefined) out.applicationType = v.applicationType;
   if (v.redirectUris !== undefined) out.redirectUris = v.redirectUris;
   if (v.postLogoutRedirectUris !== undefined) out.postLogoutRedirectUris = v.postLogoutRedirectUris;
   const grants = v.grantTypes ?? v.grants;

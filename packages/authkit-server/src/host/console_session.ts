@@ -1,6 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http';
 import { getAccountLoginUrl } from './account_login_url.js';
 import { ACCOUNT_SESSION_KEY } from './account_session_key.js';
+import { bearerAccountId } from './bearer_account.js';
 import { impersonationState } from './impersonation_session.js';
 
 /**
@@ -14,8 +15,18 @@ import { impersonationState } from './impersonation_session.js';
  */
 
 /**
- * Retorna o id da conta que o request está representando no console (ou `null`
- * quando não há sessão).
+ * Retorna o id da conta que o request está representando (ou `null` quando não
+ * há identidade).
+ *
+ * Fonte, nesta ordem:
+ *   1. a sessão do console (`ACCOUNT_SESSION_KEY`) — o comportamento de sempre;
+ *   2. SEM sessão logada: a conta que um `oidcBearerGuard` autenticou NESTA
+ *      request via `Authorization: Bearer` (app nativo, SPA, serviço).
+ *
+ * O fallback (2) só existe depois que o guard bearer RODOU na request (ex.:
+ * `middleware.auth({ guards: ['web', 'api'] })` ou `auth.authenticateUsing`);
+ * um app que não usa o guard bearer continua exatamente como antes. A sessão
+ * sempre ganha: request com cookie de sessão E bearer responde pela sessão.
  *
  * ATENÇÃO: com impersonation ativa isto é a conta PERSONIFICADA, não o admin
  * que a personificou. É o comportamento certo para "como qual conta este
@@ -24,7 +35,7 @@ import { impersonationState } from './impersonation_session.js';
  */
 export function getAccountId(ctx: HttpContext): string | null {
   const accountId = ctx.session?.get(ACCOUNT_SESSION_KEY) as string | undefined;
-  return accountId ?? null;
+  return accountId ?? bearerAccountId(ctx);
 }
 
 /**
@@ -58,18 +69,19 @@ export function getAccountId(ctx: HttpContext): string | null {
  * if (!id || !(await authz.hasRole(id, 'admin'))) throw new Error('forbidden')
  */
 export function realAccountId(ctx: HttpContext): string | null {
-  // Sem sessão não há nem impersonation nem conta: mesma tolerância do
-  // `getAccountId` (que usa `ctx.session?.`), pois `impersonationState` assume
-  // uma sessão presente.
-  if (!ctx.session) return null;
+  // Sem sessão não há impersonation: mesma tolerância do `getAccountId` (que usa
+  // `ctx.session?.`), pois `impersonationState` assume uma sessão presente. Resta
+  // a identidade bearer (se o `oidcBearerGuard` autenticou a request).
+  if (!ctx.session) return bearerAccountId(ctx);
   return impersonationState(ctx).impersonatorId ?? getAccountId(ctx);
 }
 
 /**
- * `true` quando o request carrega uma sessão de conta do console.
+ * `true` quando o request carrega uma sessão de conta do console. Só a SESSÃO:
+ * uma identidade bearer (`oidcBearerGuard`) não conta — use `getAccountId`.
  */
 export function hasAccountSession(ctx: HttpContext): boolean {
-  return getAccountId(ctx) !== null;
+  return ctx.session?.get(ACCOUNT_SESSION_KEY) != null;
 }
 
 /**

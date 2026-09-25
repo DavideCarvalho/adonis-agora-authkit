@@ -1,0 +1,369 @@
+---
+icon: TabletSmartphone
+title: Native apps (React Native / Expo)
+description: RFC 8252 — sign a mobile or desktop app in with the system browser, PKCE and a public client, then call your API with a bearer access token.
+---
+
+A native app (React Native, Expo, Swift, Kotlin, Electron, a CLI with a browser) signs in the
+way [RFC 8252 — OAuth 2.0 for Native Apps](https://www.rfc-editor.org/rfc/rfc8252) describes:
+
+1. the app opens the issuer's `/auth` endpoint in the **system browser** (never an embedded
+   webview), with a PKCE challenge;
+2. the user logs in on AuthKit's own screens;
+3. the issuer redirects back to the app through a **private-use URI scheme**
+   (`com.example.app:/oauth`), a **claimed https URL** (universal link / app link) or a
+   **loopback** address (`http://127.0.0.1:<port>/…`);
+4. the app exchanges the code for tokens as a **public client** (no secret), and later calls your
+   API with `Authorization: Bearer <access_token>`.
+
+AuthKit covers both ends: native clients on the issuer, and `oidcBearerGuard` on the API.
+
+## 1. Create a native client
+
+A native client has `applicationType: 'native'`. That changes two things compared with a web
+client:
+
+- **Redirect URIs** follow RFC 8252 instead of "http/https only":
+
+  | Redirect | Example | Rule |
+  | --- | --- | --- |
+  | Private-use scheme (§7.1) | `com.example.app:/oauth`, `myapp://auth` | Any scheme except `javascript:`, `data:`, `file:`, … Prefer a reverse-DNS scheme you own. |
+  | Claimed https (§7.2) | `https://app.example.com/oauth` | Must not be a loopback host. |
+  | Loopback (§7.3) | `http://127.0.0.1/callback` | `http` only on `127.0.0.1`, `[::1]` or `localhost`. Register it **without** a port — any port matches at runtime. |
+
+  No redirect may carry a `#fragment`. Web clients keep rejecting private-use schemes.
+- **It is always public**: `tokenEndpointAuthMethod: 'none'`, no secret. A secret shipped inside
+  an installed app is not a secret (RFC 8252 §8.5). PKCE (S256) is already mandatory for every
+  client of this issuer, and native clients cannot use `client_credentials`.
+
+<Tabs items={['CLI', 'Admin API', 'config/authkit.ts']}>
+<Tab value="CLI">
+
+```bash
+node ace authkit:clients:create \
+  --client-id=my-mobile-app \
+  --native \
+  --redirect-uri=com.example.app:/oauth \
+  --redirect-uri=http://127.0.0.1/callback
+```
+
+`--native` implies `--public`: nothing to store, no secret is printed.
+
+</Tab>
+<Tab value="Admin API">
+
+```bash
+curl -X POST https://auth.acme.com/api/authkit/v1/clients \
+  -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "clientId": "my-mobile-app",
+        "applicationType": "native",
+        "redirectUris": ["com.example.app:/oauth"]
+      }'
+```
+
+`tokenEndpointAuthMethod` defaults to `none` for a native client. Sending a confidential method,
+`client_credentials`, or a redirect that breaks the rules above answers `422` with
+`error.code: "invalid_client_metadata"`. The admin console's client form has the same
+**Application Type** switch.
+
+</Tab>
+<Tab value="config/authkit.ts">
+
+```ts title="config/authkit.ts"
+defineConfig({
+  // ...
+  clients: [
+    {
+      clientId: 'my-mobile-app',
+      applicationType: 'native',
+      redirectUris: ['com.example.app:/oauth'],
+      grants: ['authorization_code', 'refresh_token'],
+    },
+  ],
+})
+```
+
+</Tab>
+</Tabs>
+
+<Callout title="Expo Go during development">
+Expo Go cannot register your own scheme, so `makeRedirectUri()` returns an `exp://` URL there
+(for example `exp://192.168.0.10:8081/--/oauth`). A native client accepts it — register it next to
+your production redirect while you develop, or use a development build, which gets your real
+scheme.
+</Callout>
+
+### Skipping consent for your own app
+
+A first-party app should not ask the user to "allow *My App* to access your account". Consent is
+skipped for any client id listed in `branding.firstParty`, whatever its application type:
+
+```ts title="config/authkit.ts"
+defineConfig({
+  branding: { /* ... */ firstParty: ['my-web-app', 'my-mobile-app'] },
+  // Also list it here if you restrict who receives the roles/org claims.
+  firstPartyClients: ['my-web-app', 'my-mobile-app'],
+})
+```
+
+## 2. Sign in from the app (Expo)
+
+[`expo-auth-session`](https://docs.expo.dev/versions/latest/sdk/auth-session/) implements the
+whole RFC 8252 flow — system browser (`ASWebAuthenticationSession` / Custom Tabs), PKCE, discovery.
+
+```tsx title="app/sign-in.tsx"
+import * as AuthSession from 'expo-auth-session'
+import * as SecureStore from 'expo-secure-store'
+import * as WebBrowser from 'expo-web-browser'
+
+// Closes the auth popup when the redirect comes back (web + some Android launchers).
+WebBrowser.maybeCompleteAuthSession()
+
+const ISSUER = 'https://auth.acme.com/oidc'
+const CLIENT_ID = 'my-mobile-app'
+
+export function SignIn() {
+  const discovery = AuthSession.useAutoDiscovery(ISSUER)
+  // com.example.app:/oauth in a build; exp://…/--/oauth in Expo Go.
+  const redirectUri = AuthSession.makeRedirectUri({ scheme: 'com.example.app', path: 'oauth' })
+
+  const [request, , promptAsync] = AuthSession.useAuthRequest(
+    {
+      clientId: CLIENT_ID,
+      redirectUri,
+      responseType: AuthSession.ResponseType.Code,
+      scopes: ['openid', 'profile', 'email', 'offline_access'],
+      usePKCE: true, // the default — S256
+      // `offline_access` only yields a refresh token with prompt=consent (OIDC Core §11).
+      // First-party clients never see the consent screen anyway.
+      extraParams: { prompt: 'consent' },
+    },
+    discovery,
+  )
+
+  async function signIn() {
+    if (!request || !discovery) return
+    const result = await promptAsync()
+    if (result.type !== 'success') return
+
+    const tokens = await AuthSession.exchangeCodeAsync(
+      {
+        clientId: CLIENT_ID, // no clientSecret: public client
+        code: result.params.code,
+        redirectUri,
+        extraParams: { code_verifier: request.codeVerifier! },
+      },
+      discovery,
+    )
+    await SecureStore.setItemAsync('tokens', JSON.stringify(tokens.getRequestConfig()))
+  }
+
+  return <Button title="Sign in" disabled={!request} onPress={signIn} />
+}
+```
+
+### Refreshing
+
+Access tokens are short-lived. Refresh with the refresh token, and **always store the refresh
+token that comes back** — every refresh rotates it:
+
+```ts title="lib/auth.ts"
+export async function freshAccessToken(discovery: AuthSession.DiscoveryDocument) {
+  const saved = JSON.parse((await SecureStore.getItemAsync('tokens')) ?? 'null')
+  if (!saved) return null
+
+  const current = new AuthSession.TokenResponse(saved)
+  if (!current.shouldRefresh()) return current.accessToken
+
+  const next = await current.refreshAsync({ clientId: CLIENT_ID }, discovery)
+  // Rotation: the old refresh token is now dead. Persist the new one before anything else.
+  await SecureStore.setItemAsync('tokens', JSON.stringify(next.getRequestConfig()))
+  return next.accessToken
+}
+```
+
+Refresh token behaviour for native (and every other public) client:
+
+- **Issued** when the client has the `refresh_token` grant and the user granted
+  `offline_access` — which needs `prompt=consent` on the authorize request.
+- **Rotated on every use.** The response carries a new refresh token; the one you sent stops
+  working.
+- **Replay revokes the grant.** Presenting an already-rotated refresh token fails with
+  `invalid_grant` *and* revokes the whole grant, including the newest refresh token. Two
+  concurrent refreshes from the same app therefore sign the user out: serialize refreshes (one
+  in-flight promise).
+- **Lifetime** is the refresh token TTL (`ttl.refreshToken`, or the `token_ttl` runtime setting).
+
+### Signing out
+
+Revoke the refresh token (RFC 7009) so the grant cannot mint new tokens, then drop local state:
+
+```ts
+await AuthSession.revokeAsync({ clientId: CLIENT_ID, token: refreshToken }, discovery)
+await SecureStore.deleteItemAsync('tokens')
+```
+
+## 3. Protect your API with `oidcBearerGuard`
+
+`oidcBearerGuard` is an `@adonisjs/auth` guard that reads `Authorization: Bearer <token>`,
+verifies the access token against the AuthKit issuer, checks expiry and revocation, applies an
+optional policy (scopes, audience, client ids) and resolves the user through the same kind of user
+provider `oidcRpGuard` uses.
+
+```ts title="config/auth.ts"
+import { defineConfig } from '@adonisjs/auth'
+import { sessionUserProvider } from '@adonisjs/auth/session'
+import { oidcBearerGuard, oidcRpGuard } from '@adonis-agora/authkit-server'
+import type { InferAuthenticators } from '@adonisjs/auth/types'
+
+const provider = sessionUserProvider({ model: () => import('#models/user') })
+
+const authConfig = defineConfig({
+  default: 'web',
+  guards: {
+    web: oidcRpGuard({ provider }),
+    api: oidcBearerGuard({ provider, scopes: ['openid'] }),
+  },
+})
+
+export default authConfig
+
+declare module '@adonisjs/auth/types' {
+  interface Authenticators extends InferAuthenticators<typeof authConfig> {}
+}
+```
+
+```ts title="start/routes.ts"
+// Mobile-only endpoints
+router.get('/api/exams', [ExamsController, 'index']).use(middleware.auth({ guards: ['api'] }))
+
+// Shared by the web app (session) and the mobile app (bearer)
+router.get('/api/me', [MeController, 'show']).use(middleware.auth({ guards: ['web', 'api'] }))
+```
+
+The app sends the token on every call:
+
+```ts
+await fetch('https://app.acme.com/api/exams', {
+  headers: { Authorization: `Bearer ${await freshAccessToken(discovery)}` },
+})
+```
+
+### Options
+
+| Option | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `provider` | user provider | — | `sessionUserProvider(...)` or `authkitUserProvider()`. The token's `sub` goes to `findById`. |
+| `scopes` | `string[]` | — | Every scope listed must have been granted. |
+| `audience` | `string \| string[]` | — | The token's `aud` must contain one of these ([resource indicators](/docs/reference)). An opaque token issued without `resource` has no `aud` and is rejected. |
+| `clientIds` | `string[]` | any | Only tokens issued to these clients. |
+| `remote` | object | — | Resource-server mode, see below. Absent = in-process. |
+| `verifier` | `AccessTokenVerifier` | — | Bring your own verification. Wins over `remote`. |
+
+On success `ctx.auth.use('api').accessToken` holds the verified token (`sub`, `clientId`,
+`scopes`, `audience`, `exp`, `format`) and `hasScopes('exams:write')` answers per-route checks.
+
+### Failures
+
+Every failure — no header, unknown/expired/revoked token, policy mismatch, deleted user — throws the
+framework's `E_UNAUTHORIZED_ACCESS`: status **401**, never a redirect, with the RFC 6750 challenge
+header (`WWW-Authenticate: Bearer error="invalid_token"`, or `error="insufficient_scope"` plus the
+required `scope`). With `auth.use('api')` / `guards: ['api']` the body is
+`{ "errors": [{ "message": "Unauthorized access" }] }` for JSON clients. With several guards
+(`['web', 'api']`) `@adonisjs/auth` renders with the last guard's driver, which answers a plain
+`401 Unauthorized access`.
+
+### Verification modes
+
+<Tabs items={['In-process (default)', 'Remote resource server']}>
+<Tab value="In-process (default)">
+
+The API **is** the AuthKit host (it embeds the issuer). Tokens are checked against the running
+provider:
+
+- **Opaque** access tokens are looked up in the OIDC adapter. Revoking the token (`/revoke`),
+  logging out, or an admin revoking the user's sessions/grants deletes it, so the next request
+  gets a 401.
+- **JWT** access tokens (`accessTokens.format: 'jwt'`, RFC 9068) are verified against the
+  provider's current public keys (`iss`, `typ: at+jwt`, `exp`). They are self-contained: the
+  provider does not store them, so they stay valid until `exp` even after revocation — keep
+  `ttl.accessToken` short.
+
+Sender-constrained tokens (DPoP `jkt`, mTLS `x5t#S256`/`cnf`) are rejected: the guard does not
+verify proofs of possession, and accepting them as plain bearer would defeat the binding.
+
+</Tab>
+<Tab value="Remote resource server">
+
+The API is a separate service that trusts an AuthKit issuer it does not host:
+
+```ts title="config/auth.ts"
+api: oidcBearerGuard({
+  provider,
+  scopes: ['openid'],
+  remote: {
+    issuer: 'https://auth.acme.com/oidc',
+    // Opaque tokens: RFC 7662 introspection with a CONFIDENTIAL client of the issuer.
+    introspection: { clientId: 'exams-api', clientSecret: env.get('EXAMS_API_SECRET') },
+    // jwksUri / introspection.endpoint default to the issuer's discovery document.
+  },
+}),
+```
+
+- **JWT** access tokens are verified locally against the issuer's `jwks_uri` (keys are cached
+  and re-fetched when an unknown `kid` shows up).
+- **Opaque** access tokens go to the introspection endpoint; only `active: true` tokens with
+  `token_type: Bearer` pass (a refresh token sent as bearer is rejected).
+- Without `introspection`, only JWT access tokens can be accepted.
+
+Create the introspection client as a regular confidential client (it needs no grant of its
+own): `node ace authkit:clients:create --client-id=exams-api --redirect-uri=https://exams-api/unused`.
+
+</Tab>
+</Tabs>
+
+### Keeping `getAccountId(ctx)` call sites
+
+Apps built on the account console often read the current account with
+[`getAccountId(ctx)`](/docs/console-session). It now falls back to the account authenticated by
+`oidcBearerGuard` in the **current request**, so adding the bearer guard does not mean rewriting
+every call site:
+
+```
+session has a logged-in account  → that account (unchanged — the session always wins)
+no session account, bearer guard
+  authenticated this request     → the token's account
+otherwise                        → null
+```
+
+The fallback exists only after the guard ran on the request (`middleware.auth({ guards: [...] })`
+or `auth.authenticateUsing([...])`). An app that never configures the bearer guard behaves
+exactly as before. `realAccountId(ctx)` follows the same rule; `hasAccountSession(ctx)` still
+answers only about the session.
+
+### Testing
+
+In in-process mode the guard's `authenticateAsClient` mints a real access token, so the Japa API
+client's `loginAs` works:
+
+```ts
+const response = await client.get('/api/exams').withGuard('api').loginAs(user)
+response.assertStatus(200)
+```
+
+Pass `{ clientId, scopes }` as a second argument to `loginAs` to shape the token.
+
+## Security checklist (RFC 8252)
+
+- **System browser only.** Use `expo-auth-session` / `ASWebAuthenticationSession` / Custom Tabs.
+  Never an embedded `WebView`: the app could read the user's password, and the user's existing
+  session with the IdP is not shared (§8.12).
+- **PKCE, always.** AuthKit requires S256 for every client; don't disable it in your library.
+- **No client secret in the app.** Native clients are public by construction.
+- **Own your scheme.** Use a reverse-DNS private-use scheme (`com.yourcompany.app`) or claimed
+  https links; a generic scheme like `myapp://` can be registered by another app on the device.
+- **Store tokens in the keychain** (`expo-secure-store`), not `AsyncStorage`.
+- **Keep access tokens short-lived** and rely on rotated refresh tokens; serialize refreshes.
+- **Ask only for what you need** and enforce it on the API with `scopes`/`audience`.

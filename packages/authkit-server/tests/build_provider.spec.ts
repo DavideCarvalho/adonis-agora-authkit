@@ -2,7 +2,8 @@ import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
 import RedisMock from 'ioredis-mock';
 import instance from 'oidc-provider/lib/helpers/weak_cache.js';
-import { adapters, defineConfig } from '../src/define_config.js';
+import { adapters, defineConfig, type ResolvedServerConfig } from '../src/define_config.js';
+import { ClientMetadataError } from '../src/host/client_metadata.js';
 import { buildProvider } from '../src/provider/build_provider.js';
 import { fakeAccountStore } from './bootstrap.js';
 
@@ -33,6 +34,24 @@ async function resolved() {
 }
 
 test.group('buildProvider', () => {
+  test('client estático inválido (nativo com secret) falha no boot', async ({ assert }) => {
+    const cfg = (await resolved()) as ResolvedServerConfig;
+    cfg.clients.push({
+      clientId: 'app-nativo',
+      clientSecret: 'nao-pode',
+      redirectUris: ['com.example.app:/callback'],
+      applicationType: 'native',
+    } as ResolvedServerConfig['clients'][number]);
+    assert.throws(
+      () =>
+        buildProvider(cfg, {
+          appKey: 'a'.repeat(32),
+          findAccount: async () => undefined,
+        }),
+      ClientMetadataError as any,
+    );
+  });
+
   test('instancia um Provider OIDC com issuer', async ({ assert }) => {
     const cfg = await resolved();
     const provider = buildProvider(cfg!, {

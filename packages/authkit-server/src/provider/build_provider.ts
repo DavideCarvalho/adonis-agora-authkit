@@ -2,6 +2,7 @@ import * as oidc from 'oidc-provider';
 import { pickModelAdapterClass } from '../adapters/factory.js';
 import type { ResolvedServerConfig } from '../define_config.js';
 import { normalizeActiveOrg, readActiveOrgFromKoaCtx } from '../host/active_org_cookie.js';
+import { assertClientMetadata } from '../host/client_metadata.js';
 import { createDeviceSources } from './device_sources.js';
 import { createLogoutSources } from './logout_sources.js';
 import { registrationPolicyMiddleware } from './registration_policy.js';
@@ -181,24 +182,40 @@ export function buildProvider(
       new (pickModelAdapterClass(name, config.AdapterClass, config.SessionAdapterClass))(
         name,
       )) as any,
-    clients: config.clients.map((c) => ({
-      client_id: c.clientId,
-      client_secret: c.clientSecret,
-      redirect_uris: c.redirectUris,
-      post_logout_redirect_uris: c.postLogoutRedirectUris ?? [],
-      grant_types: c.grants ?? ['authorization_code', 'refresh_token'],
-      response_types: (c.grants ?? ['authorization_code']).includes('authorization_code')
-        ? ['code']
-        : [],
-      token_endpoint_auth_method:
-        c.tokenEndpointAuthMethod ?? (c.clientSecret ? 'client_secret_basic' : 'none'),
-      // OIDC Back-Channel Logout: só envia as chaves quando o client as declara,
-      // p/ não forçar metadata vazio em clients que não usam o recurso.
-      ...(c.backchannelLogoutUri ? { backchannel_logout_uri: c.backchannelLogoutUri } : {}),
-      ...(c.backchannelLogoutSessionRequired !== undefined
-        ? { backchannel_logout_session_required: c.backchannelLogoutSessionRequired }
-        : {}),
-    })),
+    clients: config.clients.map((c) => {
+      const grants = c.grants ?? ['authorization_code', 'refresh_token'];
+      const tokenEndpointAuthMethod =
+        c.tokenEndpointAuthMethod ?? (c.clientSecret ? 'client_secret_basic' : 'none');
+      // Clients do `defineConfig` passam pela MESMA validação do admin/CLI/import:
+      // um nativo com secret (ou redirect inválido pro tipo) falha no boot, não em runtime.
+      assertClientMetadata({
+        applicationType: c.applicationType ?? 'web',
+        tokenEndpointAuthMethod,
+        grantTypes: grants,
+        redirectUris: c.redirectUris,
+        postLogoutRedirectUris: c.postLogoutRedirectUris ?? [],
+      });
+      return {
+        client_id: c.clientId,
+        client_secret: c.clientSecret,
+        redirect_uris: c.redirectUris,
+        post_logout_redirect_uris: c.postLogoutRedirectUris ?? [],
+        grant_types: grants,
+        response_types: (c.grants ?? ['authorization_code']).includes('authorization_code')
+          ? ['code']
+          : [],
+        token_endpoint_auth_method: tokenEndpointAuthMethod,
+        // App nativo (RFC 8252): libera redirect de esquema privado/loopback. Sem a
+        // chave, o oidc-provider assume `web` — o comportamento de sempre.
+        ...(c.applicationType === 'native' ? { application_type: 'native' } : {}),
+        // OIDC Back-Channel Logout: só envia as chaves quando o client as declara,
+        // p/ não forçar metadata vazio em clients que não usam o recurso.
+        ...(c.backchannelLogoutUri ? { backchannel_logout_uri: c.backchannelLogoutUri } : {}),
+        ...(c.backchannelLogoutSessionRequired !== undefined
+          ? { backchannel_logout_session_required: c.backchannelLogoutSessionRequired }
+          : {}),
+      };
+    }),
     findAccount: options.findAccount,
     // Grant REAPROVEITADO (consent já lembrado): o org capturado no primeiro
     // consent ficaria VELHO se o usuário trocasse de org no console e voltasse a
@@ -277,6 +294,14 @@ export function buildProvider(
     // sobreviva ao authorize e fique disponivel em interactionDetails().params.audience.
     extraParams: ['audience'],
     pkce: { methods: ['S256'], required: () => true },
+    // Rotação SEMPRE: todo uso do refresh token emite um novo e invalida o
+    // anterior (reuso de um RT já rotacionado revoga o grant inteiro — detecção de
+    // replay do oidc-provider). Vale igual para clients públicos (SPA, app nativo
+    // RFC 8252), para os quais a rotação é a defesa exigida pelo OAuth 2.0 Security
+    // BCP, já que o RT não é amarrado a um secret. O `issueRefreshToken` fica no
+    // default do provider: emite RT quando o client tem o grant `refresh_token` e o
+    // escopo `offline_access` foi concedido (o que exige `prompt=consent` no
+    // authorize — OIDC Core §11), sem distinção entre client público e confidencial.
     rotateRefreshToken: true,
     features: {
       devInteractions: { enabled: false },

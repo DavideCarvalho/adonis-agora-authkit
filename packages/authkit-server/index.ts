@@ -129,6 +129,17 @@ export {
   signWebhookBody,
 } from './src/events/dispatcher.js';
 export type {
+  AccessTokenVerifier,
+  InProcessIssuer,
+  IssueAccessTokenOptions,
+  RemoteAccessTokenVerifierOptions,
+  VerifiedAccessToken,
+} from './src/host/access_token_verifier.js';
+export {
+  inProcessAccessTokenVerifier,
+  remoteAccessTokenVerifier,
+} from './src/host/access_token_verifier.js';
+export type {
   DeletionActor,
   DeletionResult,
 } from './src/host/account_deletion_service.js';
@@ -242,6 +253,12 @@ export {
 } from './src/host/bot_protection.js';
 export type { BrandingConfig, ClientBrand } from './src/host/branding.js';
 export { brandFor, isFirstParty, isFirstPartyClient } from './src/host/branding.js';
+export type { ApplicationType } from './src/host/client_metadata.js';
+export {
+  assertClientMetadata,
+  ClientMetadataError,
+  redirectUriProblem,
+} from './src/host/client_metadata.js';
 export type { PolicyRouteOption } from './src/host/config_locks.js';
 export {
   deriveLockedSettingKeys,
@@ -297,6 +314,16 @@ export {
 export type { KeysStatus as ServerKeysStatus } from './src/host/key_rotation_actions.js';
 // Key rotation actions — shared between the Admin REST API controller and the SDK embedded driver.
 export { buildKeysStatus, rotateNow } from './src/host/key_rotation_actions.js';
+export type {
+  OidcBearerGuardEvents,
+  OidcBearerGuardOptions,
+  OidcBearerGuardPolicy,
+} from './src/host/oidc_bearer_guard.js';
+// @adonisjs/auth integration (opt-in) — guard de access token (Authorization:
+// Bearer) pra APIs chamadas por apps nativos (RFC 8252), SPAs e serviços. Par do
+// oidcRpGuard para clientes sem sessão web; verifica in-process (issuer embarcado)
+// ou como resource server remoto (JWKS / introspecção).
+export { OidcBearerGuard, oidcBearerGuard } from './src/host/oidc_bearer_guard.js';
 export type { OidcRpGuardEvents, OidcRpGuardOptions } from './src/host/oidc_rp_guard.js';
 // @adonisjs/auth integration (opt-in) — guard pra Relying Parties OIDC.
 // O RP não autentica ninguém (sem senha); a identidade vem da sessão gravada

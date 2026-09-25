@@ -1,12 +1,21 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import { apiError, clientDto, createdClientDto } from '../admin_api/dto.js';
-import { AdminClientsService } from '../admin_clients_service.js';
+import { AdminClientsService, type CreatedClient } from '../admin_clients_service.js';
 import {
   clientCreateInput,
   clientInputValidator,
   clientPartialInput,
 } from '../admin_validators.js';
+import { ClientMetadataError } from '../client_metadata.js';
+
+/**
+ * Metadata incoerente com o tipo de client (ex.: nativo com secret, redirect
+ * `myapp://` num client web) — 422, igual a um input que falha no Vine.
+ */
+function invalidMetadata(ctx: HttpContext, err: ClientMetadataError) {
+  return ctx.response.unprocessableEntity(apiError('invalid_client_metadata', err.message));
+}
 
 /**
  * Endpoints JSON de clients OIDC do console admin React.
@@ -35,7 +44,13 @@ export default class ConsoleClientsController {
     const cfg = service.config;
     const svc = new AdminClientsService(service);
     const input = clientCreateInput(await ctx.request.validateUsing(clientInputValidator));
-    const created = await svc.create(input);
+    let created: CreatedClient;
+    try {
+      created = await svc.create(input);
+    } catch (err) {
+      if (err instanceof ClientMetadataError) return invalidMetadata(ctx, err);
+      throw err;
+    }
 
     await cfg.audit?.record({
       type: 'client.created',
@@ -58,7 +73,15 @@ export default class ConsoleClientsController {
     const existing = await svc.find(id);
     if (!existing) return ctx.response.notFound(apiError('not_found', 'Client não encontrado.'));
 
-    await svc.update(id, clientPartialInput(await ctx.request.validateUsing(clientInputValidator)));
+    try {
+      await svc.update(
+        id,
+        clientPartialInput(await ctx.request.validateUsing(clientInputValidator)),
+      );
+    } catch (err) {
+      if (err instanceof ClientMetadataError) return invalidMetadata(ctx, err);
+      throw err;
+    }
 
     await cfg.audit?.record({
       type: 'client.updated',
