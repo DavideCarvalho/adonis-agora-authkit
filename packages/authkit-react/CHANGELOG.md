@@ -1,5 +1,19 @@
 # @adonis-agora/authkit-react
 
+## 0.23.0
+
+### Minor Changes
+
+- [#233](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/233) [`94644e6`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/94644e6b1d8d10e0fd3c4b57706cce46b70412cb) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `applicationType?: 'web' | 'native'` nos tipos de client
+  
+  `ClientConfig` (core) e `AdminClient`/`CreateClientInput` (react) ganham o campo opcional
+  `applicationType`, para os clientes nativos (RFC 8252) do `@adonis-agora/authkit-server`.
+
+### Patch Changes
+
+- Updated dependencies [[`94644e6`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/94644e6b1d8d10e0fd3c4b57706cce46b70412cb)]:
+  - @adonis-agora/authkit-core@0.9.0
+
 ## 0.22.0
 
 ### Minor Changes
