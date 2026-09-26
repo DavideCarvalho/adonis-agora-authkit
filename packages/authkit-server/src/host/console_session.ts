@@ -69,10 +69,9 @@ export function getAccountId(ctx: HttpContext): string | null {
  * if (!id || !(await authz.hasRole(id, 'admin'))) throw new Error('forbidden')
  */
 export function realAccountId(ctx: HttpContext): string | null {
-  // Sem sessão não há impersonation: mesma tolerância do `getAccountId` (que usa
-  // `ctx.session?.`), pois `impersonationState` assume uma sessão presente. Resta
-  // a identidade bearer (se o `oidcBearerGuard` autenticou a request).
-  if (!ctx.session) return bearerAccountId(ctx);
+  // `impersonationState` cobre as duas fontes: a sessão do console e o access
+  // token bearer trocado (`act`, ex.: app nativo) — nos dois, o humano real é o
+  // impersonator. Sem impersonation, a conta da sessão ou do bearer.
   return impersonationState(ctx).impersonatorId ?? getAccountId(ctx);
 }
 

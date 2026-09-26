@@ -230,6 +230,7 @@ export class OidcService {
         // conta que acabou de desabilitar, recebendo tokens plenamente funcionais.
         accountStore: config.accountStore,
         audit: config.audit,
+        impersonateAdmins: config.admin.impersonateAdmins,
       });
     }
 

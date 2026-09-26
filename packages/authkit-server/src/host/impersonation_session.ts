@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { HttpContext } from '@adonisjs/core/http';
 import type { AuditSink } from '../audit/audit_sink.js';
 import { ACCOUNT_SESSION_KEY } from './account_session_key.js';
+import { bearerAccountId, bearerImpersonation } from './bearer_account.js';
 
 /**
  * Ergonômico de SESSÃO de browser no RP para "personificar" (impersonate) um
@@ -123,6 +124,11 @@ export interface ImpersonationState {
    * do lado do IdP, NÃO impõe expiração na sessão (só `maxAge` faz isso).
    */
   exchangeExpiresIn?: number;
+  /**
+   * De onde veio a impersonation: `session` (console/web, keys de sessão) ou
+   * `bearer` (access token trocado com `act`, ex.: app nativo). Só quando `active`.
+   */
+  source?: 'session' | 'bearer';
 }
 
 /** Metadados aproveitados da resposta do token-exchange (só o que não é segredo). */
@@ -439,10 +445,15 @@ export async function startImpersonation(
  * false }` puro quando nunca houve impersonation.
  */
 export function impersonationState(ctx: HttpContext): ImpersonationState {
-  const impersonatorId = ctx.session.get(IMPERSONATOR_SESSION_KEY) as string | undefined;
-  if (!impersonatorId) return { active: false };
+  const impersonatorId = ctx.session?.get(IMPERSONATOR_SESSION_KEY) as string | undefined;
+  if (!impersonatorId) {
+    // Sessão de console logada manda (mesma regra do `getAccountId`): o bearer só
+    // conta quando a request não tem conta na sessão.
+    if (ctx.session?.get(ACCOUNT_SESSION_KEY)) return { active: false };
+    return bearerImpersonationState(ctx);
+  }
   const targetId = ctx.session.get(ACCOUNT_SESSION_KEY) as string | undefined;
-  const state: ImpersonationState = { active: true, targetId, impersonatorId };
+  const state: ImpersonationState = { active: true, targetId, impersonatorId, source: 'session' };
 
   const impersonationId = ctx.session.get(IMPERSONATION_ID_SESSION_KEY) as string | undefined;
   if (impersonationId) state.impersonationId = impersonationId;
@@ -459,6 +470,31 @@ export function impersonationState(ctx: HttpContext): ImpersonationState {
 
   if (state.expiresAt !== undefined && Date.now() > state.expiresAt) {
     state.active = false;
+  }
+  return state;
+}
+
+/**
+ * Impersonation pelo ACCESS TOKEN (sem sessão): o `oidcBearerGuard` autenticou
+ * um token trocado que carrega `act`. O alvo é o `sub` do token; o impersonator,
+ * o `act.sub`; a expiração, o `exp` do token (o token trocado não tem refresh).
+ * Só existe depois que o guard bearer rodou na request, como o `getAccountId`.
+ */
+function bearerImpersonationState(ctx: HttpContext): ImpersonationState {
+  const bearer = bearerImpersonation(ctx);
+  const targetId = bearerAccountId(ctx);
+  if (!bearer || !targetId) return { active: false };
+  const state: ImpersonationState = {
+    active: true,
+    targetId,
+    impersonatorId: bearer.actorId,
+    actSub: bearer.actorId,
+    source: 'bearer',
+  };
+  if (bearer.jti) state.impersonationId = bearer.jti;
+  if (bearer.exp !== null) {
+    state.expiresAt = bearer.exp * 1000;
+    if (Date.now() > state.expiresAt) state.active = false;
   }
   return state;
 }

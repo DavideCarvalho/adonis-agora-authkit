@@ -6,6 +6,7 @@ import { assertClientMetadata } from '../host/client_metadata.js';
 import { createDeviceSources } from './device_sources.js';
 import { createLogoutSources } from './logout_sources.js';
 import { registrationPolicyMiddleware } from './registration_policy.js';
+import { impersonationExtraClaims } from './token_exchange.js';
 
 export interface BuildProviderOptions {
   /** APP_KEY do consumidor; usado p/ derivar cookies.keys se não houver. */
@@ -173,6 +174,10 @@ export function buildProvider(
       : {};
 
   const provider = new oidc.Provider(config.issuer, {
+    // O ator (`act`, RFC 8693) dos access tokens de impersonation — ver
+    // `impersonationExtraClaims` em `token_exchange.ts`. Sem isto o token trocado
+    // não se distingue de um token do próprio alvo no resource server.
+    extraTokenClaims: async (_ctx: unknown, token: unknown) => impersonationExtraClaims(token),
     // Dispatcher por modelo (suportado pelo oidc-provider: `Adapter` aceita
     // função `(name) => adapter` além de classe). Session-scoped vai pro
     // `SessionAdapterClass`, o resto pro `AdapterClass` — mesma regra de

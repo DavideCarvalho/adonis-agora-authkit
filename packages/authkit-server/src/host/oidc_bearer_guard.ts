@@ -18,7 +18,11 @@ import {
   remoteAccessTokenVerifier,
   type VerifiedAccessToken,
 } from './access_token_verifier.js';
-import { clearBearerAccountId, setBearerAccountId } from './bearer_account.js';
+import {
+  clearBearerAccountId,
+  setBearerAccountId,
+  setBearerImpersonation,
+} from './bearer_account.js';
 import {
   cachedUnauthorizedAccessConstructor,
   loadUnauthorizedAccess,
@@ -231,11 +235,20 @@ export class OidcBearerGuard<UserProvider extends SessionUserProviderContract<un
 
     const guardUser = await this.#userProvider.findById(token.sub);
     if (!guardUser) throw this.#fail('invalid_token');
+    // Token de impersonation: o ator (o admin) também tem que existir AGORA. Conta
+    // apagada/desativada depois da troca derruba o acesso na próxima request, sem
+    // esperar o `exp` do token.
+    if (token.actor && !(await this.#userProvider.findById(token.actor))) {
+      throw this.#fail('invalid_token');
+    }
 
     this.user = guardUser.getOriginal() as RealUser<UserProvider>;
     this.accessToken = token;
     this.isAuthenticated = true;
     setBearerAccountId(this.#ctx, String(guardUser.getId()));
+    if (token.actor) {
+      setBearerImpersonation(this.#ctx, { actorId: token.actor, exp: token.exp, jti: token.jti });
+    }
     this.#emitter.emit('oidc_bearer:authentication_succeeded', {
       ctx: this.#ctx,
       guardName: this.#name,

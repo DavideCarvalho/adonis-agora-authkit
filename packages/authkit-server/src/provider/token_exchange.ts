@@ -62,6 +62,35 @@ export interface TokenExchangeDeps {
    * regra de todo o resto da lib — nunca quebra hosts com um store mínimo).
    */
   accountStore?: AccountStore;
+  /**
+   * Permite impersonar uma conta que TAMBÉM tem um dos `adminRoles`. Default
+   * `true` (back-compat). Com `false`, alvo admin vira `invalid_grant`: um admin
+   * não assume a identidade (e os tokens) de outro admin.
+   */
+  impersonateAdmins?: boolean;
+}
+
+/**
+ * Propriedade (não persistida) onde a troca marca o ator ANTES do `save()`. O
+ * `extraTokenClaims` do provider (`build_provider.ts`) a transforma em
+ * `extra.act` — é o único jeito de pôr claims no `extra` de um token opaco: o
+ * oidc-provider SOBRESCREVE `extra` com o retorno desse hook ao salvar.
+ */
+export const IMPERSONATION_ACTOR_PROP = 'authkitImpersonationActor';
+
+/** `extraTokenClaims` do provider: `{ act }` para token de impersonation, nada para o resto. */
+export function impersonationExtraClaims(token: unknown): { act: { sub: string } } | undefined {
+  const actor = (token as Record<string, unknown> | null | undefined)?.[IMPERSONATION_ACTOR_PROP];
+  return typeof actor === 'string' && actor ? { act: { sub: actor } } : undefined;
+}
+
+/**
+ * O ator de um access token de impersonation: o `act` (RFC 8693 §4.1) gravado
+ * no `extra` do token trocado. `null` quando o token não é de impersonation.
+ */
+export function impersonationActorOf(token: { extra?: unknown } | null | undefined): string | null {
+  const act = (token?.extra as { act?: { sub?: unknown } } | undefined)?.act;
+  return typeof act?.sub === 'string' && act.sub ? act.sub : null;
 }
 
 /**
@@ -94,6 +123,13 @@ export function registerTokenExchange(provider: any, deps: TokenExchangeDeps): v
     const subjectAt = await provider.AccessToken.find(params.subject_token);
     if (!subjectAt || subjectAt.isExpired) {
       throw new errors.InvalidGrant('subject_token invalid or expired');
+    }
+
+    // Sem impersonation encadeada: um token que JÁ é de impersonation não vira
+    // subject de outra troca (o "ator" seria a conta personificada, e a trilha
+    // perderia quem de fato está agindo).
+    if (impersonationActorOf(subjectAt)) {
+      throw new errors.InvalidGrant('subject_token is already an impersonation token');
     }
 
     // O subject_token DEVE ter sido emitido para o MESMO client autenticado: senão
@@ -129,6 +165,9 @@ export function registerTokenExchange(provider: any, deps: TokenExchangeDeps): v
     const target = await deps.findAccount(targetId);
     if (!target) {
       throw new errors.InvalidGrant('requested_subject not found');
+    }
+    if (target.id === actor.id) {
+      throw new errors.InvalidGrant('requested_subject must be another account');
     }
 
     // Status do alvo (disabled/expirado): mesmo gate de `attemptPasswordLogin`.
@@ -189,9 +228,6 @@ export function registerTokenExchange(provider: any, deps: TokenExchangeDeps): v
       scope = params.scope || DEFAULT_SCOPE;
     }
 
-    const at = new provider.AccessToken({ accountId: target.id, client, scope });
-    const accessToken = await at.save();
-
     // Token exchange is not tied to a browser session, so there is no active org
     // context here — roles are resolved for the impersonated target with clientId only.
     const roles = deps.resolveTokenRoles
@@ -200,6 +236,18 @@ export function registerTokenExchange(provider: any, deps: TokenExchangeDeps): v
           activeOrg: null,
         })
       : (target.globalRoles ?? []);
+    if (deps.impersonateAdmins === false && roles.some((r) => adminRoles.includes(r))) {
+      throw new errors.InvalidGrant('requested_subject is not impersonable');
+    }
+
+    // O ACCESS token (não só o id_token) carrega o ator: é o que o resource server
+    // vê a cada request (`oidcBearerGuard` → `impersonationState`/`realAccountId`).
+    // Sem isso, o token trocado era indistinguível de um token do próprio alvo, e
+    // toda regra "negado durante impersonation" deixava passar o app nativo.
+    // `extra` sai no JWT (formato jwt) e na introspecção (RFC 7662).
+    const at = new provider.AccessToken({ accountId: target.id, client, scope });
+    at[IMPERSONATION_ACTOR_PROP] = actor.id;
+    const accessToken = await at.save();
 
     const idToken = new provider.IdToken(
       {
@@ -222,7 +270,7 @@ export function registerTokenExchange(provider: any, deps: TokenExchangeDeps): v
       email: target.email ?? null,
       clientId: client?.clientId ?? null,
       ip: ctx.req?.socket?.remoteAddress ?? null,
-      metadata: { scope },
+      metadata: { scope, jti: at.jti ?? null },
     });
 
     ctx.body = {
@@ -232,6 +280,9 @@ export function registerTokenExchange(provider: any, deps: TokenExchangeDeps): v
       expires_in: at.expiration ?? 3600,
       id_token: idTokenJwt,
       scope,
+      // RFC 8693 §4.1: o ator também no corpo da resposta (o `actSub` que o
+      // `requestTokenExchange` do host lê — antes ficava sempre vazio).
+      act: { sub: actor.id },
     };
   };
 

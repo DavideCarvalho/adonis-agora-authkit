@@ -41,6 +41,19 @@ export interface VerifiedAccessToken {
   exp: number | null;
   /** Id do token (`jti`), quando conhecido. */
   jti: string | null;
+  /**
+   * Quem está AGINDO quando o token é de impersonation (RFC 8693 `act.sub`, o
+   * admin que trocou o próprio token pelo do `sub`). `null` num token comum.
+   * É o que deixa o resource server tratar a request como impersonation
+   * (`impersonationState`/`realAccountId`) em vez de confundi-la com o alvo.
+   */
+  actor: string | null;
+}
+
+/** `act.sub` (RFC 8693 §4.1) de um payload/`extra`/introspecção, ou `null`. */
+function actorOf(source: unknown): string | null {
+  const act = (source as { act?: { sub?: unknown } } | null | undefined)?.act;
+  return typeof act?.sub === 'string' && act.sub ? act.sub : null;
 }
 
 /**
@@ -107,6 +120,7 @@ function fromJwtPayload(payload: JWTPayload): VerifiedAccessToken | null {
     audience: toAudience(payload.aud),
     exp: typeof payload.exp === 'number' ? payload.exp : null,
     jti: typeof payload.jti === 'string' ? payload.jti : null,
+    actor: actorOf(payload),
   };
 }
 
@@ -180,6 +194,7 @@ export function inProcessAccessTokenVerifier(
         audience: toAudience(at.aud),
         exp: typeof at.exp === 'number' ? at.exp : null,
         jti: typeof at.jti === 'string' ? at.jti : null,
+        actor: actorOf(at.extra),
       };
     },
 
@@ -302,6 +317,7 @@ export function remoteAccessTokenVerifier(
       audience: toAudience(body.aud),
       exp: typeof body.exp === 'number' ? body.exp : null,
       jti: typeof body.jti === 'string' ? body.jti : null,
+      actor: actorOf(body),
     };
   };
 

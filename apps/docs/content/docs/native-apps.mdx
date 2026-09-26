@@ -343,6 +343,13 @@ or `auth.authenticateUsing([...])`). An app that never configures the bearer gua
 exactly as before. `realAccountId(ctx)` follows the same rule; `hasAccountSession(ctx)` still
 answers only about the session.
 
+### Admin impersonation from the app
+
+The exchanged access token carries `act`, and the guard turns it into
+`impersonationState(ctx)` / `realAccountId(ctx)` on the request — see
+[bearer requests](/docs/impersonation#bearer-requests-native-apps). Enable the
+token-exchange grant only on the clients that need it.
+
 ### Testing
 
 In in-process mode the guard's `authenticateAsClient` mints a real access token, so the Japa API

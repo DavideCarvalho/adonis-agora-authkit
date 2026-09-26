@@ -15,6 +15,7 @@ import {
 import { ACCOUNT_SESSION_KEY } from '../src/host/account_session_key.js';
 import { authkitUserProvider } from '../src/host/adonis_auth_user_provider.js';
 import { getAccountId, hasAccountSession, realAccountId } from '../src/host/console_session.js';
+import { impersonationState } from '../src/host/impersonation_session.js';
 import {
   OidcBearerGuard,
   type OidcBearerGuardPolicy,
@@ -53,6 +54,7 @@ function verifiedToken(overrides: Partial<VerifiedAccessToken> = {}): VerifiedAc
     audience: [],
     exp: Math.floor(Date.now() / 1000) + 300,
     jti: 'jti',
+    actor: null,
     ...overrides,
   };
 }
@@ -451,5 +453,104 @@ test.group('oidcBearerGuard() — config/auth.ts real (@adonisjs/auth)', (group)
     await error.handle(error, { request: { accepts: () => 'json' }, response: res });
     assert.equal(status, 401);
     assert.deepEqual(body, { errors: [{ message: 'Unauthorized access' }] });
+  });
+});
+
+test.group('OidcBearerGuard — impersonation pelo access token (act)', () => {
+  const users = new Map<string, FakeUser>([
+    ['u1', { id: 'u1', email: 'a@b.com' }],
+    ['admin', { id: 'admin', email: 'admin@b.com' }],
+  ]);
+
+  test('token com act: age como o alvo, mas impersonationState/realAccountId veem o admin', async ({
+    assert,
+  }) => {
+    const exp = Math.floor(Date.now() / 1000) + 600;
+    const { guard, ctx } = makeGuard({
+      authorization: 'Bearer good',
+      users,
+      verifier: fakeVerifier(verifiedToken({ actor: 'admin', exp, jti: 'imp-1' })),
+    });
+    await guard.authenticate();
+
+    assert.equal(getAccountId(ctx), 'u1', 'a request age como o alvo');
+    assert.equal(realAccountId(ctx), 'admin', 'o humano real é o admin');
+    const state = impersonationState(ctx);
+    assert.isTrue(state.active);
+    assert.equal(state.source, 'bearer');
+    assert.equal(state.targetId, 'u1');
+    assert.equal(state.impersonatorId, 'admin');
+    assert.equal(state.impersonationId, 'imp-1');
+    assert.equal(state.expiresAt, exp * 1000);
+  });
+
+  test('token comum: sem impersonation', async ({ assert }) => {
+    const { guard, ctx } = makeGuard({ authorization: 'Bearer good', users });
+    await guard.authenticate();
+    assert.isFalse(impersonationState(ctx).active);
+    assert.equal(realAccountId(ctx), 'u1');
+  });
+
+  test('ator que não existe mais derruba o token (401)', async ({ assert }) => {
+    const { guard, ctx } = makeGuard({
+      authorization: 'Bearer good',
+      users: new Map([['u1', { id: 'u1', email: 'a@b.com' }]]),
+      verifier: fakeVerifier(verifiedToken({ actor: 'admin-apagado' })),
+    });
+    assert.isFalse(await guard.check());
+    assert.isNull(getAccountId(ctx));
+    assert.isFalse(impersonationState(ctx).active);
+  });
+
+  test('sessão de console ganha do bearer (mesma regra do getAccountId)', async ({ assert }) => {
+    const { guard, ctx } = makeGuard({
+      authorization: 'Bearer good',
+      users,
+      session: { [ACCOUNT_SESSION_KEY]: 'u1' },
+      verifier: fakeVerifier(verifiedToken({ actor: 'admin' })),
+    });
+    await guard.authenticate();
+    assert.isFalse(impersonationState(ctx).active, 'a sessão (sem impersonation) é quem manda');
+  });
+});
+
+test.group('inProcessAccessTokenVerifier — act do token trocado', (group) => {
+  let service: OidcService;
+  group.setup(async () => {
+    const fakeApp = {
+      container: { make: async () => ({ connection: () => new RedisMock() }) },
+    } as any;
+    const cfg = await configProvider.resolve<ResolvedServerConfig>(
+      fakeApp,
+      defineConfig({
+        issuer: 'http://localhost:9998',
+        adapter: adapters.redis({ connection: 'main' }),
+        jwks: { source: 'managed', algorithm: 'RS256' },
+        accountStore: fakeAccountStore(),
+      }),
+    );
+    service = new OidcService(cfg!, 'a'.repeat(32));
+  });
+
+  test('AT opaco com extra.act → actor; sem → null', async ({ assert }) => {
+    const verifier = inProcessAccessTokenVerifier(async () => service);
+    const provider: any = service.provider;
+    const exchanged = new provider.AccessToken({
+      accountId: 'u1',
+      clientId: 'mobile',
+      scope: 'openid',
+      gty: 'urn:ietf:params:oauth:grant-type:token-exchange',
+    });
+    exchanged.authkitImpersonationActor = 'admin';
+    const impersonation = await exchanged.save();
+    const plain = await new provider.AccessToken({
+      accountId: 'u1',
+      clientId: 'mobile',
+      scope: 'openid',
+      gty: 'authorization_code',
+    }).save();
+
+    assert.equal((await verifier.verify(impersonation))?.actor, 'admin');
+    assert.isNull((await verifier.verify(plain))?.actor);
   });
 });
