@@ -839,12 +839,20 @@ export interface AdminConfigInput {
    * não altera mais o valor.
    */
   impersonation?: boolean;
+  /**
+   * Permite impersonar uma conta que também tem um dos `roles` de admin. Com
+   * `false`, o token-exchange recusa alvo admin (`invalid_grant`): um admin não
+   * assume a identidade de outro. Default: **`true`** (back-compat; virar o
+   * default é decisão de major, mesma regra de `impersonation`).
+   */
+  impersonateAdmins?: boolean;
 }
 
 export interface ResolvedAdminConfig {
   enabled: boolean;
   roles: string[];
   impersonation: boolean;
+  impersonateAdmins: boolean;
 }
 
 export function resolveAdmin(input?: AdminConfigInput): ResolvedAdminConfig {
@@ -854,6 +862,7 @@ export function resolveAdmin(input?: AdminConfigInput): ResolvedAdminConfig {
     // Default `true`: preserva o comportamento histórico (grant sempre
     // registrado). Ver o docblock de `AdminConfigInput.impersonation`.
     impersonation: input?.impersonation !== false,
+    impersonateAdmins: input?.impersonateAdmins !== false,
   };
 }
 
