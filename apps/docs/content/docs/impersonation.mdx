@@ -49,6 +49,18 @@ The default is `true`. Turning the capability off is a deliberate act.
   registered.
 </Callout>
 
+### Impersonating other admins
+
+By default an admin can impersonate any enabled account, other admins included. Set
+`admin.impersonateAdmins: false` to refuse targets that also hold one of `admin.roles`:
+one admin should not take on another admin's identity (and tokens).
+
+```ts
+admin: { roles: ['admin'], impersonateAdmins: false }
+```
+
+Impersonating yourself and chaining impersonations are always refused.
+
 ### Relationship with the `admin_impersonation` runtime setting
 
 There is also an `admin_impersonation` [runtime setting](/docs/settings) with the shape
@@ -107,19 +119,25 @@ order:
    `resolveTokenRoles` hook the authorization-code flow uses, falling back to the account
    store's global roles — so a host that keeps roles in its own table is checked against
    that table, not against an empty column.
-5. `requested_subject` is present and resolves to a real account.
-6. The **target** is not disabled or expired — the same gate a password login goes
+5. The `subject_token` is **not already an impersonation token** (no chained
+   impersonation: the "actor" would be the impersonated account and the trail would lose
+   who is really acting).
+6. `requested_subject` is present, resolves to a real account, and is **not the actor
+   itself**. With `admin.impersonateAdmins: false`, a target that also holds one of the
+   `admin.roles` is rejected too (default `true`, for back-compat).
+7. The **target** is not disabled or expired — the same gate a password login goes
    through, when the account store exposes account status. Impersonating an account you
    just disabled would otherwise hand out fully working tokens for an identity that
    should have no access.
-7. Any `audience` / `resource` in the request is one of the provider's supported resource
+8. Any `audience` / `resource` in the request is one of the provider's supported resource
    indicators; an unknown target is rejected rather than embedded in the token.
-8. When the client declares a scope allowlist, the requested `scope` is intersected with
+9. When the client declares a scope allowlist, the requested `scope` is intersected with
    it, and a request whose scopes have no overlap is rejected outright instead of
    yielding an empty-scope token.
 
-Only then is a token issued for the target, with the `act` claim naming the actor and an
-`impersonation` audit event recorded.
+Only then is a token issued for the target, with the `act` claim naming the actor — in the
+**access token** too, not only the id_token (see [bearer requests](#bearer-requests-native-apps))
+— and an `impersonation` audit event recorded.
 
 <Callout type="warn">
   **The IdP authorizes the *actor*, not the *pairing*.** Steps 4 and 6 mean a non-admin
@@ -434,11 +452,36 @@ The rule of thumb: **`realAccountId` for "may this person do it", `getAccountId`
 data is this".** Anything that grants privilege, approves, spends, or writes an audit
 `actorId` belongs in the first column.
 
+## Bearer requests (native apps)
+
+A native app (or any client that calls your API with `Authorization: Bearer`) impersonates by
+running the exchange with the admin's **own** access token and then calling the API with the
+exchanged token. There is no session in that request, so the impersonation has to travel in
+the token itself: the exchanged **access token** carries `act` (in `extra` for opaque tokens,
+as a claim for JWT access tokens, and in the introspection response).
+
+`oidcBearerGuard` reads it and records the impersonation on the request, so the same helpers
+work without a session:
+
+```ts
+import { getAccountId, impersonationState, realAccountId } from '@adonis-agora/authkit-server'
+
+getAccountId(ctx)          // the target — "whose data is this"
+realAccountId(ctx)         // the admin behind the token
+impersonationState(ctx)    // { active: true, source: 'bearer', impersonatorId, targetId, expiresAt }
+```
+
+Every "denied while impersonating" rule you already wrote against `impersonationState(ctx).active`
+applies to the app with no change. A console session still wins over a bearer token on the same
+request. The exchanged token has no refresh token and lives for the access-token TTL; to stop,
+revoke it (RFC 7009) and go back to the admin's own token. If the admin's account is deleted,
+the guard rejects the exchanged token on the next request, before it expires.
+
 ## The `act` claim and the audit trail
 
 The issued token carries the standard RFC 8693 **`act`** (actor) claim, recording *who*
-is impersonating the subject. This keeps the audit trail honest — the token is for the
-target user, but the `act` claim names the admin behind it.
+is impersonating the subject — in the id_token and in the access token. This keeps the audit
+trail honest — the token is for the target user, but the `act` claim names the admin behind it.
 
 Two [audit events](/docs/security) are emitted:
 
