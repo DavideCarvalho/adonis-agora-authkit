@@ -289,6 +289,17 @@ export {
   beginCustomLogin,
   completeCustomLogin,
 } from './src/host/custom_login.js';
+export type {
+  CustomMfaContext,
+  CustomMfaDescription,
+  CustomMfaDescriptor,
+  CustomMfaField,
+  CustomMfaMethod,
+  CustomMfaMethodBinding,
+  CustomMfaMethodConstructor,
+  CustomMfaMethods,
+} from './src/host/custom_mfa.js';
+export { beginCustomMfa, customMfaViewProps, verifyCustomMfa } from './src/host/custom_mfa.js';
 export { normalizeEmailIdentifier } from './src/host/email_identifier.js';
 export type { ResolveGeo } from './src/host/geo.js';
 export { GEO_RESOLVE_TIMEOUT_MS, resolveGeoSafe } from './src/host/geo.js';

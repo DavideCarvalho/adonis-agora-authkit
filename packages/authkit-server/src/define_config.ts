@@ -26,6 +26,7 @@ import {
   type PolicyRouteOption,
 } from './host/config_locks.js';
 import type { CustomLoginMethods } from './host/custom_login.js';
+import type { CustomMfaMethods } from './host/custom_mfa.js';
 import type { ResolveGeo } from './host/geo.js';
 import { type AuthMessages, type I18nConfig, resolveMessages } from './host/i18n.js';
 import {
@@ -1048,6 +1049,8 @@ export interface ResolvedInteractionRecoveryConfig {
 export interface AuthServerConfigInput {
   /** Host-defined primary authentication classes or instances, keyed by stable method ID. */
   customLoginMethods?: CustomLoginMethods;
+  /** Optional enrolled factor registry and total distinct factor count (primary included). */
+  mfa?: { methods?: CustomMfaMethods; requiredFactors?: number };
   /** OTP delivery only. The host remains responsible for issuing and verifying codes. */
   whatsapp?: { sender: WhatsappCodeSenderBinding };
   issuer: string;
@@ -1418,6 +1421,8 @@ export interface AuthServerConfigInput {
 
 export interface ResolvedServerConfig {
   customLoginMethods?: CustomLoginMethods;
+  /** Optional enrolled factor registry and total distinct factor count (primary included). */
+  mfa?: { methods?: CustomMfaMethods; requiredFactors?: number };
   /** OTP delivery only. The host remains responsible for issuing and verifying codes. */
   whatsapp?: { sender: WhatsappCodeSenderBinding };
   issuer: string;
@@ -1584,6 +1589,13 @@ export function jwksAutoFallbackWarning(storePath: string | null): string | null
 }
 
 export function defineConfig(config: AuthServerConfigInput) {
+  const requiredFactors = config.mfa?.requiredFactors;
+  if (
+    requiredFactors !== undefined &&
+    (!Number.isInteger(requiredFactors) || requiredFactors < 2 || requiredFactors > 8)
+  ) {
+    throw new Error('mfa.requiredFactors must be an integer between 2 and 8');
+  }
   return configProvider.create(async (app: ApplicationService): Promise<ResolvedServerConfig> => {
     const AdapterClass = await config.adapter.resolver(app);
     // `session.adapter` ausente ⇒ mesma classe do default (back-compat: o
@@ -1705,6 +1717,7 @@ export function defineConfig(config: AuthServerConfigInput) {
       },
       accountStore: config.accountStore,
       customLoginMethods: config.customLoginMethods,
+      mfa: config.mfa,
       whatsapp: config.whatsapp,
       patStore: config.patStore,
       mountPath: config.mountPath ?? '/oidc',

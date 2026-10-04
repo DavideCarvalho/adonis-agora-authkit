@@ -12,6 +12,16 @@ import { guardBotProtection, resolveEffectiveBotProtection } from '../bot_protec
 import { brandFor, isFirstParty } from '../branding.js';
 import { type CustomLoginIdentity, isCustomLoginMethodId } from '../custom_login.js';
 import { completeCustomLoginSession } from '../custom_login_completion.js';
+import {
+  beginCustomMfa,
+  clearMfaFlow,
+  customMfaViewProps,
+  getMfaFlow,
+  initializeMfaFlow,
+  recordVerifiedMfaFactor,
+  resolveCustomMfaMethods,
+  verifyCustomMfa,
+} from '../custom_mfa.js';
 import { sendMagicLinkEmail, sendOtpUnlockEmail } from '../default_mailer.js';
 import { normalizeEmailIdentifier } from '../email_identifier.js';
 import { translate } from '../i18n.js';
@@ -108,7 +118,7 @@ export default class AuthInteractionController {
   /** Shared completion for trusted host authentication; primary proof is the host's responsibility. */
   async completeCustomLogin(
     ctx: HttpContext,
-    input: CustomLoginIdentity & { method: string; passwordless?: boolean },
+    input: CustomLoginIdentity & { method: string; factorId?: string; passwordless?: boolean },
   ): Promise<unknown> {
     if (!isCustomLoginMethodId(input.method)) throw new Error('Invalid custom login method');
     const service = await ctx.containerResolver.make('authkit.server');
@@ -152,7 +162,16 @@ export default class AuthInteractionController {
         message: maintenance.message ?? translate(cfg.messages, 'maintenance.default_message'),
       });
     }
-    const gate = await this.secondFactorGate(ctx, cfg, account.id, details, input.method);
+    const gate = await this.secondFactorGate(
+      ctx,
+      cfg,
+      account.id,
+      details,
+      input.method,
+      input.factorId,
+      input.remember,
+      input.passwordless === true,
+    );
     if (gate.kind === 'challenge') {
       ctx.session.put(MFA_CUSTOM_PRIMARY_KEY, {
         method: input.method,
@@ -671,10 +690,265 @@ export default class AuthInteractionController {
    * 2º fator: lê o accountId pendente da sessão e aceita um código TOTP (`code`)
    * OU um recovery code (`recoveryCode`). Em caso de sucesso finaliza a interaction.
    */
+  private async renderMfaChallenge(
+    ctx: HttpContext,
+    cfg: ResolvedServerConfig,
+    props: Record<string, unknown>,
+  ) {
+    const flow = getMfaFlow(ctx);
+    const custom = flow ? await customMfaViewProps(ctx) : {};
+    const used = new Set(
+      flow ? [flow.primaryFactorId, ...flow.completed.map((entry) => entry.factorId)] : [],
+    );
+    return cfg.render!(ctx, 'mfa-challenge', {
+      ...props,
+      ...custom,
+      ...(used.has('totp') ? { totpAvailable: false } : {}),
+      ...(used.has('webauthn') ? { passkeyAvailable: false } : {}),
+    });
+  }
+
+  private async configuredMfaGate(
+    ctx: HttpContext,
+    cfg: ResolvedServerConfig,
+    accountId: string,
+    details: { uid: string; params: Record<string, string> },
+    primary: string,
+    primaryFactorId: string,
+    rememberRequested?: boolean,
+    passwordless = primary !== 'pwd',
+  ): Promise<{ kind: 'none' } | { kind: 'trusted' } | { kind: 'challenge'; response: unknown }> {
+    const requiredFactors = cfg.mfa?.requiredFactors ?? 2;
+    const mfaRequired = this.acrRequiresMfa(cfg, details) || cfg.mfa?.requiredFactors !== undefined;
+    const mfa = (await cfg.accountStore.getMfaState?.(accountId)) ?? { enabled: false };
+    const enrolledTotp = mfa.totp ?? mfa.enabled;
+    const enrolledPasskey = await this.hasPasskeys(cfg, accountId);
+    ctx.session.put(MFA_PENDING_KEY, accountId);
+    ctx.session.put(MFA_PRIMARY_KEY, primary);
+    const rememberValue = ctx.request.input('remember');
+    initializeMfaFlow(ctx, {
+      uid: details.uid,
+      accountId,
+      primaryMethod: primary,
+      primaryFactorId,
+      passwordless,
+      requiredFactors,
+      remember:
+        rememberRequested ??
+        (rememberValue === true || ['on', '1', 'true'].includes(String(rememberValue))),
+    });
+    const flow = getMfaFlow(ctx)!;
+    const custom = await resolveCustomMfaMethods(
+      ctx,
+      accountId,
+      details.uid,
+      primary,
+      flow.challengeId,
+    );
+    const totpAvailable = Boolean(enrolledTotp && primaryFactorId !== 'totp');
+    const passkeyAvailable = Boolean(enrolledPasskey && primaryFactorId !== 'webauthn');
+    const groups = new Set(
+      custom.map((method) => method.factorId).filter((group) => group !== primaryFactorId),
+    );
+    if (totpAvailable) groups.add('totp');
+    if (passkeyAvailable) groups.add('webauthn');
+    const enrolled = Boolean(enrolledTotp || enrolledPasskey || custom.length);
+    if (!enrolled && !mfaRequired) {
+      clearMfaFlow(ctx);
+      ctx.session.forget(MFA_PENDING_KEY);
+      ctx.session.forget(MFA_PRIMARY_KEY);
+      return { kind: 'none' };
+    }
+    const brand = brandFor(cfg.branding, details.params.client_id, details.params.audience);
+    if (groups.size < requiredFactors - 1) {
+      clearMfaFlow(ctx);
+      ctx.session.forget(MFA_PENDING_KEY);
+      ctx.session.forget(MFA_PRIMARY_KEY);
+      return {
+        kind: 'challenge',
+        response: await this.renderMfaChallenge(ctx, cfg, {
+          uid: details.uid,
+          csrfToken: ctx.request.csrfToken,
+          brand,
+          noEnrollment: true,
+          totpAvailable: false,
+          passkeyAvailable: false,
+          error: translate(cfg.messages, 'mfa_challenge.required_no_enrollment'),
+        }),
+      };
+    }
+    // Custom enrollment does not expose a revocation timestamp; never bypass it with a legacy trusted-device cookie.
+    if (
+      cfg.trustedDevices.enabled &&
+      !mfaRequired &&
+      !custom.length &&
+      requiredFactors === 2 &&
+      (await this.checkTrustedDevice(ctx, accountId, mfa.enabledAt ?? null))
+    ) {
+      clearMfaFlow(ctx);
+      ctx.session.forget(MFA_PENDING_KEY);
+      ctx.session.forget(MFA_PRIMARY_KEY);
+      return { kind: 'trusted' };
+    }
+    return {
+      kind: 'challenge',
+      response: await this.renderMfaChallenge(ctx, cfg, {
+        uid: details.uid,
+        csrfToken: ctx.request.csrfToken,
+        brand,
+        totpAvailable,
+        passkeyAvailable,
+        trustedDevicesEnabled: cfg.trustedDevices.enabled && !custom.length,
+        trustedDeviceDays: cfg.trustedDevices.days,
+      }),
+    };
+  }
+
+  async customMfaBegin(ctx: HttpContext) {
+    await beginCustomMfa(ctx, String(ctx.request.param('method')));
+    const service = await ctx.containerResolver.make('authkit.server');
+    const flow = getMfaFlow(ctx)!;
+    return this.renderMfaChallenge(ctx, service.config, {
+      uid: flow.uid,
+      csrfToken: ctx.request.csrfToken,
+      totpAvailable: await this.hasTotp(service.config, flow.accountId),
+      passkeyAvailable: await this.hasPasskeys(service.config, flow.accountId),
+      brand: brandFor(service.config.branding, undefined),
+    });
+  }
+
+  async customMfaVerify(ctx: HttpContext) {
+    const service = await ctx.containerResolver.make('authkit.server');
+    const details = await service.interactions.details(ctx);
+    const method = String(ctx.request.param('method'));
+    let ok: boolean;
+    try {
+      ok = await verifyCustomMfa(ctx, method);
+    } catch (error) {
+      await service.config.audit?.record({
+        type: 'login.failure',
+        accountId: getMfaFlow(ctx)?.accountId ?? null,
+        metadata: { stage: 'mfa', method },
+      });
+      throw error;
+    }
+    const flow = getMfaFlow(ctx);
+    if (!ok) {
+      await service.config.audit?.record({
+        type: 'login.failure',
+        accountId: flow?.accountId ?? null,
+        metadata: { stage: 'mfa', method },
+      });
+      if (!flow) return ctx.response.redirect(`/auth/interaction/${ctx.request.param('uid')}`);
+      return this.renderMfaChallenge(ctx, service.config, {
+        uid: flow.uid,
+        csrfToken: ctx.request.csrfToken,
+        error: translate(service.config.messages, 'errors.invalid_code'),
+        totpAvailable: await this.hasTotp(service.config, flow.accountId),
+        passkeyAvailable: await this.hasPasskeys(service.config, flow.accountId),
+        brand: brandFor(service.config.branding, undefined),
+      });
+    }
+    if (!flow) throw new Error('Missing MFA flow');
+    const descriptors = await resolveCustomMfaMethods(
+      ctx,
+      flow.accountId,
+      flow.uid,
+      flow.primaryMethod,
+      flow.challengeId,
+    );
+    const descriptor = descriptors.find((item) => item.id === method);
+    if (!descriptor) throw new Error('MFA method is no longer enabled');
+    return this.finishVerifiedMfa(ctx, service.config, details, method, descriptor.factorId);
+  }
+
+  private async finishVerifiedMfa(
+    ctx: HttpContext,
+    cfg: ResolvedServerConfig,
+    details: { uid: string; params: Record<string, string> },
+    method: string,
+    factorId: string,
+  ) {
+    const flow = getMfaFlow(ctx);
+    if (!flow) throw new Error('Missing MFA flow');
+    const liveDetails = await (
+      await ctx.containerResolver.make('authkit.server')
+    ).interactions.details(ctx);
+    if (liveDetails.uid !== flow.uid || liveDetails.prompt.name !== 'login') {
+      this.takeMfaPending(ctx);
+      clearMfaFlow(ctx);
+      return ctx.response.redirect(`/auth/interaction/${ctx.request.param('uid')}`);
+    }
+    const progress = recordVerifiedMfaFactor(ctx, method, factorId);
+    if (!progress.complete)
+      return this.renderMfaChallenge(ctx, cfg, {
+        uid: flow.uid,
+        csrfToken: ctx.request.csrfToken,
+        totpAvailable: await this.hasTotp(cfg, flow.accountId),
+        passkeyAvailable: await this.hasPasskeys(cfg, flow.accountId),
+        brand: brandFor(cfg.branding, undefined),
+      });
+    const settings = await resolveRuntimeSettingsOrNoop(ctx);
+    const account = await cfg.accountStore.findById(flow.accountId);
+    const status = account
+      ? await assertLoginAllowed(cfg, account.id, {
+          email: account.email,
+          ip: ctx.request.ip?.() ?? null,
+          settings,
+          passwordless: flow.passwordless === true,
+        })
+      : { allowed: false as const, reason: 'disabled' as const };
+    this.takeMfaPending(ctx);
+    clearMfaFlow(ctx);
+    if (
+      !account ||
+      !status.allowed ||
+      (await isEmailUnverifiedBlock(cfg, flow.accountId, settings))
+    ) {
+      return cfg.render!(ctx, 'login', {
+        uid: flow.uid,
+        csrfToken: ctx.request.csrfToken,
+        error: translate(
+          cfg.messages,
+          !status.allowed ? accountStatusErrorKey(status.reason) : 'errors.email_unverified',
+        ),
+        brand: brandFor(cfg.branding, undefined),
+      });
+    }
+    const maintenance = await resolveEffectiveMaintenanceMode(settings);
+    if (
+      maintenance.enabled &&
+      !(cfg.admin?.roles ?? ['ADMIN']).some((role) => (account.globalRoles ?? []).includes(role))
+    ) {
+      return cfg.render!(ctx, 'maintenance', {
+        uid: flow.uid,
+        csrfToken: ctx.request.csrfToken,
+        message: maintenance.message ?? translate(cfg.messages, 'maintenance.default_message'),
+        brand: brandFor(cfg.branding, undefined),
+        adminLoginAllowed: true,
+      });
+    }
+    forgetLoginEmail(ctx);
+    await notifyLoginSuccess(ctx, cfg, {
+      accountId: account.id,
+      email: account.email,
+      metadata: { mfa: flow.completed.map((entry) => entry.method) },
+    });
+    const stepUp = this.acrRequiresMfa(cfg, details) ? { acr: cfg.stepUp?.mfaAcr } : {};
+    return completeCustomLoginSession(
+      ctx,
+      account.id,
+      {
+        ...stepUp,
+        amr: [flow.primaryMethod, 'mfa', ...flow.completed.map((entry) => entry.method)],
+      },
+      flow.remember === true,
+    );
+  }
+
   async mfaVerify(ctx: HttpContext) {
     const service = await ctx.containerResolver.make('authkit.server');
     const cfg = service.config;
-    const render = cfg.render!;
     const details = await service.interactions.details(ctx);
     const brand = brandFor(
       cfg.branding,
@@ -682,6 +956,13 @@ export default class AuthInteractionController {
       details.params.audience as string | undefined,
     );
     const accountId = ctx.session.get(MFA_PENDING_KEY) as string | undefined;
+    if (cfg.mfa && !getMfaFlow(ctx))
+      return ctx.response.redirect(`/auth/interaction/${ctx.request.param('uid')}`);
+    if (cfg.mfa && (details.uid !== ctx.request.param('uid') || details.prompt.name !== 'login')) {
+      this.takeMfaPending(ctx);
+      clearMfaFlow(ctx);
+      return ctx.response.redirect(`/auth/interaction/${ctx.request.param('uid')}`);
+    }
     const ip = ctx.request.ip?.() ?? null;
     const clientId = (details.params.client_id as string | undefined) ?? null;
 
@@ -699,7 +980,7 @@ export default class AuthInteractionController {
 
     // Verifica se o fator OTP está travado ANTES de tentar verificar.
     if (otpLockoutCfg.enabled && (await otpLockout.isLocked(accountId))) {
-      return render(ctx, 'mfa-challenge', {
+      return this.renderMfaChallenge(ctx, cfg, {
         uid: ctx.request.param('uid'),
         csrfToken: ctx.request.csrfToken,
         error: translate(cfg.messages, 'errors.otp_locked'),
@@ -737,7 +1018,7 @@ export default class AuthInteractionController {
         // Emite e-mail de desbloqueio (best-effort, fail-safe).
         await this.sendOtpUnlockEmailIfAble(ctx, cfg, accountId, otpLockoutCfg.unlockTtlHours);
 
-        return render(ctx, 'mfa-challenge', {
+        return this.renderMfaChallenge(ctx, cfg, {
           uid: ctx.request.param('uid'),
           csrfToken: ctx.request.csrfToken,
           error: translate(cfg.messages, 'errors.otp_locked'),
@@ -750,7 +1031,7 @@ export default class AuthInteractionController {
         });
       }
 
-      return render(ctx, 'mfa-challenge', {
+      return this.renderMfaChallenge(ctx, cfg, {
         uid: ctx.request.param('uid'),
         csrfToken: ctx.request.csrfToken,
         error: translate(cfg.messages, 'errors.invalid_code'),
@@ -764,6 +1045,9 @@ export default class AuthInteractionController {
 
     // Código correto: zera o contador de falhas OTP.
     await otpLockout.clearFailures(accountId);
+
+    if (cfg.mfa)
+      return this.finishVerifiedMfa(ctx, cfg, details, usedRecovery ? 'recovery' : 'totp', 'totp');
 
     // Sucesso no 2º fator: opcionalmente confia neste dispositivo (checkbox).
     await this.maybeTrustDevice(ctx, cfg, accountId);
@@ -890,8 +1174,23 @@ export default class AuthInteractionController {
     accountId: string,
     details: any,
     primary: PrimaryFactor,
+    primaryFactorId = primary,
+    rememberRequested?: boolean,
+    passwordless = primary !== 'pwd',
   ): Promise<{ kind: 'none' } | { kind: 'trusted' } | { kind: 'challenge'; response: any }> {
     ctx.session.forget(MFA_CUSTOM_PRIMARY_KEY);
+    clearMfaFlow(ctx);
+    if (cfg.mfa)
+      return this.configuredMfaGate(
+        ctx,
+        cfg,
+        accountId,
+        details,
+        primary,
+        primaryFactorId,
+        rememberRequested,
+        passwordless,
+      );
     const mfaRequired = this.acrRequiresMfa(cfg, details);
     const mfa = (await cfg.accountStore.getMfaState?.(accountId)) ?? { enabled: false };
     // Passkey disponível como alternativa ao TOTP se o store suporta E a conta
@@ -904,7 +1203,6 @@ export default class AuthInteractionController {
     const hasFactor = passkeyAvailable || totpAvailable;
     if (!hasFactor && !mfaRequired) return { kind: 'none' };
 
-    const render = cfg.render!;
     const brand = brandFor(
       cfg.branding,
       details.params.client_id as string | undefined,
@@ -915,7 +1213,7 @@ export default class AuthInteractionController {
     if (!hasFactor) {
       return {
         kind: 'challenge',
-        response: await render(ctx, 'mfa-challenge', {
+        response: await this.renderMfaChallenge(ctx, cfg, {
           uid,
           csrfToken: ctx.request.csrfToken,
           brand,
@@ -937,7 +1235,7 @@ export default class AuthInteractionController {
     ctx.session.put(MFA_PRIMARY_KEY, primary);
     return {
       kind: 'challenge',
-      response: await render(ctx, 'mfa-challenge', {
+      response: await this.renderMfaChallenge(ctx, cfg, {
         uid,
         csrfToken: ctx.request.csrfToken,
         brand,
@@ -1539,8 +1837,15 @@ export default class AuthInteractionController {
   async passkeyVerify(ctx: HttpContext) {
     const service = await ctx.containerResolver.make('authkit.server');
     const cfg = service.config;
-    const render = cfg.render!;
     const details = await service.interactions.details(ctx);
+    if (cfg.mfa && (details.uid !== ctx.request.param('uid') || details.prompt.name !== 'login')) {
+      this.takeMfaPending(ctx);
+      clearMfaFlow(ctx);
+      return ctx.response.redirect(`/auth/interaction/${ctx.request.param('uid')}`);
+    }
+    if (cfg.mfa && ctx.session.get(MFA_PENDING_KEY) && !getMfaFlow(ctx)) {
+      return ctx.response.redirect(`/auth/interaction/${ctx.request.param('uid')}`);
+    }
     const brand = brandFor(
       cfg.branding,
       details.params.client_id as string | undefined,
@@ -1611,7 +1916,7 @@ export default class AuthInteractionController {
           clientId,
           metadata: { stage: 'mfa', method: 'webauthn', reason: 'method_disabled_by_user' },
         });
-        return render(ctx, 'mfa-challenge', {
+        return this.renderMfaChallenge(ctx, cfg, {
           uid: ctx.request.param('uid'),
           csrfToken: ctx.request.csrfToken,
           error: translate(cfg.messages, 'mfa_challenge.passkey_error'),
@@ -1631,7 +1936,7 @@ export default class AuthInteractionController {
         clientId,
         metadata: { stage: 'mfa', method: 'webauthn' },
       });
-      return render(ctx, 'mfa-challenge', {
+      return this.renderMfaChallenge(ctx, cfg, {
         uid: ctx.request.param('uid'),
         csrfToken: ctx.request.csrfToken,
         error: translate(cfg.messages, 'mfa_challenge.passkey_error'),
@@ -1655,7 +1960,7 @@ export default class AuthInteractionController {
         clientId,
         metadata: { stage: 'mfa', method: 'webauthn', reason: 'unverified' },
       });
-      return render(ctx, 'mfa-challenge', {
+      return this.renderMfaChallenge(ctx, cfg, {
         uid: ctx.request.param('uid'),
         csrfToken: ctx.request.csrfToken,
         error: translate(cfg.messages, 'errors.email_unverified'),
@@ -1687,7 +1992,7 @@ export default class AuthInteractionController {
       passwordless: true,
     });
     if (!passkeyStatusGate.allowed) {
-      return render(ctx, 'mfa-challenge', {
+      return this.renderMfaChallenge(ctx, cfg, {
         uid: ctx.request.param('uid'),
         csrfToken: ctx.request.csrfToken,
         error: translate(cfg.messages, accountStatusErrorKey(passkeyStatusGate.reason)),
@@ -1697,6 +2002,16 @@ export default class AuthInteractionController {
         trustedDevicesEnabled: cfg.trustedDevices.enabled,
         trustedDeviceDays: cfg.trustedDevices.days,
       });
+    }
+
+    if (cfg.mfa && ctx.session.get(MFA_PENDING_KEY)) {
+      if (!getMfaFlow(ctx))
+        return ctx.response.redirect(`/auth/interaction/${ctx.request.param('uid')}`);
+      return this.finishVerifiedMfa(ctx, cfg, details, 'webauthn', 'webauthn');
+    }
+    if (cfg.mfa) {
+      const gate = await this.secondFactorGate(ctx, cfg, accountId, details, 'webauthn');
+      if (gate.kind === 'challenge') return gate.response;
     }
 
     // Passkey OK: opcionalmente confia neste dispositivo (checkbox no challenge).

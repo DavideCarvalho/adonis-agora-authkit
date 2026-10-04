@@ -260,3 +260,48 @@ whatsapp: {
 ```
 
 Whatsmiau's optional `baseUrl` includes the API version path and defaults to `https://api.whatsmiau.dev/v2`. Meta requires an explicit supported Graph API version and an approved authentication template with an OTP/copy-code button. Template language must exist for the configured template; `languageCode` overrides automatic locale mapping (`pt-BR` → `pt_BR`, `en` → `en_US`, `es` → `es`). Meta template text and displayed expiry are managed in the approved template; `expiresInSeconds` describes the host's verification TTL and does not change template expiry. Both native adapters use bounded requests, reject redirects and discard provider error bodies so credentials/OTPs do not enter error messages.
+
+
+### Custom MFA methods (classes or instances)
+
+Register additional methods separately from primary login methods. Registration never enrolls an account: `isEnabled` must consult your enrollment store. A method may send a challenge in `begin`, describe its form fields, and verify a proof in `verify`.
+
+```ts
+import { inject } from '@adonisjs/core'
+import type { CustomMfaContext, CustomMfaMethod } from '@adonis-agora/authkit-server'
+
+// Enrollment and challenge services belong to your application and are injected by Adonis.
+@inject()
+export class WhatsappMfa implements CustomMfaMethod {
+  readonly factorId = 'phone'
+  constructor(private enrollment: PhoneEnrollment, private challenges: PhoneChallenges) {}
+
+  async isEnabled({ accountId }: CustomMfaContext) {
+    return this.enrollment.hasVerifiedPhone(accountId)
+  }
+  async describe() {
+    return { label: 'WhatsApp', fields: [{ name: 'code', label: 'Code', inputMode: 'numeric' as const }] }
+  }
+  async begin({ accountId, challengeId }: CustomMfaContext) {
+    await this.challenges.sendWhatsapp(accountId, challengeId)
+  }
+  async verify({ ctx, accountId, challengeId }: CustomMfaContext) {
+    const { code } = await ctx.request.validateUsing(phoneCodeValidator)
+    return this.challenges.consume(accountId, challengeId, code)
+  }
+}
+
+// In defineConfig:
+mfa: {
+  methods: { whatsapp: WhatsappMfa, sms: smsMfaInstance },
+  requiredFactors: 3,
+}
+```
+
+The sample enrollment/challenge services and Vine validator are host implementations. Bind proofs to both `accountId` and `challengeId`; expire them, hash stored codes, limit sends, and atomically consume successful proofs. Delivery can use the WhatsApp sender interface or any SMS/provider SDK. Proofs and provider credentials must never appear in descriptors.
+
+`requiredFactors` counts the primary login plus distinct additional groups (2 by default, configurable from 2 through 8). Omit it to challenge only accounts with an enrolled method; setting it explicitly also requires unenrolled accounts to enroll before they can authenticate. This extension does not supply an enrollment screen. Native TOTP, recovery codes and passkeys remain available; recovery and TOTP share one group. WhatsApp and SMS using the same phone must share `factorId: 'phone'`. A WhatsApp primary login class should also expose that group, preventing the same phone from counting twice. Group names express application policy; they do not prove independent physical authentication factors.
+
+AuthKit binds the challenge to the current login interaction and browser session, expires it after ten minutes, caps failed custom proofs at five, and completes OIDC only after the required number of groups. Edge and generated React challenge screens render custom descriptors and optional start buttons. The named POST routes `authkit.mfa.custom.begin` and `authkit.mfa.custom.verify` use the existing login throttling and CSRF pipeline. Public `beginCustomMfa`, `verifyCustomMfa`, and `customMfaViewProps` support host integrations; proof verification alone does not complete authentication. Use the registered routes for policy-controlled completion.
+
+Without `mfa` configuration, existing native MFA behavior is preserved. Applications can ship this extension without enabling additional methods.

@@ -12,6 +12,12 @@
         {{ t('mfa_challenge.intro') }}
       </p>
 
+      @if(requiredMfaFactors > 2)
+        <p class="mt-3 text-sm text-gray-600" role="status">
+          {{ t('mfa_challenge.progress', { completed: 1 + (completedMfaMethods || []).length, required: requiredMfaFactors }) }}
+        </p>
+      @end
+
       @if(error)
         <p class="mt-4 text-sm text-red-600">{{ error }}</p>
       @end
@@ -21,7 +27,7 @@
            `totpAvailable === false` = a conta só tem passkey, sem app autenticador
            confirmado: pedir um código de 6 dígitos seria pedir o impossível. Ausente
            (stores que não reportam o estado) mantém o campo visível. --}}
-      @if(!noEnrollment && totpAvailable !== false)
+      @if(!noEnrollment && !otpLocked && totpAvailable !== false)
         <div class="mt-6">
           <label for="code" class="mb-1 block text-sm font-medium text-gray-700">{{ t('mfa_challenge.code_label') }}</label>
           <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code"
@@ -43,6 +49,39 @@
       @end
     </form>
 
+    @if(!noEnrollment)
+      @each(method in (customMfaMethods || []))
+        @if(!(completedMfaMethods || []).includes(method.id))
+          <section class="mt-6">
+            <h2 class="text-sm font-semibold text-gray-900">{{ method.label }}</h2>
+            @if(method.requiresBegin && !method.started)
+              <form method="POST" action="{{ method.beginUrl }}" class="mt-3">
+                <input type="hidden" name="_csrf" value="{{ csrfToken }}">
+                <button type="submit" class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50">
+                  {{ t('mfa_challenge.start') }}
+                </button>
+              </form>
+            @else
+              <form method="POST" action="{{ method.verifyUrl }}" class="mt-3 space-y-3">
+                <input type="hidden" name="_csrf" value="{{ csrfToken }}">
+                @each(field in (method.fields || []))
+                  <div>
+                    <label for="custom-{{ method.id }}-{{ field.name }}" class="mb-1 block text-sm font-medium text-gray-700">{{ field.label }}</label>
+                    <input id="custom-{{ method.id }}-{{ field.name }}" name="{{ field.name }}"
+                      type="{{ field.type || 'text' }}" inputmode="{{ field.inputMode || 'text' }}" autocomplete="{{ field.autoComplete || 'off' }}"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2 text-base outline-hidden focus:border-gray-900 focus:ring-2 focus:ring-gray-900">
+                  </div>
+                @end
+                <button type="submit" class="w-full rounded-lg bg-gray-900 px-3 py-2.5 text-sm font-semibold text-white transition hover:opacity-90">
+                  {{ t('mfa_challenge.submit') }}
+                </button>
+              </form>
+            @end
+          </section>
+        @end
+      @end
+    @end
+
     @if(passkeyAvailable && !noEnrollment)
       {{-- Passkey como alternativa ao código TOTP. O form é submetido por página
            inteira (não fetch) para que o 303 de volta ao client navegue o browser. --}}
@@ -61,7 +100,7 @@
 
     {{-- Códigos de recuperação só existem junto com o TOTP (são gerados no
          enrollment); sem ele, a seção não tem o que receber. --}}
-    @if(!noEnrollment && totpAvailable !== false)
+    @if(!noEnrollment && !otpLocked && totpAvailable !== false)
       <details class="mt-6 text-sm text-gray-600">
         <summary class="cursor-pointer hover:underline">{{ t('mfa_challenge.recovery_summary') }}</summary>
         <form method="POST" action="/auth/interaction/{{ uid }}/mfa" class="mt-3">
@@ -77,7 +116,7 @@
     @end
   </div>
 
-  @if(passkeyAvailable)
+  @if(passkeyAvailable && !noEnrollment)
     {{-- M12: script inline sem nonce é bloqueado por CSP `script-src 'self'` — extraído
          para asset same-origin (compartilhado com login.edge). --}}
     <script type="module" src="/authkit/assets/passkey_button.js"></script>

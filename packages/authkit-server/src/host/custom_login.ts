@@ -11,6 +11,8 @@ export interface CustomLoginIdentity {
 
 /** Host-defined primary authentication. AuthKit owns policies, MFA and session completion. */
 export interface CustomLoginMethod {
+  /** Credential group, used to prevent repeating it as an additional MFA factor. */
+  readonly factorId?: string;
   /** Set true only for proofs that do not authenticate with the account password. */
   readonly passwordless?: boolean;
   /** Optional challenge initiation; response shape, validation and delivery are host-owned. */
@@ -76,6 +78,7 @@ export async function authenticateCustomLogin(ctx: HttpContext, method: string):
   return completeCustomLogin(ctx, {
     ...identity,
     method,
+    factorId: handler.factorId,
     passwordless: handler.passwordless === true,
   });
 }
@@ -86,7 +89,7 @@ export async function authenticateCustomLogin(ctx: HttpContext, method: string):
  */
 export function completeCustomLogin(
   ctx: HttpContext,
-  input: CustomLoginIdentity & { method: string; passwordless?: boolean },
+  input: CustomLoginIdentity & { method: string; factorId?: string; passwordless?: boolean },
 ): Promise<unknown> {
   return new AuthInteractionController().completeCustomLogin(ctx, input);
 }
