@@ -8,6 +8,8 @@ import { fakeAccountStore } from '../bootstrap.js';
 
 function harness(
   options: {
+    path?: string;
+    mountPath?: string;
     current?: string;
     linked?: boolean;
     transient?: boolean;
@@ -36,6 +38,7 @@ function harness(
     },
   };
   const service = {
+    mountPath: options.mountPath ?? '/oidc',
     config: {
       accountStore: fakeAccountStore({
         isDisabled: async () => options.disabled === true,
@@ -85,7 +88,7 @@ function harness(
         regenerated++;
       },
     },
-    request: { ip: () => '127.0.0.1', request: {} },
+    request: { ip: () => '127.0.0.1', url: () => options.path ?? '/protected', request: {} },
     response: { response: {} },
     containerResolver: { make: async (_key: string) => service },
   } as unknown as HttpContext;
@@ -118,6 +121,27 @@ function harness(
 }
 
 test.group('Remembered same-host RP session', () => {
+  for (const options of [
+    { path: '/auth/interaction/consent-uid' },
+    { path: '/auth/interaction/login-uid/otp-verify' },
+    { path: '/oidc/auth' },
+    { path: '/sso/auth', mountPath: '/sso' },
+  ]) {
+    test(`preserves pending RP state during provider response: ${options.path}`, async ({
+      assert,
+    }) => {
+      const h = harness(options);
+      h.store.oidc_state = 'pending-state';
+      h.store.oidc_code_verifier = 'pending-verifier';
+      assert.isFalse(await h.guard.check());
+      assert.equal(h.regenerated(), 0);
+      assert.equal(h.store.oidc_state, 'pending-state');
+      assert.equal(h.store.oidc_code_verifier, 'pending-verifier');
+      assert.isUndefined(h.store[ACCOUNT_SESSION_KEY]);
+      assert.deepEqual(h.renewed, []);
+    });
+  }
+
   test('restores the RP from the signed IdP credential and renews its cookie', async ({
     assert,
   }) => {

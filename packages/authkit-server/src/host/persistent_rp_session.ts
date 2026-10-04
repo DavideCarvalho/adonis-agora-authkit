@@ -10,6 +10,19 @@ export interface PersistentRpOptions {
 /** Same-host RP restoration: the signed IdP cookie is the persistent credential. */
 export async function ensureRpSession(ctx: HttpContext, sessionKey: string): Promise<void> {
   const service: OidcService = await ctx.containerResolver.make('authkit.server');
+  // Provider interactions write to the raw Node response. Regenerating Adonis's
+  // session there migrates its data after headers are sent, leaving the browser
+  // with the old cookie and losing the pending RP state/PKCE verifier.
+  const path = ctx.request.url?.().split('?', 1)[0] ?? '';
+  const mount = service.mountPath || service.config.mountPath;
+  if (
+    path.startsWith('/auth/interaction/') ||
+    (mount && mount !== '/' && (path === mount || path.startsWith(`${mount}/`))) ||
+    ctx.route?.name === 'authkit.oidc.root' ||
+    ctx.route?.name === 'authkit.oidc.wildcard'
+  )
+    return;
+
   const current = ctx.session.get(sessionKey);
   const linkedUid = ctx.session.get(ACCOUNT_IDP_SESSION_KEY);
   const idp = await readIdpSession(ctx, service, true);
