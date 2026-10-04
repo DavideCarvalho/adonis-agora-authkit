@@ -204,3 +204,59 @@ A method may implement `begin(ctx)` to initiate a challenge. Call `beginCustomLo
 For an arbitrary flow that already verified its credential, `completeCustomLogin(ctx, { accountId, method, passwordless })` is the trusted escape hatch. Do not expose it as an endpoint accepting an account ID from the browser. A phone-only account may represent absent email as an empty string in the legacy `AuthAccount` DTO; OIDC omits `email` and `email_verified` in that case. `AuthAccount.phone`, when supplied, must represent a verified phone identity.
 
 Denied proofs and handler exceptions produce a `login.failure` audit event with the method ID and a sanitized reason; proof contents and exception messages are never included. Host-owned challenge/OTP verification endpoints must audit their own earlier failures.
+
+### WhatsApp OTP delivery providers
+
+`whatsapp.sender` accepts any `WhatsappCodeSender` instance or class. It is separate from `customLoginMethods`: login classes verify identity, senders only deliver a code. Configuring a sender does not create an OTP store, route, validator, signup flow, or UI.
+
+```ts
+import { inject } from '@adonisjs/core';
+import type { WhatsappCodeInput, WhatsappCodeSender } from '@adonis-agora/authkit-server';
+import MyWhatsappSdk from '#services/my_whatsapp_sdk';
+
+@inject()
+class MyProvider implements WhatsappCodeSender {
+  constructor(private sdk: MyWhatsappSdk) {}
+  async sendCode(input: WhatsappCodeInput): Promise<void> {
+    await this.sdk.sendText(input.phone, input.text ?? input.code);
+  }
+}
+
+export default defineConfig({
+  // issuer, adapter, accountStore, ...
+  customLoginMethods: { whatsapp: WhatsappLogin },
+  whatsapp: { sender: MyProvider }, // or an already-created instance
+});
+```
+
+After generating an OTP, resolve the sender through the request container:
+
+```ts
+const service = await ctx.containerResolver.make('authkit.server');
+const binding = service.config.whatsapp?.sender;
+if (!binding) throw new Error('WhatsApp login is not configured');
+const sender = await resolveWhatsappCodeSender(ctx.containerResolver, binding);
+await sender.sendCode({
+  phone: '5511999999999', code, locale: 'pt-BR', expiresInSeconds: 300,
+  text: ctx.i18n.t('auth.code_message', { code }),
+});
+```
+
+The sender must reject when delivery fails. The host should activate its stored OTP only after delivery acceptance and enforce expiry, retries, request binding, replay protection and rate limits. Provider acceptance is not a delivery/read receipt. `text` is optional localized copy for providers supporting free-form messages; structured providers receive the original code independently.
+
+Native adapters can be supplied as instances:
+
+```ts
+whatsapp: {
+  sender: new WhatsmiauCodeSender({ apiKey, instanceName }),
+}
+
+whatsapp: {
+  sender: new MetaWhatsappCodeSender({
+    accessToken, phoneNumberId, apiVersion, templateName,
+    languageCode: 'pt_BR',
+  }),
+}
+```
+
+Whatsmiau's optional `baseUrl` includes the API version path and defaults to `https://api.whatsmiau.dev/v2`. Meta requires an explicit supported Graph API version and an approved authentication template with an OTP/copy-code button. Template language must exist for the configured template; `languageCode` overrides automatic locale mapping (`pt-BR` → `pt_BR`, `en` → `en_US`, `es` → `es`). Meta template text and displayed expiry are managed in the approved template; `expiresInSeconds` describes the host's verification TTL and does not change template expiry. Both native adapters use bounded requests, reject redirects and discard provider error bodies so credentials/OTPs do not enter error messages.

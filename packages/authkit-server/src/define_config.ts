@@ -42,6 +42,7 @@ import {
   resolveTrustedDevices,
   type TrustedDevicesConfigInput,
 } from './host/trusted_device.js';
+import type { WhatsappCodeSenderBinding } from './host/whatsapp_code_sender.js';
 import { generateJwks } from './keys/jwks_manager.js';
 import { KeystoreCodec } from './keys/keystore_codec.js';
 import { loadEncryptionService } from './keys/keystore_crypto.js';
@@ -1047,6 +1048,8 @@ export interface ResolvedInteractionRecoveryConfig {
 export interface AuthServerConfigInput {
   /** Host-defined primary authentication classes or instances, keyed by stable method ID. */
   customLoginMethods?: CustomLoginMethods;
+  /** OTP delivery only. The host remains responsible for issuing and verifying codes. */
+  whatsapp?: { sender: WhatsappCodeSenderBinding };
   issuer: string;
   adapter: AdapterFactory;
   /**
@@ -1415,6 +1418,8 @@ export interface AuthServerConfigInput {
 
 export interface ResolvedServerConfig {
   customLoginMethods?: CustomLoginMethods;
+  /** OTP delivery only. The host remains responsible for issuing and verifying codes. */
+  whatsapp?: { sender: WhatsappCodeSenderBinding };
   issuer: string;
   AdapterClass: OidcAdapterClass;
   /**
@@ -1700,6 +1705,7 @@ export function defineConfig(config: AuthServerConfigInput) {
       },
       accountStore: config.accountStore,
       customLoginMethods: config.customLoginMethods,
+      whatsapp: config.whatsapp,
       patStore: config.patStore,
       mountPath: config.mountPath ?? '/oidc',
       accountHome: config.accountHome,

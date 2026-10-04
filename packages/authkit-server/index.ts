@@ -462,6 +462,19 @@ export {
   resolveEffectiveUserLoginMethods,
   USER_LOGIN_METHOD_KEYS,
 } from './src/host/user_login_methods.js';
+export type {
+  MetaWhatsappCodeSenderOptions,
+  WhatsappCodeInput,
+  WhatsappCodeSender,
+  WhatsappCodeSenderBinding,
+  WhatsappCodeSenderConstructor,
+  WhatsmiauCodeSenderOptions,
+} from './src/host/whatsapp_code_sender.js';
+export {
+  MetaWhatsappCodeSender,
+  resolveWhatsappCodeSender,
+  WhatsmiauCodeSender,
+} from './src/host/whatsapp_code_sender.js';
 export { withAuditLog } from './src/mixins/with_audit_log.js';
 export { withAuthUser } from './src/mixins/with_auth_user.js';
 export { withCredentials } from './src/mixins/with_credentials.js';
