@@ -160,3 +160,47 @@ OTel para que as séries existam.
 ## Notas
 - Access tokens são opacos; ID tokens são JWT (assinados pelo JWKS gerido).
 - PKCE (S256) é obrigatório; refresh tokens são rotacionados.
+
+### Custom primary login methods
+
+Register a class or instance for a host-specific authentication flow. AuthKit resolves classes through the request container, so normal Adonis `@inject()` dependencies work. The host validates and consumes the credential; AuthKit applies account policies, maintenance, MFA, audit, and OIDC session completion.
+
+```ts
+import { inject } from '@adonisjs/core';
+import type { HttpContext } from '@adonisjs/core/http';
+import type { CustomLoginMethod } from '@adonis-agora/authkit-server';
+import PhoneProofs from '#services/phone_proofs';
+
+@inject()
+export default class WhatsappLogin implements CustomLoginMethod {
+  readonly passwordless = true;
+  constructor(private proofs: PhoneProofs) {}
+
+  async authenticate(ctx: HttpContext) {
+    // Host service validates and atomically consumes the proof bound to this
+    // browser session and OIDC interaction. Never trust request.accountId.
+    const accountId = await this.proofs.consume(ctx);
+    return accountId ? { accountId } : null;
+  }
+}
+```
+
+```ts
+// config/authkit.ts
+import WhatsappLogin from '#auth/whatsapp_login';
+export default defineConfig({
+  // issuer, adapter, accountStore, ...
+  customLoginMethods: { whatsapp: WhatsappLogin },
+});
+
+// Native form controller, on the host's POST /auth/interaction/:uid/... route
+return authenticateCustomLogin(ctx, 'whatsapp');
+```
+
+`authenticate` returns `{ accountId }` only after a valid proof, or `null` to deny login. It may also return a host-validated `remember` boolean; persistence is disabled by default and subject to the runtime session policy. The same session policy applies after MFA. Returning an identity does not skip MFA. The method name is retained in the OIDC `amr` claim, including when a second factor follows. Methods default to password-based policy; set `passwordless = true` for OTP, hardware or external proofs that do not use the account password.
+
+A method may implement `begin(ctx)` to initiate a challenge. Call `beginCustomLogin(ctx, 'whatsapp')` from the host route. Both dispatchers check the current OIDC interaction and its `:uid` before invoking the method. Method names contain lowercase letters, digits, `:`, `_` or `-`, start with a letter, and have at most 64 characters. Built-in factor names (`pwd`, `email`, `mfa`, `totp`, `webauthn`, `recovery`) are reserved. Registration does not automatically create routes or UI: the host owns validation, CSRF, rate limits, bot protection, delivery, proof expiry, replay protection, account lookup/signup and the response renderer. Use native form navigation for final completion so AuthKit can render MFA or redirect to the relying party.
+
+For an arbitrary flow that already verified its credential, `completeCustomLogin(ctx, { accountId, method, passwordless })` is the trusted escape hatch. Do not expose it as an endpoint accepting an account ID from the browser. A phone-only account may represent absent email as an empty string in the legacy `AuthAccount` DTO; OIDC omits `email` and `email_verified` in that case. `AuthAccount.phone`, when supplied, must represent a verified phone identity.
+
+Denied proofs and handler exceptions produce a `login.failure` audit event with the method ID and a sanitized reason; proof contents and exception messages are never included. Host-owned challenge/OTP verification endpoints must audit their own earlier failures.

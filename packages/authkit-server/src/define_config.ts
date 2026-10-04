@@ -25,6 +25,7 @@ import {
   deriveLockedSettingKeys,
   type PolicyRouteOption,
 } from './host/config_locks.js';
+import type { CustomLoginMethods } from './host/custom_login.js';
 import type { ResolveGeo } from './host/geo.js';
 import { type AuthMessages, type I18nConfig, resolveMessages } from './host/i18n.js';
 import {
@@ -1044,6 +1045,8 @@ export interface ResolvedInteractionRecoveryConfig {
 }
 
 export interface AuthServerConfigInput {
+  /** Host-defined primary authentication classes or instances, keyed by stable method ID. */
+  customLoginMethods?: CustomLoginMethods;
   issuer: string;
   adapter: AdapterFactory;
   /**
@@ -1411,6 +1414,7 @@ export interface AuthServerConfigInput {
 }
 
 export interface ResolvedServerConfig {
+  customLoginMethods?: CustomLoginMethods;
   issuer: string;
   AdapterClass: OidcAdapterClass;
   /**
@@ -1695,6 +1699,7 @@ export function defineConfig(config: AuthServerConfigInput) {
         return acc ? { id: acc.id } : null;
       },
       accountStore: config.accountStore,
+      customLoginMethods: config.customLoginMethods,
       patStore: config.patStore,
       mountPath: config.mountPath ?? '/oidc',
       accountHome: config.accountHome,

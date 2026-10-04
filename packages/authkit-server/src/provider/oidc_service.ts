@@ -173,8 +173,13 @@ export class OidcService {
             claims: async (_use: string, _scope: string) => {
               const base: Record<string, unknown> = {
                 sub: user.id,
-                email: user.email,
-                email_verified: true,
+                ...(user.email
+                  ? {
+                      email: user.email,
+                      email_verified:
+                        (await config.accountStore.isEmailVerified?.(user.id)) ?? false,
+                    }
+                  : {}),
                 name: user.name,
                 picture: user.avatarUrl,
               };

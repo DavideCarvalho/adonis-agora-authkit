@@ -277,6 +277,18 @@ export {
 } from './src/host/console_session.js';
 export type { AuthkitCsrfOptions } from './src/host/csrf.js';
 export { authkitCsrfExceptions } from './src/host/csrf.js';
+export type {
+  CustomLoginIdentity,
+  CustomLoginMethod,
+  CustomLoginMethodBinding,
+  CustomLoginMethodConstructor,
+  CustomLoginMethods,
+} from './src/host/custom_login.js';
+export {
+  authenticateCustomLogin,
+  beginCustomLogin,
+  completeCustomLogin,
+} from './src/host/custom_login.js';
 export { normalizeEmailIdentifier } from './src/host/email_identifier.js';
 export type { ResolveGeo } from './src/host/geo.js';
 export { GEO_RESOLVE_TIMEOUT_MS, resolveGeoSafe } from './src/host/geo.js';
