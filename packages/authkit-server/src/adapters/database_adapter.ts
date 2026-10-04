@@ -42,6 +42,35 @@ export class DatabaseAdapter implements OidcAdapter {
     return JSON.parse(record.payload) as OidcPayload;
   }
 
+  async renewSession(id: string, expiresIn: number): Promise<boolean> {
+    if (this.name !== 'Session' || !Number.isSafeInteger(expiresIn) || expiresIn < 1) return false;
+    const row = await this.#query().where('id', id).first();
+    const payload = await this.#parse(row);
+    const now = Date.now();
+    if (
+      !payload ||
+      payload.transient ||
+      typeof payload.exp !== 'number' ||
+      payload.exp <= now / 1000
+    )
+      return false;
+    // Compare-and-set: concurrent logout or mutation cannot be undone by renewal.
+    const changed = await this.#query()
+      .where('id', id)
+      .where('payload', row.payload)
+      .where('expires_at', '>', new Date(now).toISOString())
+      .update({
+        payload: JSON.stringify({ ...payload, exp: Math.floor(now / 1000) + expiresIn }),
+        expires_at: new Date(now + expiresIn * 1000).toISOString(),
+      });
+    if (Number(changed) > 0) return true;
+    // A parallel renewal is harmless; a deletion must remain deleted.
+    const current = await this.find(id);
+    return Boolean(
+      current && !current.transient && typeof current.exp === 'number' && current.exp > now / 1000,
+    );
+  }
+
   async find(id: string): Promise<OidcPayload | undefined> {
     return this.#parse(await this.#query().where('id', id).first());
   }

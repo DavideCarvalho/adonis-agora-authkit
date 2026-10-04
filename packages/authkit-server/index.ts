@@ -312,7 +312,11 @@ export {
   resolveMessages,
   translate,
 } from './src/host/i18n.js';
-export { ensureConsoleSession } from './src/host/idp_session_bridge.js';
+export {
+  ACCOUNT_IDP_SESSION_KEY,
+  ensureConsoleSession,
+  readIdpSession,
+} from './src/host/idp_session_bridge.js';
 export type { ImpersonationClientLike, ImpersonationPanel } from './src/host/impersonation.js';
 export { buildImpersonationPanel } from './src/host/impersonation.js';
 export type {
@@ -363,6 +367,8 @@ export {
   type ResolvedOtpLoginConfig,
   resolveOtpLoginConfig,
 } from './src/host/otp_login.js';
+export type { PersistentRpOptions } from './src/host/persistent_rp_session.js';
+export { endRpSession } from './src/host/persistent_rp_session.js';
 export type { AuthThrottles, ThrottleMiddleware } from './src/host/rate_limit.js';
 export { createAuthThrottles } from './src/host/rate_limit.js';
 export type {
