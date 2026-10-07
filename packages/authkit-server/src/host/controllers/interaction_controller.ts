@@ -237,6 +237,7 @@ export default class AuthInteractionController {
         params: details.params,
         csrfToken: ctx.request.csrfToken,
         brand,
+        ...(await consentSubject(service, details, cfg.messages)),
       });
     }
 
@@ -1809,4 +1810,33 @@ export default class AuthInteractionController {
       return render(ctx, 'otp-unlock', { ok: false });
     }
   }
+}
+
+/**
+ * Quem pede o acesso e o quê, para a tela de consent: o nome que o client registrou (um cliente
+ * MCP registra o seu, ex.: "Claude Code") e os escopos pedidos, com o rótulo de cada um. O nome
+ * vem de fora (registro dinâmico aberto) — `clientNameHtml` sai escapado para o `{{{ }}}`.
+ */
+async function consentSubject(service: any, details: any, messages: any) {
+  const clientId = String(details.params?.client_id ?? '');
+  const client = clientId ? await service.provider.Client.find(clientId).catch(() => null) : null;
+  const clientName: string = client?.clientName || clientId;
+  const requested = String(details.params?.scope ?? '')
+    .split(' ')
+    .filter((scope: string) => scope !== '' && scope !== 'openid');
+  const scopes = requested.map((scope: string) => {
+    const key = `consent.scope.${scope}`;
+    const label = translate(messages, key);
+    return { id: scope, label: label === key ? scope : label };
+  });
+  return { clientName, clientNameHtml: escapeHtml(clientName), scopes };
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }

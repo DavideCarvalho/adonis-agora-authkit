@@ -123,6 +123,11 @@ export const DEFAULT_MESSAGES = {
   // raw na view). O nome vem do branding (config-trusted).
   'consent.body': 'The app <strong>{app}</strong> wants to access your account.',
   'consent.submit': 'Authorize',
+  'consent.scopes_title': 'It will be able to:',
+  'consent.scope.profile': 'See your name and photo',
+  'consent.scope.email': 'See your e-mail address',
+  'consent.scope.offline_access': 'Stay connected without asking you to sign in again',
+  'consent.scope.roles': 'See your roles and organization',
 
   // Console de conta — login (account/login).
   'account.login.page_title': 'My account',
@@ -1155,6 +1160,11 @@ export const PT_BR_MESSAGES = {
   'consent.title': 'Autorizar acesso',
   'consent.body': 'O app <strong>{app}</strong> quer acessar sua conta.',
   'consent.submit': 'Autorizar',
+  'consent.scopes_title': 'Ele vai poder:',
+  'consent.scope.profile': 'Ver seu nome e foto',
+  'consent.scope.email': 'Ver seu e-mail',
+  'consent.scope.offline_access': 'Continuar conectado sem pedir que você entre de novo',
+  'consent.scope.roles': 'Ver seus papéis e sua organização',
 
   // Console de conta — login (account/login).
   'account.login.page_title': 'Minha conta',

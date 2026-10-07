@@ -463,6 +463,8 @@ export interface AuthHostRouteMap {
 
 const C = {
   oidc: () => import('../controllers/oidc_callback_controller.js'),
+  authorizationServerMetadata: () =>
+    import('../controllers/authorization_server_metadata_controller.js'),
   interaction: () => import('./controllers/interaction_controller.js'),
   registration: () => import('./controllers/registration_controller.js'),
   social: () => import('./controllers/social_controller.js'),
@@ -727,6 +729,16 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
     .get('/authkit/assets/webauthn_confirm.js', [C.webauthnConfirmAsset])
     .as('authkit.assets.webauthnConfirm');
   router.get('/authkit/assets/submit_lock.js', [C.submitLockAsset]).as('authkit.assets.submitLock');
+
+  // Metadata do servidor de autorização no caminho da RFC 8414 §3.1 (issuer com path: os
+  // clientes MCP procuram `/.well-known/oauth-authorization-server/oidc` antes do OIDC Discovery).
+  // O issuer termina no mountPath, então o mount É o path do issuer.
+  const issuerPath = mount.replace(/\/+$/, '');
+  if (issuerPath !== '') {
+    router
+      .get(`/.well-known/oauth-authorization-server${issuerPath}`, [C.authorizationServerMetadata])
+      .as('authkit.oauth_authorization_server');
+  }
 
   // Provider OIDC (wildcard + root) — o que registerOidcRoutes fazia.
   router.any(`${mount}/*`, [C.oidc]).as('authkit.oidc.wildcard');

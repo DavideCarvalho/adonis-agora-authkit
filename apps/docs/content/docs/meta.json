@@ -16,6 +16,7 @@
     "back-channel-logout",
     "account-linking",
     "dynamic-registration",
+    "mcp-clients",
     "device-flow",
     "personal-agents",
     "native-apps",
