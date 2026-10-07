@@ -654,6 +654,9 @@ importers:
       recharts:
         specifier: 3.10.1
         version: 3.10.1(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react-is@19.2.8)(react@19.2.8)(redux@5.0.1)
+      reflect-metadata:
+        specifier: 0.2.2
+        version: 0.2.2
       tempura:
         specifier: ^0.4.1
         version: 0.4.1

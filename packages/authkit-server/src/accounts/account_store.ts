@@ -4,6 +4,8 @@ import type { UserLoginMethods } from '../host/user_login_methods.js';
 export interface AuthAccount {
   id: string;
   email: string;
+  /** Host-verified phone identity. Omit until possession has been verified. */
+  phone?: string;
   globalRoles?: string[];
   name?: string;
   avatarUrl?: string;

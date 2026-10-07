@@ -53,6 +53,44 @@ export class RedisAdapter implements OidcAdapter {
     await multi.exec();
   }
 
+  async renewSession(id: string, expiresIn: number): Promise<boolean> {
+    if (this.name !== 'Session' || !Number.isSafeInteger(expiresIn) || expiresIn < 1) return false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const raw = await this.redis.get(this.#key(id));
+      if (!raw) return false;
+      const payload = JSON.parse(raw);
+      const now = Math.floor(Date.now() / 1000);
+      if (payload.transient || typeof payload.exp !== 'number' || payload.exp <= now) return false;
+      const updated = JSON.stringify({ ...payload, exp: now + expiresIn });
+      const result = await this.redis.eval(
+        `
+        local raw = redis.call('GET', KEYS[1])
+        if not raw then return 0 end
+        if raw ~= ARGV[1] then return 2 end
+        redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+        if ARGV[4] ~= '' then redis.call('SET', KEYS[2], ARGV[4], 'EX', ARGV[3]) end
+        return 1
+      `,
+        2,
+        this.#key(id),
+        payload.uid ? this.#uidKey(payload.uid) : this.#key(id),
+        raw,
+        updated,
+        expiresIn,
+        payload.uid ? id : '',
+      );
+      if (result !== 2) return result === 1;
+    }
+    // Another request may have renewed while we were comparing the payload.
+    const current = await this.find(id);
+    return Boolean(
+      current &&
+        !current.transient &&
+        typeof current.exp === 'number' &&
+        current.exp > Date.now() / 1000,
+    );
+  }
+
   async find(id: string): Promise<OidcPayload | undefined> {
     const data = await this.redis.get(this.#key(id));
     if (!data) return undefined;

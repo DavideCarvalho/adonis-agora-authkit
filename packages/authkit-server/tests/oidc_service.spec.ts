@@ -115,6 +115,43 @@ test.group('OidcService', () => {
     return account.claims('id_token', 'roles');
   }
 
+  test('phone-only accounts omit email claims without probing email verification', async ({
+    assert,
+  }) => {
+    let verificationCalls = 0;
+    const service = await serviceWithBranding(branding, {
+      accountStore: fakeAccountStore({
+        findById: async () => ({ id: 'u1', email: '', phone: '5511999999999' }),
+        isEmailVerified: async () => {
+          verificationCalls++;
+          return true;
+        },
+      }),
+    });
+    const claims = await claimsFor(service, 'third-app');
+    assert.equal(claims.sub, 'u1');
+    assert.notProperty(claims, 'email');
+    assert.notProperty(claims, 'email_verified');
+    assert.equal(verificationCalls, 0);
+  });
+
+  for (const verified of [true, false]) {
+    test(`email_verified reflects the store status: ${verified}`, async ({ assert }) => {
+      const service = await serviceWithBranding(branding, {
+        accountStore: fakeAccountStore({ isEmailVerified: async () => verified }),
+      });
+      const claims = await claimsFor(service, 'third-app');
+      assert.equal(claims.email, 'a@b.com');
+      assert.equal(claims.email_verified, verified);
+    });
+  }
+
+  test('email_verified is false when the store cannot attest verification', async ({ assert }) => {
+    const service = await serviceWithBranding(branding);
+    const claims = await claimsFor(service, 'third-app');
+    assert.equal(claims.email_verified, false);
+  });
+
   test('findAccount.claims emite roles/org SOMENTE para client first-party', async ({ assert }) => {
     const service = await serviceWithBranding(branding);
 

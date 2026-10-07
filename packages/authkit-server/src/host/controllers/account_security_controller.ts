@@ -197,15 +197,19 @@ export default class AccountSecurityController {
     const { currentPassword, confirmEmail } =
       await ctx.request.validateUsing(deleteAccountValidator);
 
-    // Confirmação: senha atual correta OU e-mail digitado batendo com o da conta
-    // (case-insensitive). Sem nenhuma das duas → recusa (não deleta).
+    // Confirmação: senha atual correta OU e-mail digitado batendo com o da conta.
+    // Contas sem e-mail podem confirmar o telefone já verificado pelo host.
     let confirmed = false;
     if (currentPassword) {
       confirmed = !!(await store.verifyCredentials(account.email, currentPassword));
     }
     if (!confirmed && confirmEmail) {
-      confirmed =
-        normalizeEmailIdentifier(confirmEmail) === normalizeEmailIdentifier(account.email);
+      confirmed = account.email
+        ? normalizeEmailIdentifier(confirmEmail) === normalizeEmailIdentifier(account.email)
+        : !!account.phone &&
+          /^[+\d\s().-]+$/.test(confirmEmail) &&
+          /\d/.test(confirmEmail) &&
+          confirmEmail.replace(/\D/g, '') === account.phone.replace(/\D/g, '');
     }
     if (!confirmed) {
       ctx.session.flash(

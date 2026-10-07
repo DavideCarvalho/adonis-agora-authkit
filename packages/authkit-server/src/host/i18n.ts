@@ -105,9 +105,11 @@ export const DEFAULT_MESSAGES = {
   'verify_email.invalid_body': 'The verification link is invalid or has already been used.',
 
   // Desafio de MFA no fluxo de login (mfa-challenge).
-  'mfa_challenge.page_title': 'Two-factor verification',
-  'mfa_challenge.title': 'Two-factor verification',
-  'mfa_challenge.intro': 'Open your authenticator app and enter the 6-digit code.',
+  'mfa_challenge.page_title': 'Multi-factor verification',
+  'mfa_challenge.title': 'Multi-factor verification',
+  'mfa_challenge.intro': 'Verify your identity using an available method.',
+  'mfa_challenge.start': 'Start verification',
+  'mfa_challenge.progress': '{completed} of {required} factors verified.',
   'mfa_challenge.code_label': 'Code',
   'mfa_challenge.submit': 'Verify',
   'mfa_challenge.recovery_summary': 'Use a recovery code',
@@ -1144,9 +1146,11 @@ export const PT_BR_MESSAGES = {
   'verify_email.invalid_body': 'O link de verificação é inválido ou já foi utilizado.',
 
   // Desafio de MFA no fluxo de login (mfa-challenge).
-  'mfa_challenge.page_title': 'Verificação em duas etapas',
-  'mfa_challenge.title': 'Verificação em duas etapas',
-  'mfa_challenge.intro': 'Abra seu app autenticador e informe o código de 6 dígitos.',
+  'mfa_challenge.page_title': 'Verificação multifator',
+  'mfa_challenge.title': 'Verificação multifator',
+  'mfa_challenge.intro': 'Verifique sua identidade usando um método disponível.',
+  'mfa_challenge.start': 'Iniciar verificação',
+  'mfa_challenge.progress': '{completed} de {required} fatores verificados.',
   'mfa_challenge.code_label': 'Código',
   'mfa_challenge.submit': 'Verificar',
   'mfa_challenge.recovery_summary': 'Usar um código de recuperação',

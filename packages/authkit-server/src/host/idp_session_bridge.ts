@@ -33,7 +33,10 @@ import { assertAccountEnabled } from './login_attempt.js';
 export const ACCOUNT_IDP_SESSION_KEY = 'authkit_idp_session_uid';
 
 /** O que interessa de uma sessão do oidc-provider (instância do model `Session`). */
-interface IdpSession {
+export interface IdpSession {
+  id: string;
+  transient?: boolean;
+  exp: number;
   uid: string;
   accountId?: string;
   destroy(): Promise<void>;
@@ -44,7 +47,11 @@ interface IdpSession {
  * provider faz: cookie `_session` assinado com as keys do provider, e o registro
  * no adapter, que já descarta expirados). `null` sem sessão logada.
  */
-export async function readIdpSession(ctx: HttpContext, service: any): Promise<IdpSession | null> {
+export async function readIdpSession(
+  ctx: HttpContext,
+  service: any,
+  strict = false,
+): Promise<IdpSession | null> {
   const provider = service?.provider;
   if (!provider?.Session || typeof provider.createContext !== 'function') return null;
   try {
@@ -53,7 +60,8 @@ export async function readIdpSession(ctx: HttpContext, service: any): Promise<Id
     if (!id) return null;
     const session = (await provider.Session.find(id)) as IdpSession | undefined;
     return session?.accountId ? session : null;
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     // Fail-safe: sem ponte (o guard segue para o login normal).
     return null;
   }
@@ -116,8 +124,8 @@ export async function ensureConsoleSession(ctx: HttpContext): Promise<boolean> {
   // o login do console faz.
   await ctx.session.regenerate();
   ctx.session.put(ACCOUNT_SESSION_KEY, account.id);
-  ctx.session.put(ACCOUNT_IDP_SESSION_KEY, idp.uid);
   await syncAdonisAuthLogin(ctx, cfg, account);
+  ctx.session.put(ACCOUNT_IDP_SESSION_KEY, idp.uid);
   return true;
 }
 

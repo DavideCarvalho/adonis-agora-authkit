@@ -13,6 +13,12 @@ import type { HttpContext } from '@adonisjs/core/http';
 import type { ApplicationService, ConfigProvider } from '@adonisjs/core/types';
 import type { EmitterLike } from '@adonisjs/core/types/events';
 import { ACCOUNT_SESSION_KEY } from './account_session_key.js';
+import { ACCOUNT_IDP_SESSION_KEY } from './idp_session_bridge.js';
+import {
+  endRpSession,
+  ensureRpSession,
+  type PersistentRpOptions,
+} from './persistent_rp_session.js';
 
 type RealUser<UserProvider> = UserProvider extends SessionUserProviderContract<infer U> ? U : never;
 
@@ -64,6 +70,8 @@ export async function loadUnauthorizedAccess(
 export type OidcRpGuardOptions<UserProvider extends SessionUserProviderContract<unknown>> = {
   provider: UserProvider | ConfigProvider<UserProvider>;
   sessionKey?: string;
+  /** Same-host IdP: restore and renew remembered logins. Default: false. */
+  acceptIdpSession?: PersistentRpOptions['acceptIdpSession'];
 };
 
 export type OidcRpGuardEvents<User> = {
@@ -125,6 +133,7 @@ export class OidcRpGuard<UserProvider extends SessionUserProviderContract<unknow
     emitter: EmitterLike<OidcRpGuardEvents<RealUser<UserProvider>>>,
     userProvider: UserProvider,
     unauthorized?: UnauthorizedAccessConstructor,
+    private persistent: PersistentRpOptions = {},
   ) {
     this.#name = name;
     this.#ctx = ctx;
@@ -162,6 +171,7 @@ export class OidcRpGuard<UserProvider extends SessionUserProviderContract<unknow
    */
   async login(user: RealUser<UserProvider>): Promise<void> {
     const guardUser = await this.#userProvider.createUserForGuard(user);
+    if (this.persistent.acceptIdpSession) this.#ctx.session.forget(ACCOUNT_IDP_SESSION_KEY);
     this.#ctx.session.put(this.#sessionKey, String(guardUser.getId()));
     this.user = user;
     this.isAuthenticated = true;
@@ -180,6 +190,7 @@ export class OidcRpGuard<UserProvider extends SessionUserProviderContract<unknow
    */
   async logout(): Promise<void> {
     const user = this.user ?? null;
+    if (this.persistent.acceptIdpSession) await endRpSession(this.#ctx);
     this.#ctx.session.forget(this.#sessionKey);
     this.user = undefined;
     this.isAuthenticated = false;
@@ -197,6 +208,11 @@ export class OidcRpGuard<UserProvider extends SessionUserProviderContract<unknow
     }
     this.authenticationAttempted = true;
     this.#unauthorized ??= await loadUnauthorizedAccess();
+    const acceptIdp =
+      typeof this.persistent.acceptIdpSession === 'function'
+        ? this.persistent.acceptIdpSession(this.#ctx)
+        : this.persistent.acceptIdpSession;
+    if (acceptIdp) await ensureRpSession(this.#ctx, this.#sessionKey);
 
     const userId = this.#ctx.session.get(this.#sessionKey) as string | undefined;
     if (!userId) {
@@ -279,6 +295,7 @@ export function oidcRpGuard<UserProvider extends SessionUserProviderContract<unk
           emitter as EmitterLike<OidcRpGuardEvents<RealUser<UserProvider>>>,
           userProvider,
           unauthorized,
+          { acceptIdpSession: config.acceptIdpSession },
         );
       };
     },
