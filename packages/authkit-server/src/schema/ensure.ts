@@ -218,6 +218,98 @@ const TABLES: TableDef[] = [
       updated_at: (t) => t.timestamp('updated_at', { useTz: true }).nullable(),
     },
   },
+  /*
+   * As três tabelas de personal agents usam `dateTime(…, precision 3)` e não
+   * `timestamp`: no MySQL o TIMESTAMP sem fração arredonda o `last_polled_at`
+   * (um agente que respeita o `interval` levaria `slow_down`) e, com
+   * `explicit_defaults_for_timestamp=OFF`, o primeiro TIMESTAMP NOT NULL da
+   * tabela ganha `ON UPDATE CURRENT_TIMESTAMP` — marcar um refresh como usado
+   * reescreveria a validade dele. DATETIME não tem nenhum dos dois; no Postgres
+   * vira o mesmo `timestamptz`.
+   */
+  {
+    name: 'auth_agent_device_codes',
+    /**
+     * Pedidos de delegação de personal agents (device flow, RFC 8628). O
+     * `device_code` só existe como hash; o `user_code` é o que o usuário vê.
+     * Linhas expiradas são apagadas no próximo pedido.
+     */
+    create: (t) => {
+      t.string('id').primary();
+      t.string('device_code_hash', 64).notNullable().unique();
+      t.string('user_code', 16).notNullable().unique();
+      t.string('client_id', 2048).notNullable();
+      t.string('agent_sub').notNullable();
+      t.text('requested_scope').notNullable();
+      t.string('status', 16).notNullable();
+      t.string('account_id').nullable();
+      t.string('grant_id').nullable();
+      t.integer('interval_seconds').notNullable();
+      t.dateTime('last_polled_at', { useTz: true, precision: 3 }).nullable();
+      t.dateTime('expires_at', { useTz: true, precision: 3 }).notNullable().index();
+      t.dateTime('created_at', { useTz: true, precision: 3 }).notNullable();
+    },
+    columns: {
+      device_code_hash: (t) => t.string('device_code_hash', 64),
+      user_code: (t) => t.string('user_code', 16),
+      client_id: (t) => t.string('client_id', 2048),
+      agent_sub: (t) => t.string('agent_sub'),
+      requested_scope: (t) => t.text('requested_scope'),
+      status: (t) => t.string('status', 16),
+      account_id: (t) => t.string('account_id').nullable(),
+      grant_id: (t) => t.string('grant_id').nullable(),
+      interval_seconds: (t) => t.integer('interval_seconds'),
+      last_polled_at: (t) => t.dateTime('last_polled_at', { useTz: true, precision: 3 }).nullable(),
+      expires_at: (t) => t.dateTime('expires_at', { useTz: true, precision: 3 }).nullable(),
+      created_at: (t) => t.dateTime('created_at', { useTz: true, precision: 3 }).nullable(),
+    },
+  },
+  {
+    name: 'auth_agent_grants',
+    /**
+     * O que um usuário autorizou um personal agent a fazer na conta dele: um
+     * grant por (conta, agente, usuário do agente); aprovar mais scopes soma.
+     * `revoked_at` preenchido = revogado (os tokens param na próxima request).
+     */
+    create: (t) => {
+      t.string('id').primary();
+      t.string('account_id').notNullable().index();
+      t.string('client_id', 2048).notNullable();
+      t.string('agent_sub').notNullable();
+      t.text('scope').notNullable();
+      t.dateTime('expires_at', { useTz: true, precision: 3 }).notNullable();
+      t.dateTime('revoked_at', { useTz: true, precision: 3 }).nullable();
+      t.dateTime('created_at', { useTz: true, precision: 3 }).notNullable();
+      t.dateTime('updated_at', { useTz: true, precision: 3 }).notNullable();
+    },
+    columns: {
+      account_id: (t) => t.string('account_id'),
+      client_id: (t) => t.string('client_id', 2048),
+      agent_sub: (t) => t.string('agent_sub'),
+      scope: (t) => t.text('scope'),
+      expires_at: (t) => t.dateTime('expires_at', { useTz: true, precision: 3 }).nullable(),
+      revoked_at: (t) => t.dateTime('revoked_at', { useTz: true, precision: 3 }).nullable(),
+      created_at: (t) => t.dateTime('created_at', { useTz: true, precision: 3 }).nullable(),
+      updated_at: (t) => t.dateTime('updated_at', { useTz: true, precision: 3 }).nullable(),
+    },
+  },
+  {
+    name: 'auth_agent_refresh_tokens',
+    /** Refresh tokens dos grants de personal agents — só o hash, uso único. */
+    create: (t) => {
+      t.string('token_hash', 64).primary();
+      t.string('grant_id').notNullable().index();
+      t.dateTime('expires_at', { useTz: true, precision: 3 }).notNullable();
+      t.dateTime('used_at', { useTz: true, precision: 3 }).nullable();
+      t.dateTime('created_at', { useTz: true, precision: 3 }).notNullable();
+    },
+    columns: {
+      grant_id: (t) => t.string('grant_id').index(),
+      expires_at: (t) => t.dateTime('expires_at', { useTz: true, precision: 3 }).nullable(),
+      used_at: (t) => t.dateTime('used_at', { useTz: true, precision: 3 }).nullable(),
+      created_at: (t) => t.dateTime('created_at', { useTz: true, precision: 3 }).nullable(),
+    },
+  },
 ];
 
 export interface EnsureSchemaOptions {

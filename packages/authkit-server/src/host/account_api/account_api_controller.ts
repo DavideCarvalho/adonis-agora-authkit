@@ -41,6 +41,7 @@ import {
   supportsRecoveryCodeCount,
   supportsRecoveryCodeRegeneration,
 } from '../../accounts/account_store.js';
+import { personalAgentsFor } from '../../agents/runtime.js';
 import { PasswordPolicyError } from '../../password/password_manager.js';
 import type { PatRecord } from '../../pat/pat_store.js';
 import { accountPath } from '../account_paths.js';
@@ -773,6 +774,46 @@ export default class AccountApiController {
     });
 
     return { ok: true, ...result };
+  }
+
+  // ─── GET /account/api/agents ─────────────────────────────────────────────
+
+  /** Personal agents com delegação ativa na conta (scopes aprovados). */
+  async listAgents(ctx: HttpContext) {
+    const runtime = await personalAgentsFor(ctx);
+    if (!runtime?.delegation) {
+      return ctx.response
+        .status(404)
+        .send(apiErr('capability_unsupported', 'Personal agent delegation is not enabled.'));
+    }
+    const userId = ctx.session.get(ACCOUNT_SESSION_KEY) as string;
+    const grants = await runtime.delegation.listGrants(userId);
+    return { agents: grants };
+  }
+
+  // ─── DELETE /account/api/agents/:id ──────────────────────────────────────
+
+  /** Revoga a delegação de um personal agent (efeito imediato nos tokens). */
+  async revokeAgent(ctx: HttpContext) {
+    const runtime = await personalAgentsFor(ctx);
+    if (!runtime?.delegation) {
+      return ctx.response
+        .status(404)
+        .send(apiErr('capability_unsupported', 'Personal agent delegation is not enabled.'));
+    }
+    const service = await ctx.containerResolver.make('authkit.server');
+    const userId = ctx.session.get(ACCOUNT_SESSION_KEY) as string;
+    const grantId = ctx.request.param('id') as string;
+    if (!(await runtime.delegation.revokeGrant(userId, grantId))) {
+      return ctx.response.status(404).send(apiErr('not_found', 'Grant not found.'));
+    }
+    await service.config.audit?.record({
+      type: 'agent.grant_revoked',
+      accountId: userId,
+      ip: ctx.request.ip?.() ?? null,
+      metadata: { grantId },
+    });
+    return { ok: true };
   }
 
   // ─── GET /account/api/mfa ────────────────────────────────────────────────

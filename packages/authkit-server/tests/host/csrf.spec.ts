@@ -14,9 +14,10 @@
  * kit efetivamente monta.
  */
 import { test } from '@japa/runner';
+import { resolveRateLimit } from '../../src/define_config.js';
 import { resetAccountLoginUrl } from '../../src/host/account_login_url.js';
 import { resetAccountPaths } from '../../src/host/account_paths.js';
-import { resetAuthHostConfig } from '../../src/host/auth_host_config.js';
+import { resetAuthHostConfig, setAuthHostConfig } from '../../src/host/auth_host_config.js';
 import { authkitCsrfExceptions } from '../../src/host/csrf.js';
 import { registerAuthHost } from '../../src/host/register_auth_host.js';
 
@@ -132,6 +133,42 @@ test.group('authkitCsrfExceptions — cobre exatamente o que registerAuthHost mo
         mountPath: '/oidc',
         backchannelLogoutPath: false,
       }),
+    );
+  });
+
+  test('endpoints OAuth de personal agents são exempted só com a feature ligada', ({ assert }) => {
+    try {
+      // Desligado (nada no config): nenhuma rota do host sob /agents/oauth vira exceção.
+      resetAuthHostConfig();
+      assert.isFalse(authkitCsrfExceptions('/agents/oauth/token', { mountPath: '/oidc' }));
+
+      // Ligado: o prefixo vem do config stashado no boot.
+      setAuthHostConfig({
+        mountPath: '/oidc',
+        rateLimit: resolveRateLimit(undefined),
+        adminEnabled: false,
+        adminApiEnabled: false,
+        personalAgents: { prefix: '/agents' },
+      });
+      assert.isTrue(authkitCsrfExceptions('/agents/oauth/token', { mountPath: '/oidc' }));
+      assert.isTrue(
+        authkitCsrfExceptions('/agents/oauth/device_authorization', { mountPath: '/oidc' }),
+      );
+      // A tela de consentimento continua protegida.
+      assert.isFalse(authkitCsrfExceptions('/agents/consent', { mountPath: '/oidc' }));
+      // `false` desliga mesmo com a feature ligada.
+      assert.isFalse(
+        authkitCsrfExceptions('/agents/oauth/token', {
+          mountPath: '/oidc',
+          personalAgentsPrefix: false,
+        }),
+      );
+    } finally {
+      resetAuthHostConfig();
+    }
+    // Prefixo explícito vale sem config.
+    assert.isTrue(
+      authkitCsrfExceptions('/pa/oauth/token', { mountPath: '/oidc', personalAgentsPrefix: '/pa' }),
     );
   });
 

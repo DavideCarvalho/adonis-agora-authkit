@@ -225,6 +225,33 @@ export const DEFAULT_MESSAGES = {
   'account.apps.revoke_confirm':
     'Revoke this app’s access? It will need to be authorized again and its tokens will stop working.',
   'account.apps.revoked': 'Access revoked.',
+  'account.apps.agents_title': 'Personal agents',
+  'account.apps.agents_intro':
+    'AI assistants you allowed to act on your account, and what each one can do.',
+  'account.apps.agents_empty': 'No personal agent can act on your account.',
+  'agents.consent.page_title': 'Authorize assistant',
+  'agents.consent.title': '{agent} wants to act on your account',
+  'agents.consent.body':
+    'The request came from {origin}. Choose what it can do — you can revoke access at any time.',
+  'agents.consent.signed_in_as': 'Signed in as {email}',
+  'agents.consent.scopes_label': 'Allow it to:',
+  'agents.consent.code':
+    'Request code: {code}. Make sure it matches the code your assistant shows.',
+  'agents.consent.allow': 'Allow',
+  'agents.consent.deny': 'Deny',
+  'agents.consent.enter_code_title': 'Connect an assistant',
+  'agents.consent.enter_code_body': 'Enter the code your assistant showed you.',
+  'agents.consent.continue': 'Continue',
+  'agents.consent.invalid_code':
+    'This code is invalid or expired. Ask your assistant for a new one.',
+  'agents.consent.impersonating':
+    'You cannot authorize an assistant while impersonating another account.',
+  'agents.done.approved_title': '{agent} can now:',
+  'agents.done.denied_title': 'Access denied',
+  'agents.done.return': 'You can close this page and return to your assistant.',
+  'agents.done.revoke_hint': 'To revoke this access later, go to the apps page of your account.',
+  'agents.done.expired_title': 'Request expired',
+  'agents.done.expired_body': 'This request is no longer valid. Ask your assistant to start again.',
   'account.apps.not_supported':
     'The configured OIDC adapter does not support enumeration — listing apps is unavailable.',
 
@@ -1230,6 +1257,34 @@ export const PT_BR_MESSAGES = {
   'account.apps.revoke_confirm':
     'Revogar o acesso deste app? Ele precisará ser autorizado novamente e seus tokens deixarão de funcionar.',
   'account.apps.revoked': 'Acesso revogado.',
+  'account.apps.agents_title': 'Assistentes pessoais',
+  'account.apps.agents_intro':
+    'Assistentes de IA que você autorizou a agir na sua conta, e o que cada um pode fazer.',
+  'account.apps.agents_empty': 'Nenhum assistente pessoal pode agir na sua conta.',
+  'agents.consent.page_title': 'Autorizar assistente',
+  'agents.consent.title': '{agent} quer agir na sua conta',
+  'agents.consent.body':
+    'O pedido veio de {origin}. Escolha o que ele pode fazer — você pode revogar o acesso quando quiser.',
+  'agents.consent.signed_in_as': 'Conectado como {email}',
+  'agents.consent.scopes_label': 'Permitir que ele:',
+  'agents.consent.code':
+    'Código do pedido: {code}. Confira se é o mesmo que o seu assistente mostra.',
+  'agents.consent.allow': 'Permitir',
+  'agents.consent.deny': 'Negar',
+  'agents.consent.enter_code_title': 'Conectar um assistente',
+  'agents.consent.enter_code_body': 'Digite o código que o seu assistente mostrou.',
+  'agents.consent.continue': 'Continuar',
+  'agents.consent.invalid_code':
+    'Este código é inválido ou expirou. Peça um novo ao seu assistente.',
+  'agents.consent.impersonating':
+    'Não é possível autorizar um assistente enquanto você personifica outra conta.',
+  'agents.done.approved_title': '{agent} agora pode:',
+  'agents.done.denied_title': 'Acesso negado',
+  'agents.done.return': 'Você pode fechar esta página e voltar ao seu assistente.',
+  'agents.done.revoke_hint': 'Para revogar este acesso depois, vá à página de apps da sua conta.',
+  'agents.done.expired_title': 'Pedido expirado',
+  'agents.done.expired_body':
+    'Este pedido não vale mais. Peça ao seu assistente para começar de novo.',
   'account.apps.not_supported':
     'O adapter OIDC configurado não suporta enumeração — a listagem de apps fica indisponível.',
 

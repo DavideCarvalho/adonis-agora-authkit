@@ -17,6 +17,8 @@
 import type { HttpContext } from '@adonisjs/core/http';
 import { accountPath } from './account_paths.js';
 import { ACCOUNT_SESSION_KEY } from './account_session_key.js';
+import { redirectExact } from './redirect_exact.js';
+import { requestPathWithQuery } from './request_url.js';
 import type { SettingsCapability } from './runtime_settings.js';
 import { SETTING_KEYS } from './runtime_toggles.js';
 
@@ -262,12 +264,10 @@ export async function requireSudo(
   if (await isSudoSatisfied(ctx, settings)) return true;
 
   // Fora da graça: redireciona para confirmação.
-  const rawUrl = ctx.request.url?.() ?? '';
-  const qs = (ctx.request as any).parsedUrl?.search ?? '';
-  const dest = qs ? `${rawUrl}${qs}` : rawUrl;
+  const dest = requestPathWithQuery(ctx.request);
   const returnTo =
     dest && dest !== '/' && !dest.startsWith(accountPath('confirm'))
       ? `?return_to=${encodeURIComponent(dest)}`
       : '';
-  return ctx.response.redirect(`${accountPath('confirm')}${returnTo}`);
+  return redirectExact(ctx.response, `${accountPath('confirm')}${returnTo}`);
 }

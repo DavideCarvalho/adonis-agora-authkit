@@ -108,6 +108,11 @@ export const AUDIT_EVENT_TYPES = [
   'account.signed_out_all',
   'client.secret_regenerated',
   'roles_catalog.updated',
+  // Personal agents (PACT §5): o usuário aprovou/negou a delegação pedida por um
+  // agente, ou revogou um grant no console. `clientId` = issuer do agente.
+  'agent.delegation_approved',
+  'agent.delegation_denied',
+  'agent.grant_revoked',
 ] as const;
 
 /** Tipos de eventos de auditoria relevantes para segurança emitidos pelo IdP. */

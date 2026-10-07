@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="pt-br"><head><meta charset="utf-8"><title>{{ t('agents.consent.page_title') }}</title>
+@include('authkit::partials/styles')
+@include('authkit::partials/submit_lock')
+</head>
+<body class="min-h-screen flex items-center justify-center bg-gray-50">
+  <div class="w-full max-w-md bg-white p-8 rounded-2xl shadow-xl ring-1 ring-black/5">
+    @if(request)
+      <form method="POST" action="{{ action }}">
+        <input type="hidden" name="_csrf" value="{{ csrfToken }}">
+        <input type="hidden" name="user_code" value="{{ request.userCode }}">
+        <h1 class="text-xl font-semibold text-gray-900">{{ t('agents.consent.title', { agent: request.agentName }) }}</h1>
+        <p class="mt-2 text-sm text-gray-600">{{ t('agents.consent.body', { origin: request.agentOrigin }) }}</p>
+        @if(account && account.email)
+          <p class="mt-2 text-xs text-gray-500">{{ t('agents.consent.signed_in_as', { email: account.email }) }}</p>
+        @end
+
+        <fieldset class="mt-6 space-y-3">
+          <legend class="text-sm font-medium text-gray-900">{{ t('agents.consent.scopes_label') }}</legend>
+          @each(scope in request.scopes)
+            <label class="flex items-start gap-3 rounded-lg border border-gray-200 p-3">
+              <input type="checkbox" name="scope" value="{{ scope.id }}" checked class="mt-0.5">
+              <span class="text-sm text-gray-800">{{ scope.description }}</span>
+            </label>
+          @end
+        </fieldset>
+
+        <p class="mt-4 text-xs text-gray-500">{{ t('agents.consent.code', { code: request.userCode }) }}</p>
+
+        <div class="mt-6 flex gap-3">
+          <button type="submit" name="decision" value="deny"
+            class="flex-1 rounded-lg border border-gray-300 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50">
+            {{ t('agents.consent.deny') }}
+          </button>
+          <button type="submit" name="decision" value="allow"
+            class="flex-1 rounded-lg bg-gray-900 py-2.5 text-sm font-semibold text-white transition hover:opacity-90">
+            {{ t('agents.consent.allow') }}
+          </button>
+        </div>
+      </form>
+    @else
+      <h1 class="text-xl font-semibold text-gray-900">{{ t('agents.consent.enter_code_title') }}</h1>
+      @if(error)
+        <p class="mt-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{{ t(error) }}</p>
+      @end
+      @if(error !== 'agents.consent.impersonating')
+        <form method="GET" action="{{ action }}" class="mt-4">
+          <label class="block text-sm text-gray-600" for="user_code">{{ t('agents.consent.enter_code_body') }}</label>
+          <input id="user_code" name="user_code" autocomplete="one-time-code" autocapitalize="characters"
+            class="mt-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-center font-mono text-lg tracking-widest"
+            placeholder="XXXX-XXXX" required>
+          <button type="submit"
+            class="mt-4 w-full rounded-lg bg-gray-900 py-2.5 text-sm font-semibold text-white transition hover:opacity-90">
+            {{ t('agents.consent.continue') }}
+          </button>
+        </form>
+      @end
+    @end
+  </div>
+</body></html>

@@ -11,6 +11,7 @@
 
 import { test } from '@japa/runner';
 import { validateReturnTo } from '../../src/host/controllers/account_session_controller.js';
+import { requestPathWithQuery } from '../../src/host/request_url.js';
 
 // ---------------------------------------------------------------------------
 // 1) validateReturnTo — unitário puro
@@ -365,5 +366,55 @@ test.group('POST /account/login — return_to (validação server-side)', () => 
     const returnTo = validateReturnTo('javascript://xss');
     const dest = returnTo ?? '/account/security';
     assert.equal(dest, '/account/security');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7) A query no return_to com a Request REAL do AdonisJS 7
+// ---------------------------------------------------------------------------
+
+test.group('return_to — query string com a Request do AdonisJS 7', () => {
+  test('requestPathWithQuery usa url(true): o parsedUrl do Adonis 7 não tem .search', ({
+    assert,
+  }) => {
+    // Forma do Adonis 7: `url(includeQueryString)` e `parsedUrl = { pathname, query }`.
+    const adonis7 = {
+      url: (withQuery?: boolean) =>
+        withQuery ? '/agents/consent?user_code=ABCD-EFGH' : '/agents/consent',
+      parsedUrl: { pathname: '/agents/consent', query: 'user_code=ABCD-EFGH' },
+    };
+    assert.equal(requestPathWithQuery(adonis7), '/agents/consent?user_code=ABCD-EFGH');
+    // Dublê antigo (só `search`) e `parsedUrl.query` sem `url(true)` continuam valendo.
+    assert.equal(
+      requestPathWithQuery({ url: () => '/a', parsedUrl: { search: '?b=1' } }),
+      '/a?b=1',
+    );
+    assert.equal(requestPathWithQuery({ url: () => '/a', parsedUrl: { query: 'b=1' } }), '/a?b=1');
+    assert.equal(requestPathWithQuery({ url: () => '/a' }), '/a');
+  });
+
+  test('o redirect para o login preserva a query com a Request do Adonis 7', async ({ assert }) => {
+    const { adminGuard } = await import('../../src/host/register_auth_host.js');
+    const redirects: string[] = [];
+    const ctx: any = {
+      session: { get: () => undefined },
+      request: {
+        url: (withQuery?: boolean) => (withQuery ? '/admin/users?page=3' : '/admin/users'),
+        parsedUrl: { pathname: '/admin/users', query: 'page=3' },
+      },
+      response: { redirect: (to: string) => redirects.push(to) },
+      containerResolver: {
+        make: async () => ({
+          config: {
+            admin: { enabled: true, roles: ['ADMIN'] },
+            accountStore: { findById: async () => null },
+          },
+        }),
+      },
+    };
+    await adminGuard(ctx, async () => {});
+    assert.deepEqual(redirects, [
+      `/account/login?return_to=${encodeURIComponent('/admin/users?page=3')}`,
+    ]);
   });
 });

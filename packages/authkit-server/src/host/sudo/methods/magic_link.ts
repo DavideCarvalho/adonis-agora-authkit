@@ -3,6 +3,7 @@ import type { Router } from '@adonisjs/core/http';
 import { accountPath } from '../../account_paths.js';
 import { sendSudoLinkEmail } from '../../default_mailer.js';
 import { translate } from '../../i18n.js';
+import { redirectExact } from '../../redirect_exact.js';
 import { isSudoMethodEnabled } from '../runtime.js';
 import type { SudoContext, SudoMethod, SudoRouteHelpers } from '../types.js';
 
@@ -209,7 +210,7 @@ export function magicLink(): SudoMethod {
           'confirmNotice',
           translate(c.cfg.messages, 'account.confirm.magic_link_sent'),
         );
-        return ctx.response.redirect(`${accountPath('confirm')}${qs}`);
+        return redirectExact(ctx.response, `${accountPath('confirm')}${qs}`);
       });
 
       router.get(`${accountPath('confirm')}/magic-link/:token`, async (ctx: any) => {

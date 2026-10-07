@@ -1,0 +1,196 @@
+---
+icon: Bot
+title: Personal Agents
+description: Let AI assistants act for your users — verified agent identity plus user-approved, revocable delegation (PACT).
+---
+
+A **personal agent** is an agent platform (ChatGPT, Meta AI, a user's own assistant…) that
+talks to your app **on behalf of one of your users**. AuthKit gives your app two things:
+
+- **Agent identity** — every request carries a short-lived JWT the agent signs with its own key.
+  AuthKit verifies it against the agent's JWKS. No shared secrets. You learn *which agent* is
+  calling and *which of its users* (an opaque `sub`) it speaks for.
+- **Delegation** (optional) — the user signs in **on your app**, never on the agent, and approves
+  scopes you define (`orders:read`, `orders:cancel`…). The agent gets a token that lets it act on
+  that user's account, only within those scopes, until the user revokes it.
+
+The wire format comes from a pluggable protocol adapter. The built-in one is
+[PACT 1.0](https://openpactprotocol.org) (A2A + OAuth 2.0 device code). The core — agent
+registry, device flow, grants, tokens, receipts — does not depend on the protocol, so another
+one (e.g. the Personal Agent Protocol, once its spec ships) plugs in without changing your app.
+
+## Enabling it
+
+```ts title="config/authkit.ts"
+defineConfig({
+  // ...
+  personalAgents: {
+    // The `aud` agents put in their JWT. You assign it when you register an agent.
+    audience: 'https://acme.com/a2a',
+    agents: [
+      {
+        issuer: 'https://agent.example.com',
+        jwksUri: 'https://agent.example.com/.well-known/jwks.json',
+        name: 'Example Assistant',
+      },
+    ],
+    delegation: {
+      // Your agent endpoint (the A2A interface URL). Delegation tokens are only valid there.
+      interfaceUrl: 'https://acme.com/a2a',
+      // Shown verbatim to the user on the consent screen.
+      scopes: {
+        'orders:read': 'Look up your orders and their status',
+        'orders:cancel': 'Cancel an order that has not shipped',
+      },
+    },
+  },
+})
+```
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `protocol` | `'pact' \| PersonalAgentProtocol` | `'pact'` | Wire format. Pass an adapter object for a protocol that isn't built in. |
+| `audience` | `string` | — | Required. Value agents put in `aud`. One per app. |
+| `agents` | `PersonalAgentRegistration[] \| (issuer) => Registration \| null` | `[]` | Accepted agents. Use the function form to keep the registry in your DB. `enabled: false` disables one (401). |
+| `open` | `boolean` | `false` | Also accept **any** agent whose `iss` serves an HTTPS JWKS via OIDC discovery. Verification stays complete. |
+| `delegation.interfaceUrl` | `string` | — | `aud` of delegation tokens. |
+| `delegation.scopes` | `Record<string, string>` | — | Scope id → user-facing description. |
+| `delegation.accessTokenTtl` | `number` (s) | `3600` | Delegation token lifetime. |
+| `delegation.grantTtl` | `number` (s) | 30 days | How long a grant (and its refresh tokens) lives. |
+| `delegation.deviceCodeTtl` | `number` (s) | `600` | How long the user has to approve. |
+| `delegation.pollInterval` | `number` (s) | `5` | Minimum polling interval (`slow_down` below it). |
+| `prefix` | `string` | `/agents` | Route prefix. Can't sit under the OIDC `mountPath` (boot error). |
+
+Delegation tokens and receipts are signed with your IdP keystore, so it must hold an **ES256 or
+RS256** key (the default `jwks: 'auto'` uses RS256). With any other algorithm the app fails at
+boot. Three lib-owned tables back delegation —
+`auth_agent_device_codes`, `auth_agent_grants`, `auth_agent_refresh_tokens` — created by
+`ensureAuthkitSchema()` like the others.
+
+## Routes
+
+| Route | Who calls it |
+| --- | --- |
+| `GET {prefix}/oauth/.well-known/oauth-authorization-server` | Agent — RFC 8414 metadata |
+| `GET {prefix}/oauth/jwks.json` | Agent — keys for delegation tokens and receipts |
+| `POST {prefix}/oauth/device_authorization` | Agent — request scopes (RFC 8628) |
+| `POST {prefix}/oauth/token` | Agent — poll for / refresh the delegation token |
+| `GET/POST {prefix}/consent` | User — consent screen (behind the account session) |
+| `POST /account/apps/agents/:grantId/revoke` | User — revoke from the account console |
+| `GET/DELETE /account/api/agents[/:id]` | User — the same, as JSON |
+
+The OAuth endpoints are server-to-server. `authkitCsrfExceptions` exempts `{prefix}/oauth/*`
+automatically when `personalAgents` is configured. The consent screen stays CSRF-protected,
+is rate-limited per IP (the OTP bucket), and refuses to render inside a frame.
+
+## Protecting your agent endpoint
+
+Put `personalAgentAuth()` on the route agents call. It verifies the agent JWT and, when sent,
+the delegation token — failures get a bare `401` with the protocol's challenge.
+
+```ts title="start/routes.ts"
+import {
+  personalAgentAuth,
+  personalAgentOf,
+  personalAgentReceipt,
+  personalAgentSecurity,
+  personalAgentStepUp,
+} from '@adonis-agora/authkit-server'
+
+router.get('/.well-known/agent-card.json', async (ctx) => ({
+  name: 'Acme Support',
+  supportedInterfaces: [
+    { url: 'https://acme.com/a2a', protocolBinding: 'HTTP+JSON', protocolVersion: '1.0' },
+  ],
+  // securitySchemes + securityRequirements. With several agents, pass the card's interface URL:
+  // only the one matching `delegation.interfaceUrl` advertises delegation.
+  ...(await personalAgentSecurity(ctx, { interfaceUrl: 'https://acme.com/a2a' })),
+}))
+
+router
+  .post('/a2a/message:send', async (ctx) => {
+    const agent = personalAgentOf(ctx)! // { issuer, sub, name, delegation }
+
+    if (wantsToCancel && !agent.delegation?.scopes.includes('orders:cancel')) {
+      // Step-up: ask the user for the missing scope; the conversation stays open.
+      return {
+        task: {
+          id: randomUUID(),
+          status: { state: 'TASK_STATE_AUTH_REQUIRED' },
+          metadata: await personalAgentStepUp(ctx, ['orders:cancel']),
+        },
+      }
+    }
+
+    // ... act as agent.delegation.accountId, limited to agent.delegation.scopes ...
+
+    return {
+      message: {
+        role: 'ROLE_AGENT',
+        parts: [{ text: 'Order #A-88213 is cancelled.' }],
+        // PACT requires a signed receipt on every reply served under delegation.
+        metadata: agent.delegation
+          ? await personalAgentReceipt(ctx, {
+              scopesUsed: ['orders:cancel'],
+              actions: [{ tool: 'cancel_order' }],
+            })
+          : undefined,
+      },
+    }
+  })
+  .use(personalAgentAuth())
+```
+
+Without a delegation token the agent still talks to you — it just doesn't act on an account.
+Verify the user the way your chat widget would (order number, email…). Pass
+`personalAgentAuth({ delegation: 'required' })` on routes that only make sense on an account.
+
+AuthKit handles identity and authorization only. The A2A conversation itself (`contextId`,
+retries, tasks) is your app's.
+
+## The delegation flow
+
+1. **The agent requests scopes.** It POSTs to `device_authorization` with its JWT as
+   `Authorization: Bearer` and `client_id` = its issuer. Unknown scope ids get `invalid_scope`.
+2. **The user signs in on your app.** The agent shows `verification_uri_complete`. Without a
+   session, the account guard sends the user to your login and back. The consent screen shows
+   the agent, its origin, the code and **one checkbox per scope** — the user can uncheck any.
+   It refuses while an admin is impersonating the account.
+3. **The agent gets a token.** It polls `token` (`authorization_pending` → `slow_down` if too
+   fast → token). The response `scope` is what the user approved, which may be less than what
+   was requested.
+4. **Calls carry both tokens.** The agent JWT in `Authorization`, the delegation token in
+   `X-A2A-User-Delegation`. The token is bound to the agent **and** to the agent's user: another
+   agent, or the same agent speaking for a different `sub`, can't use it.
+5. **Revocation is immediate.** Revoking from the account console kills the delegation token on
+   the next request, and its refresh token with it. Deleting or disabling the account does the
+   same, and so does every "revoke all" path (sign out everywhere, password reset, the admin's
+   revoke sessions). Refresh tokens rotate: replaying a used one is treated as a leak and revokes the grant.
+
+Each `(account, agent, agent user)` has a single grant. Approving again — a step-up for a
+missing scope — **adds** scopes to it, so the agent's next refresh already carries them.
+
+Audit events: `agent.delegation_approved`, `agent.delegation_denied`, `agent.grant_revoked`
+(`clientId` = the agent's issuer).
+
+## Swapping the protocol
+
+`personalAgents.protocol` takes a built-in id or any object implementing
+`PersonalAgentProtocol`. The built-in `pact(options)` takes `identitySchemeName` — the spec names
+the card's identity scheme `paJwt`, while PACT's reference implementation and conformance suite use
+`platformJwt` — the default here, following the reference (`pact({ identitySchemeName: 'paJwt' })`
+for the spec's name). An adapter covers: JWT rules for the agent (algorithms, max lifetime, clock skew), the
+delegation header, the `401` challenge, the discovery block, and the step-up and receipt
+envelopes. `pactProtocol` is exported as a reference implementation.
+
+```ts
+import { pactProtocol, type PersonalAgentProtocol } from '@adonis-agora/authkit-server'
+
+const myProtocol: PersonalAgentProtocol = {
+  ...pactProtocol,
+  id: 'my-protocol',
+  delegationHeader: 'x-user-delegation',
+}
+
+defineConfig({ personalAgents: { protocol: myProtocol, /* ... */ } })
+```

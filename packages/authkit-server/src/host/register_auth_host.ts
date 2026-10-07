@@ -29,6 +29,8 @@ import {
 import type { PolicyRouteOption } from './config_locks.js';
 import { ensureConsoleSession } from './idp_session_bridge.js';
 import { createAuthThrottles } from './rate_limit.js';
+import { redirectExact } from './redirect_exact.js';
+import { requestPathWithQuery } from './request_url.js';
 import { resolveRuntimeSettings } from './runtime_settings.js';
 import { resolveEffectiveSessionPolicy } from './runtime_toggles.js';
 import { magicLink as sudoMagicLink } from './sudo/methods/magic_link.js';
@@ -119,9 +121,7 @@ function buildLoginRedirect(ctx: any, extra?: string): string {
   // host que desmontou a tela de login (`account: { login: false }`) aponta para
   // a própria rota de login dele (ex.: `/login`). Ver `account_login_url.ts`.
   const loginUrl = getAccountLoginUrl();
-  const url = ctx.request?.url?.() ?? '';
-  const qs = ctx.request?.parsedUrl?.search ?? '';
-  const dest = qs ? `${url}${qs}` : url;
+  const dest = requestPathWithQuery(ctx.request);
   // Só inclui return_to quando há um caminho real (não vazio, não é o próprio login).
   if (dest && dest !== '/' && !dest.startsWith(loginUrl)) {
     const encoded = encodeURIComponent(dest);
@@ -145,12 +145,12 @@ function buildLoginRedirect(ctx: any, extra?: string): string {
 const accountGuard = async (ctx: any, next: () => Promise<void>) => {
   // Sessão do console — ou, com `accountSession.acceptIdpSession`, a do IdP (SSO).
   if (!(await ensureConsoleSession(ctx))) {
-    return ctx.response.redirect(buildLoginRedirect(ctx));
+    return redirectExact(ctx.response, buildLoginRedirect(ctx));
   }
   // Idle timeout: encerra e redireciona com query param de motivo.
   const idleExpired = await checkAndRefreshIdle(ctx);
   if (idleExpired) {
-    return ctx.response.redirect(buildLoginRedirect(ctx, 'reason=idle'));
+    return redirectExact(ctx.response, buildLoginRedirect(ctx, 'reason=idle'));
   }
   return next();
 };
@@ -180,12 +180,12 @@ export const adminGuard = async (ctx: any, next: () => Promise<void>) => {
   const accountId = ctx.session?.get(ACCOUNT_SESSION_KEY) as string | undefined;
   if (!accountId) {
     // `/account/login` é sempre o login da conta — NÃO muda com o prefixo admin.
-    return ctx.response.redirect(buildLoginRedirect(ctx));
+    return redirectExact(ctx.response, buildLoginRedirect(ctx));
   }
   // Idle timeout: também protege o console admin.
   const idleExpired = await checkAndRefreshIdle(ctx);
   if (idleExpired) {
-    return ctx.response.redirect(buildLoginRedirect(ctx, 'reason=idle'));
+    return redirectExact(ctx.response, buildLoginRedirect(ctx, 'reason=idle'));
   }
   const allowed = cfg.admin.roles as string[];
   const account = await cfg.accountStore.findById(accountId);
@@ -474,6 +474,8 @@ const C = {
   accountMfa: () => import('./controllers/account_mfa_controller.js'),
   accountOrgs: () => import('./controllers/account_orgs_controller.js'),
   accountConfirm: () => import('./controllers/account_confirm_controller.js'),
+  agentOAuth: () => import('./controllers/agent_oauth_controller.js'),
+  agentConsent: () => import('./controllers/agent_consent_controller.js'),
   webauthnAsset: () => import('./controllers/webauthn_asset_controller.js'),
   logoutAsset: () => import('./controllers/logout_asset_controller.js'),
   passkeyAutofillAsset: () => import('./controllers/passkey_autofill_asset_controller.js'),
@@ -776,6 +778,28 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
   // PAT introspection (server-to-server).
   withIntrospection(router.post('/authkit/pat/introspect', [C.patIntrospection, 'handle']));
 
+  // Personal agents (PACT §5): authorization server de delegação. Os endpoints
+  // OAuth são server-to-server (o agente se autentica pelo JWT dele, sem
+  // sessão); a tela de consentimento exige a sessão de conta — sem ela o
+  // `accountGuard` manda para o login com `return_to`, e o usuário volta com o
+  // `user_code`. Montado só quando `personalAgents` está no config.
+  const agentsPrefix = hostCfg?.personalAgents?.prefix;
+  if (agentsPrefix) {
+    const oauth = `${agentsPrefix}/oauth`;
+    router.get(`${oauth}/.well-known/oauth-authorization-server`, [C.agentOAuth, 'metadata']);
+    router.get(`${oauth}/jwks.json`, [C.agentOAuth, 'jwks']);
+    router.post(`${oauth}/device_authorization`, [C.agentOAuth, 'deviceAuthorization']);
+    router.post(`${oauth}/token`, [C.agentOAuth, 'token']);
+    // Throttle de código (bucket do OTP, por IP): o `user_code` tem 8 letras e
+    // a RFC 8628 §5.1 conta com rate limit para não ser adivinhável.
+    router
+      .group(() => {
+        withOtpLogin(router.get(`${agentsPrefix}/consent`, [C.agentConsent, 'show']));
+        withOtpLogin(router.post(`${agentsPrefix}/consent`, [C.agentConsent, 'decide']));
+      })
+      .use([accountGuard]);
+  }
+
   // Paths do console de conta (configuráveis/localizáveis via `accountRoutes`).
   // As TELAS vêm de `accountPath(key)` (prefixo + segmento configurável); os
   // action-subpaths concatenados (`/password`, `/enroll`, ...) são FIXOS —
@@ -850,6 +874,9 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
       if (mountApps) {
         router.get(appsPath, [C.accountApps, 'index']);
         router.post(`${appsPath}/:clientId/revoke`, [C.accountApps, 'revoke']);
+        if (agentsPrefix) {
+          router.post(`${appsPath}/agents/:grantId/revoke`, [C.accountApps, 'revokeAgent']);
+        }
       }
 
       // MFA — TOTP + passkeys (tela `mfa`).
@@ -967,6 +994,11 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
       // Apps (grants).
       router.get(`${apiBase}/apps`, [C.accountApi, 'listApps']);
       router.delete(`${apiBase}/apps/:clientId`, [C.accountApi, 'revokeApp']);
+      // Personal agents com delegação (PACT).
+      if (agentsPrefix) {
+        router.get(`${apiBase}/agents`, [C.accountApi, 'listAgents']);
+        router.delete(`${apiBase}/agents/:id`, [C.accountApi, 'revokeAgent']);
+      }
       // MFA + passkeys.
       router.get(`${apiBase}/mfa`, [C.accountApi, 'mfaStatus']);
       // Login methods preference (self-service, por usuário).

@@ -1,5 +1,7 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
+import { displayNameFor } from '../../agents/agent_identity.js';
+import { personalAgentsFor } from '../../agents/runtime.js';
 import { accountPath } from '../account_paths.js';
 import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
@@ -30,9 +32,27 @@ export default class AccountAppsController {
 
     const revoked = ctx.session.flashMessages.get('appRevoked') as string | undefined;
 
+    // Personal agents com delegação ativa (só quando a feature está ligada).
+    const agentsRuntime = await personalAgentsFor(ctx);
+    const agents = agentsRuntime?.delegation
+      ? await Promise.all(
+          (await agentsRuntime.delegation.listGrants(accountId)).map(async (g) => ({
+            id: g.id,
+            name: displayNameFor(
+              (await agentsRuntime.config.resolveAgent(g.clientId)) ?? {
+                issuer: g.clientId,
+                jwksUri: '',
+              },
+            ),
+            scopes: g.scopes,
+          })),
+        )
+      : null;
+
     return render(ctx, 'account/apps', {
       csrfToken: ctx.request.csrfToken,
       supported,
+      agents,
       revoked: revoked ?? null,
       apps: grantList
         .filter((g) => !!g.clientId)
@@ -68,6 +88,27 @@ export default class AccountAppsController {
       },
     });
 
+    ctx.session.flash('appRevoked', cfg.messages['account.apps.revoked'] ?? 'account.apps.revoked');
+    return ctx.response.redirect(accountPath('apps'));
+  }
+
+  /** POST /account/apps/agents/:grantId/revoke — revoga a delegação de um personal agent. */
+  async revokeAgent(ctx: HttpContext) {
+    const runtime = await personalAgentsFor(ctx);
+    if (!runtime?.delegation) return ctx.response.notFound();
+    const service = await ctx.containerResolver.make('authkit.server');
+    const cfg = service.config;
+
+    const accountId = ctx.session.get(ACCOUNT_SESSION_KEY) as string;
+    const grantId = ctx.request.param('grantId');
+    if (await runtime.delegation.revokeGrant(accountId, grantId)) {
+      await cfg.audit?.record({
+        type: 'agent.grant_revoked',
+        accountId,
+        ip: ctx.request.ip?.() ?? null,
+        metadata: { grantId },
+      });
+    }
     ctx.session.flash('appRevoked', cfg.messages['account.apps.revoked'] ?? 'account.apps.revoked');
     return ctx.response.redirect(accountPath('apps'));
   }
