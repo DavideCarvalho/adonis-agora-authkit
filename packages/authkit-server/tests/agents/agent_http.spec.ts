@@ -490,22 +490,22 @@ test.group('personal agents — fluxo HTTP (PACT)', (group) => {
   });
 
   test('pact({ identitySchemeName }) renomeia o esquema de identidade', ({ assert }) => {
-    const block: any = pact({ identitySchemeName: 'platformJwt' }).discovery({
+    const block: any = pact({ identitySchemeName: 'paJwt' }).discovery({
       deviceAuthorizationUrl: 'd',
       tokenUrl: 't',
       metadataUrl: 'm',
       scopes: { a: 'A' },
     });
-    assert.property(block.securitySchemes, 'platformJwt');
-    assert.notProperty(block.securitySchemes, 'paJwt');
+    assert.property(block.securitySchemes, 'paJwt');
+    assert.notProperty(block.securitySchemes, 'platformJwt');
     assert.deepEqual(block.securityRequirements[1], {
-      schemes: { platformJwt: { list: [] }, userDelegation: { list: [] } },
+      schemes: { paJwt: { list: [] }, userDelegation: { list: [] } },
     });
   });
 
   test('bloco de segurança do Agent Card (PACT §2.1/§5.1)', async ({ assert }) => {
     const security: any = await personalAgentSecurity(makeCtx(env).ctx);
-    assert.deepEqual(security.securitySchemes.paJwt, {
+    assert.deepEqual(security.securitySchemes.platformJwt, {
       httpAuthSecurityScheme: { scheme: 'Bearer', bearerFormat: 'JWT' },
     });
     assert.deepEqual(
@@ -517,6 +517,8 @@ test.group('personal agents — fluxo HTTP (PACT)', (group) => {
       },
     );
     assert.lengthOf(security.securityRequirements, 2);
-    assert.deepEqual(security.securityRequirements[0], { schemes: { paJwt: { list: [] } } });
+    assert.deepEqual(security.securityRequirements[0], {
+      schemes: { platformJwt: { list: [] } },
+    });
   });
 });

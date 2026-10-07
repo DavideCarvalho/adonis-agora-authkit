@@ -47,16 +47,16 @@ export interface PersonalAgentProtocol {
 
 export interface PactOptions {
   /**
-   * Nome do esquema de identidade no Agent Card. Default `'paJwt'`, o da spec. A implementação de
-   * referência e a suíte de conformidade do PACT usam `'platformJwt'` — os clientes escolhem o
-   * esquema pelo tipo, não pelo nome, então os dois interoperam.
+   * Nome do esquema de identidade no Agent Card. Default `'platformJwt'`, o da implementação de
+   * referência e da suíte de conformidade do PACT — o texto da spec diz `'paJwt'`. Os clientes
+   * escolhem o esquema pelo tipo, não pelo nome, então os dois interoperam.
    */
   identitySchemeName?: string;
 }
 
 /** PACT 1.0 — §3.2 (JWT do agente), §2.1/§5.1 (Agent Card), §5.5 (step-up), §5.6 (recibo). */
 export function pact(options: PactOptions = {}): PersonalAgentProtocol {
-  const identity = options.identitySchemeName ?? 'paJwt';
+  const identity = options.identitySchemeName ?? 'platformJwt';
   return {
     id: 'pact',
     identity: { algorithms: ['ES256', 'RS256'], maxLifetimeSeconds: 300, clockSkewSeconds: 30 },

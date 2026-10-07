@@ -178,7 +178,8 @@ Audit events: `agent.delegation_approved`, `agent.delegation_denied`, `agent.gra
 `personalAgents.protocol` takes a built-in id or any object implementing
 `PersonalAgentProtocol`. The built-in `pact(options)` takes `identitySchemeName` — the spec names
 the card's identity scheme `paJwt`, while PACT's reference implementation and conformance suite use
-`platformJwt` (`protocol: pact({ identitySchemeName: 'platformJwt' })`). An adapter covers: JWT rules for the agent (algorithms, max lifetime, clock skew), the
+`platformJwt` — the default here, following the reference (`pact({ identitySchemeName: 'paJwt' })`
+for the spec's name). An adapter covers: JWT rules for the agent (algorithms, max lifetime, clock skew), the
 delegation header, the `401` challenge, the discovery block, and the step-up and receipt
 envelopes. `pactProtocol` is exported as a reference implementation.
 
