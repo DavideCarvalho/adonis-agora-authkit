@@ -1,5 +1,45 @@
 # @adonis-agora/authkit-server
 
+## 0.76.0
+
+### Minor Changes
+
+- [#240](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/240) [`d25b30a`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/d25b30a4a2fd5e68fbec23aa05c70703c3634a16) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `mcp: true` makes AuthKit the authorization server of your MCP servers, so `claude mcp add <url>` (and Claude, ChatGPT, VS Code, Cursor) signs users in with their own accounts and no app code:
+  
+  - Dynamic registration opens, restricted to the redirects of the known MCP clients (loopback, claude.ai/claude.com, ChatGPT, VS Code, Cursor); `mcp.redirectUris` adds more. A declared `dynamicRegistration` still wins.
+  - Clients registered through `/reg` with the `refresh_token` grant get `offline_access` and `prompt=consent` on their authorize, so they stay connected. Static and console/CLI clients are untouched.
+  - Tokens are bound to the MCP server (`resource`, RFC 8707) declared in `mcp.resources` or registered at runtime with `registerOAuthResource()`, which `@adonis-agora/agent`'s MCP server does on its own.
+  - The RFC 8414 metadata is also served at the root path (`/.well-known/oauth-authorization-server/oidc`).
+  
+  The consent screen now names the client that asks (its registered `client_name`, escaped) instead of the IdP's own app name, and lists the scopes it asked for; the Connected apps page (and `GET /account/api/apps`, as `name`) shows clients by that name.
+
+- [#239](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/239) [`dbfac1e`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/dbfac1e0fe60f448eba8b05056044fb18c67db7e) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Personal agents: assistentes de IA (ChatGPT, Meta AI, um agente próprio…) que falam com o app em nome de um usuário, com o PACT 1.0 (https://openpactprotocol.org) como protocolo embutido.
+  
+  Desligado por default; liga com `personalAgents` no `defineConfig`.
+  
+  - **Identidade do agente**: JWT assinado pela chave do agente e verificado pelo JWKS dele, sem segredo compartilhado (ES256/RS256, vida ≤ 300 s, 30 s de relógio, `aud` único). Os agentes vêm de uma lista estática, de uma função (registro no banco) ou, com `open: true`, de qualquer `iss` com OIDC discovery.
+  - **Delegação** (`personalAgents.delegation`): device flow RFC 8628 em que o cliente OAuth é o agente. O usuário loga NESTE app e aprova os scopes do app em checkboxes que pode desmarcar. A tela recusa durante impersonation. O agente recebe um token assinado pelo keystore do IdP, preso ao agente e ao usuário do agente, com refresh rotativo. Aprovar de novo (step-up) soma scopes ao grant existente.
+  - **Revogação imediata** no console de conta (`/account/apps`) e na JSON API (`/account/api/agents`). Apagar ou desabilitar a conta corta a delegação do mesmo jeito, assim como toda revogação total (sair de todas as sessões, reset de senha, revogação pelo admin) — o `RevokeResult` ganha `agentGrants`. Reusar um refresh token já gasto revoga o grant (RFC 9700). Auditoria: `agent.delegation_approved`, `agent.delegation_denied`, `agent.grant_revoked`.
+  - **Tela de consentimento** protegida por CSRF, com rate limit por IP (bucket do OTP) e sem poder ser emoldurada (`X-Frame-Options: DENY`). Delegação com keystore sem chave ES256/RS256 falha no boot.
+  - **Rotas do app**: `personalAgentAuth()` protege o endpoint que os agentes chamam e `personalAgentOf(ctx)` devolve o agente e a delegação. `personalAgentSecurity`, `personalAgentStepUp` e `personalAgentReceipt` geram o bloco do Agent Card, o metadata de step-up e o recibo assinado.
+  - **Protocolo plugável** (`personalAgents.protocol`): o núcleo não depende do fio. `'pact'` é o default; o esquema de identidade do card se chama `platformJwt`, como na implementação de referência e na suíte de conformidade do PACT (o texto da spec diz `paJwt`; `pact({ identitySchemeName: 'paJwt' })` troca), e o `pactProtocol` exportado serve de modelo para um adapter próprio.
+  - **Schema**: três tabelas novas da lib no `ensureAuthkitSchema`: `auth_agent_device_codes`, `auth_agent_grants` e `auth_agent_refresh_tokens`.
+  - **CSRF**: `authkitCsrfExceptions` isenta `{prefix}/oauth/*` sozinho quando `personalAgents` está ligado. A opção nova `personalAgentsPrefix` sobrepõe isso; `false` desliga.
+
+### Patch Changes
+
+- [#239](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/239) [`dbfac1e`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/dbfac1e0fe60f448eba8b05056044fb18c67db7e) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - O config que não resolve no `boot()` do provider é tentado de novo no `booted`, em vez de ser descartado em silêncio.
+  
+  Num host com keystore criptografado, o `jwks` precisa do serviço de encryption, que pode ainda não estar pronto durante o boot dos providers. A resolução falhava, o catch engolia o erro, e nada derivado do config valia: os locks de settings, o stash que o `registerAuthHost` lê (`sudo.methods`, headless, personal agents) e o `config.routes`. Agora a resolução é refeita no `booted`, depois de todos os providers e antes do preload `start/routes.ts`. Se falhar de novo, vira um warning.
+
+- [#239](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/239) [`dbfac1e`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/dbfac1e0fe60f448eba8b05056044fb18c67db7e) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Os redirects que a lib monta com query (`return_to` do login e do sudo, convite de organização) saíam quebrados em apps com `redirect.forwardQueryString: true`, o default do starter do AdonisJS.
+  
+  O `response.redirect(url)` colava a query da request atual no fim da URL que já tinha a dela: `/login?return_to=%2Fx%3Fa%3D1?a=1`. Agora esses redirects vão exatamente como a lib os monta (`redirect().clearQs().toPath(url)`). O argumento `forwardQueryString = false` do `redirect()` não bastava, porque não desliga o que vem do config.
+
+- [#239](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/239) [`dbfac1e`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/dbfac1e0fe60f448eba8b05056044fb18c67db7e) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - O redirect para o login (e para a confirmação de sudo) perdia a query string do `return_to` no AdonisJS 7.
+  
+  O código lia `request.parsedUrl.search`, que o AdonisJS 7 não tem mais (`parsedUrl` virou `{ pathname, query }`). Quem caía no login a partir de `/admin/users?page=3` voltava para `/admin/users`. Agora o destino vem de `request.url(true)`, a API que inclui a query.
+
 ## 0.75.0
 
 ### Minor Changes
