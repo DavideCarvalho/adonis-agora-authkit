@@ -402,6 +402,7 @@ export function lucidAccountStore(
       // token (e para todo call-site tipado como string).
       id: String(row.id),
       email: row.email,
+      ...(row.phone && row.phoneVerifiedAt ? { phone: row.phone } : {}),
       globalRoles: row.globalRoles ?? [],
       name: row.fullName ?? undefined,
       avatarUrl: row.avatarUrl ?? undefined,
@@ -566,6 +567,7 @@ export async function lucidAccountStoreAsync(
           // Ver a nota em `toAccount` acima: `sub` precisa ser string.
           id: String(row.id),
           email: row.email,
+          ...(row.phone && row.phoneVerifiedAt ? { phone: row.phone } : {}),
           globalRoles: row.globalRoles ?? [],
           name: row.fullName ?? undefined,
           avatarUrl: row.avatarUrl ?? undefined,

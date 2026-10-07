@@ -27,6 +27,8 @@ export interface OidcAdapter {
   findByUid(uid: string): Promise<OidcPayload | undefined>;
   consume(id: string): Promise<void>;
   destroy(id: string): Promise<void>;
+  /** Extend an existing remembered Session atomically; never recreate revoked records. */
+  renewSession?(id: string, expiresIn: number): Promise<boolean>;
   revokeByGrantId(grantId: string): Promise<void>;
   /**
    * Enumeração GENÉRICA dos artefatos do model deste adapter (id + payload). Usada

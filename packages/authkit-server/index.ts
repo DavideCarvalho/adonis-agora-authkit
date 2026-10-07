@@ -308,6 +308,29 @@ export {
 } from './src/host/console_session.js';
 export type { AuthkitCsrfOptions } from './src/host/csrf.js';
 export { authkitCsrfExceptions } from './src/host/csrf.js';
+export type {
+  CustomLoginIdentity,
+  CustomLoginMethod,
+  CustomLoginMethodBinding,
+  CustomLoginMethodConstructor,
+  CustomLoginMethods,
+} from './src/host/custom_login.js';
+export {
+  authenticateCustomLogin,
+  beginCustomLogin,
+  completeCustomLogin,
+} from './src/host/custom_login.js';
+export type {
+  CustomMfaContext,
+  CustomMfaDescription,
+  CustomMfaDescriptor,
+  CustomMfaField,
+  CustomMfaMethod,
+  CustomMfaMethodBinding,
+  CustomMfaMethodConstructor,
+  CustomMfaMethods,
+} from './src/host/custom_mfa.js';
+export { beginCustomMfa, customMfaViewProps, verifyCustomMfa } from './src/host/custom_mfa.js';
 export { normalizeEmailIdentifier } from './src/host/email_identifier.js';
 export type { ResolveGeo } from './src/host/geo.js';
 export { GEO_RESOLVE_TIMEOUT_MS, resolveGeoSafe } from './src/host/geo.js';
@@ -320,7 +343,11 @@ export {
   resolveMessages,
   translate,
 } from './src/host/i18n.js';
-export { ensureConsoleSession } from './src/host/idp_session_bridge.js';
+export {
+  ACCOUNT_IDP_SESSION_KEY,
+  ensureConsoleSession,
+  readIdpSession,
+} from './src/host/idp_session_bridge.js';
 export type { ImpersonationClientLike, ImpersonationPanel } from './src/host/impersonation.js';
 export { buildImpersonationPanel } from './src/host/impersonation.js';
 export type {
@@ -371,6 +398,8 @@ export {
   type ResolvedOtpLoginConfig,
   resolveOtpLoginConfig,
 } from './src/host/otp_login.js';
+export type { PersistentRpOptions } from './src/host/persistent_rp_session.js';
+export { endRpSession } from './src/host/persistent_rp_session.js';
 export type { AuthThrottles, ThrottleMiddleware } from './src/host/rate_limit.js';
 export { createAuthThrottles } from './src/host/rate_limit.js';
 export type {
@@ -481,6 +510,19 @@ export {
   resolveEffectiveUserLoginMethods,
   USER_LOGIN_METHOD_KEYS,
 } from './src/host/user_login_methods.js';
+export type {
+  MetaWhatsappCodeSenderOptions,
+  WhatsappCodeInput,
+  WhatsappCodeSender,
+  WhatsappCodeSenderBinding,
+  WhatsappCodeSenderConstructor,
+  WhatsmiauCodeSenderOptions,
+} from './src/host/whatsapp_code_sender.js';
+export {
+  MetaWhatsappCodeSender,
+  resolveWhatsappCodeSender,
+  WhatsmiauCodeSender,
+} from './src/host/whatsapp_code_sender.js';
 export {
   MCP_CLIENT_REDIRECTS,
   MCP_RESOURCE_SCOPES,

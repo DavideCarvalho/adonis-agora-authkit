@@ -749,6 +749,18 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
   router.post('/auth/interaction/:uid/identifier', [C.interaction, 'identifier']);
   withLogin(router.post('/auth/interaction/:uid/login', [C.interaction, 'login']));
   withLogin(router.post('/auth/interaction/:uid/mfa', [C.interaction, 'mfaVerify']));
+  const customMfaBeginRoute = router.post('/auth/interaction/:uid/mfa/custom/:method/begin', [
+    C.interaction,
+    'customMfaBegin',
+  ]);
+  withLogin(customMfaBeginRoute);
+  customMfaBeginRoute.as('authkit.mfa.custom.begin');
+  const customMfaVerifyRoute = router.post('/auth/interaction/:uid/mfa/custom/:method/verify', [
+    C.interaction,
+    'customMfaVerify',
+  ]);
+  withLogin(customMfaVerifyRoute);
+  customMfaVerifyRoute.as('authkit.mfa.custom.verify');
   // Troca de senha obrigatória quando a senha expirou (password expiration gate).
   withLogin(
     router.post('/auth/interaction/:uid/password-expired', [
