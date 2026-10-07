@@ -581,7 +581,7 @@ test.group('e2e mcp — dynamic MCP client, runtime resource, refresh token', (g
   }) => {
     const reg = await registerClaudeCode();
     assert.equal(reg.status, 201, await reg.clone().text());
-    const { client_id: clientId } = await reg.json();
+    const { client_id: clientId } = (await reg.json()) as { client_id: string };
     const resource = `${ISSUER}${MCP_PATH}`;
 
     const jar = new Jar();
@@ -633,7 +633,7 @@ test.group('e2e mcp — dynamic MCP client, runtime resource, refresh token', (g
         code_verifier: verifier,
         resource,
       }).toString(),
-    }).then((r) => r.json());
+    }).then((r) => r.json() as Promise<{ access_token?: string; refresh_token?: string }>);
     assert.isString(token.access_token, JSON.stringify(token));
     assert.isString(token.refresh_token, 'an MCP client stays connected');
     const stored = await (service.provider as any).AccessToken.find(token.access_token);
