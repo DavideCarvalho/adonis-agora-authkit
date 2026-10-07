@@ -48,64 +48,35 @@ export default class AuthkitServerProvider {
       resolveAppKey(this.app);
     }
 
-    // Config locks: trava as settings definidas explicitamente no defineConfig
-    // (config vence em runtime; a UI/Admin API não pode alterá-las). Fail-safe:
-    // qualquer erro → sem locks (comportamento legado).
-    let resolvedConfig: ResolvedServerConfig | null = null;
-    try {
-      const value = this.app.config.get('authkit');
-      if (value) {
-        const config = (await configProvider.resolve(
-          this.app,
-          value,
-        )) as ResolvedServerConfig | null;
-        if (config) {
-          resolvedConfig = config;
-          if (config.lockedSettingKeys?.length) {
-            const { setLockedSettingKeys } = await import('../src/host/config_locks.js');
-            setLockedSettingKeys(config.lockedSettingKeys);
+    // Config locks + stash dos bits de routing + auto-montagem: tudo sai do config RESOLVIDO.
+    //
+    // A resolução pode falhar AQUI e dar certo um instante depois: o `jwks` de um keystore
+    // criptografado precisa do serviço de encryption, que nem sempre está pronto durante o boot
+    // dos providers. Antes, o catch engolia a falha e nada derivado do config valia — locks,
+    // `sudo.methods`, headless, personal agents — sem um aviso. Agora a falha aqui é tentada de
+    // novo no `booted` (todos os providers prontos, ANTES do preload `start/routes.ts`), e só a
+    // segunda falha desiste, com warning.
+    if (this.app.config.get('authkit')) {
+      let config: ResolvedServerConfig | null | undefined;
+      try {
+        config = await this.#resolveConfig();
+      } catch {
+        this.app.booted(async () => {
+          let late: ResolvedServerConfig | null;
+          try {
+            late = await this.#resolveConfig();
+          } catch (error) {
+            const logger = await this.app.container.make('logger');
+            logger.warn(
+              { err: error },
+              'authkit: config não resolveu no boot — locks, stash de rotas (registerAuthHost) e config.routes não foram aplicados',
+            );
+            return;
           }
-          // Stash dos bits de routing p/ o registerAuthHost ler do config (dedup).
-          // boot() roda antes do preload start/routes.ts, então estará disponível lá.
-          const { setAuthHostConfig } = await import('../src/host/auth_host_config.js');
-          setAuthHostConfig({
-            mountPath: config.mountPath,
-            social: config.social,
-            rateLimit: config.rateLimit,
-            adminEnabled: config.admin.enabled,
-            adminApiEnabled: config.adminApi.enabled,
-            // `config.sudo.methods` passa a decidir também o que é MONTADO — sem
-            // isto o host teria de repetir a lista no `registerAuthHost`, e as
-            // duas divergiriam (tela oferecendo endpoint que dá 404).
-            sudoMethods: config.sudo?.methods,
-            // Defaults estruturais de `config.routes` (o argumento ainda vence).
-            routes: typeof config.routes === 'object' ? config.routes : undefined,
-            lockedRouteOptions: config.lockedRouteOptions,
-            personalAgents: config.personalAgents
-              ? { prefix: config.personalAgents.prefix }
-              : undefined,
-            // API headless — repassa pro registerAuthHost montar as rotas.
-            headless: config.headless
-              ? {
-                  baseUrl: config.headless.baseUrl,
-                  resolveAccountId: config.headless.resolveAccountId,
-                }
-              : undefined,
-          });
-        }
+          if (late) await this.#applyResolvedConfig(late);
+        });
       }
-    } catch {
-      /* sem locks / sem stash → registerAuthHost cai em opts/defaults */
-    }
-
-    // Auto-montagem das rotas (`config.routes`). FORA do try/catch fail-safe
-    // acima de propósito: "as rotas não subiram" não pode degradar em silêncio —
-    // seria um app inteiro em 404 sem nenhuma pista. Chama a MESMA função
-    // exportada que o `start/routes.ts` chamaria; não há segunda implementação.
-    if (resolvedConfig?.routes) {
-      const router = await this.app.container.make('router');
-      const { autoMountAuthHost } = await import('../src/host/register_auth_host.js');
-      autoMountAuthHost(router);
+      if (config) await this.#applyResolvedConfig(config);
     }
 
     // Registra o disco "authkit" no edge.js para que os templates sejam referenciados
@@ -128,6 +99,56 @@ export default class AuthkitServerProvider {
       edgeInstance.mount('authkit', viewsUrl);
     } catch {
       // edge.js ausente (host headless/Inertia-only que não usa edgeRenderer) — ignora.
+    }
+  }
+
+  async #resolveConfig(): Promise<ResolvedServerConfig | null> {
+    const value = this.app.config.get('authkit');
+    return (await configProvider.resolve(this.app, value)) as ResolvedServerConfig | null;
+  }
+
+  /**
+   * Aplica o que o boot deriva do config resolvido: os locks de settings, o stash que o
+   * `registerAuthHost` lê e a auto-montagem de `config.routes` (cuja falha propaga).
+   */
+  async #applyResolvedConfig(config: ResolvedServerConfig): Promise<void> {
+    if (config.lockedSettingKeys?.length) {
+      const { setLockedSettingKeys } = await import('../src/host/config_locks.js');
+      setLockedSettingKeys(config.lockedSettingKeys);
+    }
+    // Stash dos bits de routing p/ o registerAuthHost ler do config (dedup). Roda antes do
+    // preload start/routes.ts (no boot, ou no `booted` quando o boot não conseguiu resolver).
+    const { setAuthHostConfig } = await import('../src/host/auth_host_config.js');
+    setAuthHostConfig({
+      mountPath: config.mountPath,
+      social: config.social,
+      rateLimit: config.rateLimit,
+      adminEnabled: config.admin.enabled,
+      adminApiEnabled: config.adminApi.enabled,
+      // `config.sudo.methods` passa a decidir também o que é MONTADO — sem isto o host teria de
+      // repetir a lista no `registerAuthHost`, e as duas divergiriam (tela oferecendo endpoint
+      // que dá 404).
+      sudoMethods: config.sudo?.methods,
+      // Defaults estruturais de `config.routes` (o argumento ainda vence).
+      routes: typeof config.routes === 'object' ? config.routes : undefined,
+      lockedRouteOptions: config.lockedRouteOptions,
+      personalAgents: config.personalAgents ? { prefix: config.personalAgents.prefix } : undefined,
+      // API headless — repassa pro registerAuthHost montar as rotas.
+      headless: config.headless
+        ? {
+            baseUrl: config.headless.baseUrl,
+            resolveAccountId: config.headless.resolveAccountId,
+          }
+        : undefined,
+    });
+
+    // Auto-montagem das rotas (`config.routes`). Chama a MESMA função exportada que o
+    // `start/routes.ts` chamaria; não há segunda implementação. "As rotas não subiram" não pode
+    // degradar em silêncio: uma falha aqui propaga.
+    if (config.routes) {
+      const router = await this.app.container.make('router');
+      const { autoMountAuthHost } = await import('../src/host/register_auth_host.js');
+      autoMountAuthHost(router);
     }
   }
 
