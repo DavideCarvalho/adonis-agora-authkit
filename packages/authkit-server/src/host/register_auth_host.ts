@@ -29,6 +29,7 @@ import {
 import type { PolicyRouteOption } from './config_locks.js';
 import { ensureConsoleSession } from './idp_session_bridge.js';
 import { createAuthThrottles } from './rate_limit.js';
+import { requestPathWithQuery } from './request_url.js';
 import { resolveRuntimeSettings } from './runtime_settings.js';
 import { resolveEffectiveSessionPolicy } from './runtime_toggles.js';
 import { magicLink as sudoMagicLink } from './sudo/methods/magic_link.js';
@@ -119,9 +120,7 @@ function buildLoginRedirect(ctx: any, extra?: string): string {
   // host que desmontou a tela de login (`account: { login: false }`) aponta para
   // a própria rota de login dele (ex.: `/login`). Ver `account_login_url.ts`.
   const loginUrl = getAccountLoginUrl();
-  const url = ctx.request?.url?.() ?? '';
-  const qs = ctx.request?.parsedUrl?.search ?? '';
-  const dest = qs ? `${url}${qs}` : url;
+  const dest = requestPathWithQuery(ctx.request);
   // Só inclui return_to quando há um caminho real (não vazio, não é o próprio login).
   if (dest && dest !== '/' && !dest.startsWith(loginUrl)) {
     const encoded = encodeURIComponent(dest);
