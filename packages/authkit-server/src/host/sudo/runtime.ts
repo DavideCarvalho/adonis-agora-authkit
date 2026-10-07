@@ -5,6 +5,7 @@ import { accountPath } from '../account_paths.js';
 import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { validateReturnTo } from '../controllers/account_session_controller.js';
 import { translate } from '../i18n.js';
+import { redirectExact } from '../redirect_exact.js';
 import { markSudo } from '../sudo_mode.js';
 import type { SudoContext, SudoMethod, SudoRouteHelpers } from './types.js';
 
@@ -417,7 +418,7 @@ export async function completeSudo(c: SudoContext, methodId: string): Promise<un
     metadata: { method: methodId },
   });
 
-  return c.ctx.response.redirect(c.returnTo ?? accountHome(c.cfg));
+  return redirectExact(c.ctx.response, c.returnTo ?? accountHome(c.cfg));
 }
 
 /**
@@ -428,7 +429,7 @@ export async function completeSudo(c: SudoContext, methodId: string): Promise<un
 export async function fail(c: SudoContext, messageKey: string): Promise<unknown> {
   c.ctx.session.flash('confirmError', translate(c.cfg.messages, messageKey));
   const qs = c.returnTo ? `?return_to=${encodeURIComponent(c.returnTo)}` : '';
-  return c.ctx.response.redirect(`${accountPath('confirm')}${qs}`);
+  return redirectExact(c.ctx.response, `${accountPath('confirm')}${qs}`);
 }
 
 /**

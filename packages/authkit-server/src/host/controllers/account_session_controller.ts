@@ -10,6 +10,7 @@ import { translate } from '../i18n.js';
 import { endBridgedIdpSession } from '../idp_session_bridge.js';
 import { attemptPasswordLogin } from '../login_attempt.js';
 import { notifyLoginSuccess } from '../login_notify.js';
+import { redirectExact } from '../redirect_exact.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { markSudo } from '../sudo_mode.js';
 
@@ -119,7 +120,7 @@ export default class AccountSessionController {
     await syncAdonisAuthLogin(ctx, cfg, acc);
     await notifyLoginSuccess(ctx, cfg, { accountId: acc.id, email: acc.email, ip });
     // Redireciona pro destino original (validado), ou cai no accountHome configurado.
-    return ctx.response.redirect(returnTo ?? accountHome(cfg));
+    return redirectExact(ctx.response, returnTo ?? accountHome(cfg));
   }
 
   async logout(ctx: HttpContext) {

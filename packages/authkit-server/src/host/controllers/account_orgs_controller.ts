@@ -16,6 +16,7 @@ import { revokeOrgAccess } from '../org_access_revocation.js';
 // ponto de verdade único, para as duas superfícies nunca divergirem.
 import { effectiveOrgPolicy, orgPolicyDefaults } from '../org_policy.js';
 import { authkitOrigin } from '../origin.js';
+import { redirectExact } from '../redirect_exact.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { isRoleInCatalog, resolveEffectiveOrganizationsPolicy } from '../runtime_toggles.js';
 
@@ -294,7 +295,7 @@ export default class AccountOrgsController {
         `${accountPath('orgs')}/invitations/${params.token}/accept`,
       );
       const sep = loginUrl.includes('?') ? '&' : '?';
-      return response.redirect(`${loginUrl}${sep}returnTo=${returnTo}`);
+      return redirectExact(response, `${loginUrl}${sep}returnTo=${returnTo}`);
     }
 
     const tokenHash = createHash('sha256').update(params.token).digest('hex');

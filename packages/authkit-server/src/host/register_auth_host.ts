@@ -29,6 +29,7 @@ import {
 import type { PolicyRouteOption } from './config_locks.js';
 import { ensureConsoleSession } from './idp_session_bridge.js';
 import { createAuthThrottles } from './rate_limit.js';
+import { redirectExact } from './redirect_exact.js';
 import { requestPathWithQuery } from './request_url.js';
 import { resolveRuntimeSettings } from './runtime_settings.js';
 import { resolveEffectiveSessionPolicy } from './runtime_toggles.js';
@@ -144,12 +145,12 @@ function buildLoginRedirect(ctx: any, extra?: string): string {
 const accountGuard = async (ctx: any, next: () => Promise<void>) => {
   // Sessão do console — ou, com `accountSession.acceptIdpSession`, a do IdP (SSO).
   if (!(await ensureConsoleSession(ctx))) {
-    return ctx.response.redirect(buildLoginRedirect(ctx));
+    return redirectExact(ctx.response, buildLoginRedirect(ctx));
   }
   // Idle timeout: encerra e redireciona com query param de motivo.
   const idleExpired = await checkAndRefreshIdle(ctx);
   if (idleExpired) {
-    return ctx.response.redirect(buildLoginRedirect(ctx, 'reason=idle'));
+    return redirectExact(ctx.response, buildLoginRedirect(ctx, 'reason=idle'));
   }
   return next();
 };
@@ -179,12 +180,12 @@ export const adminGuard = async (ctx: any, next: () => Promise<void>) => {
   const accountId = ctx.session?.get(ACCOUNT_SESSION_KEY) as string | undefined;
   if (!accountId) {
     // `/account/login` é sempre o login da conta — NÃO muda com o prefixo admin.
-    return ctx.response.redirect(buildLoginRedirect(ctx));
+    return redirectExact(ctx.response, buildLoginRedirect(ctx));
   }
   // Idle timeout: também protege o console admin.
   const idleExpired = await checkAndRefreshIdle(ctx);
   if (idleExpired) {
-    return ctx.response.redirect(buildLoginRedirect(ctx, 'reason=idle'));
+    return redirectExact(ctx.response, buildLoginRedirect(ctx, 'reason=idle'));
   }
   const allowed = cfg.admin.roles as string[];
   const account = await cfg.accountStore.findById(accountId);
