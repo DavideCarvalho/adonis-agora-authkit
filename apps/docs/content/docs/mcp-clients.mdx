@@ -1,0 +1,71 @@
+---
+icon: Plug
+title: MCP clients
+description: Let Claude Code, Claude, ChatGPT, VS Code and Cursor sign in to your MCP server with your users' own accounts.
+---
+
+The [MCP authorization spec](https://modelcontextprotocol.io/specification/latest/basic/authorization)
+is OAuth 2.1: the client discovers your authorization server, registers itself (RFC 7591), sends the
+user to your login with PKCE, and gets a token bound to your MCP server (RFC 8707). With `mcp: true`
+AuthKit is that authorization server, with nothing else to wire:
+
+```ts title="config/authkit.ts"
+defineConfig({
+  // ...
+  mcp: true,
+})
+```
+
+```sh
+claude mcp add --transport http acme https://acme.com/mcp
+```
+
+Claude Code opens the browser, the user signs in to **your** app, sees a consent screen naming the
+client and what it asks for, and is connected.
+
+## What `mcp: true` turns on
+
+- **Dynamic registration, open but restricted** to the redirects of the known MCP clients: loopback
+  (Claude Code and other CLIs), `https://claude.ai/api/mcp/auth_callback`,
+  `https://claude.com/api/mcp/auth_callback`, `https://chatgpt.com/connector_platform_oauth_redirect`,
+  `https://vscode.dev/redirect` (and insiders), and the `cursor` / `vscode` app schemes. A
+  `dynamicRegistration` you declare yourself takes precedence.
+- **Refresh tokens for those clients.** A client registered with the `refresh_token` grant gets
+  `offline_access` and `prompt=consent` on its authorize, so the user consents once and stays
+  connected. Static clients and clients created in the console or CLI are untouched — only clients
+  registered through `/reg` carry `client_id_issued_at`.
+- **Tokens bound to your MCP server.** The `resource` a client names must be one of yours, and the
+  token carries it as `aud`. Your servers come from `mcp.resources` and from **runtime
+  registration**: the MCP server of `@adonis-agora/agent` registers itself at boot, so its URL is
+  never repeated here.
+- **RFC 8414 metadata at the root**: with the issuer at `https://acme.com/oidc`, the document is
+  also served at `https://acme.com/.well-known/oauth-authorization-server/oidc`, where MCP clients
+  look first.
+
+The consent screen shows the `client_name` the client registered (escaped — registration is open)
+and the scopes it asked for, and the account's **Connected apps** page lists clients by that name,
+each revocable.
+
+## Options
+
+```ts title="config/authkit.ts"
+mcp: {
+  // extra redirects, added to the known clients
+  redirectUris: { exact: ['https://my-client.example/callback'], appSchemes: ['zed'] },
+  // MCP servers that do not register themselves (another app, another process)
+  resources: ['https://tools.acme.com/mcp'],
+}
+```
+
+## Your own MCP server
+
+A server that is not `@adonis-agora/agent`'s registers its URL the same way, then serves the RFC 9728
+protected-resource metadata and checks the token's `aud`:
+
+```ts
+import { registerOAuthResource } from '@adonis-agora/authkit-server'
+
+registerOAuthResource({ url: 'https://acme.com/mcp' })
+// or, when the public URL is only known per request, a path on the issuer's origin:
+registerOAuthResource({ path: '/mcp' })
+```

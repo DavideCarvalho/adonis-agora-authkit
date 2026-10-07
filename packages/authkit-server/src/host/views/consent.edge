@@ -9,8 +9,16 @@
       <input type="hidden" name="_csrf" value="{{ csrfToken }}">
       <h1 class="text-xl font-semibold text-gray-900">{{ t('consent.title') }}</h1>
       <p class="mt-2 text-sm text-gray-600">
-        {{{ t('consent.body', { app: brand && brand.appName ? brand.appName : params.client_id }) }}}
+        {{{ t('consent.body', { app: clientNameHtml }) }}}
       </p>
+      @if(scopes && scopes.length)
+        <p class="mt-4 text-sm font-medium text-gray-900">{{ t('consent.scopes_title') }}</p>
+        <ul class="mt-2 space-y-1 text-sm text-gray-600 list-disc list-inside">
+          @each(scope in scopes)
+            <li>{{ scope.label }}</li>
+          @end
+        </ul>
+      @end
 
       <button type="submit"
         class="mt-6 w-full rounded-lg bg-gray-900 py-2.5 text-sm font-semibold text-white transition hover:opacity-90">

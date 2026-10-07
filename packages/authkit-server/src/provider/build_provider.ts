@@ -3,6 +3,7 @@ import { pickModelAdapterClass } from '../adapters/factory.js';
 import type { ResolvedServerConfig } from '../define_config.js';
 import { normalizeActiveOrg, readActiveOrgFromKoaCtx } from '../host/active_org_cookie.js';
 import { assertClientMetadata } from '../host/client_metadata.js';
+import { findMcpResource, mcpAuthorizeMiddleware } from '../mcp/mcp_oauth.js';
 import { createDeviceSources } from './device_sources.js';
 import { createLogoutSources } from './logout_sources.js';
 import { registrationPolicyMiddleware } from './registration_policy.js';
@@ -130,8 +131,9 @@ export function buildProvider(
     const key = declaredResources.find((k) => k.replace(/\/+$/, '') === trimmed);
     return key ? { key, rc: at.resources[key] } : null;
   };
+  const mcp = config.mcp;
   const resourceIndicatorFeatures =
-    at.anyJwt || declaredResources.length > 0
+    at.anyJwt || declaredResources.length > 0 || mcp.enabled
       ? {
           resourceIndicators: {
             enabled: true,
@@ -147,6 +149,16 @@ export function buildProvider(
             getResourceServerInfo: (_ctx: any, resourceIndicator: string, _client: any) => {
               const found = findResource(resourceIndicator);
               const isDefault = at.anyJwt && resourceIndicator === at.audience;
+              // Servidores MCP (`mcp`): os declarados e os registrados em runtime.
+              const mcpResource =
+                found || isDefault ? null : findMcpResource(resourceIndicator, config.issuer, mcp);
+              if (mcpResource) {
+                return {
+                  scope: mcpResource.scopes.join(' '),
+                  audience: mcpResource.audience,
+                  accessTokenFormat: 'opaque',
+                };
+              }
               if (!found && !isDefault) {
                 throw new oidc.errors.InvalidTarget(
                   `resource indicator not allowed: ${resourceIndicator}`,
@@ -403,6 +415,9 @@ export function buildProvider(
       }) as any,
     );
   }
+
+  // Refresh token dos clientes MCP registrados dinamicamente (ver mcp/mcp_oauth.ts).
+  if (mcp.enabled) provider.use(mcpAuthorizeMiddleware(provider as any) as any);
 
   provider.proxy = true;
   return provider;

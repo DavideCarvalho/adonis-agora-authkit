@@ -51,6 +51,12 @@ import { generateJwks } from './keys/jwks_manager.js';
 import { KeystoreCodec } from './keys/keystore_codec.js';
 import { loadEncryptionService } from './keys/keystore_crypto.js';
 import { KeystoreManager, resolveKeystoreVault } from './keys/keystore_manager.js';
+import {
+  type McpOAuthConfigInput,
+  mcpClientRegistration,
+  type ResolvedMcpOAuthConfig,
+  resolveMcpOAuth,
+} from './mcp/mcp_oauth.js';
 import type { PatStore } from './pat/pat_store.js';
 import {
   OPEN_REGISTRATION_REDIRECT_POLICY,
@@ -461,6 +467,22 @@ export function resolveDynamicRegistration(
     management,
     redirectUriPolicy,
     validateRegistration: input?.validateRegistration,
+  };
+}
+
+/**
+ * O registro dinâmico que `mcp` liga quando o app não declarou o seu: aberto, só para os
+ * redirects dos clientes MCP, pedindo `offline_access` para quem quer refresh token.
+ */
+function mcpDynamicRegistration(
+  mcp: boolean | McpOAuthConfigInput | undefined,
+): DynamicRegistrationConfigInput | undefined {
+  const resolved = resolveMcpOAuth(mcp);
+  if (!resolved.enabled) return undefined;
+  return {
+    enabled: true,
+    redirectUriPolicy: resolved.redirectUriPolicy,
+    validateRegistration: (metadata) => mcpClientRegistration(metadata),
   };
 }
 
@@ -1326,6 +1348,14 @@ export interface AuthServerConfigInput {
    */
   accessTokens?: AccessTokensConfig;
   /**
+   * Login OAuth de clientes MCP (Claude Code, Claude, ChatGPT, VS Code, Cursor): `true` liga o
+   * registro dinâmico restrito aos redirects deles, o refresh token desses clientes e os
+   * `resource` dos servidores MCP — os de `resources` e os que se registram em runtime (o MCP do
+   * `@adonis-agora/agent`). Um `dynamicRegistration` declarado continua mandando no registro.
+   * Ver `src/mcp/mcp_oauth.ts`. Default: desligado.
+   */
+  mcp?: boolean | McpOAuthConfigInput;
+  /**
    * Console admin do IdP (B6). Default: desligado.
    *
    * Declarar esta chave TRAVA o liga/desliga: `registerAuthHost(router, { admin })`
@@ -1528,6 +1558,7 @@ export interface ResolvedServerConfig {
   registration: ResolvedRegistrationConfig;
   /** Access Tokens resolvido (RFC 9068; default opaque). */
   accessTokens: ResolvedAccessTokensConfig;
+  mcp: ResolvedMcpOAuthConfig;
   /** Console admin resolvido (sempre presente; default desligado). */
   admin: ResolvedAdminConfig;
   /** Admin REST API resolvida (sempre presente; default desligada). */
@@ -1777,7 +1808,9 @@ export function defineConfig(config: AuthServerConfigInput) {
         effectiveMfaIssuer,
         config.webauthn ?? ((config.accountStore as any)?.__webauthn as typeof config.webauthn),
       ),
-      dynamicRegistration: resolveDynamicRegistration(config.dynamicRegistration),
+      dynamicRegistration: resolveDynamicRegistration(
+        config.dynamicRegistration ?? mcpDynamicRegistration(config.mcp),
+      ),
       deviceFlow: resolveDeviceFlow(config.deviceFlow),
       personalAgents,
       uploads: resolveUploads(config.uploads),
@@ -1797,6 +1830,7 @@ export function defineConfig(config: AuthServerConfigInput) {
         : undefined,
       registration: resolveRegistration(config.registration),
       accessTokens: resolveAccessTokens(config.issuer, config.accessTokens),
+      mcp: resolveMcpOAuth(config.mcp),
       admin: resolveAdmin(config.admin),
       adminApi: resolveAdminApi(config.adminApi),
       organizations: resolveOrganizations(config.organizations),

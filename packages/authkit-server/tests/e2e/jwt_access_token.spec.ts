@@ -7,6 +7,7 @@ import { base64url, createRemoteJWKSet, decodeJwt, decodeProtectedHeader, jwtVer
 import type { AuthAccount } from '../../src/accounts/account_store.js';
 import { type AuthServerConfigInput, adapters, defineConfig } from '../../src/define_config.js';
 import InteractionController from '../../src/host/controllers/interaction_controller.js';
+import { registerOAuthResource } from '../../src/mcp/mcp_oauth.js';
 import { OidcService } from '../../src/provider/oidc_service.js';
 
 // ---------------------------------------------------------------------------
@@ -148,12 +149,14 @@ function recordingRenderer(ctx: any, view: string, props: Record<string, unknown
     'x-render-view': view,
     'x-render-step': String((props as any).step ?? ''),
   });
-  res.end(JSON.stringify({ view, step: (props as any).step ?? null }));
+  const { clientName, scopes } = props as any;
+  res.end(JSON.stringify({ view, step: (props as any).step ?? null, clientName, scopes }));
 }
 
 async function startServer(
   accessTokens?: AuthServerConfigInput['accessTokens'],
   grants: string[] = ['authorization_code', 'refresh_token'],
+  extra: Partial<AuthServerConfigInput> = {},
 ): Promise<{ server: Server; service: OidcService }> {
   const fakeApp = {
     container: { make: async () => ({ connection: () => new RedisMock() }) },
@@ -177,6 +180,7 @@ async function startServer(
       render: recordingRenderer as any,
       trustedDevices: { enabled: false },
       accessTokens,
+      ...extra,
     }),
   );
   const service = new OidcService(cfg!, APP_KEY);
@@ -537,5 +541,123 @@ test.group('e2e access tokens — opaque resource indicator (RFC 8707)', (group)
     });
     const loc = res.headers.get('location') ?? '';
     assert.include(loc, 'error=invalid_target');
+  });
+});
+
+// ===========================================================================
+// VARIANT 5 — `mcp: true`: an MCP client (Claude Code) logs in with no app code
+// ===========================================================================
+
+test.group('e2e mcp — dynamic MCP client, runtime resource, refresh token', (group) => {
+  let server: Server;
+  let service: OidcService;
+  const MCP_PATH = '/mcp-e2e';
+  group.setup(async () => {
+    SESSIONS.clear();
+    usePort(9860);
+    // What the agent's MCP provider does at boot: announce its path, no URL in the config.
+    registerOAuthResource({ path: MCP_PATH });
+    ({ server, service } = await startServer(undefined, undefined, { mcp: true }));
+    return () => stopServer(server);
+  });
+
+  /** RFC 7591 registration the way Claude Code does it: public client, loopback callback. */
+  async function registerClaudeCode(redirect = REDIRECT_URI) {
+    return fetch(`${ISSUER}/reg`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        client_name: 'Claude Code <b>',
+        redirect_uris: [redirect],
+        grant_types: ['authorization_code', 'refresh_token'],
+        response_types: ['code'],
+        token_endpoint_auth_method: 'none',
+      }),
+    });
+  }
+
+  test('registers, consents once with its own name, and gets an MCP-bound token plus a refresh token', async ({
+    assert,
+  }) => {
+    const reg = await registerClaudeCode();
+    assert.equal(reg.status, 201, await reg.clone().text());
+    const { client_id: clientId } = await reg.json();
+    const resource = `${ISSUER}${MCP_PATH}`;
+
+    const jar = new Jar();
+    const { verifier, challenge } = pkce();
+    const authorize = new URL(`${ISSUER}/auth`);
+    authorize.search = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: REDIRECT_URI,
+      response_type: 'code',
+      // no offline_access: the IdP adds it (and prompt=consent) for a dynamic client
+      scope: 'openid profile email',
+      state: 'st-mcp',
+      code_challenge: challenge,
+      code_challenge_method: 'S256',
+      resource,
+    }).toString();
+    const uid = await followToInteraction(jar, authorize.toString());
+    await postForm(jar, `${ISSUER}/auth/interaction/${uid}/identifier`, { email: EMAIL });
+    const login = await postForm(jar, `${ISSUER}/auth/interaction/${uid}/login`, {
+      password: PASSWORD,
+    });
+
+    // The consent screen names the client and what it asked for.
+    const consentAt = new URL(login.headers.get('location') ?? '', ISSUER);
+    let next = consentAt.toString();
+    let shown: any = null;
+    for (let i = 0; i < 6 && !shown; i++) {
+      const res = await hop(jar, next);
+      if (res.headers.get('x-render-view') === 'consent') shown = await res.json();
+      else next = new URL(res.headers.get('location') ?? '', ISSUER).toString();
+    }
+    assert.equal(shown?.clientName, 'Claude Code <b>');
+    assert.includeMembers(
+      shown.scopes.map((s: { id: string }) => s.id),
+      ['profile', 'email', 'offline_access'],
+    );
+    const consentUid = new URL(next).pathname.split('/').pop();
+    const consented = await postForm(jar, `${ISSUER}/auth/interaction/${consentUid}/consent`, {});
+    const code = await resumeToCode(jar, consented);
+
+    const token = await fetch(`${ISSUER}/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        client_id: clientId,
+        code,
+        redirect_uri: REDIRECT_URI,
+        code_verifier: verifier,
+        resource,
+      }).toString(),
+    }).then((r) => r.json());
+    assert.isString(token.access_token, JSON.stringify(token));
+    assert.isString(token.refresh_token, 'an MCP client stays connected');
+    const stored = await (service.provider as any).AccessToken.find(token.access_token);
+    assert.equal(stored.aud, resource);
+  });
+
+  test('a callback outside the known MCP clients is refused at registration', async ({
+    assert,
+  }) => {
+    const reg = await registerClaudeCode('https://evil.example/callback');
+    assert.equal(reg.status, 400);
+  });
+
+  test('a resource nobody registered is still invalid_target', async ({ assert }) => {
+    const { challenge } = pkce();
+    const res = await fetch(authorizeUrl(challenge, { resource: `${ISSUER}/not-mcp` }), {
+      redirect: 'manual',
+    });
+    assert.include(res.headers.get('location') ?? '', 'error=invalid_target');
+  });
+
+  test('a static client is untouched: no offline_access, no refresh token', async ({ assert }) => {
+    const tokens = await loginAndExchange();
+    assert.isString(tokens.access_token, JSON.stringify(tokens));
+    assert.isUndefined(tokens.refresh_token);
   });
 });
