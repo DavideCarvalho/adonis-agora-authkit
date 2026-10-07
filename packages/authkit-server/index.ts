@@ -68,6 +68,33 @@ export type {
   LucidStoresResult,
 } from './src/accounts/lucid_stores.js';
 export { lucidStores } from './src/accounts/lucid_stores.js';
+export type { PersonalAgentIdentity } from './src/agents/agent_identity.js';
+export { PersonalAgentVerifier } from './src/agents/agent_identity.js';
+export type {
+  PersonalAgentDelegationConfigInput,
+  PersonalAgentRegistration,
+  PersonalAgentResolver,
+  PersonalAgentsConfigInput,
+  ResolvedPersonalAgentsConfig,
+} from './src/agents/config.js';
+export type {
+  DelegationContext,
+  DelegationGrantSummary,
+  DelegationReceipt,
+} from './src/agents/delegation_service.js';
+export type {
+  PersonalAgentAuthOptions,
+  PersonalAgentRequestContext,
+} from './src/agents/middleware.js';
+export {
+  personalAgentAuth,
+  personalAgentOf,
+  personalAgentReceipt,
+  personalAgentSecurity,
+  personalAgentStepUp,
+} from './src/agents/middleware.js';
+export type { BuiltinProtocolId, PersonalAgentProtocol } from './src/agents/protocol.js';
+export { pactProtocol } from './src/agents/protocol.js';
 export type {
   AuditEvent,
   AuditEventType,

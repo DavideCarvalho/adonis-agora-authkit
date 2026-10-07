@@ -17,6 +17,7 @@
     "account-linking",
     "dynamic-registration",
     "device-flow",
+    "personal-agents",
     "native-apps",
     "account-lockout",
     "organizations",

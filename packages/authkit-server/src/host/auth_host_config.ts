@@ -36,6 +36,8 @@ export interface AuthHostRuntimeConfig {
    * Ver `deriveLockedRouteOptions`.
    */
   lockedRouteOptions?: PolicyRouteOption[];
+  /** Personal agents ligados → prefixo das rotas deles (`/agents`). */
+  personalAgents?: { prefix: string };
   /**
    * API headless (Clerk-style). Presente quando o host a declarou — o provider o
    * stash no boot para `registerAuthHost` montar as rotas sem reler o config inteiro.

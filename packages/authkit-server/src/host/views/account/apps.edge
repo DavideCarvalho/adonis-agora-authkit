@@ -56,5 +56,35 @@
         @end
       </div>
     @end
+
+    @if(agents)
+      <h2 class="mt-8 mb-1 text-base font-semibold text-gray-900">{{ t('account.apps.agents_title') }}</h2>
+      <p class="mb-3 text-sm text-gray-500">{{ t('account.apps.agents_intro') }}</p>
+      <div class="overflow-hidden rounded-xl bg-white shadow-xs ring-1 ring-black/5">
+        @if(agents.length === 0)
+          <p class="p-6 text-sm text-gray-500">{{ t('account.apps.agents_empty') }}</p>
+        @else
+          @each(agent in agents)
+            <div class="flex items-center justify-between border-b border-gray-100 p-4 last:border-0">
+              <div>
+                <p class="text-sm font-medium text-gray-900">{{ agent.name }}</p>
+                <ul class="mt-1 text-xs text-gray-500">
+                  @each(scope in agent.scopes)
+                    <li>{{ scope.description }}</li>
+                  @end
+                </ul>
+              </div>
+              <form method="POST" action="{{ accountPaths?.apps ?? '/account/apps' }}/agents/{{ agent.id }}/revoke"
+                onsubmit="return confirm('{{ t('account.apps.revoke_confirm') }}')">
+                <input type="hidden" name="_csrf" value="{{ csrfToken }}">
+                <button type="submit" class="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-semibold text-red-700 hover:bg-red-50">
+                  {{ t('account.apps.revoke') }}
+                </button>
+              </form>
+            </div>
+          @end
+        @end
+      </div>
+    @end
   </div>
 </body></html>

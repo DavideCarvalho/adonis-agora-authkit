@@ -11,6 +11,9 @@ wrapper around [`oidc-provider`](https://github.com/panva/node-oidc-provider).
 - **Passwordless** — magic-link email login and passkey-first login.
 - **Protocol extensions** — Device Flow (RFC 8628), DPoP (RFC 9449), PAR (RFC 9126), step-up
   auth via `acr_values`, Dynamic Client Registration (RFC 7591/7592).
+- **Personal agents** — AI assistants acting for your users: agent identity by signed JWT
+  (JWKS, no shared secrets) and user-approved, revocable delegation with scopes you define,
+  over a pluggable protocol adapter ([PACT](https://openpactprotocol.org) built in).
 - **Native apps** — RFC 8252 native clients (`authkit:clients:create --native`: private-use
   scheme / claimed https / loopback redirects, always public + PKCE) and the `@adonisjs/auth`
   guards `oidcRpGuard` (session) and `oidcBearerGuard` (`Authorization: Bearer` access tokens,

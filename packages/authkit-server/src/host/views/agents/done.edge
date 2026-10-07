@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="pt-br"><head><meta charset="utf-8"><title>{{ t('agents.consent.page_title') }}</title>
+@include('authkit::partials/styles')
+</head>
+<body class="min-h-screen flex items-center justify-center bg-gray-50">
+  <div class="w-full max-w-md bg-white p-8 rounded-2xl shadow-xl ring-1 ring-black/5">
+    @if(status === 'approved')
+      <h1 class="text-xl font-semibold text-gray-900">{{ t('agents.done.approved_title', { agent: agentName }) }}</h1>
+      <ul class="mt-4 space-y-1 text-sm text-gray-700">
+        @each(scope in scopes)
+          <li>• {{ scope.description }}</li>
+        @end
+      </ul>
+      <p class="mt-4 text-sm text-gray-600">{{ t('agents.done.return') }}</p>
+      <p class="mt-2 text-xs text-gray-500">{{ t('agents.done.revoke_hint') }}</p>
+    @elseif(status === 'denied')
+      <h1 class="text-xl font-semibold text-gray-900">{{ t('agents.done.denied_title') }}</h1>
+      <p class="mt-2 text-sm text-gray-600">{{ t('agents.done.return') }}</p>
+    @else
+      <h1 class="text-xl font-semibold text-gray-900">{{ t('agents.done.expired_title') }}</h1>
+      <p class="mt-2 text-sm text-gray-600">{{ t('agents.done.expired_body') }}</p>
+    @end
+  </div>
+</body></html>

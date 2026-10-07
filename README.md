@@ -16,6 +16,9 @@ It is built as an idiomatic wrapper around
 - **Protocol extensions** — Device Flow (RFC 8628), DPoP (RFC 9449, with client-side
   proof generation), PAR (RFC 9126), step-up auth via `acr_values`, Dynamic Client
   Registration (RFC 7591/7592).
+- **Personal agents** — AI assistants acting for your users: agent identity by signed JWT
+  (JWKS, no shared secrets) and user-approved, revocable delegation with scopes you define,
+  over a pluggable protocol adapter ([PACT](https://openpactprotocol.org) built in).
 - **Native apps** — RFC 8252 native clients (private-use scheme / claimed https / loopback
   redirects, public + PKCE, rotated refresh tokens) and `oidcBearerGuard`, an
   `@adonisjs/auth` guard for APIs called with a bearer access token (in-process, or as a

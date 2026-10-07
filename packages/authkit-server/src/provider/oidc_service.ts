@@ -27,6 +27,7 @@ export class OidcService {
   #callback!: (req: any, res: any) => void;
   #interactions!: InteractionActions;
   #publicJwks!: { keys: Record<string, any>[] };
+  #signingJwks!: { keys: Record<string, any>[] };
   #appKey: string;
 
   get provider(): ReturnType<typeof buildProvider> {
@@ -45,6 +46,14 @@ export class OidcService {
    */
   get publicJwks(): { keys: Record<string, any>[] } {
     return this.#publicJwks;
+  }
+  /**
+   * @internal JWKS PRIVADO em uso (mesmas chaves do `publicJwks`). Só para quem
+   * assina in-process com o keystore do IdP — tokens de delegação e recibos de
+   * personal agents. Troca junto com o provider numa rotação.
+   */
+  get signingJwks(): { keys: Record<string, any>[] } {
+    return this.#signingJwks;
   }
 
   /** Pathname do issuer sem barra final (ex.: `/oidc`). Vazio quando montado na raiz. */
@@ -267,6 +276,7 @@ export class OidcService {
     this.#callback = callback;
     this.#interactions = interactions;
     this.#publicJwks = toPublicJwks(jwks);
+    this.#signingJwks = jwks;
   }
 
   /**

@@ -2,6 +2,7 @@ import { getBootedApp } from '../../services/booted_app.js';
 import type { AccountStore } from '../accounts/account_store.js';
 import type { EnumeratedArtifact, OidcAdapter } from '../adapters/adapter_contract.js';
 import { pickModelAdapterClass } from '../adapters/factory.js';
+import { buildPersonalAgentsRuntime } from '../agents/runtime.js';
 import type { OidcService } from '../provider/oidc_service.js';
 import { normalizeActiveOrg } from './active_org_cookie.js';
 
@@ -53,6 +54,8 @@ export interface RevokeResult {
   grants: number;
   accessTokens: number;
   refreshTokens: number;
+  /** Delegações de personal agents revogadas junto (ausente quando nenhuma). */
+  agentGrants?: number;
 }
 
 /**
@@ -78,8 +81,10 @@ export class AdminSessionsService {
   #accountStore: AccountStore;
   /** Conexão Lucid das tabelas authkit (schema `auth`) — onde vive auth_session_revocations. */
   #schemaConnection?: string;
+  #oidc: OidcService;
 
   constructor(oidc: OidcService) {
+    this.#oidc = oidc;
     this.#AdapterClass = oidc.config.AdapterClass;
     // `Session`/`Grant`/tokens vivem no adapter da sessão quando `session:`
     // está configurado (default: o mesmo do `AdapterClass`). `??` cobre
@@ -142,6 +147,20 @@ export class AdminSessionsService {
       // seja visível — uma revogação que não persiste é um risco de segurança invisível.
       await this.#logRevocationFailure(accountId, error);
     }
+  }
+
+  /**
+   * Revogação total também corta os personal agents: "sair de todas as sessões",
+   * reset de senha, a ação do admin e a exclusão de conta não podem deixar um
+   * agente agindo na conta. Sem `personalAgents.delegation` é no-op — e aí nem
+   * resolve o banco. Diferente do `recordSubRevocation`, uma falha AQUI propaga:
+   * não há outra camada que corte esses tokens.
+   */
+  async #revokeAgentGrants(accountId: string): Promise<number> {
+    const runtime = await buildPersonalAgentsRuntime(this.#oidc, () =>
+      getBootedApp().container.make('lucid.db' as any),
+    );
+    return runtime?.delegation ? runtime.delegation.revokeAllGrants(accountId) : 0;
   }
 
   /**
@@ -318,12 +337,14 @@ export class AdminSessionsService {
     const cutoff =
       typeof preserved?.loginTs === 'number' ? new Date((preserved.loginTs - 1) * 1000) : undefined;
     await this.recordSubRevocation(accountId, cutoff);
+    const agentGrants = await this.#revokeAgentGrants(accountId);
 
     return {
       sessions: sessionsToRevoke.length,
       grants: grants.length,
       accessTokens,
       refreshTokens,
+      ...(agentGrants > 0 ? { agentGrants } : {}),
     };
   }
 
@@ -362,12 +383,14 @@ export class AdminSessionsService {
 
     // Revogação total → propaga p/ clients cookie-based via tabela compartilhada (instantâneo).
     await this.recordSubRevocation(accountId);
+    const agentGrants = await this.#revokeAgentGrants(accountId);
 
     return {
       sessions: sessions.length,
       grants: grants.length,
       accessTokens,
       refreshTokens,
+      ...(agentGrants > 0 ? { agentGrants } : {}),
     };
   }
 

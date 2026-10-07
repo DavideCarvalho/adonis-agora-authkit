@@ -12,6 +12,12 @@ import type { HttpContext } from '@adonisjs/core/http';
 import type { ApplicationService } from '@adonisjs/core/types';
 import type { AccountStore, AuthAccount } from './accounts/account_store.js';
 import { type AdapterFactory, adapters, type OidcAdapterClass } from './adapters/factory.js';
+import {
+  type PersonalAgentsConfigInput,
+  type ResolvedPersonalAgentsConfig,
+  resolvePersonalAgentsConfig,
+} from './agents/config.js';
+import { assertDelegationSigningKey } from './agents/signer.js';
 import type { AuditSink } from './audit/audit_sink.js';
 import { composeAuditSink, type EventsConfigInput, resolveEvents } from './events/dispatcher.js';
 import {
@@ -1261,6 +1267,14 @@ export interface AuthServerConfigInput {
   dynamicRegistration?: DynamicRegistrationConfigInput;
   /** Device Authorization Grant (RFC 8628). Default: desligado. */
   deviceFlow?: DeviceFlowConfigInput;
+  /**
+   * Personal agents (PACT — https://openpactprotocol.org): plataformas de agente
+   * que falam com este app em nome de um usuário. Identidade por JWT assinado
+   * pelo agente (JWKS) e, com `delegation`, consentimento do usuário via device
+   * flow para o agente agir na conta dele dentro de scopes do app. Default:
+   * desligado.
+   */
+  personalAgents?: PersonalAgentsConfigInput;
 
   /** Uploads (avatar) via o `@adonisjs/drive` do app. Default: drive default, 5MB. */
   uploads?: UploadsConfigInput;
@@ -1343,11 +1357,13 @@ export interface AuthServerConfigInput {
    */
   resolveGeo?: ResolveGeo;
   /**
-   * Gestão automática do schema das OITO tabelas do authkit:
+   * Gestão automática do schema das ONZE tabelas do authkit:
    * `authkit_oidc_payloads`, `auth_settings`, `auth_password_history`,
-   * `auth_mfa`, `auth_session_revocations` e as três de organizations
+   * `auth_mfa`, `auth_session_revocations`, as três de organizations
    * (`auth_organizations`, `auth_organization_members`,
-   * `auth_organization_invitations`). Ver `TABLES` em `schema/ensure.ts` — a
+   * `auth_organization_invitations`) e as três de personal agents
+   * (`auth_agent_device_codes`, `auth_agent_grants`,
+   * `auth_agent_refresh_tokens`). Ver `TABLES` em `schema/ensure.ts` — a
    * lista aqui existe para o leitor, mas quem manda é aquele array.
    *
    * FORA desta gestão: `authkit_keystore`, criada sob demanda pelo
@@ -1488,6 +1504,8 @@ export interface ResolvedServerConfig {
   dynamicRegistration: ResolvedDynamicRegistrationConfig;
   /** Device Authorization Grant resolvido (default desligado). */
   deviceFlow: ResolvedDeviceFlowConfig;
+  /** Personal agents resolvido (undefined = desligado). */
+  personalAgents?: ResolvedPersonalAgentsConfig;
   /** Uploads resolvido (avatar via drive do app; sempre presente). */
   uploads: ResolvedUploadsConfig;
   /** DPoP resolvido (default desligado). */
@@ -1646,6 +1664,24 @@ export function defineConfig(config: AuthServerConfigInput) {
       jwks = { keys: jwksConfig.keys ?? [] };
     }
 
+    // Personal agents com delegação assinam tokens e recibos com este keystore,
+    // e o PACT só admite ES256/RS256 — falha no boot, não na primeira troca de token.
+    const personalAgents = resolvePersonalAgentsConfig(config.personalAgents);
+    if (personalAgents?.delegation) assertDelegationSigningKey(jwks);
+    // Debaixo do mountPath, a rota curinga do oidc-provider (`${mount}/*`)
+    // engoliria as rotas dos agentes — e o `authkitCsrfExceptions` (que isenta
+    // tudo que contém o mountPath) tiraria o CSRF da tela de consentimento.
+    const oidcMount = (config.mountPath ?? '/oidc').replace(/\/+$/, '');
+    if (
+      personalAgents &&
+      oidcMount &&
+      (personalAgents.prefix === oidcMount || personalAgents.prefix.startsWith(`${oidcMount}/`))
+    ) {
+      throw new Error(
+        `authkit: personalAgents.prefix "${personalAgents.prefix}" não pode ficar debaixo do mountPath do OIDC ("${oidcMount}").`,
+      );
+    }
+
     // BACKSTOP DE SUDO. Um host cujo `sudo.methods` não tem um único método
     // satisfazível por conta sem senha fica bricado para TODA operação sob
     // `requireSudo` — e hoje isso só se descobre quando um usuário não consegue
@@ -1743,6 +1779,7 @@ export function defineConfig(config: AuthServerConfigInput) {
       ),
       dynamicRegistration: resolveDynamicRegistration(config.dynamicRegistration),
       deviceFlow: resolveDeviceFlow(config.deviceFlow),
+      personalAgents,
       uploads: resolveUploads(config.uploads),
       dpop: resolveDpop(config.dpop),
       par: resolvePar(config.par),

@@ -474,6 +474,8 @@ const C = {
   accountMfa: () => import('./controllers/account_mfa_controller.js'),
   accountOrgs: () => import('./controllers/account_orgs_controller.js'),
   accountConfirm: () => import('./controllers/account_confirm_controller.js'),
+  agentOAuth: () => import('./controllers/agent_oauth_controller.js'),
+  agentConsent: () => import('./controllers/agent_consent_controller.js'),
   webauthnAsset: () => import('./controllers/webauthn_asset_controller.js'),
   logoutAsset: () => import('./controllers/logout_asset_controller.js'),
   passkeyAutofillAsset: () => import('./controllers/passkey_autofill_asset_controller.js'),
@@ -776,6 +778,28 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
   // PAT introspection (server-to-server).
   withIntrospection(router.post('/authkit/pat/introspect', [C.patIntrospection, 'handle']));
 
+  // Personal agents (PACT §5): authorization server de delegação. Os endpoints
+  // OAuth são server-to-server (o agente se autentica pelo JWT dele, sem
+  // sessão); a tela de consentimento exige a sessão de conta — sem ela o
+  // `accountGuard` manda para o login com `return_to`, e o usuário volta com o
+  // `user_code`. Montado só quando `personalAgents` está no config.
+  const agentsPrefix = hostCfg?.personalAgents?.prefix;
+  if (agentsPrefix) {
+    const oauth = `${agentsPrefix}/oauth`;
+    router.get(`${oauth}/.well-known/oauth-authorization-server`, [C.agentOAuth, 'metadata']);
+    router.get(`${oauth}/jwks.json`, [C.agentOAuth, 'jwks']);
+    router.post(`${oauth}/device_authorization`, [C.agentOAuth, 'deviceAuthorization']);
+    router.post(`${oauth}/token`, [C.agentOAuth, 'token']);
+    // Throttle de código (bucket do OTP, por IP): o `user_code` tem 8 letras e
+    // a RFC 8628 §5.1 conta com rate limit para não ser adivinhável.
+    router
+      .group(() => {
+        withOtpLogin(router.get(`${agentsPrefix}/consent`, [C.agentConsent, 'show']));
+        withOtpLogin(router.post(`${agentsPrefix}/consent`, [C.agentConsent, 'decide']));
+      })
+      .use([accountGuard]);
+  }
+
   // Paths do console de conta (configuráveis/localizáveis via `accountRoutes`).
   // As TELAS vêm de `accountPath(key)` (prefixo + segmento configurável); os
   // action-subpaths concatenados (`/password`, `/enroll`, ...) são FIXOS —
@@ -850,6 +874,9 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
       if (mountApps) {
         router.get(appsPath, [C.accountApps, 'index']);
         router.post(`${appsPath}/:clientId/revoke`, [C.accountApps, 'revoke']);
+        if (agentsPrefix) {
+          router.post(`${appsPath}/agents/:grantId/revoke`, [C.accountApps, 'revokeAgent']);
+        }
       }
 
       // MFA — TOTP + passkeys (tela `mfa`).
@@ -967,6 +994,11 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
       // Apps (grants).
       router.get(`${apiBase}/apps`, [C.accountApi, 'listApps']);
       router.delete(`${apiBase}/apps/:clientId`, [C.accountApi, 'revokeApp']);
+      // Personal agents com delegação (PACT).
+      if (agentsPrefix) {
+        router.get(`${apiBase}/agents`, [C.accountApi, 'listAgents']);
+        router.delete(`${apiBase}/agents/:id`, [C.accountApi, 'revokeAgent']);
+      }
       // MFA + passkeys.
       router.get(`${apiBase}/mfa`, [C.accountApi, 'mfaStatus']);
       // Login methods preference (self-service, por usuário).
