@@ -95,13 +95,26 @@ export function personalAgentAuth(options: PersonalAgentAuthOptions = {}) {
  * `securityRequirements` do Agent Card (§2.1, §5.1). Faça spread no documento
  * que o app serve.
  */
-export async function personalAgentSecurity(ctx: HttpContext): Promise<Record<string, unknown>> {
+export async function personalAgentSecurity(
+  ctx: HttpContext,
+  options: {
+    /**
+     * A interface URL do card. Um app com vários agentes serve um card por agente, mas a delegação
+     * vale para UMA interface (`delegation.interfaceUrl`): os demais cards anunciam só identidade.
+     */
+    interfaceUrl?: string;
+  } = {},
+): Promise<Record<string, unknown>> {
   const runtime = await requireRuntime(ctx, 'personalAgentSecurity');
+  const delegates =
+    runtime.delegation !== null &&
+    (options.interfaceUrl === undefined ||
+      options.interfaceUrl === runtime.delegation.interfaceUrl);
   return runtime.config.protocol.discovery({
     deviceAuthorizationUrl: runtime.urls.deviceAuthorization,
     tokenUrl: runtime.urls.token,
     metadataUrl: runtime.urls.metadata,
-    scopes: runtime.delegation ? runtime.delegation.scopes : null,
+    scopes: delegates ? runtime.delegation!.scopes : null,
   });
 }
 

@@ -102,7 +102,9 @@ router.get('/.well-known/agent-card.json', async (ctx) => ({
   supportedInterfaces: [
     { url: 'https://acme.com/a2a', protocolBinding: 'HTTP+JSON', protocolVersion: '1.0' },
   ],
-  ...(await personalAgentSecurity(ctx)), // securitySchemes + securityRequirements
+  // securitySchemes + securityRequirements. With several agents, pass the card's interface URL:
+  // only the one matching `delegation.interfaceUrl` advertises delegation.
+  ...(await personalAgentSecurity(ctx, { interfaceUrl: 'https://acme.com/a2a' })),
 }))
 
 router
@@ -174,7 +176,9 @@ Audit events: `agent.delegation_approved`, `agent.delegation_denied`, `agent.gra
 ## Swapping the protocol
 
 `personalAgents.protocol` takes a built-in id or any object implementing
-`PersonalAgentProtocol`: JWT rules for the agent (algorithms, max lifetime, clock skew), the
+`PersonalAgentProtocol`. The built-in `pact(options)` takes `identitySchemeName` — the spec names
+the card's identity scheme `paJwt`, while PACT's reference implementation and conformance suite use
+`platformJwt` (`protocol: pact({ identitySchemeName: 'platformJwt' })`). An adapter covers: JWT rules for the agent (algorithms, max lifetime, clock skew), the
 delegation header, the `401` challenge, the discovery block, and the step-up and receipt
 envelopes. `pactProtocol` is exported as a reference implementation.
 

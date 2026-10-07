@@ -93,8 +93,12 @@ export {
   personalAgentSecurity,
   personalAgentStepUp,
 } from './src/agents/middleware.js';
-export type { BuiltinProtocolId, PersonalAgentProtocol } from './src/agents/protocol.js';
-export { pactProtocol } from './src/agents/protocol.js';
+export type {
+  BuiltinProtocolId,
+  PactOptions,
+  PersonalAgentProtocol,
+} from './src/agents/protocol.js';
+export { pact, pactProtocol } from './src/agents/protocol.js';
 export type {
   AuditEvent,
   AuditEventType,

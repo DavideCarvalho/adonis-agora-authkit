@@ -12,6 +12,7 @@ import {
   personalAgentSecurity,
   personalAgentStepUp,
 } from '../../src/agents/middleware.js';
+import { pact } from '../../src/agents/protocol.js';
 import { buildPersonalAgentsRuntime } from '../../src/agents/runtime.js';
 import type { AuditEvent } from '../../src/audit/audit_sink.js';
 import { adapters, defineConfig, type ResolvedServerConfig } from '../../src/define_config.js';
@@ -476,6 +477,30 @@ test.group('personal agents — fluxo HTTP (PACT)', (group) => {
   test('código inválido mostra erro e o formulário', async ({ assert }) => {
     await new AgentConsentController().show(makeCtx({ ...env, body: { user_code: 'nope' } }).ctx);
     assert.equal(env.rendered.at(-1)!.props.error, 'agents.consent.invalid_code');
+  });
+
+  test('card de outra interface anuncia só identidade', async ({ assert }) => {
+    const security: any = await personalAgentSecurity(makeCtx(env).ctx, {
+      interfaceUrl: 'https://brand.example/a2a/other-agent',
+    });
+    assert.notProperty(security.securitySchemes, 'userDelegation');
+    assert.lengthOf(security.securityRequirements, 1);
+    const own: any = await personalAgentSecurity(makeCtx(env).ctx, { interfaceUrl: INTERFACE_URL });
+    assert.property(own.securitySchemes, 'userDelegation');
+  });
+
+  test('pact({ identitySchemeName }) renomeia o esquema de identidade', ({ assert }) => {
+    const block: any = pact({ identitySchemeName: 'platformJwt' }).discovery({
+      deviceAuthorizationUrl: 'd',
+      tokenUrl: 't',
+      metadataUrl: 'm',
+      scopes: { a: 'A' },
+    });
+    assert.property(block.securitySchemes, 'platformJwt');
+    assert.notProperty(block.securitySchemes, 'paJwt');
+    assert.deepEqual(block.securityRequirements[1], {
+      schemes: { platformJwt: { list: [] }, userDelegation: { list: [] } },
+    });
   });
 
   test('bloco de segurança do Agent Card (PACT §2.1/§5.1)', async ({ assert }) => {

@@ -45,51 +45,69 @@ export interface PersonalAgentProtocol {
   receipt(receipt: DelegationReceipt): Record<string, unknown>;
 }
 
+export interface PactOptions {
+  /**
+   * Nome do esquema de identidade no Agent Card. Default `'paJwt'`, o da spec. A implementação de
+   * referência e a suíte de conformidade do PACT usam `'platformJwt'` — os clientes escolhem o
+   * esquema pelo tipo, não pelo nome, então os dois interoperam.
+   */
+  identitySchemeName?: string;
+}
+
 /** PACT 1.0 — §3.2 (JWT do agente), §2.1/§5.1 (Agent Card), §5.5 (step-up), §5.6 (recibo). */
-export const pactProtocol: PersonalAgentProtocol = {
-  id: 'pact',
-  identity: { algorithms: ['ES256', 'RS256'], maxLifetimeSeconds: 300, clockSkewSeconds: 30 },
-  delegationHeader: 'x-a2a-user-delegation',
+export function pact(options: PactOptions = {}): PersonalAgentProtocol {
+  const identity = options.identitySchemeName ?? 'paJwt';
+  return {
+    id: 'pact',
+    identity: { algorithms: ['ES256', 'RS256'], maxLifetimeSeconds: 300, clockSkewSeconds: 30 },
+    delegationHeader: 'x-a2a-user-delegation',
 
-  challenge(error) {
-    return error ? `Bearer realm="a2a", error="${error}"` : 'Bearer realm="a2a"';
-  },
+    challenge(error) {
+      return error ? `Bearer realm="a2a", error="${error}"` : 'Bearer realm="a2a"';
+    },
 
-  discovery({ deviceAuthorizationUrl, tokenUrl, metadataUrl, scopes }) {
-    const paJwt = { httpAuthSecurityScheme: { scheme: 'Bearer', bearerFormat: 'JWT' } };
-    const identityOnly = { schemes: { paJwt: { list: [] } } };
-    if (!scopes) {
-      return { securitySchemes: { paJwt }, securityRequirements: [identityOnly] };
-    }
-    return {
-      securitySchemes: {
-        paJwt,
-        userDelegation: {
-          oauth2SecurityScheme: {
-            flows: { deviceCode: { deviceAuthorizationUrl, tokenUrl, scopes: { ...scopes } } },
-            oauth2MetadataUrl: metadataUrl,
+    discovery({ deviceAuthorizationUrl, tokenUrl, metadataUrl, scopes }) {
+      const identityScheme = { httpAuthSecurityScheme: { scheme: 'Bearer', bearerFormat: 'JWT' } };
+      const identityOnly = { schemes: { [identity]: { list: [] } } };
+      if (!scopes) {
+        return {
+          securitySchemes: { [identity]: identityScheme },
+          securityRequirements: [identityOnly],
+        };
+      }
+      return {
+        securitySchemes: {
+          [identity]: identityScheme,
+          userDelegation: {
+            oauth2SecurityScheme: {
+              flows: { deviceCode: { deviceAuthorizationUrl, tokenUrl, scopes: { ...scopes } } },
+              oauth2MetadataUrl: metadataUrl,
+            },
           },
         },
-      },
-      // A entrada só-identidade FICA (§5.1): o agente sempre pode falar sem delegação.
-      securityRequirements: [
-        identityOnly,
-        { schemes: { paJwt: { list: [] }, userDelegation: { list: [] } } },
-      ],
-    };
-  },
+        // A entrada só-identidade FICA (§5.1): o agente sempre pode falar sem delegação.
+        securityRequirements: [
+          identityOnly,
+          { schemes: { [identity]: { list: [] }, userDelegation: { list: [] } } },
+        ],
+      };
+    },
 
-  stepUp({ missingScopes, verificationUriComplete }) {
-    return {
-      'pact.missingScopes': missingScopes,
-      'pact.verificationUriComplete': verificationUriComplete,
-    };
-  },
+    stepUp({ missingScopes, verificationUriComplete }) {
+      return {
+        'pact.missingScopes': missingScopes,
+        'pact.verificationUriComplete': verificationUriComplete,
+      };
+    },
 
-  receipt(receipt) {
-    return { 'pact.receipt': { jws: receipt.jws, claims: receipt.claims } };
-  },
-};
+    receipt(receipt) {
+      return { 'pact.receipt': { jws: receipt.jws, claims: receipt.claims } };
+    },
+  };
+}
+
+/** O adapter PACT com os defaults da spec. */
+export const pactProtocol: PersonalAgentProtocol = pact();
 
 /** Protocolos embutidos, pelo id aceito em `personalAgents.protocol`. */
 export const BUILTIN_PROTOCOLS = { pact: pactProtocol } as const;
