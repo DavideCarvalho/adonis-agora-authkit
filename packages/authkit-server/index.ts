@@ -510,14 +510,6 @@ export {
   resolveEffectiveUserLoginMethods,
   USER_LOGIN_METHOD_KEYS,
 } from './src/host/user_login_methods.js';
-export {
-  MCP_CLIENT_REDIRECTS,
-  MCP_RESOURCE_SCOPES,
-  type McpOAuthConfigInput,
-  type OAuthResourceRegistration,
-  registeredOAuthResources,
-  registerOAuthResource,
-} from './src/mcp/mcp_oauth.js';
 export type {
   MetaWhatsappCodeSenderOptions,
   WhatsappCodeInput,
@@ -531,6 +523,14 @@ export {
   resolveWhatsappCodeSender,
   WhatsmiauCodeSender,
 } from './src/host/whatsapp_code_sender.js';
+export {
+  MCP_CLIENT_REDIRECTS,
+  MCP_RESOURCE_SCOPES,
+  type McpOAuthConfigInput,
+  type OAuthResourceRegistration,
+  registeredOAuthResources,
+  registerOAuthResource,
+} from './src/mcp/mcp_oauth.js';
 export { withAuditLog } from './src/mixins/with_audit_log.js';
 export { withAuthUser } from './src/mixins/with_auth_user.js';
 export { withCredentials } from './src/mixins/with_credentials.js';
