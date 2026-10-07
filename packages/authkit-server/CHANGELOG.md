@@ -1,5 +1,19 @@
 # @adonis-agora/authkit-server
 
+## 0.77.0
+
+### Minor Changes
+
+- [#242](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/242) [`7e22bc6`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/7e22bc6d092aa8ad2d0d97c7463b8ab1f0a258a5) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Support host-defined primary login methods as dependency-injected classes or instances. Add beginCustomLogin, authenticateCustomLogin, and trusted completeCustomLogin APIs, preserving account policies, maintenance, MFA, audit and OIDC authentication method claims.
+  
+  Support verified phone identity in the Lucid account DTO and account deletion confirmation for accounts without email. Omit absent email claims and report actual email verification state.
+
+- [#242](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/242) [`279d08c`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/279d08c297a66fe18b7fc2137f512602e1d13c96) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Support provider-neutral custom MFA classes or instances, explicit enrollment checks, distinct factor groups and policies requiring two or more factors. Extend shared login gates, protected challenge routes, Edge and generated React forms, while preserving native behavior when the extension is not configured.
+
+- [#242](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/242) [`56bce87`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/56bce878bec9fc09bec7a6c5aad682ef36c2671f) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Support opt-in same-host RP session restoration and rolling remembered-session renewal directly in AuthKit. Database and Redis adapters renew existing persistent sessions atomically without recreating expired or revoked records. RP logout revokes the signed IdP credential, and bridged console login preserves its IdP session association after synchronizing the host guard.
+
+- [#242](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/242) [`688025b`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/688025bcd31305120adf595646af261bf78396d3) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Add extensible WhatsApp OTP delivery contracts, class/instance sender registration through whatsapp.sender, dependency-injected sender resolution, and native Meta Cloud API authentication template and Whatsmiau text adapters. Code generation, verification and account signup remain host-owned.
+
 ## 0.76.0
 
 ### Minor Changes
