@@ -844,22 +844,50 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
   // sessão de conta e mantêm o CSRF.
   const poppyPrefix = hostCfg?.personalAgents?.poppyPrefix;
   if (poppyPrefix) {
+    // Nomes explícitos: o Router nomeia pela dupla controller.método, e as duas URLs da metadata
+    // (RFC 8414 na raiz e debaixo do issuer) usam o mesmo — "poppy.metadata already exists" no boot.
     router.get('/.well-known/poppy.json', [C.poppy, 'discovery']).as('authkit.poppy.discovery');
-    router.get(`/.well-known/oauth-authorization-server${poppyPrefix}`, [C.poppy, 'metadata']);
-    router.get(`${poppyPrefix}/.well-known/oauth-authorization-server`, [C.poppy, 'metadata']);
-    router.post(`${poppyPrefix}/oauth/token`, [C.poppy, 'token']);
-    router.post(`${poppyPrefix}/oauth/revoke`, [C.poppy, 'revoke']);
-    router.post(`${poppyPrefix}/oauth/device`, [C.poppy, 'deviceAuthorization']);
+    router
+      .get(`/.well-known/oauth-authorization-server${poppyPrefix}`, [C.poppy, 'metadata'])
+      .as('authkit.poppy.metadata');
+    router
+      .get(`${poppyPrefix}/.well-known/oauth-authorization-server`, [C.poppy, 'metadata'])
+      .as('authkit.poppy.metadata_under_issuer');
+    router.post(`${poppyPrefix}/oauth/token`, [C.poppy, 'token']).as('authkit.poppy.token');
+    router.post(`${poppyPrefix}/oauth/revoke`, [C.poppy, 'revoke']).as('authkit.poppy.revoke');
+    router
+      .post(`${poppyPrefix}/oauth/device`, [C.poppy, 'deviceAuthorization'])
+      .as('authkit.poppy.device_authorization');
     // Credenciais e códigos de uso único: throttle por IP (§4.7 exige rate limit).
-    withLogin(router.post(`${poppyPrefix}/sign-in`, [C.poppy, 'mediatedStart']));
-    withOtpLogin(router.post(`${poppyPrefix}/sign-in/:id`, [C.poppy, 'mediatedCode']));
-    router.post(`${poppyPrefix}/browser-session`, [C.poppy, 'browserSession']);
+    withLogin(
+      router.post(`${poppyPrefix}/sign-in`, [C.poppy, 'mediatedStart']).as('authkit.poppy.sign_in'),
+    );
+    withOtpLogin(
+      router
+        .post(`${poppyPrefix}/sign-in/:id`, [C.poppy, 'mediatedCode'])
+        .as('authkit.poppy.sign_in_code'),
+    );
+    router
+      .post(`${poppyPrefix}/browser-session`, [C.poppy, 'browserSession'])
+      .as('authkit.poppy.browser_session');
     router
       .group(() => {
-        router.get(`${poppyPrefix}/oauth/authorize`, [C.poppyConsent, 'authorize']);
-        router.post(`${poppyPrefix}/oauth/authorize`, [C.poppyConsent, 'decideAuthorization']);
-        withOtpLogin(router.get(`${poppyPrefix}/device`, [C.poppyConsent, 'device']));
-        withOtpLogin(router.post(`${poppyPrefix}/device`, [C.poppyConsent, 'decideDevice']));
+        router
+          .get(`${poppyPrefix}/oauth/authorize`, [C.poppyConsent, 'authorize'])
+          .as('authkit.poppy.authorize');
+        router
+          .post(`${poppyPrefix}/oauth/authorize`, [C.poppyConsent, 'decideAuthorization'])
+          .as('authkit.poppy.authorize_decide');
+        withOtpLogin(
+          router
+            .get(`${poppyPrefix}/device`, [C.poppyConsent, 'device'])
+            .as('authkit.poppy.device'),
+        );
+        withOtpLogin(
+          router
+            .post(`${poppyPrefix}/device`, [C.poppyConsent, 'decideDevice'])
+            .as('authkit.poppy.device_decide'),
+        );
       })
       .use([accountGuard]);
   }
