@@ -14,6 +14,10 @@ wrapper around [`oidc-provider`](https://github.com/panva/node-oidc-provider).
 - **Personal agents** — AI assistants acting for your users: agent identity by signed JWT
   (JWKS, no shared secrets) and user-approved, revocable delegation with scopes you define,
   over a pluggable protocol adapter ([PACT](https://openpactprotocol.org) built in).
+  Plus the [Personal Agent Protocol ("Poppy")](https://personalagentprotocol.org/docs/spec):
+  discovery, DPoP-bound agent sessions, Direct/Device/Mediated sign-in, MCP and browser sessions.
+  ⚠️ **Experimental** — tracks the spec's Draft 0.1 and will change (possibly breaking, outside
+  semver majors) while the spec is a draft.
 - **Native apps** — RFC 8252 native clients (`authkit:clients:create --native`: private-use
   scheme / claimed https / loopback redirects, always public + PKCE) and the `@adonisjs/auth`
   guards `oidcRpGuard` (session) and `oidcBearerGuard` (`Authorization: Bearer` access tokens,

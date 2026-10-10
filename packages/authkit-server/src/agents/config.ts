@@ -14,6 +14,11 @@
  */
 
 import {
+  type PoppyConfigInput,
+  type ResolvedPoppyConfig,
+  resolvePoppyConfig,
+} from './poppy/config.js';
+import {
   BUILTIN_PROTOCOLS,
   type BuiltinProtocolId,
   type PersonalAgentProtocol,
@@ -66,10 +71,12 @@ export interface PersonalAgentsConfigInput {
    */
   protocol?: BuiltinProtocolId | PersonalAgentProtocol;
   /**
-   * Valor que os personal agents põem no `aud` do JWT deles. Opaco e atribuído
-   * por ESTE app no registro do agente — um valor por app, não derivado de URL.
+   * Valor que os personal agents põem no `aud` do JWT deles (PACT). Opaco e
+   * atribuído por ESTE app no registro do agente — um valor por app, não
+   * derivado de URL. Liga o PACT; obrigatório, a não ser num app só-Poppy
+   * (`poppy` sem `audience`).
    */
-  audience: string;
+  audience?: string;
   /**
    * Agentes aceitos: uma lista estática, ou uma função que resolve pelo `iss`
    * (para quem guarda o registro no banco). Default: nenhum.
@@ -86,6 +93,15 @@ export interface PersonalAgentsConfigInput {
   delegation?: PersonalAgentDelegationConfigInput;
   /** Prefixo das rotas (`{prefix}/oauth/*`, `{prefix}/consent`). Default: `/agents`. */
   prefix?: string;
+  /**
+   * Personal Agent Protocol ("Poppy", https://personalagentprotocol.org) — o
+   * segundo protocolo, ao lado do PACT. Um app pode servir os dois. Ver
+   * `poppy/config.ts`.
+   *
+   * @experimental Poppy (Personal Agent Protocol) Draft 0.1 — acompanha a spec em desenvolvimento e PODE MUDAR
+   *   de forma incompatível fora de majors enquanto ela for draft.
+   */
+  poppy?: PoppyConfigInput;
 }
 
 export interface ResolvedPersonalAgentDelegationConfig {
@@ -98,12 +114,17 @@ export interface ResolvedPersonalAgentDelegationConfig {
 }
 
 export interface ResolvedPersonalAgentsConfig {
+  /** PACT ligado (`audience` configurado). */
+  pact: boolean;
   protocol: PersonalAgentProtocol;
+  /** `''` quando o PACT está desligado. */
   audience: string;
   resolveAgent: PersonalAgentResolver;
   open: boolean;
   delegation?: ResolvedPersonalAgentDelegationConfig;
   prefix: string;
+  /** Poppy resolvido (undefined = desligado). */
+  poppy?: ResolvedPoppyConfig;
 }
 
 const SCOPE_ID = /^[\x21\x23-\x5B\x5D-\x7E]+$/; // RFC 6749 §3.3 scope-token
@@ -136,9 +157,20 @@ export function resolvePersonalAgentsConfig(
   input: PersonalAgentsConfigInput | undefined,
 ): ResolvedPersonalAgentsConfig | undefined {
   if (!input) return undefined;
-  if (!input.audience?.trim()) {
+  const pact = !!input.audience?.trim();
+  if (!pact && !input.poppy) {
     throw new Error(
-      'authkit: personalAgents.audience é obrigatório (o `aud` dos JWTs dos agentes).',
+      'authkit: personalAgents.audience é obrigatório (o `aud` dos JWTs dos agentes PACT) — ou configure só `personalAgents.poppy`.',
+    );
+  }
+  if (!pact && input.delegation) {
+    throw new Error(
+      'authkit: personalAgents.delegation é do PACT e exige `personalAgents.audience`.',
+    );
+  }
+  if ((input.protocol as unknown) === 'poppy') {
+    throw new Error(
+      'authkit: o Poppy não é um `protocol` do PACT — configure-o em `personalAgents.poppy` (os dois convivem).',
     );
   }
 
@@ -190,13 +222,23 @@ export function resolvePersonalAgentsConfig(
     );
   }
 
+  const prefix = normalizePersonalAgentsPrefix(input.prefix);
+  const poppy = resolvePoppyConfig(input.poppy, input.delegation?.scopes);
+  if (poppy && pact && (poppy.prefix === prefix || poppy.prefix.startsWith(`${prefix}/`))) {
+    throw new Error(
+      `authkit: personalAgents.poppy.prefix "${poppy.prefix}" não pode ficar debaixo de personalAgents.prefix ("${prefix}").`,
+    );
+  }
+
   return {
+    pact,
     protocol,
-    audience: input.audience,
+    audience: pact ? input.audience! : '',
     resolveAgent,
     open: input.open === true,
     delegation,
-    prefix: normalizePersonalAgentsPrefix(input.prefix),
+    prefix,
+    poppy,
   };
 }
 

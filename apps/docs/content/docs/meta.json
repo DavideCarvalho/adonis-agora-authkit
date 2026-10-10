@@ -19,6 +19,7 @@
     "mcp-clients",
     "device-flow",
     "personal-agents",
+    "personal-agents-poppy",
     "native-apps",
     "account-lockout",
     "organizations",

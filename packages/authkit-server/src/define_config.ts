@@ -1733,6 +1733,16 @@ export function defineConfig(config: AuthServerConfigInput) {
         `authkit: personalAgents.prefix "${personalAgents.prefix}" não pode ficar debaixo do mountPath do OIDC ("${oidcMount}").`,
       );
     }
+    const poppyPrefix = personalAgents?.poppy?.prefix;
+    if (
+      poppyPrefix &&
+      oidcMount &&
+      (poppyPrefix === oidcMount || poppyPrefix.startsWith(`${oidcMount}/`))
+    ) {
+      throw new Error(
+        `authkit: personalAgents.poppy.prefix "${poppyPrefix}" não pode ficar debaixo do mountPath do OIDC ("${oidcMount}").`,
+      );
+    }
 
     // BACKSTOP DE SUDO. Um host cujo `sudo.methods` não tem um único método
     // satisfazível por conta sem senha fica bricado para TODA operação sob

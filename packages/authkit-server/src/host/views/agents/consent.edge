@@ -8,7 +8,16 @@
     @if(request)
       <form method="POST" action="{{ action }}">
         <input type="hidden" name="_csrf" value="{{ csrfToken }}">
-        <input type="hidden" name="user_code" value="{{ request.userCode }}">
+        @if(request.hidden)
+          @each(field in request.hidden)
+            <input type="hidden" name="{{ field.name }}" value="{{ field.value }}">
+          @end
+        @else
+          <input type="hidden" name="user_code" value="{{ request.userCode }}">
+        @end
+        @if(request.logoUri)
+          <img src="{{ request.logoUri }}" alt="" class="mb-4 h-12 w-12 rounded-lg" referrerpolicy="no-referrer">
+        @end
         <h1 class="text-xl font-semibold text-gray-900">{{ t('agents.consent.title', { agent: request.agentName }) }}</h1>
         <p class="mt-2 text-sm text-gray-600">{{ t('agents.consent.body', { origin: request.agentOrigin }) }}</p>
         @if(account && account.email)
@@ -25,7 +34,9 @@
           @end
         </fieldset>
 
-        <p class="mt-4 text-xs text-gray-500">{{ t('agents.consent.code', { code: request.userCode }) }}</p>
+        @if(request.userCode)
+          <p class="mt-4 text-xs text-gray-500">{{ t('agents.consent.code', { code: request.userCode }) }}</p>
+        @end
 
         <div class="mt-6 flex gap-3">
           <button type="submit" name="decision" value="deny"
