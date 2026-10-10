@@ -271,6 +271,16 @@ test.group('APIs (6)', (group) => {
     );
     const r = await mcp.client.callTool({ name: 'whoami', arguments: {} });
     assert.include(JSON.stringify(r.content), 'signed_in');
+    // A tool behind a scope the session lacks: 403 insufficient_scope → ResourceAuthError + scope.
+    const refused = await mcp.client
+      .callTool({ name: 'place_order', arguments: { sku: 'x' } })
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+    assert.instanceOf(refused, ResourceAuthError);
+    assert.equal((refused as ResourceAuthError).code, 'insufficient_scope');
+    assert.equal((refused as ResourceAuthError).scope, 'poppy:write');
     await mcp.close();
     const bearer = Object.values(c.state.tokens).find((t) => t.tokenType === 'Bearer');
     assert.equal(bearer?.resource, w.fake.mcpUrl);

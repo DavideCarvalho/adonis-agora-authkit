@@ -1,6 +1,6 @@
 import type { CompanyClient } from './company.js';
 import { ConversationClient, newMessageId, poppyProtocol } from './conversations.js';
-import { PoppyError } from './errors.js';
+import { PoppyError, ResourceAuthError } from './errors.js';
 import { connectMcp, type McpConnection } from './mcp.js';
 import type { ConversationEvent, MessageContext } from './types.js';
 import type { FetchLike } from './util.js';
@@ -247,7 +247,10 @@ export async function ask(
         try {
           result = await runTool(call.function.name, args);
         } catch (e) {
-          result = { error: (e as Error).message };
+          result =
+            e instanceof ResourceAuthError
+              ? { error: e.code, ...(e.scope ? { needs_scope: e.scope } : {}) }
+              : { error: (e as Error).message };
         }
         const text = JSON.stringify(result);
         opts.log(`< ${text.length > 600 ? `${text.slice(0, 600)}…` : text}`);

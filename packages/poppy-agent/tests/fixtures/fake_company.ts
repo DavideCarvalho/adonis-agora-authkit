@@ -809,6 +809,20 @@ export class FakeCompany {
     }
     void url;
     this.mcpCalls++;
+    const raw = req.method === 'POST' ? await this.body(req) : undefined;
+    const rpc = raw ? JSON.parse(raw) : undefined;
+    // `place_order` needs poppy:write: a Company refuses it before running (RFC 6750 §3.1 step-up).
+    if (
+      rpc?.method === 'tools/call' &&
+      rpc.params?.name === 'place_order' &&
+      !` ${t.scope ?? ''} `.includes(' poppy:write ')
+    ) {
+      res.writeHead(403, {
+        'content-type': 'application/json',
+        'www-authenticate': 'Bearer error="insufficient_scope", scope="poppy:write"',
+      });
+      return res.end(JSON.stringify({ error: 'insufficient_scope' }));
+    }
     const server = new McpServer({ name: 'fake-co', version: '1.0.0' });
     server.registerTool(
       'whoami',
@@ -843,8 +857,7 @@ export class FakeCompany {
       server.close();
     });
     await server.connect(transport);
-    const raw = req.method === 'POST' ? await this.body(req) : undefined;
-    await transport.handleRequest(req, res, raw ? JSON.parse(raw) : undefined);
+    await transport.handleRequest(req, res, rpc);
   }
 
   /* ------------------------------------------------------------------ conversations */
