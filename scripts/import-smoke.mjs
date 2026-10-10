@@ -23,6 +23,7 @@ const PACKAGES = [
   'packages/authkit-react/build',
   'packages/authkit-testing/build',
   'packages/authkit-sdk/build',
+  'packages/poppy-agent/build',
 ];
 
 // O react usa JSX/DOM; importar seus módulos a frio em Node pode falhar por
@@ -39,7 +40,8 @@ const ENTRYPOINT_ONLY = new Set(['packages/authkit-react/build']);
  */
 // `assets` holds browser scripts copied verbatim into the build (e.g. host/assets/logout.js);
 // they touch `document` on load and are not modules the package exports.
-const SKIP_DIRS = new Set(['ui-dist', 'services', 'assets']);
+// `bin` holds CLI entrypoints (e.g. poppy-agent's) that run the CLI on import.
+const SKIP_DIRS = new Set(['ui-dist', 'services', 'assets', 'bin']);
 
 async function walk(dir) {
   const out = [];
