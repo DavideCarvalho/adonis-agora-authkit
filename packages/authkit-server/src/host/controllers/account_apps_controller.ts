@@ -39,7 +39,7 @@ export default class AccountAppsController {
 
     // Personal agents com delegação ativa (só quando a feature está ligada).
     const agentsRuntime = await personalAgentsFor(ctx);
-    const agents = agentsRuntime?.delegation
+    const pactAgents = agentsRuntime?.delegation
       ? await Promise.all(
           (await agentsRuntime.delegation.listGrants(accountId)).map(async (g) => ({
             id: g.id,
@@ -53,6 +53,19 @@ export default class AccountAppsController {
           })),
         )
       : null;
+    // Account Tokens do Poppy: o agente é desconectado pela mesma lista (§4.9).
+    const poppy = agentsRuntime?.poppy;
+    const poppyAgents = poppy
+      ? await Promise.all(
+          (await poppy.listGrants(accountId)).map(async (g) => ({
+            id: g.id,
+            name: await poppy.registry.displayName(g.clientId),
+            scopes: g.scopes,
+          })),
+        )
+      : null;
+    const agents =
+      pactAgents || poppyAgents ? [...(pactAgents ?? []), ...(poppyAgents ?? [])] : null;
 
     return render(ctx, 'account/apps', {
       csrfToken: ctx.request.csrfToken,
@@ -100,13 +113,13 @@ export default class AccountAppsController {
   /** POST /account/apps/agents/:grantId/revoke — revoga a delegação de um personal agent. */
   async revokeAgent(ctx: HttpContext) {
     const runtime = await personalAgentsFor(ctx);
-    if (!runtime?.delegation) return ctx.response.notFound();
+    if (!runtime?.delegation && !runtime?.poppy) return ctx.response.notFound();
     const service = await ctx.containerResolver.make('authkit.server');
     const cfg = service.config;
 
     const accountId = ctx.session.get(ACCOUNT_SESSION_KEY) as string;
     const grantId = ctx.request.param('grantId');
-    if (await runtime.delegation.revokeGrant(accountId, grantId)) {
+    if (await runtime.revokeAgentGrant(accountId, grantId)) {
       await cfg.audit?.record({
         type: 'agent.grant_revoked',
         accountId,

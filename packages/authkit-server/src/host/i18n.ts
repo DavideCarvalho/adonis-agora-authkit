@@ -259,6 +259,9 @@ export const DEFAULT_MESSAGES = {
   'agents.done.revoke_hint': 'To revoke this access later, go to the apps page of your account.',
   'agents.done.expired_title': 'Request expired',
   'agents.done.expired_body': 'This request is no longer valid. Ask your assistant to start again.',
+  'agents.done.invalid_title': 'Invalid request',
+  'agents.done.invalid_body':
+    'This sign-in link is not valid. Go back to your assistant and start again.',
   'account.apps.not_supported':
     'The configured OIDC adapter does not support enumeration — listing apps is unavailable.',
 
@@ -1299,6 +1302,9 @@ export const PT_BR_MESSAGES = {
   'agents.done.expired_title': 'Pedido expirado',
   'agents.done.expired_body':
     'Este pedido não vale mais. Peça ao seu assistente para começar de novo.',
+  'agents.done.invalid_title': 'Pedido inválido',
+  'agents.done.invalid_body':
+    'Este link de acesso não é válido. Volte ao seu assistente e comece de novo.',
   'account.apps.not_supported':
     'O adapter OIDC configurado não suporta enumeração — a listagem de apps fica indisponível.',
 

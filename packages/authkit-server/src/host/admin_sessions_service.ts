@@ -152,15 +152,16 @@ export class AdminSessionsService {
   /**
    * Revogação total também corta os personal agents: "sair de todas as sessões",
    * reset de senha, a ação do admin e a exclusão de conta não podem deixar um
-   * agente agindo na conta. Sem `personalAgents.delegation` é no-op — e aí nem
-   * resolve o banco. Diferente do `recordSubRevocation`, uma falha AQUI propaga:
-   * não há outra camada que corte esses tokens.
+   * agente agindo na conta (delegações do PACT e Account Tokens do Poppy). Sem
+   * `personalAgents` é no-op — e aí nem resolve o banco. Diferente do
+   * `recordSubRevocation`, uma falha AQUI propaga: não há outra camada que corte
+   * esses tokens.
    */
   async #revokeAgentGrants(accountId: string): Promise<number> {
     const runtime = await buildPersonalAgentsRuntime(this.#oidc, () =>
       getBootedApp().container.make('lucid.db' as any),
     );
-    return runtime?.delegation ? runtime.delegation.revokeAllGrants(accountId) : 0;
+    return runtime ? runtime.revokeAllAgentGrants(accountId) : 0;
   }
 
   /**
@@ -260,7 +261,12 @@ export class AdminSessionsService {
    */
   async listGrants(accountId: string): Promise<AdminGrant[]> {
     const rows = await this.#listModel('Grant');
-    const grants = rows.filter((r) => (r.payload.accountId as string | undefined) === accountId);
+    // Os grants `pgrant_` são o espelho de um Account Token do Poppy (Bearer de MCP) — aparecem e
+    // são revogados como personal agent, não como app OIDC.
+    const grants = rows.filter(
+      (r) =>
+        (r.payload.accountId as string | undefined) === accountId && !r.id.startsWith('pgrant_'),
+    );
     if (grants.length === 0) return [];
 
     const atByGrant = await this.#countByGrant('AccessToken');

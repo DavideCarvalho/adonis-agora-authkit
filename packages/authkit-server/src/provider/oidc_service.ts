@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { type ClientConfig, type MetricsRecorder, NoopRecorder } from '@adonis-agora/authkit-core';
 import Koa from 'koa';
 import mount from 'koa-mount';
@@ -54,6 +54,14 @@ export class OidcService {
    */
   get signingJwks(): { keys: Record<string, any>[] } {
     return this.#signingJwks;
+  }
+
+  /**
+   * @internal Segredo derivado da app key para um uso (`label`) — HMAC dos nonces
+   * DPoP do Poppy, por exemplo. Igual em todas as instâncias, sem expor a chave.
+   */
+  deriveSecret(label: string): Buffer {
+    return createHmac('sha256', this.#appKey).update(`authkit:${label}`).digest();
   }
 
   /** Pathname do issuer sem barra final (ex.: `/oidc`). Vazio quando montado na raiz. */
@@ -385,7 +393,7 @@ export class OidcService {
   /** Verifica client_id + client_secret contra os clients da config (p/ endpoints custom como introspecção de PAT). */
   verifyClientCredentials(clientId: string, clientSecret: string): boolean {
     const client = this.#clients.find((c) => c.clientId === clientId);
-    if (!client || !client.clientSecret) return false;
+    if (!client?.clientSecret) return false;
     const a = Buffer.from(client.clientSecret);
     const b = Buffer.from(clientSecret);
     return a.length === b.length && timingSafeEqual(a, b);

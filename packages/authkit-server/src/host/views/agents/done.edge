@@ -16,6 +16,9 @@
     @elseif(status === 'denied')
       <h1 class="text-xl font-semibold text-gray-900">{{ t('agents.done.denied_title') }}</h1>
       <p class="mt-2 text-sm text-gray-600">{{ t('agents.done.return') }}</p>
+    @elseif(status === 'invalid')
+      <h1 class="text-xl font-semibold text-gray-900">{{ t('agents.done.invalid_title') }}</h1>
+      <p class="mt-2 text-sm text-gray-600">{{ t('agents.done.invalid_body') }}</p>
     @else
       <h1 class="text-xl font-semibold text-gray-900">{{ t('agents.done.expired_title') }}</h1>
       <p class="mt-2 text-sm text-gray-600">{{ t('agents.done.expired_body') }}</p>
