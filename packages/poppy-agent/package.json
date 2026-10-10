@@ -1,0 +1,63 @@
+{
+  "name": "@adonis-agora/poppy-agent",
+  "version": "0.0.0",
+  "description": "EXPERIMENTAL \u2014 tracks the Personal Agent Protocol (Poppy) Draft 0.1, which is still in development; expect breaking changes as the spec evolves. Reference Personal Agent (client side): discovery, private_key_jwt + DPoP sessions, Direct/Device/Mediated sign-in, OpenAPI/MCP calls, SSE conversations, browser sessions and revocation. Library + CLI for end-to-end testing of Poppy servers.",
+  "license": "MIT",
+  "author": "dudousxd",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DavideCarvalho/adonis-agora-authkit.git",
+    "directory": "packages/poppy-agent"
+  },
+  "homepage": "https://personalagentprotocol.org",
+  "bugs": {
+    "url": "https://github.com/DavideCarvalho/adonis-agora-authkit/issues"
+  },
+  "keywords": [
+    "poppy",
+    "personal-agent-protocol",
+    "personal-agent",
+    "oauth2",
+    "dpop",
+    "private_key_jwt",
+    "mcp",
+    "experimental"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./build/index.js",
+  "types": "./build/index.d.ts",
+  "bin": {
+    "poppy-agent": "./build/src/bin/poppy-agent.js"
+  },
+  "files": [
+    "build"
+  ],
+  "exports": {
+    ".": "./build/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.tests.json",
+    "test": "node --import=@poppinss/ts-exec bin/test.ts",
+    "cli": "node --import=@poppinss/ts-exec src/bin/poppy-agent.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "jose": "6.2.12"
+  },
+  "devDependencies": {
+    "@adonisjs/tsconfig": "catalog:adonis",
+    "@japa/assert": "catalog:",
+    "@japa/runner": "catalog:",
+    "@poppinss/ts-exec": "catalog:",
+    "@types/node": "catalog:adonis",
+    "typescript": "catalog:frontend",
+    "zod": "catalog:frontend"
+  }
+}
