@@ -124,7 +124,7 @@ export interface Env {
 
 export async function setupPoppy(
   poppy: Partial<PoppyConfigInput> = {},
-  extra: { accounts?: Record<string, { email: string }>; mcp?: boolean } = {},
+  extra: { accounts?: Record<string, { email: string }>; mcp?: boolean; issuer?: string } = {},
 ): Promise<Env> {
   const keys = await agentKeys();
   const docs = new Map<string, unknown>([
@@ -143,7 +143,7 @@ export async function setupPoppy(
   const cfg = await configProvider.resolve(
     fakeApp,
     defineConfig({
-      issuer: ISSUER,
+      issuer: extra.issuer ?? ISSUER,
       adapter: adapters.redis({ connection: 'main' }),
       jwks: { source: 'managed', algorithm: 'ES256' },
       clients: [],

@@ -97,6 +97,19 @@ test.group('poppy — discovery', () => {
     await env.close();
   });
 
+  test('issuer com porta (dev): browser_session_endpoint mantém a porta', async ({ assert }) => {
+    const env = await setupPoppy(
+      { organization: { name: 'Dev', domain: 'localhost' } },
+      { issuer: 'http://localhost:3841/oidc' },
+    );
+    for (const host of ['localhost:3841', 'localhost']) {
+      const doc = env.poppy.discoveryDocument(host) as any;
+      assert.equal(doc.web.browser_session_endpoint, 'http://localhost:3841/poppy/browser-session');
+      assert.equal(doc.auth.issuer, 'http://localhost:3841/poppy');
+    }
+    await env.close();
+  });
+
   test('metadata RFC 8414 com poppy_domains e os endpoints', async ({ assert }) => {
     const env = await setupPoppy();
     const meta = env.poppy.authorizationServerMetadata() as any;

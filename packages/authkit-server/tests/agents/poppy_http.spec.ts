@@ -85,6 +85,7 @@ function makeCtx(
       method: () => opts.method ?? 'POST',
       completeUrl: () => url.split('?')[0],
       hostname: () => opts.host ?? new URL(url).hostname,
+      host: () => opts.host ?? new URL(url).host,
       header: (name: string) => headers[name.toLowerCase()],
       headers: () => headers,
       all: () => ({ ...(opts.body ?? {}) }),

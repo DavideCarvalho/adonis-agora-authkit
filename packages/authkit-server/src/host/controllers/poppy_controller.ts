@@ -45,7 +45,8 @@ export default class PoppyController {
   async discovery(ctx: HttpContext) {
     const poppy = await poppyOr404(ctx);
     if (!poppy) return;
-    const doc = poppy.discoveryDocument(ctx.request.hostname() ?? '');
+    // `host()` mantém a porta (dev em `localhost:3333`): o `browser_session_endpoint` sai dele.
+    const doc = poppy.discoveryDocument(ctx.request.host() ?? ctx.request.hostname() ?? '');
     if (!doc) return ctx.response.notFound();
     ctx.response.header('Access-Control-Allow-Origin', '*');
     ctx.response.header('Cache-Control', 'public, max-age=300');

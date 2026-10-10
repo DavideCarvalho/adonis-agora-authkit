@@ -360,7 +360,11 @@ export class PoppyService {
 
   /** `/.well-known/poppy.json` (§3) para o domínio pedido; `null` = domínio que não é nosso. */
   discoveryDocument(requestHost: string): Record<string, unknown> | null {
-    const host = requestHost.toLowerCase().replace(/:\d+$/, '').replace(/\.$/, '');
+    const hostWithPort = requestHost
+      .toLowerCase()
+      .replace(/\.$/, '')
+      .replace(/\.(:\d+)$/, '$1');
+    const host = hostWithPort.replace(/:\d+$/, '');
     const bare = host.startsWith('www.') ? host.slice(4) : host;
     const domain = this.domains.find((d) => d === bare);
     if (!domain) return null;
@@ -394,7 +398,7 @@ export class PoppyService {
     }
     if (this.cfg.web) {
       doc.web = this.cfg.web.browserSession
-        ? { browser_session_endpoint: this.#browserSessionEndpointFor(host) }
+        ? { browser_session_endpoint: this.#browserSessionEndpointFor(hostWithPort) }
         : {};
     }
     if (this.cfg.apis.length > 0) {
@@ -449,11 +453,22 @@ export class PoppyService {
     return [...list];
   }
 
-  #browserSessionEndpointFor(host: string): string {
-    const issuerHost = new URL(this.urls.origin).host;
-    if (host === issuerHost.toLowerCase()) return this.urls.browserSession;
+  /**
+   * O endpoint no host pedido (o cookie do site é do domínio que o agente abriu). No host do issuer
+   * é o do issuer — com a porta dele: o `Host` pode vir sem porta (ou o controller só ter o
+   * hostname), e `http://localhost/poppy/…` apontaria para outro servidor.
+   */
+  #browserSessionEndpointFor(requestHost: string): string {
+    const issuer = new URL(this.urls.origin);
+    let requested: URL;
+    try {
+      requested = new URL(`${issuer.protocol}//${requestHost}`);
+    } catch {
+      return this.urls.browserSession;
+    }
+    if (requested.hostname === issuer.hostname.toLowerCase()) return this.urls.browserSession;
     const path = new URL(this.urls.browserSession).pathname;
-    return `${new URL(this.urls.origin).protocol}//${host}${path}`;
+    return `${issuer.protocol}//${requested.host}${path}`;
   }
 
   // ─── autenticação do agente ───────────────────────────────────────────────
