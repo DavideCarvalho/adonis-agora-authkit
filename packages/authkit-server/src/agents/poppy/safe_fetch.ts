@@ -230,3 +230,50 @@ export function safeFetchJson(url: string, options: SafeFetchOptions = {}): Prom
     req.end();
   });
 }
+
+/**
+ * SÓ DEV/TESTE (`personalAgents.poppy.allowInsecureClientIds`): busca um JSON por
+ * `http:` ou `https:` SEM a guarda de SSRF — loopback e rede privada liberados,
+ * para um agente local (`http://localhost:7777/agent.json`). Mantém sem redirect,
+ * teto de tempo e de bytes. Nunca use em produção (a config recusa).
+ */
+export async function insecureDevFetchJson(
+  url: string,
+  options: Omit<SafeFetchOptions, 'lookup'> = {},
+): Promise<FetchedJson> {
+  const timeoutMs = options.timeoutMs ?? 5000;
+  const maxBytes = options.maxBytes ?? 64 * 1024;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new SafeFetchError('invalid URL');
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new SafeFetchError('only http(s) URLs');
+  }
+  if (parsed.username || parsed.password) throw new SafeFetchError('credentials in URL');
+  let res: Response;
+  try {
+    res = await fetch(parsed, {
+      redirect: 'manual',
+      headers: { accept: 'application/json', 'user-agent': 'authkit-poppy/0.1 (insecure-dev)' },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error) {
+    throw new SafeFetchError((error as Error).name === 'TimeoutError' ? 'timeout' : 'unreachable');
+  }
+  if (res.status >= 300 && res.status < 400) throw new SafeFetchError('redirects are not followed');
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length > maxBytes) throw new SafeFetchError('response too large');
+  if (res.status !== 200) throw new SafeFetchError(`HTTP ${res.status}`);
+  try {
+    return {
+      status: res.status,
+      body: JSON.parse(buf.toString('utf8')),
+      maxAge: parseMaxAge(res.headers.get('cache-control') ?? undefined),
+    };
+  } catch {
+    throw new SafeFetchError('invalid JSON');
+  }
+}

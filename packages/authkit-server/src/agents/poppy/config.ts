@@ -214,6 +214,14 @@ export interface PoppyConfigInput {
   extensions?: Record<string, { version: string } & Record<string, unknown>>;
   /** Registro/allowlist/blocklist de agentes. */
   clients?: PoppyClientsConfigInput;
+  /**
+   * SÓ DESENVOLVIMENTO/TESTE — NÃO conforme à spec. Aceita `client_id` (e o
+   * `jwks_uri`/`redirect_uris` do agente) em `http://` e busca o documento sem a
+   * proteção de SSRF (loopback e rede privada liberados), para testar com um
+   * agente local (`poppy-agent --insecure-dev`). Lança no boot com
+   * `NODE_ENV=production`. Default: false.
+   */
+  allowInsecureClientIds?: boolean;
   /** Vida do Session Token, em segundos. Default: 3600 (a spec pede horas, não dias). */
   sessionTokenTtl?: number;
   /** Vida do Account Token (`refresh_token_expires_in`), em segundos. Default: 30 dias. */
@@ -307,6 +315,8 @@ export interface ResolvedPoppyConfig {
     isRegistered: (clientId: string) => Promise<boolean>;
     isBlocked: (clientId: string) => Promise<boolean>;
   };
+  /** Dev/teste: `client_id` http e busca sem guarda de SSRF (ver o input). */
+  allowInsecureClientIds: boolean;
   sessionTokenTtl: number;
   accountTokenTtl: number;
   sessionTtl: number;
@@ -470,6 +480,13 @@ export function resolvePoppyConfig(
     fail('dpop.algorithms precisa de algoritmos assimétricos.');
   }
 
+  const allowInsecureClientIds = input.allowInsecureClientIds === true;
+  if (allowInsecureClientIds && process.env.NODE_ENV === 'production') {
+    fail(
+      'allowInsecureClientIds é só para desenvolvimento/teste e não pode ser ligado com NODE_ENV=production.',
+    );
+  }
+
   let rateLimit: ResolvedPoppyConfig['rateLimit'];
   if (input.rateLimit === false) rateLimit = false;
   else if (typeof input.rateLimit === 'function') rateLimit = input.rateLimit;
@@ -506,6 +523,7 @@ export function resolvePoppyConfig(
       isRegistered: membership(input.clients?.registered),
       isBlocked: membership(input.clients?.blocked),
     },
+    allowInsecureClientIds,
     sessionTokenTtl: positive(input.sessionTokenTtl, 3600, 'sessionTokenTtl'),
     accountTokenTtl: positive(input.accountTokenTtl, 30 * 24 * 3600, 'accountTokenTtl'),
     sessionTtl: positive(input.sessionTtl, 30 * 24 * 3600, 'sessionTtl'),

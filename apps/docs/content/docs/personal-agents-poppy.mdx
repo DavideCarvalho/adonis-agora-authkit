@@ -79,6 +79,7 @@ defineConfig({
 | `agent`, `apis`, `extensions` | — | Published as-is in `poppy.json`. An entry with `resource` requires tokens issued for it (RFC 8707). |
 | `web` | browser session on | `false` disables; `login(ctx, { accountId, … })` replaces the default login (see below). |
 | `clients` | open | `requireRegistration`, `registered`, `blocked` (lists or functions). Unregistered agents get `invalid_client`. |
+| `allowInsecureClientIds` | `false` | **Development/test only, not spec-compliant.** Accepts `http://` `client_id`s (and their `jwks_uri`/`redirect_uris`) and fetches them without the SSRF guard, so a local agent (`poppy-agent --insecure-dev`, `http://localhost:7777/agent.json`) can start Sessions. Boot fails with `NODE_ENV=production`. |
 | `sessionTokenTtl` / `accountTokenTtl` / `sessionTtl` | 1 h / 30 d / 30 d | Session Token lifetime, Account Token lifetime (`refresh_token_expires_in`), idle Session lifetime. |
 | `dpop` | ES256, 60 s | `requireNonce`, `maxAge`, `algorithms`. |
 | `replay` | `'database'` | Where seen `jti`s live: `'database'`, `'memory'`, `{ redis: 'main' }`, or your own `{ claim }`. |

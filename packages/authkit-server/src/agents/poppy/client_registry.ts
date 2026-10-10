@@ -7,7 +7,12 @@
 import { createLocalJWKSet, type JSONWebKeySet, type JWTVerifyGetKey } from 'jose';
 import type { ResolvedPoppyConfig } from './config.js';
 import { PoppyError } from './errors.js';
-import { type JsonFetcher, SafeFetchError, safeFetchJson } from './safe_fetch.js';
+import {
+  insecureDevFetchJson,
+  type JsonFetcher,
+  SafeFetchError,
+  safeFetchJson,
+} from './safe_fetch.js';
 
 export interface PoppyClient {
   clientId: string;
@@ -37,11 +42,12 @@ function hostOf(url: string): string | null {
   }
 }
 
-function isHttpsUrl(value: unknown): value is string {
+function isHttpsUrl(value: unknown, allowHttp = false): value is string {
   if (typeof value !== 'string') return false;
   try {
     const url = new URL(value);
-    return url.protocol === 'https:' && !url.username && !url.password && !url.hash;
+    const schemeOk = url.protocol === 'https:' || (allowHttp && url.protocol === 'http:');
+    return schemeOk && !url.username && !url.password && !url.hash;
   } catch {
     return false;
   }
@@ -62,19 +68,21 @@ function setBounded<K, V>(map: Map<K, V>, key: K, value: V): void {
 export function validateClientMetadata(
   fetchedFrom: string,
   doc: unknown,
+  options: { allowHttp?: boolean } = {},
 ): Omit<PoppyClient, 'keys'> {
+  const allowHttp = options.allowHttp === true;
   const bad = (why: string) => new PoppyError('invalid_client', `client metadata: ${why}`);
   if (!doc || typeof doc !== 'object' || Array.isArray(doc)) throw bad('not a JSON object');
   const d = doc as Record<string, unknown>;
   if (d.client_id !== fetchedFrom) throw bad('client_id must equal the URL it was fetched from');
   const host = hostOf(fetchedFrom);
-  if (!isHttpsUrl(d.jwks_uri) || hostOf(d.jwks_uri) !== host) {
+  if (!isHttpsUrl(d.jwks_uri, allowHttp) || hostOf(d.jwks_uri) !== host) {
     throw bad('jwks_uri must be an HTTPS URL on the same domain as client_id');
   }
   const redirects = d.redirect_uris ?? [];
   if (!Array.isArray(redirects)) throw bad('redirect_uris must be an array');
   for (const uri of redirects) {
-    if (!isHttpsUrl(uri) || hostOf(uri) !== host) {
+    if (!isHttpsUrl(uri, allowHttp) || hostOf(uri) !== host) {
       throw bad('every redirect_uri must be an HTTPS URL on the same domain as client_id');
     }
   }
@@ -90,7 +98,7 @@ export function validateClientMetadata(
   return {
     clientId: fetchedFrom,
     name: name.slice(0, 200),
-    logoUri: isHttpsUrl(d.logo_uri) ? d.logo_uri : null,
+    logoUri: isHttpsUrl(d.logo_uri, allowHttp) ? d.logo_uri : null,
     jwksUri: d.jwks_uri,
     redirectUris: redirects as string[],
     extensions,
@@ -138,7 +146,11 @@ export class PoppyClientRegistry {
 
   constructor(cfg: ResolvedPoppyConfig, options: PoppyClientRegistryOptions = {}) {
     this.#cfg = cfg;
-    this.#fetch = options.fetchJson ?? ((url) => safeFetchJson(url));
+    this.#fetch =
+      options.fetchJson ??
+      (cfg.allowInsecureClientIds
+        ? (url) => insecureDevFetchJson(url)
+        : (url) => safeFetchJson(url));
     this.#now = options.now ?? Date.now;
   }
 
@@ -147,7 +159,7 @@ export class PoppyClientRegistry {
    * registrado (quando o app exige registro), metadata inválida/inalcançável.
    */
   async resolve(clientId: unknown): Promise<PoppyClient> {
-    if (!isHttpsUrl(clientId)) {
+    if (!isHttpsUrl(clientId, this.#cfg.allowInsecureClientIds)) {
       throw new PoppyError('invalid_client', 'client_id must be an HTTPS URL');
     }
     if (await this.#cfg.clients.isBlocked(clientId)) {
@@ -188,7 +200,9 @@ export class PoppyClientRegistry {
         const why = error instanceof SafeFetchError ? error.message : 'unreachable';
         throw new PoppyError('invalid_client', `client metadata: ${why}`);
       }
-      const meta = validateClientMetadata(clientId, fetched.body);
+      const meta = validateClientMetadata(clientId, fetched.body, {
+        allowHttp: this.#cfg.allowInsecureClientIds,
+      });
       entry.expiresAt = this.#now() + ttlFrom(fetched.maxAge);
       return meta;
     })();
