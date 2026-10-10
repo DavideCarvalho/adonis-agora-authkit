@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { chmod, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -106,8 +107,21 @@ export class StateStore {
     return this.data.profiles[name];
   }
 
-  async save(): Promise<void> {
-    const tmp = `${this.path}.${process.pid}.tmp`;
+  #saving: Promise<void> = Promise.resolve();
+
+  /**
+   * Writes the state atomically (tmp file + rename). Saves are serialized: a conversation stream
+   * and the prompt can save at the same time, and two writes sharing one tmp file made the second
+   * `rename` fail with ENOENT.
+   */
+  save(): Promise<void> {
+    const run = this.#saving.then(() => this.#write());
+    this.#saving = run.catch(() => {});
+    return run;
+  }
+
+  async #write(): Promise<void> {
+    const tmp = `${this.path}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`;
     await writeFile(tmp, `${JSON.stringify(this.data, null, 2)}\n`, { mode: 0o600 });
     await chmod(tmp, 0o600);
     await rename(tmp, this.path);

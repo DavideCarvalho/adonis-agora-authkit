@@ -266,3 +266,21 @@ test.group('parsers', () => {
     ]);
   });
 });
+
+test.group('state store', () => {
+  test('concurrent saves do not race on the tmp file', async ({ assert }) => {
+    const { mkdtemp, readFile, readdir } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { StateStore } = await import('../src/store.js');
+    const dir = await mkdtemp(join(tmpdir(), 'poppy-store-'));
+    const store = await StateStore.open(join(dir, 'state.json'));
+    // A conversation stream and the prompt both save: this used to fail with ENOENT on rename.
+    await Promise.all(Array.from({ length: 8 }, () => store.save()));
+    assert.isObject(JSON.parse(await readFile(join(dir, 'state.json'), 'utf8')));
+    assert.deepEqual(
+      (await readdir(dir)).filter((f) => f.endsWith('.tmp')),
+      [],
+    );
+  });
+});
