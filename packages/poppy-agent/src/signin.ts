@@ -92,15 +92,35 @@ export async function completeDirectSignIn(
   }
   const code = callback.get('code');
   if (!code) throw new PoppyError('invalid_callback', 'callback has neither code nor error');
-  const sessionId = company.state.sessionId ?? (await company.token()).sessionId;
-  const resp = await company.tokens.authorizationCode({
-    code,
-    redirectUri: pending.redirectUri,
-    codeVerifier: pending.codeVerifier,
-    sessionId,
-    dpop: company.dpop,
-  });
+  const resp = await withLiveSession(company, (sessionId) =>
+    company.tokens.authorizationCode({
+      code,
+      redirectUri: pending.redirectUri,
+      codeVerifier: pending.codeVerifier,
+      sessionId,
+      dpop: company.dpop,
+    }),
+  );
   return company.applySignIn(resp, 'direct', pending.scope);
+}
+
+/**
+ * Runs a sign-in exchange with the current Session. The stored Session may have ended at the
+ * Company (expired, ended, the Company's data reset) — 4.2: on `invalid_session` the agent starts a
+ * new Session and the exchange is retried once with it (the code is not consumed by the refusal).
+ */
+async function withLiveSession<T>(
+  company: CompanyClient,
+  exchange: (sessionId: string) => Promise<T>,
+): Promise<T> {
+  const sessionId = (await company.token()).sessionId;
+  try {
+    return await exchange(sessionId);
+  } catch (e) {
+    if (!(e instanceof OAuthError) || e.code !== 'invalid_session') throw e;
+    company.agent.log('invalid_session during sign-in: starting a new Session');
+    return exchange((await company.token({ forceRenew: true })).sessionId);
+  }
 }
 
 /* ------------------------------------------------------------------ Device (4.6) */
@@ -139,13 +159,14 @@ export async function deviceSignIn(
   for (;;) {
     await wait(interval * 1000, opts.signal);
     if (Date.now() > deadline) throw new OAuthError('expired_token');
-    const sessionId = company.state.sessionId ?? (await company.token()).sessionId;
     try {
-      const resp = await company.tokens.deviceToken({
-        deviceCode: d.device_code,
-        sessionId,
-        dpop: company.dpop,
-      });
+      const resp = await withLiveSession(company, (sessionId) =>
+        company.tokens.deviceToken({
+          deviceCode: d.device_code,
+          sessionId,
+          dpop: company.dpop,
+        }),
+      );
       return await company.applySignIn(resp, 'device', scope);
     } catch (e) {
       if (!(e instanceof OAuthError)) throw e;

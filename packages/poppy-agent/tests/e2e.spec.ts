@@ -161,6 +161,22 @@ test.group('sign-in (4.4-4.9)', (group) => {
     noViolations(assert);
   });
 
+  test('a Session the Company ended is replaced during sign-in (invalid_session)', async ({
+    assert,
+  }) => {
+    w = await world({ devicePendingPolls: 0 });
+    const c = await w.agent.company(w.fake.domain);
+    const old = (await c.token()).sessionId;
+    w.fake.sessions.delete(old); // the Company ended it (expiry, reset…)
+    const r = await deviceSignIn(c, 'poppy:read', {
+      display: () => {},
+      sleep: async () => {},
+    });
+    assert.equal(r.grantedScope, 'poppy:read');
+    assert.notEqual(c.state.sessionId, old);
+    noViolations(assert);
+  });
+
   test('Mediated Sign-In with a one-time code', async ({ assert }) => {
     w = await world();
     const c = await w.agent.company(w.fake.domain);
