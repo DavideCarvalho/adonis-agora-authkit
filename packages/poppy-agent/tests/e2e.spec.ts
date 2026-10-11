@@ -394,6 +394,27 @@ test.group('conversations (7)', (group) => {
     noViolations(assert);
   });
 
+  test('follow(untilSettled) on an already settled conversation returns instead of waiting', async ({
+    assert,
+  }) => {
+    w = await world();
+    const c = await w.agent.company(w.fake.domain);
+    const conv = new ConversationClient(c);
+    const a = await conv.start({ id: newMessageId(), sender: 'agent', text: 'hi' });
+    await conv.collect(a.conversation_id);
+    // Nothing changes the state now (like a handoff with no one available): no `state` event.
+    const drained = (async () => {
+      const items = [];
+      for await (const item of conv.follow(a.conversation_id, { untilSettled: true })) {
+        items.push(item);
+      }
+      return items;
+    })();
+    const timeout = new Promise((resolve) => setTimeout(() => resolve('hung'), 2000));
+    assert.notEqual(await Promise.race([drained, timeout]), 'hung');
+    noViolations(assert);
+  });
+
   test('authorization event, sign in, continue the same conversation', async ({ assert }) => {
     w = await world();
     const c = await w.agent.company(w.fake.domain);

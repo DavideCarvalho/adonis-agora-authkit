@@ -236,6 +236,37 @@ export class ConversationClient {
     const settled = () =>
       opts.untilSettled && (status === 'idle' || status === 'queued' || status === 'closed');
 
+    // `untilSettled` ends on a `state` event — but a request that changes nothing (a handoff with
+    // no one available, a context-only message) emits none, and a stream would then wait forever.
+    // So read what is there first: if the conversation is already settled, that is the answer.
+    if (opts.untilSettled) {
+      for (;;) {
+        let page: EventsPage;
+        try {
+          page = await this.read(id, cursor ? { cursor } : {});
+        } catch (e) {
+          if (e instanceof ConversationError && e.code === 'cursor_expired') {
+            cursor = undefined;
+            this.remember(id, { cursor: '' });
+            yield { kind: 'history_gap' };
+            continue;
+          }
+          throw e;
+        }
+        for (const ev of page.events) {
+          if (await handle(ev)) yield { kind: 'event', event: ev };
+        }
+        status = page.status ?? status;
+        if (page.cursor) {
+          cursor = page.cursor;
+          this.remember(id, { cursor });
+        }
+        if (!page.has_more) break;
+      }
+      await this.company.save();
+      if (settled()) return;
+    }
+
     while (!opts.signal?.aborted) {
       if (!firstConnect) yield { kind: 'reconnected' };
       firstConnect = false;
