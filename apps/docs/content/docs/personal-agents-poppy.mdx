@@ -91,6 +91,27 @@ Four lib-owned tables back it — `auth_poppy_sessions`, `auth_poppy_tokens`,
 grants in `auth_agent_grants` (ids `pgrant_…`), so they show up — and are revoked — in the same
 **Personal agents** list of the account console as PACT delegations.
 
+## Theming the consent screens
+
+The Direct and Device approval screens (and PACT's delegation screen) render through your
+`config.render` as the views **`agents/consent`** and **`agents/done`** — the same mechanism as the
+login pages. With `inertiaRenderer`, add them to `views` and write
+`inertia/pages/authkit/agents/consent.tsx` / `done.tsx`:
+
+```ts
+render: inertiaRenderer({ prefix: 'authkit', views: ['login', 'agents/consent', 'agents/done'] })
+```
+
+| View | Props |
+| --- | --- |
+| `agents/consent` | `csrfToken`, `action` (POST/GET target), `account: { email } \| null`, `error` (`'agents.consent.impersonating'` \| `'agents.consent.invalid_code'` \| `null`), `request: null \| { agentName, agentOrigin, logoUri?, scopes: { id, description }[], hidden?: { name, value }[] (Direct: post them back), userCode? (Device/PACT: post it back as `user_code`) }` |
+| `agents/done` | `status: 'approved' \| 'denied' \| 'invalid' \| 'expired'`, `agentName`, `scopes` |
+
+Submit a plain HTML form (`decision=allow|deny`, one `scope` per checked box, `_csrf`): the
+controller answers with a redirect to the agent or the `agents/done` view. Without `request`, the
+view asks for the device code (a `GET` form with `user_code`). The screens deny framing and refuse an
+impersonated session whatever the view looks like.
+
 ## Mediated Sign-In without account enumeration
 
 If your Mediated Sign-In only asks for an identifier (email, phone) and then sends a code, answering
