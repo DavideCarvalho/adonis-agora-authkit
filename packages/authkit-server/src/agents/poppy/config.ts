@@ -65,12 +65,20 @@ export interface PoppyMediatedVerifyInput {
  *   serviço de OTP que confere do lado dele). `state` é opaco e volta no
  *   `verifyCode`.
  * - `failed`: senha errada, conta bloqueada…
+ *
+ * **Sem enumeração de contas.** Num fluxo só de identificador (e-mail/telefone + código), `failed`
+ * para um identificador desconhecido conta ao agente quem tem conta. Devolva então `code_required`
+ * com `accountId: null` (e o mesmo `sentTo` que uma conta real teria) e NÃO mande código: a lib
+ * responde igual a uma conta real e recusa qualquer código como um código errado (mesmas
+ * tentativas, mesmo `failed` no fim). Faça o mesmo trabalho nos dois caminhos (ex.: enfileire o
+ * e-mail em vez de mandar na hora) para o tempo de resposta não denunciar.
  */
 export type PoppyMediatedResult =
   | { status: 'complete'; accountId: string }
   | {
       status: 'code_required';
-      accountId: string;
+      /** `null` = identificador sem conta elegível: nenhum código vale (ver acima). */
+      accountId: string | null;
       /** Texto para o usuário: "Text to the phone number ending in 71". */
       sentTo: string;
       code?: string;

@@ -91,6 +91,28 @@ Four lib-owned tables back it — `auth_poppy_sessions`, `auth_poppy_tokens`,
 grants in `auth_agent_grants` (ids `pgrant_…`), so they show up — and are revoked — in the same
 **Personal agents** list of the account console as PACT delegations.
 
+## Mediated Sign-In without account enumeration
+
+If your Mediated Sign-In only asks for an identifier (email, phone) and then sends a code, answering
+`failed` for an unknown identifier tells any agent who has an account. Answer an unknown (or
+ineligible) identifier exactly like a real one instead:
+
+```ts
+async verify({ credentials }) {
+  const account = await accounts.findByEmail(credentials.email)
+  const sentTo = `Email to ${mask(credentials.email)}`
+  if (!account) return { status: 'code_required', accountId: null, sentTo } // no code is sent
+  const code = randomCode()
+  await mail.sendLater(/* … code … */) // queue it: the same work, and time, on both paths
+  return { status: 'code_required', accountId: account.id, sentTo, code }
+}
+```
+
+With `accountId: null` AuthKit answers the same `code_required` shape, and every code submitted for
+that sign-in is treated as a wrong code — same attempt counting, same `failed` at the end. The
+Session's account is only compared at the code step, so `account_mismatch` cannot leak it either.
+Rate limits (`rateLimit.mediatedPerHour`, the OTP throttle) still apply.
+
 ## Routes
 
 | Route | Spec | Who calls it |

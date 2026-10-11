@@ -1255,6 +1255,14 @@ test.group('poppy — Mediated Sign-In', () => {
           scopes: ['poppy:read'],
           verify: async ({ credentials }) => {
             if (credentials.password !== 'right') return { status: 'failed' };
+            if (credentials.email === 'nobody@example.com') {
+              // Anti-enumeração: mesma resposta de uma conta real, nenhum código enviado.
+              return {
+                status: 'code_required',
+                accountId: null,
+                sentTo: 'Text to the phone number ending in 71',
+              };
+            }
             if (credentials.email === 'otp@example.com') {
               sent.push('123456');
               return {
@@ -1332,6 +1340,38 @@ test.group('poppy — Mediated Sign-In', () => {
       ),
     );
     assert.equal(missing.code, 'invalid_request');
+    await env.close();
+  });
+
+  test('sem conta (accountId: null): resposta igual à de uma conta real; todo código é errado', async ({
+    assert,
+  }) => {
+    const { env, auth } = await mediatedEnv({ maxCodeAttempts: 2 });
+    const start = async (email: string) => {
+      const a = await auth();
+      return (await env.poppy.mediatedStart(
+        a.principal,
+        a.jkt,
+        { scope: 'poppy:read', credentials: { email, password: 'right' } },
+        {} as any,
+      )) as any;
+    };
+    const real = await start('otp@example.com');
+    const ghost = await start('nobody@example.com');
+    assert.deepEqual(Object.keys(ghost).sort(), Object.keys(real).sort());
+    assert.equal(ghost.status, 'code_required');
+    assert.deepEqual(ghost.code, real.code);
+
+    const send = async (id: string, code: string) => {
+      const b = await auth(`${POPPY_ISSUER}/sign-in/${id}`);
+      return (await env.poppy.mediatedCode(b.principal, b.jkt, id, { code })) as any;
+    };
+    // Até o código "certo" da conta real é errado aqui — mesmas respostas de um código errado.
+    const first = await send(ghost.sign_in_id, '123456');
+    const realWrong = await send(real.sign_in_id, '000000');
+    assert.equal(first.status, 'code_required');
+    assert.deepEqual(Object.keys(first).sort(), Object.keys(realWrong).sort());
+    assert.deepEqual(await send(ghost.sign_in_id, '123456'), { status: 'failed' });
     await env.close();
   });
 

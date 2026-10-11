@@ -1160,10 +1160,10 @@ export class PoppyService {
       principal.clientId,
       principal.userId,
     );
-    if (session.accountId && session.accountId !== result.accountId) {
-      throw new PoppyError('account_mismatch', 'The Session is signed in to a different account');
-    }
     if (result.status === 'complete') {
+      if (session.accountId && session.accountId !== result.accountId) {
+        throw new PoppyError('account_mismatch', 'The Session is signed in to a different account');
+      }
       const done = await this.#signIn(
         session,
         result.accountId,
@@ -1174,7 +1174,10 @@ export class PoppyService {
       return { status: 'complete', ...done.body };
     }
     if (result.status !== 'code_required') return { status: 'failed' };
-    if (result.code === undefined && !mediated.verifyCode) {
+    // `accountId: null` = sem conta elegível (anti-enumeração): a resposta é a mesma de uma conta
+    // real e nenhum código vale. A conta da Session só é conferida no código (sem vazar aqui).
+    const decoy = result.accountId === null;
+    if (!decoy && result.code === undefined && !mediated.verifyCode) {
       throw new Error(
         'authkit: personalAgents.poppy.signIn.mediated — `verify` devolveu code_required sem `code` e não há `verifyCode`.',
       );
@@ -1197,7 +1200,9 @@ export class PoppyService {
       intervalSeconds: null,
       data: {
         sentTo: result.sentTo,
-        ...(result.code !== undefined ? { codeHash: sha256(`${id}:${result.code}`) } : {}),
+        ...(!decoy && result.code !== undefined
+          ? { codeHash: sha256(`${id}:${result.code}`) }
+          : {}),
         ...(result.state !== undefined ? { state: result.state } : {}),
       },
       expiresAt,
@@ -1233,7 +1238,10 @@ export class PoppyService {
     }
     const data = row.data ?? {};
     let correct: boolean;
-    if (typeof data.codeHash === 'string') {
+    if (row.accountId === null) {
+      // Identificador sem conta (anti-enumeração): todo código é um código errado.
+      correct = false;
+    } else if (typeof data.codeHash === 'string') {
       correct = sha256(`${row.id}:${code}`) === data.codeHash;
     } else {
       correct =
@@ -1267,6 +1275,9 @@ export class PoppyService {
       principal.clientId,
       principal.userId,
     );
+    if (session.accountId && session.accountId !== row.accountId) {
+      throw new PoppyError('account_mismatch', 'The Session is signed in to a different account');
+    }
     const done = await this.#signIn(
       session,
       row.accountId!,
