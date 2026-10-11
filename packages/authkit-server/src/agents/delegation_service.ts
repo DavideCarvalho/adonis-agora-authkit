@@ -120,6 +120,14 @@ function newUserCode(): string {
   return `${code.slice(0, 4)}-${code.slice(4)}`;
 }
 
+/**
+ * A tabela de grants é compartilhada com o Poppy (Account Tokens, `pgrant_`):
+ * o PACT só enxerga os dele.
+ */
+function isPactGrant(id: string): boolean {
+  return !id.startsWith('pgrant_');
+}
+
 /** Aceita o código como o usuário digitar: minúsculas, sem hífen, com espaços. */
 export function normalizeUserCode(input: unknown): string | null {
   if (typeof input !== 'string') return null;
@@ -292,7 +300,7 @@ export class PersonalAgentDelegation {
     const userCode = normalizeUserCode(userCodeInput);
     if (!userCode) return null;
     const row = await this.#store.findDeviceByUserCode(userCode);
-    if (!row || row.status !== 'pending' || row.expiresAt <= this.#now()) return null;
+    if (row?.status !== 'pending' || row.expiresAt <= this.#now()) return null;
     return {
       userCode: row.userCode,
       clientId: row.clientId,
@@ -314,7 +322,7 @@ export class PersonalAgentDelegation {
     const userCode = normalizeUserCode(input.userCode);
     const row = userCode ? await this.#store.findDeviceByUserCode(userCode) : null;
     const now = this.#now();
-    if (!row || row.status !== 'pending' || row.expiresAt <= now) return null;
+    if (row?.status !== 'pending' || row.expiresAt <= now) return null;
 
     const requested = parseScope(row.requestedScope);
     const granted = requested.filter((id) => input.scopes.includes(id));
@@ -330,7 +338,7 @@ export class PersonalAgentDelegation {
 
     const expiresAt = new Date(now.getTime() + this.#cfg.grantTtl * 1000);
     const existing = (await this.#store.findGrantsFor(input.accountId, row.clientId, row.agentSub))
-      .filter((g) => g.expiresAt > now)
+      .filter((g) => isPactGrant(g.id) && g.expiresAt > now)
       .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0];
 
     let result: { grantId: string; scopes: string[] } | null = null;
@@ -363,7 +371,7 @@ export class PersonalAgentDelegation {
   async deny(input: { userCode: string; accountId: string }): Promise<boolean> {
     const userCode = normalizeUserCode(input.userCode);
     const row = userCode ? await this.#store.findDeviceByUserCode(userCode) : null;
-    if (!row || row.status !== 'pending') return false;
+    if (row?.status !== 'pending') return false;
     return this.#store.transitionDevice(row.id, 'pending', {
       status: 'denied',
       accountId: input.accountId,
@@ -375,7 +383,7 @@ export class PersonalAgentDelegation {
   async listGrants(accountId: string): Promise<DelegationGrantSummary[]> {
     const now = this.#now();
     return (await this.#store.listGrants(accountId))
-      .filter((g) => g.expiresAt > now)
+      .filter((g) => isPactGrant(g.id) && g.expiresAt > now)
       .map((g) => ({
         id: g.id,
         clientId: g.clientId,
@@ -387,7 +395,8 @@ export class PersonalAgentDelegation {
   }
 
   /** Revoga na hora: tokens já emitidos param de valer na próxima request. */
-  revokeGrant(accountId: string, grantId: string): Promise<boolean> {
+  async revokeGrant(accountId: string, grantId: string): Promise<boolean> {
+    if (!isPactGrant(grantId)) return false;
     return this.#store.revokeGrant(accountId, grantId, this.#now());
   }
 
@@ -474,7 +483,7 @@ export class PersonalAgentDelegation {
     now: Date,
   ): Promise<{ grantId: string; scopes: string[] }> {
     const live = (await this.#store.findGrantsFor(accountId, clientId, agentSub))
-      .filter((g) => g.expiresAt > now)
+      .filter((g) => isPactGrant(g.id) && g.expiresAt > now)
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
     const [survivor, ...extras] = live;
     if (!survivor) throw new AgentOAuthError('invalid_grant', 'The grant vanished');
@@ -489,6 +498,7 @@ export class PersonalAgentDelegation {
 
   async #grantUsable(grant: GrantRow, agent: PersonalAgentIdentity, now: Date): Promise<boolean> {
     return (
+      isPactGrant(grant.id) &&
       grant.revokedAt === null &&
       grant.expiresAt > now &&
       grant.clientId === agent.issuer &&

@@ -310,6 +310,130 @@ const TABLES: TableDef[] = [
       created_at: (t) => t.dateTime('created_at', { useTz: true, precision: 3 }).nullable(),
     },
   },
+  /*
+   * Personal Agent Protocol (Poppy). Os Account Tokens são grants de
+   * `auth_agent_grants` (prefixo `pgrant_`) com o hash em
+   * `auth_agent_refresh_tokens`; aqui ficam Sessions, Session Tokens, pedidos de
+   * sign-in e os `jti` vistos. Mesmas regras de data das tabelas acima.
+   */
+  {
+    name: 'auth_poppy_sessions',
+    /**
+     * Uma Session: um usuário do agente (`user_id`, opaco) num agente
+     * (`client_id`). `account_id` é a conta a que ficou PRESA ao logar (não troca);
+     * `grant_id` o Account Token com que está logada agora (`null` = deslogada).
+     */
+    create: (t) => {
+      t.string('id').primary();
+      t.string('client_id', 2048).notNullable();
+      t.string('user_id').notNullable();
+      t.string('account_id').nullable().index();
+      t.string('grant_id').nullable().index();
+      t.text('scope').notNullable();
+      t.dateTime('expires_at', { useTz: true, precision: 3 }).notNullable();
+      t.dateTime('ended_at', { useTz: true, precision: 3 }).nullable();
+      t.dateTime('created_at', { useTz: true, precision: 3 }).notNullable();
+      t.dateTime('updated_at', { useTz: true, precision: 3 }).notNullable();
+    },
+    columns: {
+      client_id: (t) => t.string('client_id', 2048),
+      user_id: (t) => t.string('user_id'),
+      account_id: (t) => t.string('account_id').nullable().index(),
+      grant_id: (t) => t.string('grant_id').nullable().index(),
+      scope: (t) => t.text('scope'),
+      expires_at: (t) => t.dateTime('expires_at', { useTz: true, precision: 3 }).nullable(),
+      ended_at: (t) => t.dateTime('ended_at', { useTz: true, precision: 3 }).nullable(),
+      created_at: (t) => t.dateTime('created_at', { useTz: true, precision: 3 }).nullable(),
+      updated_at: (t) => t.dateTime('updated_at', { useTz: true, precision: 3 }).nullable(),
+    },
+  },
+  {
+    name: 'auth_poppy_tokens',
+    /** Session Tokens — só o hash. `jkt` = chave DPoP; `null` = Bearer (MCP). */
+    create: (t) => {
+      t.string('token_hash', 64).primary();
+      t.string('session_id').notNullable().index();
+      t.string('client_id', 2048).notNullable();
+      t.string('user_id').notNullable();
+      t.string('account_id').nullable();
+      t.string('grant_id').nullable().index();
+      t.text('scope').notNullable();
+      t.string('resource', 2048).nullable();
+      t.string('jkt', 64).nullable();
+      t.dateTime('expires_at', { useTz: true, precision: 3 }).notNullable().index();
+      t.dateTime('created_at', { useTz: true, precision: 3 }).notNullable();
+    },
+    columns: {
+      session_id: (t) => t.string('session_id').index(),
+      client_id: (t) => t.string('client_id', 2048),
+      user_id: (t) => t.string('user_id'),
+      account_id: (t) => t.string('account_id').nullable(),
+      grant_id: (t) => t.string('grant_id').nullable().index(),
+      scope: (t) => t.text('scope'),
+      resource: (t) => t.string('resource', 2048).nullable(),
+      jkt: (t) => t.string('jkt', 64).nullable(),
+      expires_at: (t) => t.dateTime('expires_at', { useTz: true, precision: 3 }).nullable(),
+      created_at: (t) => t.dateTime('created_at', { useTz: true, precision: 3 }).nullable(),
+    },
+  },
+  {
+    name: 'auth_poppy_requests',
+    /**
+     * Pedidos de sign-in: `authorize` (Direct — vira código após o consentimento),
+     * `device` (RFC 8628) e `mediated` (§4.7, aguardando o código de uso único).
+     * Códigos só como hash. Linhas expiradas são apagadas no próximo pedido.
+     */
+    create: (t) => {
+      t.string('id').primary();
+      t.string('kind', 16).notNullable();
+      t.string('code_hash', 64).nullable().unique();
+      t.string('user_code', 16).nullable().unique();
+      t.string('client_id', 2048).notNullable();
+      t.string('session_id').nullable();
+      t.string('account_id').nullable();
+      t.text('requested_scope').notNullable();
+      t.text('granted_scope').nullable();
+      t.string('redirect_uri', 2048).nullable();
+      t.string('code_challenge', 128).nullable();
+      t.string('status', 16).notNullable();
+      t.integer('attempts').notNullable().defaultTo(0);
+      t.integer('interval_seconds').nullable();
+      t.dateTime('last_polled_at', { useTz: true, precision: 3 }).nullable();
+      t.text('data').nullable();
+      t.dateTime('expires_at', { useTz: true, precision: 3 }).notNullable().index();
+      t.dateTime('created_at', { useTz: true, precision: 3 }).notNullable();
+    },
+    columns: {
+      kind: (t) => t.string('kind', 16),
+      code_hash: (t) => t.string('code_hash', 64).nullable(),
+      user_code: (t) => t.string('user_code', 16).nullable(),
+      client_id: (t) => t.string('client_id', 2048),
+      session_id: (t) => t.string('session_id').nullable(),
+      account_id: (t) => t.string('account_id').nullable(),
+      requested_scope: (t) => t.text('requested_scope'),
+      granted_scope: (t) => t.text('granted_scope').nullable(),
+      redirect_uri: (t) => t.string('redirect_uri', 2048).nullable(),
+      code_challenge: (t) => t.string('code_challenge', 128).nullable(),
+      status: (t) => t.string('status', 16),
+      attempts: (t) => t.integer('attempts').defaultTo(0),
+      interval_seconds: (t) => t.integer('interval_seconds').nullable(),
+      last_polled_at: (t) => t.dateTime('last_polled_at', { useTz: true, precision: 3 }).nullable(),
+      data: (t) => t.text('data').nullable(),
+      expires_at: (t) => t.dateTime('expires_at', { useTz: true, precision: 3 }).nullable(),
+      created_at: (t) => t.dateTime('created_at', { useTz: true, precision: 3 }).nullable(),
+    },
+  },
+  {
+    name: 'auth_poppy_jtis',
+    /** `jti` já aceitos (asserções, provas DPoP), até expirarem — anti-replay entre instâncias. */
+    create: (t) => {
+      t.string('key', 100).primary();
+      t.dateTime('expires_at', { useTz: true, precision: 3 }).notNullable().index();
+    },
+    columns: {
+      expires_at: (t) => t.dateTime('expires_at', { useTz: true, precision: 3 }).nullable(),
+    },
+  },
 ];
 
 export interface EnsureSchemaOptions {

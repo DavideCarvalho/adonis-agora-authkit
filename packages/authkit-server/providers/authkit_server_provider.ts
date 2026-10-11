@@ -132,7 +132,14 @@ export default class AuthkitServerProvider {
       // Defaults estruturais de `config.routes` (o argumento ainda vence).
       routes: typeof config.routes === 'object' ? config.routes : undefined,
       lockedRouteOptions: config.lockedRouteOptions,
-      personalAgents: config.personalAgents ? { prefix: config.personalAgents.prefix } : undefined,
+      personalAgents: config.personalAgents
+        ? {
+            prefix: config.personalAgents.prefix,
+            ...(config.personalAgents.poppy
+              ? { poppyPrefix: config.personalAgents.poppy.prefix }
+              : {}),
+          }
+        : undefined,
       // API headless — repassa pro registerAuthHost montar as rotas.
       headless: config.headless
         ? {
@@ -141,6 +148,14 @@ export default class AuthkitServerProvider {
           }
         : undefined,
     });
+
+    // Poppy: o slot global que o `@adonis-agora/agent` usa para autenticar o endpoint de
+    // conversas (e o MCP) sem importar este pacote — o contrato é o símbolo.
+    if (config.personalAgents?.poppy) {
+      const { installPoppySlots } = await import('../src/agents/poppy/resource.js');
+      const { poppyUrls } = await import('../src/agents/poppy/service.js');
+      installPoppySlots(poppyUrls(config.issuer, config.personalAgents.poppy.prefix).issuer);
+    }
 
     // Auto-montagem das rotas (`config.routes`). Chama a MESMA função exportada que o
     // `start/routes.ts` chamaria; não há segunda implementação. "As rotas não subiram" não pode

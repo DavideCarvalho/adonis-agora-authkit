@@ -94,6 +94,65 @@ export {
   personalAgentStepUp,
 } from './src/agents/middleware.js';
 export type {
+  PoppyAgentProtocolEntry,
+  PoppyApiEntry,
+  PoppyBrowserLogin,
+  PoppyClientsConfigInput,
+  PoppyConfigInput,
+  PoppyLimiter,
+  PoppyMediatedConfigInput,
+  PoppyMediatedField,
+  PoppyMediatedResult,
+  PoppyMediatedVerifyInput,
+  PoppyPrincipalBase,
+  PoppyReplayStore,
+  ResolvedPoppyConfig,
+} from './src/agents/poppy/config.js';
+export { POPPY_READ, POPPY_WRITE } from './src/agents/poppy/config.js';
+export {
+  accessTokenHash,
+  type DpopNonceSource,
+  type DpopResult,
+  hmacNonceSource,
+  type VerifyDpopInput,
+  verifyDpopProof,
+} from './src/agents/poppy/dpop.js';
+export { PoppyError, type PoppyErrorCode } from './src/agents/poppy/errors.js';
+export {
+  databaseReplayStore,
+  memoryReplayStore,
+  redisReplayStore,
+} from './src/agents/poppy/replay.js';
+export {
+  installPoppySlots,
+  POPPY_AUTHENTICATE_SLOT,
+  type PoppyAuthenticate,
+  type PoppyAuthResult,
+  type PoppyPrincipal,
+  type PoppySlotRequest,
+  poppyAuth,
+  poppyOf,
+  verifyPoppyRequest,
+  writePoppyAuthError,
+} from './src/agents/poppy/resource.js';
+export {
+  isBlockedAddress,
+  SafeFetchError,
+  safeFetchJson,
+} from './src/agents/poppy/safe_fetch.js';
+export type {
+  PoppyAuthError,
+  PoppyGrantSummary,
+  PoppySessionState,
+  PoppyTokenResponse,
+  PoppyVerifyOptions,
+} from './src/agents/poppy/service.js';
+export {
+  type PoppyWebSessionMarker,
+  poppyWebSession,
+  poppyWebSessionOf,
+} from './src/agents/poppy/web_session.js';
+export type {
   BuiltinProtocolId,
   PactOptions,
   PersonalAgentProtocol,
@@ -400,6 +459,7 @@ export {
 } from './src/host/otp_login.js';
 export type { PersistentRpOptions } from './src/host/persistent_rp_session.js';
 export { endRpSession } from './src/host/persistent_rp_session.js';
+export { POPPY_WEB_SESSION_KEY } from './src/host/poppy_session_key.js';
 export type { AuthThrottles, ThrottleMiddleware } from './src/host/rate_limit.js';
 export { createAuthThrottles } from './src/host/rate_limit.js';
 export type {

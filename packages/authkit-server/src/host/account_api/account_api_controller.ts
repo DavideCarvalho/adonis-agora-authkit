@@ -787,14 +787,19 @@ export default class AccountApiController {
   /** Personal agents com delegação ativa na conta (scopes aprovados). */
   async listAgents(ctx: HttpContext) {
     const runtime = await personalAgentsFor(ctx);
-    if (!runtime?.delegation) {
+    if (!runtime?.delegation && !runtime?.poppy) {
       return ctx.response
         .status(404)
         .send(apiErr('capability_unsupported', 'Personal agent delegation is not enabled.'));
     }
     const userId = ctx.session.get(ACCOUNT_SESSION_KEY) as string;
-    const grants = await runtime.delegation.listGrants(userId);
-    return { agents: grants };
+    const pact = runtime.delegation
+      ? (await runtime.delegation.listGrants(userId)).map((g) => ({ ...g, protocol: 'pact' }))
+      : [];
+    const poppy = runtime.poppy
+      ? (await runtime.poppy.listGrants(userId)).map((g) => ({ ...g, protocol: 'poppy' }))
+      : [];
+    return { agents: [...pact, ...poppy] };
   }
 
   // ─── DELETE /account/api/agents/:id ──────────────────────────────────────
@@ -802,7 +807,7 @@ export default class AccountApiController {
   /** Revoga a delegação de um personal agent (efeito imediato nos tokens). */
   async revokeAgent(ctx: HttpContext) {
     const runtime = await personalAgentsFor(ctx);
-    if (!runtime?.delegation) {
+    if (!runtime?.delegation && !runtime?.poppy) {
       return ctx.response
         .status(404)
         .send(apiErr('capability_unsupported', 'Personal agent delegation is not enabled.'));
@@ -810,7 +815,7 @@ export default class AccountApiController {
     const service = await ctx.containerResolver.make('authkit.server');
     const userId = ctx.session.get(ACCOUNT_SESSION_KEY) as string;
     const grantId = ctx.request.param('id') as string;
-    if (!(await runtime.delegation.revokeGrant(userId, grantId))) {
+    if (!(await runtime.revokeAgentGrant(userId, grantId))) {
       return ctx.response.status(404).send(apiErr('not_found', 'Grant not found.'));
     }
     await service.config.audit?.record({

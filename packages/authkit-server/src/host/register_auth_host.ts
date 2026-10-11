@@ -28,6 +28,7 @@ import {
 } from './auth_host_config.js';
 import type { PolicyRouteOption } from './config_locks.js';
 import { ensureConsoleSession } from './idp_session_bridge.js';
+import { POPPY_WEB_SESSION_KEY } from './poppy_session_key.js';
 import { createAuthThrottles } from './rate_limit.js';
 import { redirectExact } from './redirect_exact.js';
 import { requestPathWithQuery } from './request_url.js';
@@ -142,7 +143,16 @@ function buildLoginRedirect(ctx: any, extra?: string): string {
  * classe NÃO era aplicada em runtime num grupo, deixando /account/tokens e
  * /account/mfa acessíveis sem sessão.
  */
+/** A sessão é do navegador de um personal agent Poppy (§5)? */
+function isPoppyBrowser(ctx: any): boolean {
+  const marker = ctx.session?.get?.(POPPY_WEB_SESSION_KEY);
+  return typeof marker === 'object' && marker !== null && typeof marker.sessionId === 'string';
+}
+
 const accountGuard = async (ctx: any, next: () => Promise<void>) => {
+  // O navegador de um personal agent Poppy (§5) não entra no console de conta nem
+  // nas telas de consentimento: a sessão é do agente, não do usuário.
+  if (isPoppyBrowser(ctx)) return ctx.response.status(403).send('');
   // Sessão do console — ou, com `accountSession.acceptIdpSession`, a do IdP (SSO).
   if (!(await ensureConsoleSession(ctx))) {
     return redirectExact(ctx.response, buildLoginRedirect(ctx));
@@ -175,6 +185,7 @@ export const adminGuard = async (ctx: any, next: () => Promise<void>) => {
   if (!cfg.admin.enabled) {
     return ctx.response.notFound();
   }
+  if (isPoppyBrowser(ctx)) return ctx.response.status(403).send('');
   // Com `accountSession.acceptIdpSession`, a sessão do IdP também abre o console.
   await ensureConsoleSession(ctx);
   const accountId = ctx.session?.get(ACCOUNT_SESSION_KEY) as string | undefined;
@@ -478,6 +489,8 @@ const C = {
   accountConfirm: () => import('./controllers/account_confirm_controller.js'),
   agentOAuth: () => import('./controllers/agent_oauth_controller.js'),
   agentConsent: () => import('./controllers/agent_consent_controller.js'),
+  poppy: () => import('./controllers/poppy_controller.js'),
+  poppyConsent: () => import('./controllers/poppy_consent_controller.js'),
   webauthnAsset: () => import('./controllers/webauthn_asset_controller.js'),
   logoutAsset: () => import('./controllers/logout_asset_controller.js'),
   passkeyAutofillAsset: () => import('./controllers/passkey_autofill_asset_controller.js'),
@@ -820,6 +833,61 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
       .group(() => {
         withOtpLogin(router.get(`${agentsPrefix}/consent`, [C.agentConsent, 'show']));
         withOtpLogin(router.post(`${agentsPrefix}/consent`, [C.agentConsent, 'decide']));
+      })
+      .use([accountGuard]);
+  }
+
+  // Personal Agent Protocol (Poppy): descoberta, authorization server (token,
+  // revogação, device authorization), Mediated Sign-In e sessão de navegador —
+  // server-to-server ou POST cross-site do navegador do agente (sem CSRF, ver
+  // `authkitCsrfExceptions`). As telas do usuário (authorize/device) exigem a
+  // sessão de conta e mantêm o CSRF.
+  const poppyPrefix = hostCfg?.personalAgents?.poppyPrefix;
+  if (poppyPrefix) {
+    // Nomes explícitos: o Router nomeia pela dupla controller.método, e as duas URLs da metadata
+    // (RFC 8414 na raiz e debaixo do issuer) usam o mesmo — "poppy.metadata already exists" no boot.
+    router.get('/.well-known/poppy.json', [C.poppy, 'discovery']).as('authkit.poppy.discovery');
+    router
+      .get(`/.well-known/oauth-authorization-server${poppyPrefix}`, [C.poppy, 'metadata'])
+      .as('authkit.poppy.metadata');
+    router
+      .get(`${poppyPrefix}/.well-known/oauth-authorization-server`, [C.poppy, 'metadata'])
+      .as('authkit.poppy.metadata_under_issuer');
+    router.post(`${poppyPrefix}/oauth/token`, [C.poppy, 'token']).as('authkit.poppy.token');
+    router.post(`${poppyPrefix}/oauth/revoke`, [C.poppy, 'revoke']).as('authkit.poppy.revoke');
+    router
+      .post(`${poppyPrefix}/oauth/device`, [C.poppy, 'deviceAuthorization'])
+      .as('authkit.poppy.device_authorization');
+    // Credenciais e códigos de uso único: throttle por IP (§4.7 exige rate limit).
+    withLogin(
+      router.post(`${poppyPrefix}/sign-in`, [C.poppy, 'mediatedStart']).as('authkit.poppy.sign_in'),
+    );
+    withOtpLogin(
+      router
+        .post(`${poppyPrefix}/sign-in/:id`, [C.poppy, 'mediatedCode'])
+        .as('authkit.poppy.sign_in_code'),
+    );
+    router
+      .post(`${poppyPrefix}/browser-session`, [C.poppy, 'browserSession'])
+      .as('authkit.poppy.browser_session');
+    router
+      .group(() => {
+        router
+          .get(`${poppyPrefix}/oauth/authorize`, [C.poppyConsent, 'authorize'])
+          .as('authkit.poppy.authorize');
+        router
+          .post(`${poppyPrefix}/oauth/authorize`, [C.poppyConsent, 'decideAuthorization'])
+          .as('authkit.poppy.authorize_decide');
+        withOtpLogin(
+          router
+            .get(`${poppyPrefix}/device`, [C.poppyConsent, 'device'])
+            .as('authkit.poppy.device'),
+        );
+        withOtpLogin(
+          router
+            .post(`${poppyPrefix}/device`, [C.poppyConsent, 'decideDevice'])
+            .as('authkit.poppy.device_decide'),
+        );
       })
       .use([accountGuard]);
   }

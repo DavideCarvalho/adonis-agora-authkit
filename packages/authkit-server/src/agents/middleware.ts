@@ -69,7 +69,8 @@ export function personalAgentAuth(options: PersonalAgentAuthOptions = {}) {
   const mode = options.delegation ?? 'optional';
   return async (ctx: HttpContext, next: () => Promise<void>) => {
     const runtime = await personalAgentsFor(ctx);
-    if (!runtime) return ctx.response.notFound();
+    // Sem PACT (app só-Poppy) não há JWT de agente para verificar.
+    if (!runtime?.config.pact) return ctx.response.notFound();
     const { protocol } = runtime.config;
 
     // Autentica ANTES de ler o corpo (PACT §3.4).

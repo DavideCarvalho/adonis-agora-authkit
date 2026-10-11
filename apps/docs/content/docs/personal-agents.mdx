@@ -17,7 +17,9 @@ talks to your app **on behalf of one of your users**. AuthKit gives your app two
 The wire format comes from a pluggable protocol adapter. The built-in one is
 [PACT 1.0](https://openpactprotocol.org) (A2A + OAuth 2.0 device code). The core — agent
 registry, device flow, grants, tokens, receipts — does not depend on the protocol, so another
-one (e.g. the Personal Agent Protocol, once its spec ships) plugs in without changing your app.
+one of the same family plugs in without changing your app. The Personal Agent Protocol
+("Poppy", **experimental — Draft 0.1**) runs next to it: see
+[Personal agents — Poppy](/docs/authkit/personal-agents-poppy).
 
 ## Enabling it
 

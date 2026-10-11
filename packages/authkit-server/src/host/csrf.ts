@@ -16,6 +16,7 @@
  * ```
  */
 import { normalizePersonalAgentsPrefix } from '../agents/config.js';
+import { normalizePoppyPrefix } from '../agents/poppy/config.js';
 import { getAuthHostConfig } from './auth_host_config.js';
 
 export interface AuthkitCsrfOptions {
@@ -30,6 +31,13 @@ export interface AuthkitCsrfOptions {
    * consentimento (`{prefix}/consent`) continua protegida.
    */
   personalAgentsPrefix?: string | false;
+  /**
+   * Prefixo do Poppy: isenta token/revoke/device authorization, o Mediated
+   * Sign-In e a sessão de navegador (POST cross-site autenticado pela asserção).
+   * Default: o do config. As telas `{prefix}/oauth/authorize` e `{prefix}/device`
+   * continuam protegidas. `false` desliga.
+   */
+  poppyPrefix?: string | false;
 }
 
 /**
@@ -51,11 +59,27 @@ export function authkitCsrfExceptions(url: string, options: AuthkitCsrfOptions =
         ? normalizePersonalAgentsPrefix(options.personalAgentsPrefix)
         : getAuthHostConfig()?.personalAgents?.prefix;
   const agentsOAuth = agentsPrefix ? `${agentsPrefix}/oauth/` : null;
+  const poppyPrefix =
+    options.poppyPrefix === false
+      ? undefined
+      : options.poppyPrefix !== undefined
+        ? normalizePoppyPrefix(options.poppyPrefix)
+        : getAuthHostConfig()?.personalAgents?.poppyPrefix;
+  const path = url.split('?')[0];
+  const poppyExempt =
+    !!poppyPrefix &&
+    (path === `${poppyPrefix}/oauth/token` ||
+      path === `${poppyPrefix}/oauth/revoke` ||
+      path === `${poppyPrefix}/oauth/device` ||
+      path === `${poppyPrefix}/sign-in` ||
+      path.startsWith(`${poppyPrefix}/sign-in/`) ||
+      path === `${poppyPrefix}/browser-session`);
 
   return (
     url.includes(mountPath) ||
     url.includes('/authkit/pat') ||
     (backchannel !== null && url === backchannel) ||
-    (agentsOAuth !== null && url.startsWith(agentsOAuth))
+    (agentsOAuth !== null && url.startsWith(agentsOAuth)) ||
+    poppyExempt
   );
 }
