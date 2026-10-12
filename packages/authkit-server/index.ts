@@ -117,6 +117,11 @@ export {
   type VerifyDpopInput,
   verifyDpopProof,
 } from './src/agents/poppy/dpop.js';
+export {
+  maskEmail,
+  type PoppyEmailCodeSignInOptions,
+  poppyEmailCodeSignIn,
+} from './src/agents/poppy/email_code_sign_in.js';
 export { PoppyError, type PoppyErrorCode } from './src/agents/poppy/errors.js';
 export {
   databaseReplayStore,

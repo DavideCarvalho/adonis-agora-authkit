@@ -369,6 +369,44 @@ export async function sendMagicLinkEmail(
 }
 
 /**
+ * Envia o código do Mediated Sign-In pronto do Poppy (`poppyEmailCodeSignIn`) pelo
+ * mailer default do host. Só código, sem link: quem digita é a pessoa, no agente.
+ * Best-effort: no fallback (sem mail) loga o código, como o magic link loga o link; nunca lança.
+ */
+export async function sendPoppySignInCodeEmail(
+  ctx: HttpContext,
+  data: { email: string; code: string; agentName: string; expiresInMinutes: number },
+): Promise<void> {
+  try {
+    const brand = resolveBrand(ctx);
+    const { messages: t, locale } = resolveMailMessages(ctx);
+    const params = { agent: data.agentName, minutes: data.expiresInMinutes };
+    const content = renderTransactionalEmail({
+      brand,
+      locale,
+      subject: translate(t, 'mail.poppy_sign_in.subject', params),
+      heading: translate(t, 'mail.poppy_sign_in.heading', params),
+      intro: translate(t, 'mail.poppy_sign_in.intro', params),
+      footnote: translate(t, 'mail.poppy_sign_in.fallback'),
+      code: data.code,
+      codeLabel: translate(t, 'mail.poppy_sign_in.code_label'),
+    });
+    const sent = await sendEmail(ctx, data.email, content);
+    if (!sent) {
+      ctx.logger.info(
+        { email: data.email, agent: data.agentName, code: data.code },
+        'authkit: código do Poppy Mediated Sign-In (dev — @adonisjs/mail ausente)',
+      );
+    }
+  } catch (error) {
+    ctx.logger.error(
+      { err: error, email: data.email },
+      'authkit: falha ao enviar o código do Poppy Mediated Sign-In',
+    );
+  }
+}
+
+/**
  * Envia o link de CONFIRMAÇÃO DE IDENTIDADE (sudo) pelo mailer default do host.
  *
  * POR QUE EXISTE. `sudoMethods.magicLink()` dependia EXCLUSIVAMENTE do hook
