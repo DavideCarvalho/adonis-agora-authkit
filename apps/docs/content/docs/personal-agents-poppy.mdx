@@ -25,6 +25,23 @@ signed assertion, and gets short-lived, **DPoP-bound** Session Tokens. When the 
 agent also gets a long-lived **Account Token** (an OAuth refresh token) that only works at your
 token endpoint.
 
+## How the user signs in
+
+A Session starts signed out: the agent can only reach what you expose to anyone. To act on the
+user's account, the user signs in to **your** app and approves scopes. The spec offers three ways;
+the agent picks one of those you enable:
+
+| | What the user does | Who sees the credentials | Default |
+| --- | --- | --- | --- |
+| **Direct** ([Poppy §4.5](https://personalagentprotocol.org/docs/spec#direct-sign-in)) | The agent opens your login page (OAuth code + PKCE); the user signs in there as usual and approves the scopes. | Only your app. | on |
+| **Device** ([Poppy §4.6](https://personalagentprotocol.org/docs/spec#device-sign-in)) | The agent shows a short code and a link; the user opens the link on any device, signs in and approves. For agents with no browser (voice, chat). | Only your app. | on |
+| **Mediated** ([Poppy §4.7](https://personalagentprotocol.org/docs/spec#mediated-sign-in)) | The user never leaves the conversation: the agent asks for what your app declares (an email, say), your app sends a one-time code to the user, and the user tells the code to the agent. | The agent relays what the user types — so ask for an identifier and a one-time code, never a password. | off |
+
+Direct and Device need nothing beyond your normal login: AuthKit's pages do it. Mediated needs a
+`verify` that checks what the agent sends — or the ready-made
+[`poppyEmailCodeSignIn()`](#ready-made-mediated-sign-in-email--code), which does it with your
+accounts and email.
+
 ## Enabling it
 
 ```ts title="config/authkit.ts"
