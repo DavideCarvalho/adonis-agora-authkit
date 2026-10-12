@@ -216,6 +216,16 @@ export class PoppyStore {
     return affected(result);
   }
 
+  /** Encerra todas as Sessions de um agente (bloqueio no console): os tokens param na hora. */
+  async endSessionsOfClient(clientId: string, at: Date): Promise<number> {
+    const result = await this.conn()
+      .from(SESSION_TABLE)
+      .where('client_id', clientId)
+      .whereNull('ended_at')
+      .update({ ended_at: at, grant_id: null, scope: '', updated_at: at });
+    return affected(result);
+  }
+
   // ─── session tokens ───────────────────────────────────────────────────────
 
   async insertToken(row: TokenRow): Promise<void> {

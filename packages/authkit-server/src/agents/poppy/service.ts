@@ -1598,6 +1598,20 @@ export class PoppyService {
     return live.length;
   }
 
+  /**
+   * Bloqueio pelo console admin: revoga todos os Account Tokens do agente (todas as
+   * contas) e encerra as Sessions dele — os Session Tokens param na próxima request.
+   * Devolve quantos Account Tokens estavam vivos.
+   */
+  async disconnectClient(clientId: string): Promise<number> {
+    const ids = (await this.#grants.unrevokedGrantIdsOfClient(clientId)).filter((id) =>
+      id.startsWith('pgrant_'),
+    );
+    for (const id of ids) await this.revokeGrant(id);
+    await this.#store.endSessionsOfClient(clientId, this.#now());
+    return ids.length;
+  }
+
   // ─── internos ─────────────────────────────────────────────────────────────
 
   /** Scopes de um pedido de sign-in: obrigatórios, conhecidos e do tipo (§4.4). */

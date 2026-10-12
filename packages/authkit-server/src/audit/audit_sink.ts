@@ -113,6 +113,12 @@ export const AUDIT_EVENT_TYPES = [
   'agent.delegation_approved',
   'agent.delegation_denied',
   'agent.grant_revoked',
+  // Console admin: um admin revogou a conexão de um usuário, ou liberou/bloqueou um
+  // agente (PACT pelo `iss`, Poppy pelo `client_id`).
+  'agent.grant_revoked_by_admin',
+  'agent.allowed',
+  'agent.blocked',
+  'agent.registry_removed',
 ] as const;
 
 /** Tipos de eventos de auditoria relevantes para segurança emitidos pelo IdP. */

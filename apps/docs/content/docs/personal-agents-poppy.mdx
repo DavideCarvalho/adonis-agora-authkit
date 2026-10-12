@@ -78,7 +78,7 @@ defineConfig({
 | `signIn.mediated` | off | `fields`, `scopes` (default `poppy:read`), `verify`, optional `verifyCode`, `codeTtl` (600 s), `maxCodeAttempts` (5). |
 | `agent`, `apis`, `extensions` | — | Published as-is in `poppy.json`. An entry with `resource` requires tokens issued for it (RFC 8707). |
 | `web` | browser session on | `false` disables; `login(ctx, { accountId, … })` replaces the default login (see below). |
-| `clients` | open | `requireRegistration`, `registered`, `blocked` (lists or functions). Unregistered agents get `invalid_client`. |
+| `clients` | open | `requireRegistration`, `registered`, `blocked` (lists or functions). Unregistered agents get `invalid_client`. The [admin console](/docs/admin-console#personal-agents) can allow and block on top of these without a deploy. |
 | `allowInsecureClientIds` | `false` | **Development/test only, not spec-compliant.** Accepts `http://` `client_id`s (and their `jwks_uri`/`redirect_uris`) and fetches them without the SSRF guard, so a local agent (the `poppy-agent` CLI of `@adonis-agora/agent`, with `--insecure-dev`, at `http://localhost:7777/agent.json`) can start Sessions. Boot fails with `NODE_ENV=production`. |
 | `sessionTokenTtl` / `accountTokenTtl` / `sessionTtl` | 1 h / 30 d / 30 d | Session Token lifetime, Account Token lifetime (`refresh_token_expires_in`), idle Session lifetime. |
 | `dpop` | ES256, 60 s | `requireNonce`, `maxAge`, `algorithms`. |
@@ -229,7 +229,8 @@ agent's browser is refused by the account console, the admin console and the con
 The agent revokes its Account Token at `/poppy/oauth/revoke`; sessions signed in with it continue
 signed out. The user can disconnect the agent from **Account → Apps → Personal agents** (or
 `DELETE /account/api/agents/:id`), and "sign out everywhere", password resets, account deletion
-and admin actions revoke every Account Token too.
+and admin actions revoke every Account Token too. Admins can revoke any connection, or block an
+agent outright, from the [admin console](/docs/admin-console#personal-agents).
 
 ## Spec notes
 

@@ -7,6 +7,7 @@ import { Clients } from './pages/Clients';
 import { Keys } from './pages/Keys';
 import { Orgs } from './pages/Orgs';
 import { Overview } from './pages/Overview';
+import { PersonalAgents } from './pages/PersonalAgents';
 import { Roles } from './pages/Roles';
 import { Sessions } from './pages/Sessions';
 import { Settings } from './pages/Settings';
@@ -21,6 +22,7 @@ const PAGE_TITLES: Record<string, string> = {
   orgs: 'Organizations',
   audit: 'Audit Log',
   keys: 'Signing Keys',
+  agents: 'Personal Agents',
   settings: 'Settings',
 };
 
@@ -44,6 +46,8 @@ function PageContent() {
       return <Audit />;
     case 'keys':
       return <Keys />;
+    case 'agents':
+      return <PersonalAgents />;
     case 'settings':
       return <Settings />;
     default:

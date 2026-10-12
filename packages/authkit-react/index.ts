@@ -102,6 +102,16 @@ export type {
   PasskeySummaryEntry,
   // Account – Tokens
   PatEntry,
+  // Admin – Personal agents
+  PersonalAgentConnection,
+  PersonalAgentConnectionsParams,
+  PersonalAgentConnectionsResult,
+  PersonalAgentEntry,
+  PersonalAgentListStatus,
+  PersonalAgentProtocol,
+  PersonalAgentRegistryInput,
+  PersonalAgentRegistryResult,
+  PersonalAgentsOverview,
   RegenerateSecretResult,
   RemoveOrgMemberResult,
   RemovePasskeyResult,
@@ -374,18 +384,24 @@ export {
   useOrgsQueryOptions,
   // Overview
   useOverviewQueryOptions,
+  // Personal agents
+  usePersonalAgentConnectionsQueryOptions,
+  usePersonalAgentsQueryOptions,
   useRegenerateClientSecretMutationOptions,
   useRemoveOrgMemberMutationOptions,
+  useRemovePersonalAgentEntryMutationOptions,
   useRemoveSettingMutationOptions,
   useResetPasswordMutationOptions,
   useRevokeAllSessionsMutationOptions,
   useRevokeOrgInvitationMutationOptions,
+  useRevokePersonalAgentConnectionMutationOptions,
   useRevokeUserSessionsMutationOptions,
   // Roles
   useRolesQueryOptions,
   useRotateKeysMutationOptions,
   // Sessions
   useSessionsQueryOptions,
+  useSetPersonalAgentStatusMutationOptions,
   useSetSettingMutationOptions,
   // Settings
   useSettingsQueryOptions,

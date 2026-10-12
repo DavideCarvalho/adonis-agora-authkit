@@ -46,6 +46,10 @@ export const authkitKeys = {
     impersonation: (userId: string) => ['authkit', 'admin', 'impersonation', userId] as const,
 
     keys: () => ['authkit', 'admin', 'keys'] as const,
+
+    personalAgents: () => ['authkit', 'admin', 'personal-agents'] as const,
+    personalAgentConnections: (params?: Record<string, unknown>) =>
+      ['authkit', 'admin', 'personal-agents', 'connections', params ?? {}] as const,
   },
 
   account: {
