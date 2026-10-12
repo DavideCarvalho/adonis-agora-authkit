@@ -177,6 +177,17 @@ test.group('console admin — personal agents (Poppy)', () => {
     });
     await controller.revokeConnection(again.ctx);
     assert.equal(again.status(), 404);
+
+    // Expirado já não vale: 404, sem evento de auditoria.
+    const [johnGrant] = await env.poppy.listGrants(OTHER_ACCOUNT_ID);
+    env.setNow(johnGrant.expiresAt.getTime() + 1000);
+    const expired = consoleCtx(env.service, env.db, {
+      params: { grantId: johnGrant.id },
+      sudo: true,
+    });
+    await controller.revokeConnection(expired.ctx);
+    assert.equal(expired.status(), 404);
+    assert.lengthOf(expired.audit, 0);
     await env.close();
   });
 
@@ -264,6 +275,17 @@ test.group('console admin — personal agents (Poppy)', () => {
     });
     await controller.upsert(http.ctx);
     assert.equal(http.status(), 422);
+
+    const userinfo = consoleCtx(env.service, env.db, {
+      body: {
+        protocol: 'poppy',
+        identifier: 'https://user:pass@agent.example/agent.json',
+        status: 'blocked',
+      },
+      sudo: true,
+    });
+    await controller.upsert(userinfo.ctx);
+    assert.equal(userinfo.status(), 422);
 
     const noSudo = consoleCtx(env.service, env.db, {
       body: { protocol: 'poppy', identifier: CLIENT_ID, status: 'blocked' },

@@ -53,7 +53,12 @@ function isUrl(value: unknown, allowHttp: boolean): value is string {
   if (typeof value !== 'string' || value.length > 2048) return false;
   try {
     const url = new URL(value);
-    return (url.protocol === 'https:' || (allowHttp && url.protocol === 'http:')) && !url.hash;
+    return (
+      (url.protocol === 'https:' || (allowHttp && url.protocol === 'http:')) &&
+      !url.hash &&
+      !url.username &&
+      !url.password
+    );
   } catch {
     return false;
   }

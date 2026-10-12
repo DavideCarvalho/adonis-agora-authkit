@@ -294,12 +294,14 @@ export function buildPersonalAgentsRuntime(
       const revokeGrantById = async (grantId: string) => {
         if (!store) return null;
         const grant = await store.findGrant(grantId);
-        if (!grant || grant.revokedAt) return null;
+        const now = options.now?.() ?? new Date();
+        // Expirado já não vale: revogar não muda nada (e não vira evento de auditoria).
+        if (!grant || grant.revokedAt || grant.expiresAt <= now) return null;
         if (grantId.startsWith('pgrant_')) {
           if (!poppy) return null;
           await poppy.revokeGrant(grantId);
         } else {
-          await store.revokeGrantById(grantId, options.now?.() ?? new Date());
+          await store.revokeGrantById(grantId, now);
         }
         return grant;
       };
