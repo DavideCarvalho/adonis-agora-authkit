@@ -1,5 +1,15 @@
 # @adonis-agora/authkit-server
 
+## 0.80.0
+
+### Minor Changes
+
+- [#250](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/250) [`c2188ab`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/c2188ab8422f731de7508cb0d549d7339cd4c084) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Poppy: `poppyEmailCodeSignIn()`, a ready-made Mediated Sign-In. The agent asks for the account's
+  email, AuthKit emails a 6-digit code (new `mail.onPoppySignInCode` hook, or the default mailer with
+  branding and en/pt-BR copy) and the agent submits it — no `verify` to write. No account
+  enumeration (same answer for unknown, disabled, ineligible or rate-limited emails, email sent
+  without awaiting), per-email hourly cap, `eligible` filter.
+
 ## 0.79.0
 
 ### Minor Changes
