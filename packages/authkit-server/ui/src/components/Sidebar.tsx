@@ -94,6 +94,23 @@ const navItems = [
     ],
   },
   {
+    section: 'Agents',
+    // Só com `personalAgents` no config (ver `features` no shell).
+    feature: 'personalAgents' as const,
+    items: [
+      {
+        id: 'agents',
+        label: 'Personal Agents',
+        icon: (
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6">
+            <rect x="3" y="5" width="10" height="8" rx="2" />
+            <path d="M8 2.5V5M6 9h.01M10 9h.01M1.5 9v1.5M14.5 9v1.5" strokeLinecap="round" />
+          </svg>
+        ),
+      },
+    ],
+  },
+  {
     section: 'Config',
     items: [
       {
@@ -149,26 +166,28 @@ export function Sidebar() {
       </div>
 
       <nav className="nav">
-        {navItems.map((section) => (
-          <div key={section.section}>
-            <div className="nav-section">{section.section}</div>
-            {section.items.map((item) => (
-              <a
-                key={item.id}
-                className={`nav-item${route === item.id ? ' active' : ''}`}
-                onClick={(e) => {
-                  e.preventDefault();
-                  navigate(item.id as Route);
-                }}
-                href={item.id === 'overview' ? '?' : `?view=${item.id}`}
-                style={{ textDecoration: 'none' }}
-              >
-                <span className="nav-ico">{item.icon}</span>
-                {item.label}
-              </a>
-            ))}
-          </div>
-        ))}
+        {navItems
+          .filter((section) => !section.feature || cfg.features?.[section.feature])
+          .map((section) => (
+            <div key={section.section}>
+              <div className="nav-section">{section.section}</div>
+              {section.items.map((item) => (
+                <a
+                  key={item.id}
+                  className={`nav-item${route === item.id ? ' active' : ''}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    navigate(item.id as Route);
+                  }}
+                  href={item.id === 'overview' ? '?' : `?view=${item.id}`}
+                  style={{ textDecoration: 'none' }}
+                >
+                  <span className="nav-ico">{item.icon}</span>
+                  {item.label}
+                </a>
+              ))}
+            </div>
+          ))}
       </nav>
 
       <div className="sidebar-foot">

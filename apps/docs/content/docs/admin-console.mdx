@@ -522,6 +522,39 @@ store the key is regenerated every boot anyway. In both of those cases the endpo
 [Keystore vaults](/docs/keystore-vaults) for the store options and
 [Signing key rotation](/docs/security#signing-key-rotation) for the policy.
 
+## Personal agents
+
+`?view=agents` appears when `personalAgents` is configured (PACT, Poppy or both). It answers two
+questions without a deploy: **who is connected** and **which agents may connect**.
+
+- **Agents.** Every agent the config lists, every agent the console lists, and every agent someone
+  is connected to, with the number of live connections. Each row shows what `defineConfig` says,
+  what the console says, and the result.
+- **Connections.** Every live grant across all accounts (account, agent, scopes, expiry), filtered
+  by agent and paginated. **Revoke** cuts that agent off that account right away.
+- **Allow / Block.** Adds to the config; it never replaces it:
+  - **Block** wins over everything. It also revokes every connection the agent has and ends its
+    Poppy sessions, so its tokens stop working on the next request.
+  - **Allow** lets an agent in outside the config list: a PACT agent (issuer + JWKS URI) or a Poppy
+    `client_id` when `clients.requireRegistration` is on.
+  - What the config **blocks** stays blocked. The console shows it as "locked by config".
+
+Changes live in the lib-owned `auth_agent_registry` table (created by `ensureAuthkitSchema()`).
+Every write needs [sudo](/docs/security#sudo-mode) and is audited
+(`agent.allowed`, `agent.blocked`, `agent.registry_removed`, `agent.grant_revoked_by_admin`).
+Other instances pick up an allow or block within 15 seconds; a block's revocations are immediate
+everywhere because they live in the database.
+
+| Route | |
+| --- | --- |
+| `GET {prefix}/api/personal-agents` | Agents, with config/console status and connection counts. |
+| `GET {prefix}/api/personal-agents/connections?clientId=&accountId=&protocol=&page=&size=` | Live connections (`{ meta, data }`). |
+| `POST {prefix}/api/personal-agents/connections/:grantId/revoke` | Revoke one connection. |
+| `POST {prefix}/api/personal-agents/registry` | `{ protocol, identifier, status: 'allowed' \| 'blocked', name?, jwksUri? }`. |
+| `DELETE {prefix}/api/personal-agents/registry/:id` | Remove a console entry (unblock / un-allow). |
+
+Without `personalAgents` (or without a database) these answer **404 `capability_unsupported`**.
+
 ## Settings page
 
 `?view=settings` is the **Runtime Settings** view — the operational configuration that

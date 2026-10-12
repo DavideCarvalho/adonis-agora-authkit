@@ -93,6 +93,12 @@ function affected(result: unknown): number {
   return 0;
 }
 
+export interface LiveGrantFilter {
+  protocol?: 'pact' | 'poppy';
+  clientId?: string;
+  accountId?: string;
+}
+
 export class DelegationStore {
   /** `conn` = uma conexão Lucid (`db.connection(name?)`) — ou uma transação. */
   constructor(private conn: () => any) {}
@@ -232,6 +238,59 @@ export class DelegationStore {
       .whereNull('revoked_at')
       .update({ revoked_at: at, updated_at: at });
     return affected(result);
+  }
+
+  // ─── console admin (todas as contas) ──────────────────────────────────────
+
+  /**
+   * Grants vivos (não revogados nem expirados em `now`), de todas as contas. O
+   * protocolo sai do prefixo do id: `agrant_` (PACT) ou `pgrant_` (Poppy).
+   */
+  #live(now: Date, filter: LiveGrantFilter = {}) {
+    let q = this.conn().from(GRANT_TABLE).whereNull('revoked_at').where('expires_at', '>', now);
+    if (filter.protocol)
+      q = q.where('id', 'like', filter.protocol === 'poppy' ? 'pgrant_%' : 'agrant_%');
+    if (filter.clientId) q = q.where('client_id', filter.clientId);
+    if (filter.accountId) q = q.where('account_id', filter.accountId);
+    return q;
+  }
+
+  async listLiveGrants(
+    input: LiveGrantFilter & { now: Date; offset: number; limit: number },
+  ): Promise<GrantRow[]> {
+    const rows = await this.#live(input.now, input)
+      .orderBy('created_at', 'desc')
+      .orderBy('id', 'asc')
+      .offset(input.offset)
+      .limit(input.limit);
+    return rows.map(toGrant);
+  }
+
+  async countLiveGrants(now: Date, filter: LiveGrantFilter = {}): Promise<number> {
+    const row = await this.#live(now, filter).count('* as total').first();
+    return Number(row?.total ?? 0);
+  }
+
+  /** Conexões vivas de um protocolo por agente: `client_id` → número de grants. */
+  async countLiveGrantsByClient(
+    now: Date,
+    protocol: 'pact' | 'poppy',
+  ): Promise<Map<string, number>> {
+    const rows = await this.#live(now, { protocol })
+      .select('client_id')
+      .count('* as total')
+      .groupBy('client_id');
+    return new Map(rows.map((r: any) => [r.client_id as string, Number(r.total)]));
+  }
+
+  /** Ids dos grants não revogados de um agente (vivos ou não) — para revogar todos. */
+  async unrevokedGrantIdsOfClient(clientId: string): Promise<string[]> {
+    const rows = await this.conn()
+      .from(GRANT_TABLE)
+      .where('client_id', clientId)
+      .whereNull('revoked_at')
+      .select('id');
+    return rows.map((r: any) => r.id as string);
   }
 
   /** Revoga um grant sem checar a conta — reação a reuso de refresh token. */

@@ -35,6 +35,11 @@ import type {
   KeysRotateInput,
   KeysRotateResult,
   KeysStatus,
+  PersonalAgentConnectionsParams,
+  PersonalAgentConnectionsResult,
+  PersonalAgentRegistryInput,
+  PersonalAgentRegistryResult,
+  PersonalAgentsOverview,
   RegenerateSecretResult,
   RevokeSessionsResult,
   RoleCatalogEntry,
@@ -451,4 +456,54 @@ export function useRotateKeysMutationOptions() {
     mutationKey: ['authkit', 'admin', 'keys', 'rotate'],
     mutationFn: (input?: KeysRotateInput) => client.admin.keys.rotate(input),
   } satisfies UseMutationOptions<KeysRotateResult, AuthkitClientError, KeysRotateInput | undefined>;
+}
+
+// ---------------------------------------------------------------------------
+// Personal agents – Queries + Mutations
+// ---------------------------------------------------------------------------
+
+export function usePersonalAgentsQueryOptions() {
+  const client = useAuthkitClient();
+  return {
+    queryKey: authkitKeys.admin.personalAgents(),
+    queryFn: () => client.admin.personalAgents.overview(),
+  } satisfies UseQueryOptions<PersonalAgentsOverview, AuthkitClientError>;
+}
+
+export function usePersonalAgentConnectionsQueryOptions(
+  params: PersonalAgentConnectionsParams = {},
+) {
+  const client = useAuthkitClient();
+  return {
+    queryKey: authkitKeys.admin.personalAgentConnections({ ...params }),
+    queryFn: () => client.admin.personalAgents.connections(params),
+  } satisfies UseQueryOptions<PersonalAgentConnectionsResult, AuthkitClientError>;
+}
+
+export function useRevokePersonalAgentConnectionMutationOptions() {
+  const client = useAuthkitClient();
+  return {
+    mutationKey: ['authkit', 'admin', 'personal-agents', 'revoke-connection'],
+    mutationFn: (grantId: string) => client.admin.personalAgents.revokeConnection(grantId),
+  } satisfies UseMutationOptions<{ revoked: true }, AuthkitClientError, string>;
+}
+
+export function useSetPersonalAgentStatusMutationOptions() {
+  const client = useAuthkitClient();
+  return {
+    mutationKey: ['authkit', 'admin', 'personal-agents', 'set-status'],
+    mutationFn: (input: PersonalAgentRegistryInput) => client.admin.personalAgents.setStatus(input),
+  } satisfies UseMutationOptions<
+    PersonalAgentRegistryResult,
+    AuthkitClientError,
+    PersonalAgentRegistryInput
+  >;
+}
+
+export function useRemovePersonalAgentEntryMutationOptions() {
+  const client = useAuthkitClient();
+  return {
+    mutationKey: ['authkit', 'admin', 'personal-agents', 'remove-entry'],
+    mutationFn: (id: string) => client.admin.personalAgents.removeEntry(id),
+  } satisfies UseMutationOptions<{ removed: true }, AuthkitClientError, string>;
 }

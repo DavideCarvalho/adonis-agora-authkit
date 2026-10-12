@@ -120,6 +120,8 @@ export interface ResolvedPersonalAgentsConfig {
   /** `''` quando o PACT está desligado. */
   audience: string;
   resolveAgent: PersonalAgentResolver;
+  /** A lista `agents` do config quando é um array (o console mostra); `null` = resolver do host. */
+  staticAgents: PersonalAgentRegistration[] | null;
   open: boolean;
   delegation?: ResolvedPersonalAgentDelegationConfig;
   prefix: string;
@@ -175,9 +177,11 @@ export function resolvePersonalAgentsConfig(
   }
 
   let resolveAgent: PersonalAgentResolver;
+  let staticAgents: PersonalAgentRegistration[] | null = null;
   if (typeof input.agents === 'function') {
     resolveAgent = input.agents;
   } else {
+    staticAgents = [...(input.agents ?? [])];
     const byIssuer = new Map<string, PersonalAgentRegistration>();
     for (const agent of input.agents ?? []) {
       assertUrl(agent.issuer, `agents[].issuer`);
@@ -235,6 +239,7 @@ export function resolvePersonalAgentsConfig(
     protocol,
     audience: pact ? input.audience! : '',
     resolveAgent,
+    staticAgents,
     open: input.open === true,
     delegation,
     prefix,

@@ -788,3 +788,95 @@ export interface KeysRotateResult {
   retiredKids: string[];
   keptKids: string[];
 }
+
+// ---------------------------------------------------------------------------
+// Admin — Personal agents (PACT e Poppy)
+// ---------------------------------------------------------------------------
+
+export type PersonalAgentProtocol = 'pact' | 'poppy';
+export type PersonalAgentListStatus = 'allowed' | 'blocked';
+
+/** Um agente no console: o que o config e o console dizem, e quantas contas conectadas. */
+export interface PersonalAgentEntry {
+  protocol: PersonalAgentProtocol;
+  /** PACT: o `iss`. Poppy: o `client_id` (URL do documento de metadata). */
+  identifier: string;
+  name: string;
+  /** O que o `defineConfig` diz (só listas estáticas); `null` = nada. */
+  config: PersonalAgentListStatus | null;
+  /** O que o console diz; `null` = nada. */
+  console: {
+    id: string;
+    status: PersonalAgentListStatus;
+    updatedAt: string;
+    updatedBy: string | null;
+  } | null;
+  /** Bloqueado em qualquer lado vence; senão liberado em qualquer lado; senão `unlisted`. */
+  effective: PersonalAgentListStatus | 'unlisted';
+  jwksUri: string | null;
+  connections: number;
+}
+
+/** GET {base}/personal-agents */
+export interface PersonalAgentsOverview {
+  protocols: {
+    pact: { open: boolean; hostResolver: boolean } | null;
+    poppy: {
+      requireRegistration: boolean;
+      hostResolver: boolean;
+      allowInsecureClientIds: boolean;
+    } | null;
+  };
+  agents: PersonalAgentEntry[];
+}
+
+/** Uma conexão (grant vivo) de um usuário com um agente. */
+export interface PersonalAgentConnection {
+  id: string;
+  protocol: PersonalAgentProtocol;
+  clientId: string;
+  agentName: string;
+  accountId: string;
+  accountEmail: string | null;
+  scopes: string[];
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+}
+
+export interface PersonalAgentConnectionsParams {
+  protocol?: PersonalAgentProtocol;
+  clientId?: string;
+  accountId?: string;
+  page?: number;
+  size?: number;
+}
+
+export interface PersonalAgentConnectionsResult {
+  meta: ListMeta;
+  data: PersonalAgentConnection[];
+}
+
+/** Body de POST {base}/personal-agents/registry. */
+export interface PersonalAgentRegistryInput {
+  protocol: PersonalAgentProtocol;
+  identifier: string;
+  status: PersonalAgentListStatus;
+  name?: string;
+  /** Obrigatório para liberar um agente PACT. */
+  jwksUri?: string;
+}
+
+export interface PersonalAgentRegistryResult {
+  entry: {
+    id: string;
+    protocol: PersonalAgentProtocol;
+    identifier: string;
+    status: PersonalAgentListStatus;
+    name: string | null;
+    jwksUri: string | null;
+    updatedAt: string;
+  };
+  /** Conexões cortadas (bloqueio). */
+  disconnected: number;
+}

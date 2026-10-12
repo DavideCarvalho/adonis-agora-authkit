@@ -322,6 +322,9 @@ export interface ResolvedPoppyConfig {
     requireRegistration: boolean;
     isRegistered: (clientId: string) => Promise<boolean>;
     isBlocked: (clientId: string) => Promise<boolean>;
+    /** As listas do config quando são arrays (o console mostra); `null` = função do host. */
+    registeredList: string[] | null;
+    blockedList: string[] | null;
   };
   /** Dev/teste: `client_id` http e busca sem guarda de SSRF (ver o input). */
   allowInsecureClientIds: boolean;
@@ -382,6 +385,11 @@ function membership(
   if (typeof value === 'function') return async (id) => (await value(id)) === true;
   const set = new Set(value ?? []);
   return async (id) => set.has(id);
+}
+
+function listOf(value: string[] | ((clientId: string) => unknown) | undefined): string[] | null {
+  if (typeof value === 'function') return null;
+  return [...new Set(value ?? [])];
 }
 
 function typeScopes(
@@ -530,6 +538,8 @@ export function resolvePoppyConfig(
       requireRegistration: input.clients?.requireRegistration === true,
       isRegistered: membership(input.clients?.registered),
       isBlocked: membership(input.clients?.blocked),
+      registeredList: listOf(input.clients?.registered),
+      blockedList: listOf(input.clients?.blocked),
     },
     allowInsecureClientIds,
     sessionTokenTtl: positive(input.sessionTokenTtl, 3600, 'sessionTokenTtl'),

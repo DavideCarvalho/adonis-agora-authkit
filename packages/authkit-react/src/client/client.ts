@@ -67,6 +67,11 @@ import type {
   MfaRecoveryCodesResult,
   OkResult,
   PasskeyRegistrationOptions,
+  PersonalAgentConnectionsParams,
+  PersonalAgentConnectionsResult,
+  PersonalAgentRegistryInput,
+  PersonalAgentRegistryResult,
+  PersonalAgentsOverview,
   RegenerateSecretResult,
   RemoveOrgMemberResult,
   RemovePasskeyResult,
@@ -478,6 +483,37 @@ class AuthkitClient {
       /** POST {base}/keys/rotate — rotaciona agora (opcionalmente aposenta as antigas). */
       rotate: (input?: KeysRotateInput) =>
         this.post<KeysRotateResult>(this.b('/keys/rotate'), input ?? {}),
+    },
+
+    /** Personal agents (PACT e Poppy): conexões, liberar e bloquear (console API). */
+    personalAgents: {
+      /** GET {base}/personal-agents */
+      overview: () => this.get<PersonalAgentsOverview>(this.b('/personal-agents')),
+      /** GET {base}/personal-agents/connections */
+      connections: (params: PersonalAgentConnectionsParams = {}) => {
+        const qs = new URLSearchParams();
+        for (const [k, v] of Object.entries(params)) {
+          if (v !== undefined && v !== null && v !== '') qs.set(k, String(v));
+        }
+        const query = qs.toString();
+        return this.get<PersonalAgentConnectionsResult>(
+          this.b(`/personal-agents/connections${query ? `?${query}` : ''}`),
+        );
+      },
+      /** POST {base}/personal-agents/connections/:grantId/revoke — exige sudo. */
+      revokeConnection: (grantId: string) =>
+        this.post<{ revoked: true }>(
+          this.b(`/personal-agents/connections/${encodeURIComponent(grantId)}/revoke`),
+          {},
+        ),
+      /** POST {base}/personal-agents/registry — libera/bloqueia; exige sudo. */
+      setStatus: (input: PersonalAgentRegistryInput) =>
+        this.post<PersonalAgentRegistryResult>(this.b('/personal-agents/registry'), input),
+      /** DELETE {base}/personal-agents/registry/:id — exige sudo. */
+      removeEntry: (id: string) =>
+        this.delete<{ removed: true }>(
+          this.b(`/personal-agents/registry/${encodeURIComponent(id)}`),
+        ),
     },
   } as const;
 

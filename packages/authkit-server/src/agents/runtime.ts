@@ -3,9 +3,9 @@ import { supportsAccountStatus } from '../accounts/account_store.js';
 import { findMcpResource } from '../mcp/mcp_oauth.js';
 import type { OidcService } from '../provider/oidc_service.js';
 import { PersonalAgentVerifier } from './agent_identity.js';
-import type { ResolvedPersonalAgentsConfig } from './config.js';
+import type { PersonalAgentRegistration, ResolvedPersonalAgentsConfig } from './config.js';
 import { PersonalAgentDelegation } from './delegation_service.js';
-import { DelegationStore } from './delegation_store.js';
+import { DelegationStore, type GrantRow } from './delegation_store.js';
 import { PoppyClientRegistry } from './poppy/client_registry.js';
 import type { PoppyLimiter, PoppyReplayStore } from './poppy/config.js';
 import { hmacNonceSource } from './poppy/dpop.js';
@@ -18,6 +18,7 @@ import {
 import type { JsonFetcher } from './poppy/safe_fetch.js';
 import { type PoppyMcpBridge, PoppyService, poppyUrls } from './poppy/service.js';
 import { PoppyStore } from './poppy/store.js';
+import { type AgentProtocolId, AgentRegistryStore } from './registry_store.js';
 import { keystoreSigner } from './signer.js';
 
 /** URLs públicas do authorization server de delegação. */
@@ -63,6 +64,17 @@ export interface PersonalAgentsRuntime {
   revokeAgentGrant(accountId: string, grantId: string): Promise<boolean>;
   /** Revoga todos os grants de personal agents da conta. Devolve quantos estavam vivos. */
   revokeAllAgentGrants(accountId: string): Promise<number>;
+  /**
+   * Registro do console admin (agentes liberados/bloqueados além do config).
+   * `null` sem banco (PACT só de identidade sem `lucid.db`).
+   */
+  registry: AgentRegistryStore | null;
+  /** Grants de todas as contas (console admin). `null` sem banco. */
+  grants: DelegationStore | null;
+  /** Revoga um grant de QUALQUER conta (console admin). Devolve o grant, ou `null` se já não valia. */
+  revokeGrantById(grantId: string): Promise<GrantRow | null>;
+  /** Desconecta um agente de todas as contas (bloqueio). Devolve quantos grants estavam vivos. */
+  disconnectAgent(protocol: AgentProtocolId, identifier: string): Promise<number>;
 }
 
 const runtimes = new WeakMap<OidcService, Promise<PersonalAgentsRuntime | null>>();
@@ -151,6 +163,46 @@ async function resolveReplay(
 }
 
 /**
+ * Config com o registro do console por cima: um agente BLOQUEADO no console é
+ * recusado mesmo que o config o liste; um LIBERADO entra mesmo fora da lista.
+ * O que o config bloqueia continua bloqueado.
+ */
+function withRegistry(
+  config: ResolvedPersonalAgentsConfig,
+  registry: AgentRegistryStore,
+): ResolvedPersonalAgentsConfig {
+  const resolveAgent = async (issuer: string): Promise<PersonalAgentRegistration | null> => {
+    const row = await registry.find('pact', issuer);
+    if (row?.status === 'blocked') {
+      return { issuer, jwksUri: row.jwksUri ?? '', name: row.name ?? undefined, enabled: false };
+    }
+    const configured = await config.resolveAgent(issuer);
+    if (configured) return configured;
+    if (row?.status === 'allowed' && row.jwksUri) {
+      return { issuer, jwksUri: row.jwksUri, name: row.name ?? undefined };
+    }
+    return null;
+  };
+  const poppy = config.poppy;
+  return {
+    ...config,
+    resolveAgent,
+    poppy: poppy && {
+      ...poppy,
+      clients: {
+        ...poppy.clients,
+        isBlocked: async (id) =>
+          (await poppy.clients.isBlocked(id)) ||
+          (await registry.find('poppy', id))?.status === 'blocked',
+        isRegistered: async (id) =>
+          (await poppy.clients.isRegistered(id)) ||
+          (await registry.find('poppy', id))?.status === 'allowed',
+      },
+    },
+  };
+}
+
+/**
  * Monta (uma vez por `OidcService`) o runtime de personal agents. `null` quando
  * `personalAgents` não está no config — as rotas respondem 404.
  */
@@ -173,12 +225,22 @@ export function buildPersonalAgentsRuntime(
       };
 
       let conn: (() => any) | null = null;
+      const connection = service.config.schema.connection;
       if (config.delegation || config.poppy) {
         const db = await makeDb();
-        const connection = service.config.schema.connection;
         conn = () => (connection ? db.connection(connection) : db.connection());
+      } else {
+        // PACT só de identidade não precisa de banco; com ele, o console pode bloquear.
+        try {
+          const db = await makeDb();
+          if (db) conn = () => (connection ? db.connection(connection) : db.connection());
+        } catch {
+          conn = null;
+        }
       }
       const store = conn ? new DelegationStore(conn) : null;
+      const registry = conn ? new AgentRegistryStore(conn) : null;
+      const effective = registry ? withRegistry(config, registry) : config;
 
       let delegation: PersonalAgentDelegation | null = null;
       if (config.delegation && store) {
@@ -192,8 +254,8 @@ export function buildPersonalAgentsRuntime(
       }
 
       let poppy: PoppyService | null = null;
-      if (config.poppy && store && conn) {
-        const cfg = config.poppy;
+      if (effective.poppy && store && conn) {
+        const cfg = effective.poppy;
         const limiter: PoppyLimiter | null =
           cfg.rateLimit === false
             ? null
@@ -229,14 +291,43 @@ export function buildPersonalAgentsRuntime(
         return count;
       };
 
+      const revokeGrantById = async (grantId: string) => {
+        if (!store) return null;
+        const grant = await store.findGrant(grantId);
+        const now = options.now?.() ?? new Date();
+        // Expirado já não vale: revogar não muda nada (e não vira evento de auditoria).
+        if (!grant || grant.revokedAt || grant.expiresAt <= now) return null;
+        if (grantId.startsWith('pgrant_')) {
+          if (!poppy) return null;
+          await poppy.revokeGrant(grantId);
+        } else {
+          await store.revokeGrantById(grantId, now);
+        }
+        return grant;
+      };
+      const disconnectAgent = async (protocol: AgentProtocolId, identifier: string) => {
+        if (!store) return 0;
+        if (protocol === 'poppy') return poppy ? poppy.disconnectClient(identifier) : 0;
+        const ids = (await store.unrevokedGrantIdsOfClient(identifier)).filter(
+          (id) => !id.startsWith('pgrant_'),
+        );
+        const at = options.now?.() ?? new Date();
+        for (const id of ids) await store.revokeGrantById(id, at);
+        return ids.length;
+      };
+
       return {
-        config,
+        config: effective,
         urls,
-        verifier: new PersonalAgentVerifier(config),
+        verifier: new PersonalAgentVerifier(effective),
         delegation,
         poppy,
         revokeAgentGrant,
         revokeAllAgentGrants,
+        registry,
+        grants: store,
+        revokeGrantById,
+        disconnectAgent,
       };
     })();
     // Falha (DB indisponível) não fica em cache — a próxima request tenta de novo.

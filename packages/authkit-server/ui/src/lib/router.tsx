@@ -16,6 +16,7 @@ export const ROUTES = [
   'orgs',
   'audit',
   'keys',
+  'agents',
   'settings',
 ] as const;
 

@@ -510,6 +510,7 @@ const C = {
   consoleSettings: () => import('./admin_console/console_settings_controller.js'),
   consoleKeys: () => import('./admin_console/console_keys_controller.js'),
   consoleImpersonation: () => import('./admin_console/console_impersonation_controller.js'),
+  consolePersonalAgents: () => import('./admin_console/console_personal_agents_controller.js'),
   apiUsers: () => import('./admin_api/api_users_controller.js'),
   apiClients: () => import('./admin_api/api_clients_controller.js'),
   apiMisc: () => import('./admin_api/api_misc_controller.js'),
@@ -1260,6 +1261,21 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
         // Chave de assinatura managed (status + rotação ao vivo).
         router.get(`${ap}/api/keys`, [C.consoleKeys, 'status']);
         router.post(`${ap}/api/keys/rotate`, [C.consoleKeys, 'rotate']);
+        // Personal agents (capability-gated: 404 sem `personalAgents` ou sem banco).
+        router.get(`${ap}/api/personal-agents`, [C.consolePersonalAgents, 'index']);
+        router.get(`${ap}/api/personal-agents/connections`, [
+          C.consolePersonalAgents,
+          'connections',
+        ]);
+        router.post(`${ap}/api/personal-agents/connections/:grantId/revoke`, [
+          C.consolePersonalAgents,
+          'revokeConnection',
+        ]);
+        router.post(`${ap}/api/personal-agents/registry`, [C.consolePersonalAgents, 'upsert']);
+        router.delete(`${ap}/api/personal-agents/registry/:id`, [
+          C.consolePersonalAgents,
+          'destroy',
+        ]);
         // Impersonation (capability-gated: 404 quando desabilitado ou sem client).
         router.get(`${ap}/api/impersonation/:userId`, [C.consoleImpersonation, 'handle']);
 

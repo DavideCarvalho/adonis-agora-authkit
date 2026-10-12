@@ -310,6 +310,34 @@ const TABLES: TableDef[] = [
       created_at: (t) => t.dateTime('created_at', { useTz: true, precision: 3 }).nullable(),
     },
   },
+  {
+    name: 'auth_agent_registry',
+    /**
+     * Agentes liberados (`allowed`) ou bloqueados (`blocked`) pelo console admin,
+     * somados ao `defineConfig` — PACT pelo `iss`, Poppy pelo `client_id`.
+     */
+    create: (t) => {
+      t.string('id').primary();
+      t.string('protocol', 16).notNullable();
+      t.string('identifier', 2048).notNullable();
+      t.string('status', 16).notNullable();
+      t.string('name').nullable();
+      t.string('jwks_uri', 2048).nullable();
+      t.string('updated_by').nullable();
+      t.dateTime('created_at', { useTz: true, precision: 3 }).notNullable();
+      t.dateTime('updated_at', { useTz: true, precision: 3 }).notNullable();
+    },
+    columns: {
+      protocol: (t) => t.string('protocol', 16),
+      identifier: (t) => t.string('identifier', 2048),
+      status: (t) => t.string('status', 16),
+      name: (t) => t.string('name').nullable(),
+      jwks_uri: (t) => t.string('jwks_uri', 2048).nullable(),
+      updated_by: (t) => t.string('updated_by').nullable(),
+      created_at: (t) => t.dateTime('created_at', { useTz: true, precision: 3 }).nullable(),
+      updated_at: (t) => t.dateTime('updated_at', { useTz: true, precision: 3 }).nullable(),
+    },
+  },
   /*
    * Personal Agent Protocol (Poppy). Os Account Tokens são grants de
    * `auth_agent_grants` (prefixo `pgrant_`) com o hash em

@@ -69,6 +69,10 @@ boot. Three lib-owned tables back delegation —
 `auth_agent_device_codes`, `auth_agent_grants`, `auth_agent_refresh_tokens` — created by
 `ensureAuthkitSchema()` like the others.
 
+The `agents` list can also be managed at runtime: the
+[admin console](/docs/admin-console#personal-agents) allows an agent (issuer + JWKS URI) or blocks
+one on top of the config, and lists and revokes every connection.
+
 ## Routes
 
 | Route | Who calls it |

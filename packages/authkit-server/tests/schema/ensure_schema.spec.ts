@@ -48,6 +48,7 @@ test.group('ensureAuthkitSchema', (group) => {
       'auth_poppy_tokens',
       'auth_poppy_requests',
       'auth_poppy_jtis',
+      'auth_agent_registry',
     ]);
     assert.deepEqual(report.altered, {});
 
