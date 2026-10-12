@@ -1,5 +1,16 @@
 # @adonis-agora/authkit-react
 
+## 0.24.0
+
+### Minor Changes
+
+- [#247](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/247) [`eba2f4d`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/eba2f4dc886cf9596a451539cff9ecce5bf6830c) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Admin console: a **Personal agents** page (PACT and Poppy). Lists every agent with its live
+  connection count, lists and revokes connections across all accounts, and allows or blocks agents
+  at runtime on top of `defineConfig` (lib-owned `auth_agent_registry` table). Blocking also revokes
+  every connection and ends the agent's Poppy sessions. Writes need sudo and are audited.
+  `@adonis-agora/authkit-react` gets the matching `client.admin.personalAgents.*` methods and query
+  options.
+
 ## 0.23.0
 
 ### Minor Changes
