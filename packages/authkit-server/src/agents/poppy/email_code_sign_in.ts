@@ -49,7 +49,9 @@ export interface PoppyEmailCodeSignInOptions {
 
 /** `ana.souza@gmail.com` → `a***@gmail.com`: o bastante para a pessoa reconhecer. */
 export function maskEmail(email: string): string {
-  const [user, domain] = email.split('@');
+  const at = email.lastIndexOf('@');
+  const user = at > 0 ? email.slice(0, at) : '';
+  const domain = at > 0 ? email.slice(at + 1) : '';
   if (!user || !domain) return '***';
   return `${user[0]}***@${domain}`;
 }
@@ -61,8 +63,16 @@ const MAX_TRACKED = 10_000;
 export function poppyEmailCodeSignIn(
   options: PoppyEmailCodeSignInOptions = {},
 ): PoppyMediatedConfigInput {
-  const codeTtl = options.codeTtl ?? 600;
-  const maxPerHour = options.maxPerHour ?? 5;
+  const positive = (value: number | undefined, fallback: number, what: string) => {
+    if (value === undefined) return fallback;
+    if (!Number.isFinite(value) || value < 1) {
+      throw new Error(`authkit: poppyEmailCodeSignIn ${what} precisa ser um número >= 1.`);
+    }
+    return Math.floor(value);
+  };
+  const codeTtl = positive(options.codeTtl, 600, 'codeTtl');
+  const maxPerHour = positive(options.maxPerHour, 5, 'maxPerHour');
+  const maxCodeAttempts = positive(options.maxCodeAttempts, 5, 'maxCodeAttempts');
   const sentToText = options.sentTo ?? ((masked: string) => `Email to ${masked}`);
   const sends = new Map<string, number[]>();
 
@@ -87,7 +97,15 @@ export function poppyEmailCodeSignIn(
     const account = await store.findByEmail(email);
     if (!account) return null;
     if (supportsAccountStatus(store) && (await store.isDisabled(account.id))) return null;
-    if (options.eligible && !(await options.eligible(account))) return null;
+    if (options.eligible) {
+      // Um `eligible` que lança vira "não elegível": um 500 só para algumas contas as denunciaria.
+      try {
+        if (!(await options.eligible(account))) return null;
+      } catch (error) {
+        ctx.logger.error({ err: error }, 'authkit: poppyEmailCodeSignIn eligible lançou');
+        return null;
+      }
+    }
     return account;
   };
 
@@ -95,7 +113,7 @@ export function poppyEmailCodeSignIn(
     fields: [{ name: 'email', label: options.label ?? 'Email address', secret: false }],
     ...(options.scopes ? { scopes: options.scopes } : {}),
     codeTtl,
-    ...(options.maxCodeAttempts ? { maxCodeAttempts: options.maxCodeAttempts } : {}),
+    maxCodeAttempts,
     async verify({ credentials, clientId, ctx }): Promise<PoppyMediatedResult> {
       const email = (credentials.email ?? '').trim().toLowerCase();
       if (!EMAIL.test(email)) return { status: 'failed' };
@@ -115,6 +133,14 @@ export function poppyEmailCodeSignIn(
   };
 }
 
+function hostOf(clientId: string): string {
+  try {
+    return new URL(clientId).host;
+  } catch {
+    return clientId;
+  }
+}
+
 async function deliver(
   ctx: HttpContext,
   data: { email: string; code: string; clientId: string; expiresInMinutes: number },
@@ -123,7 +149,7 @@ async function deliver(
     const runtime = await personalAgentsFor(ctx);
     const agentName = runtime?.poppy
       ? await runtime.poppy.registry.displayName(data.clientId)
-      : new URL(data.clientId).host;
+      : hostOf(data.clientId);
     const service = await ctx.containerResolver.make('authkit.server');
     const hook = service.config.mail?.onPoppySignInCode;
     const input = {

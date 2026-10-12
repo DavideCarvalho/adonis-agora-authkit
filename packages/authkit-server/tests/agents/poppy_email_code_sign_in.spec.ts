@@ -86,6 +86,14 @@ test.group('poppyEmailCodeSignIn', () => {
         'pro@example.com': { id: 'acct-3', kind: 'pro' },
       },
     });
+    const throwing = poppyEmailCodeSignIn({
+      eligible: () => {
+        throw new Error('boom');
+      },
+    });
+    const thrown: any = await verify(throwing, 'pro@example.com');
+    assert.isNull(thrown.accountId);
+    assert.notProperty(thrown, 'code');
     for (const email of ['nobody@example.com', 'off@example.com', 'pro@example.com']) {
       const res: any = await verify(cfg, email);
       assert.deepEqual(Object.keys(res).sort(), ['accountId', 'sentTo', 'status']);
@@ -141,6 +149,14 @@ test.group('poppyEmailCodeSignIn', () => {
     assert.deepEqual(cfg.scopes, ['saude:leitura']);
     assert.equal(cfg.fields[0].label, 'E-mail');
     assert.equal(cfg.maxCodeAttempts, 3);
+    assert.equal(poppyEmailCodeSignIn().maxCodeAttempts, 5);
+    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.throws(() => poppyEmailCodeSignIn({ maxPerHour: bad }), /maxPerHour/);
+      assert.throws(() => poppyEmailCodeSignIn({ maxCodeAttempts: bad }), /maxCodeAttempts/);
+      assert.throws(() => poppyEmailCodeSignIn({ codeTtl: bad }), /codeTtl/);
+    }
+    assert.equal(maskEmail('a@b@example.com'), 'a***@example.com');
+    assert.equal(maskEmail('nope'), '***');
     const { verify } = setup();
     assert.equal(
       ((await verify(cfg, 'jane@example.com')) as any).sentTo,
