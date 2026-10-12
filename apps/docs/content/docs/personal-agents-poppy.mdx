@@ -112,9 +112,47 @@ controller answers with a redirect to the agent or the `agents/done` view. Witho
 view asks for the device code (a `GET` form with `user_code`). The screens deny framing and refuse an
 impersonated session whatever the view looks like.
 
+## Ready-made Mediated Sign-In: email + code
+
+You don't have to write `verify` to offer Mediated Sign-In. `poppyEmailCodeSignIn()` asks the agent
+for the account's email, emails a 6-digit code to it and lets the agent submit the code. It uses
+AuthKit's own accounts (`accountStore.findByEmail`) and email (the `mail.onPoppySignInCode` hook, or
+the default mailer with your branding and i18n; without `@adonisjs/mail` the code is logged, for
+dev):
+
+```ts
+import { poppyEmailCodeSignIn } from '@adonis-agora/authkit-server'
+
+personalAgents: {
+  poppy: {
+    // …
+    signIn: {
+      mediated: poppyEmailCodeSignIn({
+        scopes: ['orders:read'], // default: ['poppy:read']
+        eligible: (account) => account.kind === 'customer', // default: every active account
+      }),
+    },
+  },
+}
+```
+
+| Option | Default | |
+| --- | --- | --- |
+| `scopes` | `['poppy:read']` | Scopes this sign-in can grant. |
+| `codeTtl` | `600` | Code lifetime, in seconds. |
+| `maxCodeAttempts` | `5` | Wrong codes before `failed`. |
+| `eligible` | every active account | `(account) => boolean` — who may sign in this way. |
+| `maxPerHour` | `5` | Codes per email per hour, per instance, so an agent can't flood someone's inbox. |
+| `label` / `sentTo` | `'Email address'` / `` `Email to a***@example.com` `` | Text the agent shows the person. |
+
+It never enumerates accounts: an unknown email, a disabled account, one `eligible` refuses, or an
+email over `maxPerHour` all get the same `code_required` answer without a code, and the email is
+sent without being awaited so the response time doesn't tell either. The email names the agent
+(from its metadata) and tells the person to ignore it if they didn't ask.
+
 ## Mediated Sign-In without account enumeration
 
-If your Mediated Sign-In only asks for an identifier (email, phone) and then sends a code, answering
+If you write your own Mediated Sign-In and it only asks for an identifier (email, phone) and then sends a code, answering
 `failed` for an unknown identifier tells any agent who has an account. Answer an unknown (or
 ineligible) identifier exactly like a real one instead:
 

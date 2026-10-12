@@ -128,6 +128,18 @@ export interface MailHooks {
    */
   onSudoLink?: (data: { email: string; sudoUrl: string }) => Promise<void>;
   /**
+   * Código do Mediated Sign-In pronto do Poppy (`poppyEmailCodeSignIn`): um personal
+   * agent quer entrar na conta e a pessoa precisa dar o código a ele. Sem o hook, o
+   * host-kit envia pelo mailer default, com branding e i18n.
+   */
+  onPoppySignInCode?: (data: {
+    email: string;
+    code: string;
+    /** Nome do agente (metadata dele, ou o host do `client_id`). */
+    agentName: string;
+    expiresInMinutes: number;
+  }) => Promise<void>;
+  /**
    * Disparado num login bem-sucedido a partir de um dispositivo NOVO (sem cookie
    * de dispositivo confiável válido para a conta). Best-effort, fire-and-forget:
    * uma falha aqui NUNCA quebra o login. Quando ausente mas o mail estiver
