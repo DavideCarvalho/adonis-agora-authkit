@@ -138,15 +138,15 @@ Rate limits (`rateLimit.mediatedPerHour`, the OTP throttle) still apply.
 
 | Route | Spec | Who calls it |
 | --- | --- | --- |
-| `GET /.well-known/poppy.json` | §3 | Agent — discovery (only on your domains) |
-| `GET /.well-known/oauth-authorization-server/poppy` (+ `/poppy/.well-known/…`) | §3.2 | Agent — RFC 8414 metadata with `poppy_domains`, `device_authorization_endpoint`, `revocation_endpoint` |
-| `POST /poppy/oauth/token` | §4.2–4.8 | Agent — `jwt-bearer` sessions, `refresh_token`, `authorization_code`, `device_code` |
-| `POST /poppy/oauth/revoke` | §4.9 | Agent — RFC 7009 sign-out |
-| `POST /poppy/oauth/device` | §4.6 | Agent — device authorization |
-| `GET/POST /poppy/oauth/authorize` | §4.5 | User — Direct Sign-In consent (behind the account session) |
-| `GET/POST /poppy/device` | §4.6 | User — device code approval (behind the account session) |
-| `POST /poppy/sign-in`, `/poppy/sign-in/:id` | §4.7 | Agent — Mediated Sign-In (Session Token + DPoP) |
-| `POST /poppy/browser-session` | §5 | Agent's browser — joins the website session |
+| `GET /.well-known/poppy.json` | [§3](https://personalagentprotocol.org/docs/spec#discovery) | Agent — discovery (only on your domains) |
+| `GET /.well-known/oauth-authorization-server/poppy` (+ `/poppy/.well-known/…`) | [§3.2](https://personalagentprotocol.org/docs/spec#oauth-server) | Agent — RFC 8414 metadata with `poppy_domains`, `device_authorization_endpoint`, `revocation_endpoint` |
+| `POST /poppy/oauth/token` | [§4.2–4.8](https://personalagentprotocol.org/docs/spec#starting-sessions) | Agent — `jwt-bearer` sessions, `refresh_token`, `authorization_code`, `device_code` |
+| `POST /poppy/oauth/revoke` | [§4.9](https://personalagentprotocol.org/docs/spec#sign-out) | Agent — RFC 7009 sign-out |
+| `POST /poppy/oauth/device` | [§4.6](https://personalagentprotocol.org/docs/spec#device-sign-in) | Agent — device authorization |
+| `GET/POST /poppy/oauth/authorize` | [§4.5](https://personalagentprotocol.org/docs/spec#direct-sign-in) | User — Direct Sign-In consent (behind the account session) |
+| `GET/POST /poppy/device` | [§4.6](https://personalagentprotocol.org/docs/spec#device-sign-in) | User — device code approval (behind the account session) |
+| `POST /poppy/sign-in`, `/poppy/sign-in/:id` | [§4.7](https://personalagentprotocol.org/docs/spec#mediated-sign-in) | Agent — Mediated Sign-In (Session Token + DPoP) |
+| `POST /poppy/browser-session` | [§5](https://personalagentprotocol.org/docs/spec#web-browsing) | Agent's browser — joins the website session |
 
 `authkitCsrfExceptions` exempts the agent endpoints automatically; the two consent screens keep
 CSRF, deny framing, refuse impersonation and never approve on open.
@@ -186,7 +186,7 @@ global slot below.
 
 ## The company agent (`@adonis-agora/agent`)
 
-Conversations (§7) are implemented by `@adonis-agora/agent`. Neither package imports the other;
+Conversations ([Poppy §7](https://personalagentprotocol.org/docs/spec#conversations)) are implemented by `@adonis-agora/agent`. Neither package imports the other;
 they meet through two global slots:
 
 ```ts

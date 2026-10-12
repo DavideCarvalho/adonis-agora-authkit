@@ -25,7 +25,7 @@ defineConfig({
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `enabled` | `boolean` | `false` | Exposes the registration endpoint (`oidc-provider`'s `registration` feature). |
-| `initialAccessToken` | `string?` | — | Requires this Initial Access Token (IAT) as a bearer to register (RFC 7591 §3). When absent, registration is **open**. |
+| `initialAccessToken` | `string?` | — | Requires this Initial Access Token (IAT) as a bearer to register ([RFC 7591 §3](https://www.rfc-editor.org/rfc/rfc7591#section-3)). When absent, registration is **open**. |
 | `management` | `boolean` | `false` | Enables Registration Management (RFC 7592): read/update/delete a registered client via its `registration_access_token`. |
 | `redirectUriPolicy` | `RedirectUriPolicy \| false` | open registration: `{ loopback: true }`; with an IAT: none | Where the authorization code may go. See [Redirect URI policy](#redirect-uri-policy). |
 | `validateRegistration` | `(metadata, { operation, ctx }) => void \| metadata` | — | Host hook run after the redirect policy, on create and on RFC 7592 update. |

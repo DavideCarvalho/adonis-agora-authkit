@@ -27,13 +27,13 @@ client:
 
   | Redirect | Example | Rule |
   | --- | --- | --- |
-  | Private-use scheme (§7.1) | `com.example.app:/oauth`, `myapp://auth` | Any scheme except `javascript:`, `data:`, `file:`, … Prefer a reverse-DNS scheme you own. |
-  | Claimed https (§7.2) | `https://app.example.com/oauth` | Must not be a loopback host. |
-  | Loopback (§7.3) | `http://127.0.0.1/callback` | `http` only on `127.0.0.1`, `[::1]` or `localhost`. Register it **without** a port — any port matches at runtime. |
+  | Private-use scheme ([RFC 8252 §7.1](https://www.rfc-editor.org/rfc/rfc8252#section-7.1)) | `com.example.app:/oauth`, `myapp://auth` | Any scheme except `javascript:`, `data:`, `file:`, … Prefer a reverse-DNS scheme you own. |
+  | Claimed https ([RFC 8252 §7.2](https://www.rfc-editor.org/rfc/rfc8252#section-7.2)) | `https://app.example.com/oauth` | Must not be a loopback host. |
+  | Loopback ([RFC 8252 §7.3](https://www.rfc-editor.org/rfc/rfc8252#section-7.3)) | `http://127.0.0.1/callback` | `http` only on `127.0.0.1`, `[::1]` or `localhost`. Register it **without** a port — any port matches at runtime. |
 
   No redirect may carry a `#fragment`. Web clients keep rejecting private-use schemes.
 - **It is always public**: `tokenEndpointAuthMethod: 'none'`, no secret. A secret shipped inside
-  an installed app is not a secret (RFC 8252 §8.5). PKCE (S256) is already mandatory for every
+  an installed app is not a secret ([RFC 8252 §8.5](https://www.rfc-editor.org/rfc/rfc8252#section-8.5)). PKCE (S256) is already mandatory for every
   client of this issuer, and native clients cannot use `client_credentials`.
 
 <Tabs items={['CLI', 'Admin API', 'config/authkit.ts']}>
@@ -366,7 +366,7 @@ Pass `{ clientId, scopes }` as a second argument to `loginAs` to shape the token
 
 - **System browser only.** Use `expo-auth-session` / `ASWebAuthenticationSession` / Custom Tabs.
   Never an embedded `WebView`: the app could read the user's password, and the user's existing
-  session with the IdP is not shared (§8.12).
+  session with the IdP is not shared ([RFC 8252 §8.12](https://www.rfc-editor.org/rfc/rfc8252#section-8.12)).
 - **PKCE, always.** AuthKit requires S256 for every client; don't disable it in your library.
 - **No client secret in the app.** Native clients are public by construction.
 - **Own your scheme.** Use a reverse-DNS private-use scheme (`com.yourcompany.app`) or claimed

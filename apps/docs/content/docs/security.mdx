@@ -547,7 +547,7 @@ client and validate the `logout_token`).
 ## Dynamic registration auth
 
 When [Dynamic Client Registration](/docs/dynamic-registration) is enabled, gate the
-registration endpoint with an `initialAccessToken` (RFC 7591 §3). Without it, registration
+registration endpoint with an `initialAccessToken` ([RFC 7591 §3](https://www.rfc-editor.org/rfc/rfc7591#section-3)). Without it, registration
 is **open** — anyone can register a client, which is rarely desirable in production.
 
 The RFC 7592 **management** endpoints (`dynamicRegistration.management`) require dynamic
@@ -839,7 +839,7 @@ accessTokens: {
 ```
 
 JWT ATs carry: `iss`, `sub`, `aud`, `exp`, `iat`, `jti`, `client_id`, `scope`, and
-`typ: at+jwt` (RFC 9068 §2.1). Verify them on a resource server with
+`typ: at+jwt` ([RFC 9068 §2.1](https://www.rfc-editor.org/rfc/rfc9068#section-2.1)). Verify them on a resource server with
 `verifyJwtAccessToken` from the client package — see [Client](/docs/client#jwt-access-token-verification).
 
 | Option | Type | Default | Notes |
@@ -872,7 +872,7 @@ accessTokens: {
   the access token: the opaque token's `aud` is the resource, and it is still found by
   `provider.AccessToken.find` and introspectable.
 - A `resource` that is not declared (nor the JWT `audience`) is rejected with
-  `invalid_target` (RFC 8707 §2).
+  `invalid_target` ([RFC 8707 §2](https://www.rfc-editor.org/rfc/rfc8707#section-2)).
 - Requests **without** `resource` are unchanged: in opaque mode they get the usual token,
   without `aud`, usable at `userinfo` — your web login does not move.
 

@@ -796,7 +796,7 @@ const claims = await verifyJwtAccessToken(bearerToken, {
 ```
 
 The function uses `jose`'s `createRemoteJWKSet` (JWKS cached and re-fetched on new `kid`).
-It validates the signature, `iss`, `aud`, and enforces `typ: at+jwt` (RFC 9068 §2.1).
+It validates the signature, `iss`, `aud`, and enforces `typ: at+jwt` ([RFC 9068 §2.1](https://www.rfc-editor.org/rfc/rfc9068#section-2.1)).
 
 | Option        | Type                 | Default        | Notes                                                         |
 | ------------- | -------------------- | -------------- | ------------------------------------------------------------- |
