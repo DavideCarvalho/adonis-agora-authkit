@@ -52,8 +52,12 @@ export interface RefreshDeps {
 
 export class AuthkitClientManager {
   #resolverCache?: SessionResolver;
-  /** Mapa de promessas de refresh in-flight por sessionId (dedup thundering herd). */
-  #refreshPromises = new Map<string, Promise<void>>();
+  /**
+   * Refreshes in-flight por sessionId (dedup thundering herd). A promise resolve com o
+   * TokenSet renovado (já mesclado) ou `null` se falhou — nunca rejeita. Guarda também
+   * o refresh token de origem, pra quem espera saber se é da mesma linhagem.
+   */
+  #refreshPromises = new Map<string, { refreshToken: string; promise: Promise<TokenSet | null> }>();
   constructor(private config: ResolvedClientConfig) {}
 
   async #getResolver(): Promise<SessionResolver> {
@@ -93,6 +97,13 @@ export class AuthkitClientManager {
    * Preserva TAMBÉM o `impersonationBinding`: renovar o token do alvo não muda a
    * sessão, então não pode invalidar o vínculo e trancar o ator na impersonação.
    *
+   * Dedup por sessionId: requests concorrentes da mesma sessão (ex.: autosave + vários
+   * GETs chegando juntos quando o access token vence) disparam UM refresh só. Quem
+   * chegou depois espera o refresh in-flight e grava o TokenSet renovado na SUA
+   * PRÓPRIA sessão — cada request tem seu objeto de sessão, e sem isso ele seguiria
+   * com o access token vencido (→ 401) e com o refresh token antigo, já invalidado
+   * pela rotação, que ele poderia gravar de volta e envenenar a sessão.
+   *
    * Best-effort: qualquer falha (token revogado, IdP fora) é silenciosa — o resolver
    * lida com a sessão expirada no fluxo normal. Chamado pelo middleware por request.
    */
@@ -111,16 +122,29 @@ export class AuthkitClientManager {
     // juntos fariam N refreshes + N-1 falhas com refresh token já inválido.
     const sessionId = (session as unknown as { sessionId?: string }).sessionId;
     if (sessionId) {
-      const pending = this.#refreshPromises.get(sessionId);
-      if (pending) {
-        await pending.catch(() => {});
+      const inFlight = this.#refreshPromises.get(sessionId);
+      // Só aproveita o refresh in-flight se ele partiu do MESMO refresh token que esta
+      // request tem — senão o TokenSet renovado é de outra linhagem (ex.: a sessão
+      // trocou de token set no meio do caminho) e não pode ser gravado aqui.
+      if (inFlight && inFlight.refreshToken === tokenSet.refreshToken) {
+        const refreshed = await inFlight.promise;
+        if (refreshed) {
+          session.put(this.config.sessionKey, {
+            ...refreshed,
+            // O vínculo é por sessão (mesmo sessionId → mesmo vínculo); mantém o desta
+            // request e só cai no do refresh se esta não tiver.
+            impersonationBinding: tokenSet.impersonationBinding ?? refreshed.impersonationBinding,
+          } satisfies TokenSet);
+        }
         return;
       }
+      // Linhagem diferente: segue e faz o próprio refresh (a entrada do mapa passa a
+      // ser a desta request; a anterior não a apaga — ver o `finally`).
     }
 
-    // Promise que SEMPRE resolve — o catch silencioso mantém o TokenSet original
-    // em caso de falha, igual ao comportamento do maybeRefresh original.
-    const promise = refreshTokens({
+    // Promise que NUNCA rejeita: resolve com o TokenSet gravado, ou `null` se a
+    // renovação falhou — aí o TokenSet original fica como está (o resolver decide).
+    const promise: Promise<TokenSet | null> = refreshTokens({
       issuer: this.config.issuer,
       clientId: this.config.clientId,
       clientSecret: this.config.clientSecret,
@@ -129,23 +153,31 @@ export class AuthkitClientManager {
       resilience: this.config.resilience,
     })
       .then((next) => {
-        session.put(this.config.sessionKey, {
+        const merged = {
           idToken: next.idToken || tokenSet.idToken,
           accessToken: next.accessToken,
           refreshToken: next.refreshToken ?? tokenSet.refreshToken,
           expiresAt: next.expiresAt,
           impersonationBinding: tokenSet.impersonationBinding,
-        } satisfies TokenSet);
+        } satisfies TokenSet;
+        session.put(this.config.sessionKey, merged);
+        return merged;
       })
-      .catch(() => {
-        // Renovação falhou — deixa o TokenSet como está; o resolver decide a sessão.
-      });
+      .catch(() => null);
 
-    if (sessionId) this.#refreshPromises.set(sessionId, promise);
+    if (!sessionId) {
+      await promise;
+      return;
+    }
 
-    await promise;
-
-    if (sessionId) this.#refreshPromises.delete(sessionId);
+    const entry = { refreshToken: tokenSet.refreshToken, promise };
+    this.#refreshPromises.set(sessionId, entry);
+    try {
+      await promise;
+    } finally {
+      // Só remove se a entrada ainda é a nossa.
+      if (this.#refreshPromises.get(sessionId) === entry) this.#refreshPromises.delete(sessionId);
+    }
   }
 
   /**
