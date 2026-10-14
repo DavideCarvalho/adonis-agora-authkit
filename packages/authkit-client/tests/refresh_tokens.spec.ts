@@ -288,3 +288,99 @@ test.group('AuthkitClientManager.maybeRefresh — dedup', () => {
     assert.equal(callCount, 2, 'sem sessionId, ambas as chamadas batem no IdP');
   });
 });
+
+test.group('AuthkitClientManager.maybeRefresh — dedup entre requests', () => {
+  /** Um "tick" de rede: resolve depois de um setTimeout. */
+  const tick = (ms = 10) => new Promise((r) => setTimeout(r, ms));
+
+  test('requests concorrentes da mesma sessão → 1 refresh e TODAS as sessões ficam com o token novo', async ({
+    assert,
+  }) => {
+    const m = new AuthkitClientManager(fakeConfig());
+    const now = 1_000_000;
+    let callCount = 0;
+    const fetchImpl = (async () => {
+      callCount++;
+      await tick();
+      return {
+        ok: true,
+        json: async () => ({
+          id_token: 'idt_new',
+          access_token: 'at_new',
+          refresh_token: 'rt_new',
+          expires_in: 3600,
+        }),
+      };
+    }) as any;
+
+    // Dois requests HTTP = dois objetos de sessão distintos, carregados do mesmo store.
+    const original = {
+      idToken: 'idt_old',
+      accessToken: 'at_old',
+      refreshToken: 'rt_old',
+      expiresAt: now + 10_000,
+      impersonationBinding: 'bind_1',
+    };
+    const ctxA = fakeCtxWithSessionId({ ...original }, 'sess_shared');
+    const ctxB = fakeCtxWithSessionId({ ...original }, 'sess_shared');
+
+    await Promise.all([
+      m.maybeRefresh(ctxA, { now: () => now, fetchImpl }),
+      m.maybeRefresh(ctxB, { now: () => now, fetchImpl }),
+    ]);
+
+    assert.equal(callCount, 1, 'refreshTokens deve ser chamado só 1 vez');
+    for (const ctx of [ctxA, ctxB]) {
+      const stored = ctx._store.get('authkit');
+      assert.equal(stored.accessToken, 'at_new');
+      assert.equal(stored.refreshToken, 'rt_new'); // rotacionado nas DUAS sessões
+      assert.equal(stored.idToken, 'idt_new');
+      assert.equal(stored.impersonationBinding, 'bind_1');
+    }
+  });
+
+  test('refresh que falha deixa as duas sessões intactas e libera o in-flight', async ({
+    assert,
+  }) => {
+    const m = new AuthkitClientManager(fakeConfig());
+    const now = 1_000_000;
+    let callCount = 0;
+    const failing = (async () => {
+      callCount++;
+      await tick();
+      return { ok: false, json: async () => ({}) };
+    }) as any;
+
+    const original = {
+      idToken: 'i',
+      accessToken: 'at_old',
+      refreshToken: 'rt_old',
+      expiresAt: now,
+    };
+    const ctxA = fakeCtxWithSessionId({ ...original }, 'sess_fail');
+    const ctxB = fakeCtxWithSessionId({ ...original }, 'sess_fail');
+
+    await Promise.all([
+      m.maybeRefresh(ctxA, { now: () => now, fetchImpl: failing }),
+      m.maybeRefresh(ctxB, { now: () => now, fetchImpl: failing }),
+    ]);
+
+    assert.equal(callCount, 1);
+    assert.deepEqual(ctxA._store.get('authkit'), original);
+    assert.deepEqual(ctxB._store.get('authkit'), original);
+
+    // A entrada in-flight foi removida: uma chamada posterior tenta de novo.
+    const ok = (async () => {
+      callCount++;
+      await tick();
+      return {
+        ok: true,
+        json: async () => ({ access_token: 'at_new', refresh_token: 'rt_new', expires_in: 3600 }),
+      };
+    }) as any;
+    await m.maybeRefresh(ctxA, { now: () => now, fetchImpl: ok });
+    assert.equal(callCount, 2);
+    assert.equal(ctxA._store.get('authkit').accessToken, 'at_new');
+    assert.equal(ctxA._store.get('authkit').refreshToken, 'rt_new');
+  });
+});
