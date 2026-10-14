@@ -1,5 +1,16 @@
 # @adonis-agora/authkit-client
 
+## 0.18.9
+
+### Patch Changes
+
+- [#253](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/253) [`d6fc1b8`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/d6fc1b8c34037022f22c0a21e0a0866e7d716fa3) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `maybeRefresh`: concurrent requests of the same session no longer get a 401 when the access token
+  expires. The refresh is still deduplicated per session id, but requests that wait for the in-flight
+  refresh now also write the renewed TokenSet (new access token and rotated refresh token) into their
+  own session — before, only the request that started the refresh got it, and the others kept the
+  expired access token and the already-rotated refresh token. The in-flight entry is now always
+  cleared, even when the refresh fails.
+
 ## 0.18.8
 
 ### Patch Changes
