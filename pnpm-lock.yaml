@@ -199,7 +199,7 @@ catalogs:
       version: 26.5.1
   adonisPeers:
     '@adonisjs/lock':
-      specifier: 2.1.0
+      specifier: ^2.1.0
       version: 2.1.0
   default:
     '@japa/assert':
@@ -268,7 +268,7 @@ catalogs:
       version: 7.0.2
   frontendPeers:
     '@simplewebauthn/browser':
-      specifier: 14.0.0
+      specifier: ^13.3.0 || ^14.0.0
       version: 14.0.0
 
 importers:
