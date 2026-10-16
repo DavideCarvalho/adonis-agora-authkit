@@ -142,7 +142,20 @@ async function tokenEndpoint(
     resilience,
     fetchImpl,
   );
-  if (!res.ok) throw new Error(`Token endpoint returned ${res.status}`);
+  if (!res.ok) {
+    // RFC 6749 §5.2: the body says why (`invalid_grant`, `not_allowed`…). Without it a
+    // misconfigured client is a bare "400" and the cause is only in the IdP's logs.
+    const detail = await res
+      .json()
+      .then((json: unknown) => {
+        const body = json as { error?: unknown; error_description?: unknown } | null;
+        return typeof body?.error === 'string'
+          ? `: ${body.error}${typeof body.error_description === 'string' ? ` (${body.error_description})` : ''}`
+          : '';
+      })
+      .catch(() => '');
+    throw new Error(`Token endpoint returned ${res.status}${detail}`);
+  }
 
   const json = (await res.json()) as TokenEndpointResponse;
   return {

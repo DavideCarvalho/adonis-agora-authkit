@@ -9,4 +9,5 @@ Third-party IdPs (Keycloak, Auth0, Okta, Entra) now work with the integrated cli
 - **New flow helpers.** `createAuthorizationRequest` / `completeAuthorization` (also as `AuthkitClientManager` methods, together with `endpoints()` and `validateIdToken()`) wrap state, nonce, PKCE, the RFC 9207 `iss` check and id_token validation; failures throw `OidcCallbackError` with a `code` and `restartable`.
 - **Container binding by class.** `AuthkitClientManager` is bound by class (with `authkit.client` kept as an alias), so it can be used with `@inject()`. The scaffolded `OidcSessionController` uses it.
 - **No more silent failures.** A failing refresh is logged as a warning; `/auth/logout` goes straight to the post-logout destination when the IdP publishes no `end_session_endpoint`.
+- Token endpoint failures now carry the IdP's `error` / `error_description` (`Token endpoint returned 400: not_allowed (…)`) instead of a bare status.
 - `discoverEndpoints` gains `onError: 'fallback' | 'throw'`. With the default `'fallback'`, the convention fallback is no longer cached, and a document without a matching `issuer` is treated as unusable.
