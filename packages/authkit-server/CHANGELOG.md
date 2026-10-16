@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 0.80.2
+
+### Patch Changes
+
+- [#260](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/260) [`f374913`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/f37491386d6b7a5ce6874b8b3cd5740eceb05872) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `node ace configure @adonis-agora/authkit-server --ui=react` works again ([#194](https://github.com/DavideCarvalho/adonis-agora-authkit/issues/194)). The React pages the preset publishes went through the stub template engine, which broke on the backticks of their template literals, and their `{{{ exports() }}}` frontmatter had been rewritten by the formatter into `{ exports() }`. The pages are now plain TSX copied byte for byte (a small `ui/react/page.stub` only sets the destination), and a new test runs the real `configure` hook against a scratch app for every preset.
+
 ## 0.80.1
 
 ### Patch Changes
