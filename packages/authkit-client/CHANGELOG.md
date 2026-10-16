@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-client
 
+## 0.19.1
+
+### Patch Changes
+
+- [#260](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/260) [`f374913`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/f37491386d6b7a5ce6874b8b3cd5740eceb05872) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `node ace configure @adonis-agora/authkit-client` works again: a backtick in a comment of the `oidc_session_controller` stub broke the stub template engine. The stub compile test never failed because `assert.doesNotThrow(fn, message)` treats the string as an error-message matcher; it now collects compile errors explicitly, and a new test runs the real `configure` hook against a scratch app. `configure` also points to `registerOidcClient(router)` as the way to register the session routes, and the getting-started guide and the agent skill teach it first, keeping the ejected controller for apps that customise the flow ([#202](https://github.com/DavideCarvalho/adonis-agora-authkit/issues/202)).
+
 ## 0.19.0
 
 ### Minor Changes
