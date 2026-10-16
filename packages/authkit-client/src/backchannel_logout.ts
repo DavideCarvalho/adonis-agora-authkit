@@ -1,21 +1,8 @@
-import { createRemoteJWKSet, type JWTPayload, type JWTVerifyGetKey, jwtVerify } from 'jose';
+import { type JWTPayload, type JWTVerifyGetKey, jwtVerify } from 'jose';
+import { DEFAULT_ALGS, getJwks } from './jwks.js';
 
 /** Event type da claim `events` exigido pelo OIDC Back-Channel Logout. */
 export const BACKCHANNEL_LOGOUT_EVENT = 'http://schemas.openid.net/event/backchannel-logout';
-
-/** Algoritmos de assinatura aceitos no logout_token (defesa contra alg-confusion). */
-const DEFAULT_ALGS = [
-  'RS256',
-  'RS384',
-  'RS512',
-  'PS256',
-  'PS384',
-  'PS512',
-  'ES256',
-  'ES384',
-  'ES512',
-  'EdDSA',
-];
 
 /** Erro tipado lançado quando o logout_token não satisfaz as regras do spec. */
 export class InvalidLogoutTokenError extends Error {
@@ -36,7 +23,7 @@ export interface ValidateLogoutTokenOptions {
    */
   jwksUri?: string;
   /**
-   * Função de chave já resolvida (ex.: `createRemoteJWKSet` ou `createLocalJWKSet`).
+   * Função de chave já resolvida (ex.: `createLocalJWKSet`).
    * Tem precedência sobre `jwksUri`; útil em testes para injetar uma chave local.
    */
   keys?: JWTVerifyGetKey;
@@ -66,7 +53,7 @@ export async function validateLogoutToken(
   token: string,
   opts: ValidateLogoutTokenOptions,
 ): Promise<ValidatedLogoutToken> {
-  const keys = opts.keys ?? createRemoteJWKSet(new URL(opts.jwksUri ?? `${opts.issuer}/jwks`));
+  const keys = opts.keys ?? getJwks(opts.jwksUri ?? `${opts.issuer}/jwks`);
 
   let payload: JWTPayload;
   try {

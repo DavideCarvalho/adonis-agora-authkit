@@ -25,6 +25,11 @@ export interface AuthorizeParams {
   state: string;
   codeChallenge: string;
   /**
+   * OIDC `nonce`, echoed back in the id_token and checked by `validateIdToken`.
+   * Binds the id_token to this authorization request (replay protection).
+   */
+  nonce?: string;
+  /**
    * Endpoint de autorização do IdP — obtenha via `discoverEndpoints(issuer)`
    * para IdPs de terceiros. Default: `${issuer}/auth` (convenção oidc-provider).
    */
@@ -32,10 +37,23 @@ export interface AuthorizeParams {
   /**
    * Parâmetros extras anexados à URL de autorização (ex.: `audience`, `prompt`,
    * `login_hint`, `ui_locales`, `acr_values`). Evita manipulação manual de URL no
-   * controller. Valores `undefined`/`null` são ignorados.
+   * controller. Valores `undefined`/`null` são ignorados, assim como as chaves que a
+   * própria função monta (`state`, `nonce`, `code_challenge`, `scope`, `client_id`…).
    */
   extraParams?: Record<string, string | number | undefined | null>;
 }
+
+/** Parameters `buildAuthorizeUrl` owns; `extraParams` cannot override them. */
+const RESERVED_AUTHORIZE_PARAMS = new Set([
+  'client_id',
+  'response_type',
+  'redirect_uri',
+  'scope',
+  'state',
+  'nonce',
+  'code_challenge',
+  'code_challenge_method',
+]);
 
 export function buildAuthorizeUrl(p: AuthorizeParams): string {
   const url = new URL(p.authorizationEndpoint ?? `${p.issuer}/auth`);
@@ -46,8 +64,12 @@ export function buildAuthorizeUrl(p: AuthorizeParams): string {
   url.searchParams.set('state', p.state);
   url.searchParams.set('code_challenge', p.codeChallenge);
   url.searchParams.set('code_challenge_method', 'S256');
+  if (p.nonce) url.searchParams.set('nonce', p.nonce);
   if (p.extraParams) {
     for (const [key, value] of Object.entries(p.extraParams)) {
+      // A reserved key would silently replace the session-bound value (state, nonce,
+      // PKCE…) and the callback could never validate.
+      if (RESERVED_AUTHORIZE_PARAMS.has(key)) continue;
       if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
     }
   }
@@ -120,7 +142,20 @@ async function tokenEndpoint(
     resilience,
     fetchImpl,
   );
-  if (!res.ok) throw new Error(`Token endpoint returned ${res.status}`);
+  if (!res.ok) {
+    // RFC 6749 §5.2: the body says why (`invalid_grant`, `not_allowed`…). Without it a
+    // misconfigured client is a bare "400" and the cause is only in the IdP's logs.
+    const detail = await res
+      .json()
+      .then((json: unknown) => {
+        const body = json as { error?: unknown; error_description?: unknown } | null;
+        return typeof body?.error === 'string'
+          ? `: ${body.error}${typeof body.error_description === 'string' ? ` (${body.error_description})` : ''}`
+          : '';
+      })
+      .catch(() => '');
+    throw new Error(`Token endpoint returned ${res.status}${detail}`);
+  }
 
   const json = (await res.json()) as TokenEndpointResponse;
   return {

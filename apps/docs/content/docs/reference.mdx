@@ -126,12 +126,14 @@ Infrastructure fields only. Bucket policy (`login`, `introspection`) is managed 
 | `onBackchannelLogout` | `BackchannelLogoutCallback` | — | Invoked with `{ sid, sub }` on a valid logout token. Runs *after* the `backchannelLogout` store when both are set. |
 | `sessionIndex` | `SessionIndex` | — | Maps OP `sid`/`sub` to local session ids — the manual alternative to `backchannelLogout: { store }`. |
 | `resilience` | `ResiliencePolicy` | — | Optional policy wrapped around the outbound HTTP calls to the IdP (discovery + token endpoints). Pass the result of `wrap(...)` from `@adonis-agora/resilience`; typed structurally, so the client never imports that package. |
+| `discovery` | `boolean \| { cacheTtlMs? }` | `true` | Resolve the IdP endpoints from `{issuer}/.well-known/openid-configuration`. `false` uses the AuthKit route layout plus `endpoints`. See [Client](/docs/client#endpoint-discovery). |
+| `endpoints` | `Partial<OidcEndpoints>` | — | Per-field endpoint overrides; always win over discovery. |
 
 ### Resolver factories
 
 | Factory | Config | Notes |
 | --- | --- | --- |
-| `resolvers.jwt` | `{ tokenSource?, jwksUri? }` | Local JWKS validation; `tokenSource` defaults to `'session'`, `jwksUri` to `${issuer}/jwks`. |
+| `resolvers.jwt` | `{ tokenSource?, jwksUri? }` | Local JWKS validation; `tokenSource` defaults to `'session'`, `jwksUri` to the discovered `jwks_uri`. |
 | `resolvers.pat` | `{ introspectionUrl, introspectionSecret }` | Validates PATs via the IdP introspection endpoint. |
 | `resolvers.opaque` | `{ tokenSource?, introspectionUrl?, cacheTtlMs? }` | Per-request introspection of opaque access tokens (immediate revocation). Requires a confidential client. |
 
@@ -154,12 +156,16 @@ Use these only when `registerOidcClient` cannot express your flow.
 
 | Export | Purpose |
 | --- | --- |
+| `createAuthorizationRequest(params)` | `{ url, pending }`: authorize URL with fresh `state`, `nonce` and PKCE. Also a manager method that fills in the config. |
+| `completeAuthorization(params)` | Checks `state`/`iss`, exchanges the code, validates the id_token; returns `{ tokens, claims }` or throws `OidcCallbackError`. Also a manager method. |
+| `validateIdToken(token, options)` | OIDC Core §3.1.3.7 id_token validation (signature, `iss`, `aud`, `azp`, `exp`, `nonce`, `max_age`, `sub`). Throws `InvalidIdTokenError`. |
+| `discoverEndpoints(issuer, options)` | Read the discovery document (cached); `onError: 'throw'` raises `OidcDiscoveryError` instead of falling back. |
 | `generatePkce()` | Build a PKCE `{ verifier, challenge, method: 'S256' }`. |
-| `buildAuthorizeUrl(params)` | `${issuer}/auth` authorization URL. |
+| `buildAuthorizeUrl(params)` | Authorization URL (`authorizationEndpoint`, default `${issuer}/auth`). |
 | `exchangeCode(params)` | Swap an authorization code for a `TokenSet`. |
 | `refreshTokens(params)` | `grant_type=refresh_token` refresh (handles rotation). See [Refresh Tokens](/docs/refresh-tokens). |
 | `exchangeToken(params)` | RFC 8693 token-exchange (impersonation). |
-| `buildEndSessionUrl(params)` | `${issuer}/session/end` RP-initiated logout URL. |
+| `buildEndSessionUrl(params)` | RP-initiated logout URL (`endSessionEndpoint`, default `${issuer}/session/end`). |
 
 ## SDK — `createAuthkit` (`@adonis-agora/authkit-sdk`)
 

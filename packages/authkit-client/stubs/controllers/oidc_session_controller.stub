@@ -1,42 +1,47 @@
 {{{
   exports({ to: app.makePath('app/controllers/oidc_session_controller.ts') })
 }}}
+import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
-import { buildAuthorizeUrl, exchangeCode, generatePkce } from '@adonis-agora/authkit-client'
-import { randomUUID } from 'node:crypto'
+import { AuthkitClientManager, OidcCallbackError } from '@adonis-agora/authkit-client'
 
+/**
+ * Login, callback and logout written out by hand. If you do not need to customise
+ * them, `registerOidcClient(router)` registers the same three routes for you.
+ */
+@inject()
 export default class OidcSessionController {
-  async login(ctx: HttpContext) {
-    const manager = await ctx.containerResolver.make('authkit.client')
-    const cfg = manager.clientConfig
-    const { verifier, challenge } = await generatePkce()
-    const state = randomUUID()
-    ctx.session.put('authkit_pkce', { verifier, state })
-    const url = buildAuthorizeUrl({
-      issuer: cfg.issuer, clientId: cfg.clientId, redirectUri: cfg.redirectUri,
-      scopes: cfg.scopes, state, codeChallenge: challenge,
-    })
-    return ctx.response.redirect(url)
+  constructor(protected authkit: AuthkitClientManager) {}
+
+  async login({ session, response }: HttpContext) {
+    // Fresh state + nonce + PKCE, against the endpoints discovered from the issuer.
+    const { url, pending } = await this.authkit.createAuthorizationRequest()
+    session.put('authkit_pkce', pending)
+    return response.redirect(url)
   }
 
   async callback(ctx: HttpContext) {
-    const manager = await ctx.containerResolver.make('authkit.client')
-    const cfg = manager.clientConfig
-    const { code, state } = ctx.request.qs()
-    const pkce = ctx.session.get('authkit_pkce')
-    if (!pkce || pkce.state !== state) return ctx.response.badRequest({ error: 'state inválido' })
-    const tokenSet = await exchangeCode({
-      issuer: cfg.issuer, clientId: cfg.clientId, clientSecret: cfg.clientSecret,
-      redirectUri: cfg.redirectUri, code, codeVerifier: pkce.verifier,
-    })
-    manager.startSession(ctx, tokenSet)
-    ctx.session.forget('authkit_pkce')
+    const pending = ctx.session.pull('authkit_pkce')
+    try {
+      // Checks state and iss, exchanges the code and validates the id_token (nonce included).
+      const { tokens: tokenSet } = await this.authkit.completeAuthorization({
+        pending,
+        callbackParams: ctx.request.qs(),
+      })
+      // startSession (not session.put) drops any impersonation parked by a previous session.
+      this.authkit.startSession(ctx, tokenSet)
+    } catch (error) {
+      // Stale callback, or the IdP sent the user back with an error (access_denied…).
+      if (error instanceof OidcCallbackError && error.restartable) {
+        return ctx.response.redirect('/auth/login')
+      }
+      throw error
+    }
     return ctx.response.redirect('/')
   }
 
   async logout(ctx: HttpContext) {
-    const manager = await ctx.containerResolver.make('authkit.client')
-    manager.endSession(ctx)
+    this.authkit.endSession(ctx)
     return ctx.response.redirect('/')
   }
 }

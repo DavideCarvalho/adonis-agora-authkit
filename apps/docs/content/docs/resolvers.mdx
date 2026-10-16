@@ -29,7 +29,7 @@ resolver: resolvers.jwt({ tokenSource: 'session' })
 | Option | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `tokenSource` | `'session' \| 'bearer'` | `'session'` | Where to read the token. `'session'` reads the **ID token** out of the token set the login flow stored under `sessionKey`; `'bearer'` reads the raw JWT from the `Authorization` header. |
-| `jwksUri` | `string` | `${issuer}/jwks` | Explicit JWKS endpoint. The default is the AuthKit provider's standard route — point it at `endpoints.jwksUri` from `discoverEndpoints` for a third-party IdP. |
+| `jwksUri` | `string` | discovered `jwks_uri` | Explicit JWKS endpoint. Defaults to the one published in the IdP's discovery document (`${issuer}/jwks` with `discovery: false`). |
 
 Signature algorithms are restricted to the asymmetric set (RS/PS/ES/EdDSA), so an IdP
 cannot downgrade a token to a symmetric algorithm you'd then verify with a public key. A
@@ -74,7 +74,7 @@ resolver: resolvers.opaque({ tokenSource: 'session' })
 | Option | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `tokenSource` | `'session' \| 'bearer'` | `'session'` | `'session'` introspects the **access token** stored in the token set (not the ID token, which is what `resolvers.jwt` reads); `'bearer'` introspects the `Authorization` header token (APIs). |
-| `introspectionUrl` | `string` | `${issuer}/token/introspection` | The provider's standard introspection endpoint. |
+| `introspectionUrl` | `string` | discovered `introspection_endpoint` | The IdP's introspection endpoint (`${issuer}/token/introspection` with `discovery: false`). |
 | `cacheTtlMs` | `number` | `0` | In-memory TTL (ms) for `active: true` responses. `0` introspects every request (revocation is immediate); raise it to trade immediacy for fewer round-trips. |
 
 <Callout type="warn">

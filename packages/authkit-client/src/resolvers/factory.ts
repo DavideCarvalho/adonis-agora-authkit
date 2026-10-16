@@ -1,4 +1,5 @@
 import type { SessionResolver } from '@adonis-agora/authkit-core';
+import { OidcDiscoveryError, type OidcEndpoints } from '../discovery.js';
 import { getTokenFromSource, type TokenSource } from '../token_source.js';
 import { JwtResolver } from './jwt_resolver.js';
 import { OpaqueResolver } from './opaque_resolver.js';
@@ -6,7 +7,7 @@ import { PatResolver } from './pat_resolver.js';
 
 export interface JwtResolverFactoryConfig {
   tokenSource?: TokenSource;
-  /** jwks_uri explícito; se omitido, é `${issuer}/jwks` (rota padrão do oidc-provider) */
+  /** Explicit jwks_uri. Default: the discovered `jwks_uri` (`${issuer}/jwks` with discovery off). */
   jwksUri?: string;
 }
 
@@ -21,7 +22,7 @@ export interface OpaqueResolverFactoryConfig {
    * guardado no TokenSet; `bearer` introspecta o token do header Authorization (APIs).
    */
   tokenSource?: TokenSource;
-  /** Endpoint de introspection; default `${issuer}/token/introspection` (oidc-provider). */
+  /** Introspection endpoint. Default: the discovered one (`${issuer}/token/introspection` with discovery off). */
   introspectionUrl?: string;
   /**
    * TTL (ms) do cache de respostas `active:true`. Default 0 (revogação imediata).
@@ -37,6 +38,25 @@ export interface ResolverContext {
   clientSecret?: string;
   sessionKey: string;
   globalRolesClaim: string;
+  /** The IdP endpoints (discovery + overrides), cached by the caller — call it per request. */
+  endpoints: () => Promise<OidcEndpoints>;
+  /** Where a resolver reports that the IdP cannot serve it (e.g. no introspection). */
+  logger: { warn(obj: object, msg: string): void };
+}
+
+/**
+ * The current endpoints, or `null` while discovery fails (and nothing was ever
+ * discovered): a request then resolves to no identity — the same outcome as an
+ * unreachable JWKS — instead of failing every request, public pages included via
+ * silent auth. Any other error is a configuration error and throws.
+ */
+async function currentEndpoints(rc: ResolverContext): Promise<OidcEndpoints | null> {
+  try {
+    return await rc.endpoints();
+  } catch (error) {
+    if (error instanceof OidcDiscoveryError) return null;
+    throw error;
+  }
 }
 
 export interface ResolverFactory {
@@ -48,10 +68,12 @@ export const resolvers = {
     const tokenSource = config.tokenSource ?? 'session';
     return {
       async resolver(rc) {
-        const jwksUri = config.jwksUri ?? `${rc.issuer}/jwks`;
         return new JwtResolver({
-          issuer: rc.issuer,
-          jwksUri,
+          endpoints: async () => {
+            const endpoints = await currentEndpoints(rc);
+            if (!endpoints) return null;
+            return { issuer: endpoints.issuer, jwksUri: config.jwksUri ?? endpoints.jwksUri };
+          },
           audience: rc.clientId,
           globalRolesClaim: rc.globalRolesClaim,
           getToken: (httpCtx) => getTokenFromSource(httpCtx, tokenSource, rc.sessionKey),
@@ -80,9 +102,22 @@ export const resolvers = {
             'resolvers.opaque requer um client confidencial (clientSecret) para introspection',
           );
         }
-        const introspectionUrl = config.introspectionUrl ?? `${rc.issuer}/token/introspection`;
+        let warned = false;
         return new OpaqueResolver({
-          introspectionUrl,
+          introspectionUrl: async () => {
+            if (config.introspectionUrl) return config.introspectionUrl;
+            const endpoints = await currentEndpoints(rc);
+            if (!endpoints) return null;
+            if (!endpoints.introspectionEndpoint && !warned) {
+              warned = true;
+              rc.logger.warn(
+                { issuer: rc.issuer },
+                'authkit-client: the IdP publishes no introspection_endpoint, so resolvers.opaque ' +
+                  'resolves every request to no identity — set introspectionUrl',
+              );
+            }
+            return endpoints.introspectionEndpoint ?? null;
+          },
           clientId: rc.clientId,
           clientSecret: rc.clientSecret,
           tokenSource,

@@ -1,0 +1,49 @@
+{
+  "realm": "authkit",
+  "enabled": true,
+  "sslRequired": "none",
+  "accessTokenLifespan": 300,
+  "roles": {
+    "realm": [
+      {
+        "name": "ADMIN"
+      },
+      {
+        "name": "offline_access"
+      }
+    ]
+  },
+  "users": [
+    {
+      "username": "ada",
+      "email": "ada@example.com",
+      "emailVerified": true,
+      "firstName": "Ada",
+      "lastName": "Lovelace",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "secret-password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["ADMIN", "offline_access"]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "authkit-app",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "authkit-app-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:9999/*"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:9999/*"
+      }
+    }
+  ]
+}

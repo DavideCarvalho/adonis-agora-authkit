@@ -1,7 +1,8 @@
 import { createServer, type Server } from 'node:http';
 import { test } from '@japa/runner';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
-import { clearJwksCache, verifyJwtAccessToken } from '../src/verify_access_token.js';
+import { clearJwksCache } from '../src/jwks.js';
+import { verifyJwtAccessToken } from '../src/verify_access_token.js';
 
 const PORT = 9811;
 const ISSUER = `http://localhost:${PORT}`;

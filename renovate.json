@@ -70,5 +70,16 @@
     "enabled": true,
     "automerge": true
   },
-  "ignorePaths": ["**/dist/**", "**/node_modules/**", "**/.next/**", "**/build/**"]
+  "ignorePaths": ["**/dist/**", "**/node_modules/**", "**/.next/**", "**/build/**"],
+  "customManagers": [
+    {
+      "description": "IdP images the third-party IdP e2e spec boots with testcontainers (`new GenericContainer('image:tag')`). They live in TypeScript, so no built-in manager sees them; without this they would pin the IdPs we test against forever.",
+      "customType": "regex",
+      "managerFilePatterns": ["/(^|/)tests/.+\\.spec\\.ts$/"],
+      "matchStrings": [
+        "new GenericContainer\\(\\s*'(?<depName>[^:'\\s]+):(?<currentValue>[^'\\s]+)'"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ]
 }

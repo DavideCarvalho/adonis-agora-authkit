@@ -102,6 +102,7 @@
     "@types/node": "catalog:adonis",
     "ioredis-mock": "8.13.1",
     "tempura": "0.4.1",
+    "testcontainers": "12.2.1",
     "typescript": "catalog:frontend"
   }
 }

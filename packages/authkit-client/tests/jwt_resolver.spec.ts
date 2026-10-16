@@ -42,8 +42,7 @@ test.group('JwtResolver', (group) => {
 
   function makeResolver() {
     return new JwtResolver({
-      issuer: ISSUER,
-      jwksUri: `${ISSUER}/jwks`,
+      endpoints: async () => ({ issuer: ISSUER, jwksUri: `${ISSUER}/jwks` }),
       audience: 'app1',
       globalRolesClaim: 'roles',
     });

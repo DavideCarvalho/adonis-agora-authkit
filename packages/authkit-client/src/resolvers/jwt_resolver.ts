@@ -1,11 +1,17 @@
 import type { Identity, SessionResolver } from '@adonis-agora/authkit-core';
 import type { HttpContext } from '@adonisjs/core/http';
-import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { jwtVerify } from 'jose';
+import type { OidcEndpoints } from '../discovery.js';
+import { DEFAULT_ALGS, getJwks } from '../jwks.js';
 import { buildIdentityFromClaims } from './identity.js';
 
 export interface JwtResolverConfig {
-  issuer: string;
-  jwksUri: string;
+  /**
+   * Issuer and jwks_uri to verify against, read on every token so a rotated
+   * `jwks_uri` / `issuer` takes effect without a restart. `null` (discovery is
+   * failing) resolves to no identity.
+   */
+  endpoints: () => Promise<Pick<OidcEndpoints, 'issuer' | 'jwksUri'> | null>;
   audience: string;
   globalRolesClaim: string;
   /** algoritmos de assinatura aceitos (defesa contra alg-confusion). Default: asimétricos. */
@@ -14,31 +20,17 @@ export interface JwtResolverConfig {
   getToken?: (ctx: HttpContext) => string | null;
 }
 
-const DEFAULT_ALGS = [
-  'RS256',
-  'RS384',
-  'RS512',
-  'PS256',
-  'PS384',
-  'PS512',
-  'ES256',
-  'ES384',
-  'ES512',
-  'EdDSA',
-];
-
 export class JwtResolver implements SessionResolver {
-  #jwks: ReturnType<typeof createRemoteJWKSet>;
-
-  constructor(private config: JwtResolverConfig) {
-    this.#jwks = createRemoteJWKSet(new URL(config.jwksUri));
-  }
+  constructor(private config: JwtResolverConfig) {}
 
   /** Valida um JWT cru e monta a Identity (ou null se inválido). */
   async resolveToken(token: string): Promise<Identity | null> {
+    const endpoints = await this.config.endpoints();
+    if (!endpoints) return null;
+    const keys = getJwks(endpoints.jwksUri);
     try {
-      const { payload } = await jwtVerify(token, this.#jwks, {
-        issuer: this.config.issuer,
+      const { payload } = await jwtVerify(token, keys, {
+        issuer: endpoints.issuer,
         audience: this.config.audience,
         algorithms: this.config.algorithms ?? DEFAULT_ALGS,
       });

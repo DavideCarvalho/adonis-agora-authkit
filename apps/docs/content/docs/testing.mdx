@@ -189,7 +189,7 @@ no IdP.
 ```ts
 import { test } from '@japa/runner'
 import { mintTestIdToken, serveJwks } from '@adonis-agora/authkit-testing'
-import { resolvers } from '@adonis-agora/authkit-client'
+import { conventionEndpoints, resolvers } from '@adonis-agora/authkit-client'
 
 test.group('jwt resolver', (group) => {
   test('resolves a valid token into an identity', async ({ assert, cleanup }) => {
@@ -212,6 +212,8 @@ test.group('jwt resolver', (group) => {
       clientId: 'my-app',
       sessionKey: 'authkit',
       globalRolesClaim: 'roles',
+      endpoints: async () => conventionEndpoints('https://idp.test'),
+      logger: { warn: () => {} },
     })
 
     // 4. Resolve through an HttpContext double carrying the bearer token.

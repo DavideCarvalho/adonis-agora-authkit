@@ -145,7 +145,7 @@ JWKS, and fakes the authenticator for controller tests:
 
 ```ts
 import { mintTestIdToken, serveJwks, fakeAuthenticator } from '@adonis-agora/authkit-testing'
-import { resolvers } from '@adonis-agora/authkit-client'
+import { conventionEndpoints, resolvers } from '@adonis-agora/authkit-client'
 
 const { token, jwks } = await mintTestIdToken({
   issuer: 'https://idp.test',
@@ -160,6 +160,8 @@ const resolver = await factory.resolver({
   clientId: 'my-app',
   sessionKey: 'authkit',
   globalRolesClaim: 'roles',
+  endpoints: async () => conventionEndpoints('https://idp.test'),
+  logger: { warn: () => {} },
 })
 const ctx = { auth: fakeAuthenticator({ identity: null }) } // anonymous request fake
 await served.close()

@@ -10,6 +10,7 @@ import { test } from '@japa/runner';
 import RedisMock from 'ioredis-mock';
 import { buildAuthorizeUrl, generatePkce } from '../src/oidc_login.js';
 import { resolvers } from '../src/resolvers/factory.js';
+import { resolverContext } from './helpers/resolvers.js';
 
 const PORT = 9820;
 const ISSUER = `http://localhost:${PORT}`;
@@ -89,12 +90,7 @@ test.group('client ↔ server (e2e)', (group) => {
     };
     assert.isString(disco.jwks_uri);
     const factory = resolvers.jwt({ jwksUri: disco.jwks_uri });
-    const resolver = await factory.resolver({
-      issuer: ISSUER,
-      clientId: 'app1',
-      sessionKey: 'authkit',
-      globalRolesClaim: 'roles',
-    });
+    const resolver = await factory.resolver(resolverContext(ISSUER));
     assert.isOk(resolver);
   });
 });

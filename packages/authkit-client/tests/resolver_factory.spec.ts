@@ -2,6 +2,7 @@ import { createServer, type Server } from 'node:http';
 import { test } from '@japa/runner';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { resolvers } from '../src/resolvers/factory.js';
+import { resolverContext } from './helpers/resolvers.js';
 
 const PORT = 9811;
 const ISSUER = `http://localhost:${PORT}`;
@@ -35,12 +36,7 @@ test.group('resolvers.jwt factory', (group) => {
 
   test('resolve identity a partir do idToken na session', async ({ assert }) => {
     const factory = resolvers.jwt({ tokenSource: 'session' });
-    const resolver = await factory.resolver({
-      issuer: ISSUER,
-      clientId: 'app1',
-      sessionKey: 'authkit',
-      globalRolesClaim: 'roles',
-    });
+    const resolver = await factory.resolver(resolverContext(ISSUER));
     const ctx = { session: { get: () => ({ idToken: token, accessToken: 'x' }) } } as any;
     const identity = await resolver.resolve(ctx);
     assert.equal(identity!.userId, 'u1');

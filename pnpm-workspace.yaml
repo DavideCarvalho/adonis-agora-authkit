@@ -16,9 +16,15 @@ allowBuilds:
   '@parcel/watcher': false
   '@swc/core': true
   better-sqlite3: true
+  # testcontainers (third-party IdP e2e spec) brings these in with build scripts
+  # for OPTIONAL natives: ssh2/cpu-features have a pure-JS fallback and the
+  # containers never use SSH. Denied explicitly, as in adonis-authz, so CI does not
+  # fail with ERR_PNPM_IGNORED_BUILDS and nothing native gets compiled.
+  cpu-features: false
   esbuild: true
   protobufjs: true
   sharp: true
+  ssh2: false
 
 catalog:
   "@holoyan/adonisjs-activitylog": "1.0.0"

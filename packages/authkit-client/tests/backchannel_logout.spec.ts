@@ -61,7 +61,14 @@ test.group('back-channel logout', (group) => {
 
     server = createServer((req, res) => {
       if (req.url?.startsWith('/.well-known')) {
-        return res.end(JSON.stringify({ issuer: ISSUER, jwks_uri: `${ISSUER}/jwks` }));
+        return res.end(
+          JSON.stringify({
+            issuer: ISSUER,
+            authorization_endpoint: `${ISSUER}/auth`,
+            token_endpoint: `${ISSUER}/token`,
+            jwks_uri: `${ISSUER}/jwks`,
+          }),
+        );
       }
       if (req.url === '/jwks') {
         res.setHeader('content-type', 'application/json');

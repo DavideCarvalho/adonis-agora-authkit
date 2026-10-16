@@ -1,5 +1,9 @@
 import { test } from '@japa/runner';
-import { registerOidcClient } from '../src/register_oidc_client.js';
+import { AuthkitClientManager } from '../providers/authkit_client_provider.js';
+import { OidcCallbackError } from '../src/authorization.js';
+import type { ResolvedClientConfig } from '../src/define_config.js';
+import { fakeHttpCtx, fakeSession, oidcRoutes } from './helpers/http.js';
+import { signIdToken, testKeys } from './helpers/id_tokens.js';
 
 /**
  * Nenhum redirect do client deve encaminhar a query da request atual: os destinos
@@ -10,87 +14,58 @@ import { registerOidcClient } from '../src/register_oidc_client.js';
  * de `redirect(path, forwardQueryString)` NÃO basta: quando o app liga
  * `redirect.forwardQueryString: true` no config/app.ts — o caso comum — o
  * positional é ignorado e o Redirect herda a config global. Por isso o `response`
- * falso aqui só considera o encaminhamento desligado se `withQs(false)` for
+ * falso (helpers/http.ts) só considera o encaminhamento desligado se `withQs(false)` for
  * chamado; a forma posicional cai no default do config (encaminha) e o teste falha.
  */
 
-type Redirect = { url: string; forward: boolean };
+const ISSUER = 'https://idp.test/oidc';
 
-function fakeResponse(redirects: Redirect[]) {
-  return {
-    redirect(path?: string, _forward?: boolean) {
-      // Forma posicional: em produção com `redirect.forwardQueryString: true`
-      // (o caso comum, em config/app.ts) o argumento é IGNORADO e o Redirect
-      // herda a config global — ou seja, encaminha. O fake modela isso de
-      // propósito: só `withQs(false)` conta como opt-out.
-      if (typeof path === 'string') {
-        redirects.push({ url: path, forward: true });
-        return undefined as any;
-      }
-      const builder = {
-        _url: '',
-        _forward: true,
-        withQs(value: boolean) {
-          builder._forward = value;
-          return builder;
-        },
-        status() {
-          return builder;
-        },
-        toPath(url: string) {
-          redirects.push({ url, forward: builder._forward });
-          return undefined as any;
-        },
-        back() {
-          redirects.push({ url: 'back', forward: builder._forward });
-          return undefined as any;
-        },
-      };
-      return builder;
+/** A real manager (discovery off, local keys) with the session/identity side stubbed. */
+function manager(over: Partial<ResolvedClientConfig> = {}) {
+  const m = new AuthkitClientManager(
+    {
+      issuer: ISSUER,
+      clientId: 'app',
+      redirectUri: 'https://app.test/auth/callback',
+      scopes: ['openid'],
+      resolverFactory: { resolver: async () => ({ resolve: async () => null }) },
+      sessionKey: 'authkit',
+      globalRolesClaim: 'roles',
+      discovery: false,
+      ...over,
     },
+    { keys: testKeys },
+  );
+  m.startSession = () => undefined;
+  m.createAuthenticator = async () => ({ getIdentity: async () => ({ globalRoles: [] }) }) as any;
+  return m;
+}
+
+const PENDING = { state: 'good-state', nonce: 'good-nonce', codeVerifier: 'verifier' };
+
+function stubTokenEndpoint(idToken: string) {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        access_token: 'at',
+        token_type: 'Bearer',
+        expires_in: 3600,
+        id_token: idToken,
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    )) as any;
+  return () => {
+    globalThis.fetch = originalFetch;
   };
 }
-
-function fakeRouter() {
-  const routes: { pattern: string; handler: (ctx: any) => Promise<unknown> }[] = [];
-  const make = (pattern: string, handler: (ctx: any) => Promise<unknown>) => {
-    const chain = { use: () => chain, as: () => chain };
-    routes.push({ pattern, handler });
-    return chain;
-  };
-  return { routes, get: make, post: make } as any;
-}
-
-function fakeCtx(overrides: { manager?: any; qs?: Record<string, string>; session?: any }) {
-  const redirects: Redirect[] = [];
-  const ctx = {
-    containerResolver: { make: async () => overrides.manager },
-    request: { qs: () => overrides.qs ?? {}, input: () => undefined },
-    session: overrides.session,
-    response: fakeResponse(redirects),
-  } as any;
-  return { ctx, redirects };
-}
-
-const manager = () => ({
-  clientConfig: {
-    issuer: 'https://idp.test/oidc',
-    clientId: 'app',
-    redirectUri: 'https://app.test/auth/callback',
-    scopes: ['openid'],
-  },
-  startSession: () => undefined,
-  createAuthenticator: async () => ({ getIdentity: async () => ({ globalRoles: [] }) }),
-});
 
 test.group('registerOidcClient: redirect não encaminha a query da request', () => {
   test('login → authorize sem encaminhar a query', async ({ assert }) => {
-    const router = fakeRouter();
-    registerOidcClient(router);
-    const login = router.routes.find((r: { pattern: string }) => r.pattern === '/auth/login')!;
+    const login = oidcRoutes()('/auth/login');
 
-    const { ctx, redirects } = fakeCtx({ manager: manager(), session: { put: () => undefined } });
-    await login.handler(ctx);
+    const { ctx, redirects } = fakeHttpCtx({ manager: manager(), session: fakeSession() });
+    await login(ctx);
 
     assert.lengthOf(redirects, 1);
     assert.isFalse(redirects[0].forward, 'login encaminhou a query da request');
@@ -98,18 +73,14 @@ test.group('registerOidcClient: redirect não encaminha a query da request', () 
   });
 
   test('callback sem PKCE → /auth/login sem encaminhar (o code não vaza)', async ({ assert }) => {
-    const router = fakeRouter();
-    registerOidcClient(router);
-    const callback = router.routes.find(
-      (r: { pattern: string }) => r.pattern === '/auth/callback',
-    )!;
+    const callback = oidcRoutes()('/auth/callback');
 
-    const { ctx, redirects } = fakeCtx({
+    const { ctx, redirects } = fakeHttpCtx({
       manager: manager(),
       qs: { code: 'stale-code', state: 'stale-state' },
-      session: { get: () => undefined, forget: () => undefined },
+      session: fakeSession(),
     });
-    await callback.handler(ctx);
+    await callback(ctx);
 
     assert.lengthOf(redirects, 1);
     assert.strictEqual(redirects[0].url, '/auth/login');
@@ -117,55 +88,136 @@ test.group('registerOidcClient: redirect não encaminha a query da request', () 
   });
 
   test('callback com sucesso → destino do app sem encaminhar', async ({ assert }) => {
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () =>
-      new Response(
-        JSON.stringify({
-          access_token: 'at',
-          token_type: 'Bearer',
-          expires_in: 3600,
-          id_token: 'header.payload.signature',
-        }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      )) as any;
+    const restore = stubTokenEndpoint(
+      await signIdToken({ iss: ISSUER, aud: 'app', nonce: PENDING.nonce }),
+    );
 
     try {
-      const router = fakeRouter();
-      registerOidcClient(router);
-      const callback = router.routes.find(
-        (r: { pattern: string }) => r.pattern === '/auth/callback',
-      )!;
+      const callback = oidcRoutes()('/auth/callback');
 
-      const { ctx, redirects } = fakeCtx({
+      const { ctx, redirects } = fakeHttpCtx({
         manager: manager(),
         qs: { code: 'good-code', state: 'good-state' },
-        session: {
-          get: () => ({ verifier: 'verifier', state: 'good-state' }),
-          forget: () => undefined,
-        },
+        session: fakeSession({ initial: { authkit_pkce: PENDING } }),
       });
-      await callback.handler(ctx);
+      await callback(ctx);
 
       assert.lengthOf(redirects, 1);
       assert.strictEqual(redirects[0].url, '/');
       assert.isFalse(redirects[0].forward, 'pós-login encaminhou a query do callback');
     } finally {
-      globalThis.fetch = originalFetch;
+      restore();
     }
   });
 
   test('logout → end-session sem encaminhar a query', async ({ assert }) => {
-    const router = fakeRouter();
-    registerOidcClient(router);
-    const logout = router.routes.find((r: { pattern: string }) => r.pattern === '/auth/logout')!;
+    const logout = oidcRoutes()('/auth/logout');
 
-    const { ctx, redirects } = fakeCtx({
-      manager: { ...manager(), getIdToken: () => 'id-token', endSession: () => undefined },
+    const { ctx, redirects } = fakeHttpCtx({
+      manager: Object.assign(manager(), { getIdToken: () => 'id-token' }),
     });
-    await logout.handler(ctx);
+    await logout(ctx);
 
     assert.lengthOf(redirects, 1);
     assert.include(redirects[0].url, '/oidc/');
     assert.isFalse(redirects[0].forward, 'logout encaminhou a query');
+  });
+});
+
+test.group('registerOidcClient: id_token and IdP endpoints', () => {
+  const route = oidcRoutes();
+
+  test('login sends nonce and stores it with state and the PKCE verifier', async ({ assert }) => {
+    const session = fakeSession();
+    const { ctx, redirects } = fakeHttpCtx({ manager: manager(), session });
+    await route('/auth/login')(ctx);
+
+    const url = new URL(redirects[0].url);
+    const pending = session.store.get('authkit_pkce') as typeof PENDING;
+    assert.equal(url.searchParams.get('nonce'), pending.nonce);
+    assert.equal(url.searchParams.get('state'), pending.state);
+    assert.isString(pending.codeVerifier);
+  });
+
+  test('callback rejects an id_token whose nonce is not the pending one', async ({ assert }) => {
+    const restore = stubTokenEndpoint(
+      await signIdToken({ iss: ISSUER, aud: 'app', nonce: 'other' }),
+    );
+    try {
+      const { ctx } = fakeHttpCtx({
+        manager: manager(),
+        qs: { code: 'good-code', state: PENDING.state },
+        session: fakeSession({ initial: { authkit_pkce: PENDING } }),
+      });
+      const error = await route('/auth/callback')(ctx).catch((e: unknown) => e);
+      assert.instanceOf(error, OidcCallbackError);
+      assert.equal((error as OidcCallbackError).code, 'invalid_id_token');
+    } finally {
+      restore();
+    }
+  });
+
+  test('extraParams cannot override state, nonce or PKCE', async ({ assert }) => {
+    const m = manager();
+    const { url, pending } = await m.createAuthorizationRequest({
+      extraParams: { state: 'x', nonce: 'x', code_challenge: 'x', prompt: 'login' },
+    });
+    const params = new URL(url).searchParams;
+    assert.equal(params.get('state'), pending.state);
+    assert.equal(params.get('nonce'), pending.nonce);
+    assert.notEqual(params.get('code_challenge'), 'x');
+    assert.equal(params.get('prompt'), 'login');
+  });
+
+  test('callback with an IdP error restarts the login', async ({ assert }) => {
+    const { ctx, redirects } = fakeHttpCtx({
+      manager: manager(),
+      qs: { error: 'access_denied', state: PENDING.state },
+      session: fakeSession({ initial: { authkit_pkce: PENDING } }),
+    });
+    await route('/auth/callback')(ctx);
+    assert.strictEqual(redirects[0].url, '/auth/login');
+  });
+
+  test('login and logout use the configured endpoints', async ({ assert }) => {
+    const m = manager({
+      endpoints: {
+        authorizationEndpoint: 'https://kc.test/realms/acme/protocol/openid-connect/auth',
+        endSessionEndpoint: 'https://kc.test/realms/acme/protocol/openid-connect/logout',
+      },
+    });
+    const login = fakeHttpCtx({ manager: m, session: fakeSession() });
+    await route('/auth/login')(login.ctx);
+    assert.isTrue(
+      login.redirects[0].url.startsWith(
+        'https://kc.test/realms/acme/protocol/openid-connect/auth?',
+      ),
+    );
+
+    const logout = fakeHttpCtx({ manager: Object.assign(m, { getIdToken: () => 'id-token' }) });
+    await route('/auth/logout')(logout.ctx);
+    assert.isTrue(
+      logout.redirects[0].url.startsWith(
+        'https://kc.test/realms/acme/protocol/openid-connect/logout?',
+      ),
+    );
+  });
+
+  test('logout without an end_session_endpoint goes straight to the destination', async ({
+    assert,
+  }) => {
+    const m = manager({ discovery: {} });
+    // Discovered document without end_session_endpoint (Auth0-style tenant).
+    (m as any).endpoints = async () => ({
+      issuer: ISSUER,
+      authorizationEndpoint: `${ISSUER}/authorize`,
+      tokenEndpoint: `${ISSUER}/oauth/token`,
+      jwksUri: `${ISSUER}/.well-known/jwks.json`,
+    });
+    const { ctx, redirects } = fakeHttpCtx({
+      manager: Object.assign(m, { getIdToken: () => 'x' }),
+    });
+    await route('/auth/logout')(ctx);
+    assert.strictEqual(redirects[0].url, 'https://app.test/');
   });
 });

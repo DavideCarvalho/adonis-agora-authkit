@@ -1,5 +1,5 @@
 import type { Identity } from '@adonis-agora/authkit-client';
-import { resolvers } from '@adonis-agora/authkit-client';
+import { conventionEndpoints, resolvers } from '@adonis-agora/authkit-client';
 import { test } from '@japa/runner';
 import { generateTestKeyPair, mintTestIdToken, serveJwks } from '../index.js';
 
@@ -37,6 +37,8 @@ test.group('mintTestIdToken + JwtResolver', () => {
         clientId,
         sessionKey: 'authkit',
         globalRolesClaim: 'roles',
+        endpoints: async () => conventionEndpoints(issuer),
+        logger: { warn: () => {} },
       });
 
       const identity = await (resolver as unknown as TokenResolver).resolveToken(token);
@@ -65,6 +67,8 @@ test.group('mintTestIdToken + JwtResolver', () => {
         clientId,
         sessionKey: 'authkit',
         globalRolesClaim: 'roles',
+        endpoints: async () => conventionEndpoints(issuer),
+        logger: { warn: () => {} },
       });
       const identity = await (resolver as unknown as TokenResolver).resolveToken(token);
       assert.isNull(identity);

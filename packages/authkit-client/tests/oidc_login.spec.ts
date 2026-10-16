@@ -102,3 +102,29 @@ test.group('oidc login', () => {
     }
   });
 });
+
+test.group('token endpoint errors', () => {
+  test('the IdP error and description are part of the message', async ({ assert }) => {
+    const { exchangeCode } = await import('../src/oidc_login.js');
+    await assert.rejects(
+      () =>
+        exchangeCode({
+          issuer: 'http://idp',
+          clientId: 'app',
+          redirectUri: 'http://app/cb',
+          code: 'c',
+          codeVerifier: 'v',
+          fetchImpl: (async () =>
+            ({
+              ok: false,
+              status: 400,
+              json: async () => ({
+                error: 'not_allowed',
+                error_description: 'Offline tokens not allowed for the user or client',
+              }),
+            }) as Response) as typeof fetch,
+        }),
+      'Token endpoint returned 400: not_allowed (Offline tokens not allowed for the user or client)',
+    );
+  });
+});

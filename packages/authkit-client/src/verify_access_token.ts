@@ -1,4 +1,5 @@
-import { createRemoteJWKSet, type JWTPayload, jwtVerify } from 'jose';
+import { type JWTPayload, jwtVerify } from 'jose';
+import { DEFAULT_ALGS, getJwks } from './jwks.js';
 
 /**
  * Verificação LOCAL de um JWT Access Token (RFC 9068) emitido pelo AuthKit server
@@ -30,31 +31,6 @@ export interface JwtAccessTokenClaims extends JWTPayload {
   scope?: string;
 }
 
-const DEFAULT_ALGS = [
-  'RS256',
-  'RS384',
-  'RS512',
-  'PS256',
-  'PS384',
-  'PS512',
-  'ES256',
-  'ES384',
-  'ES512',
-  'EdDSA',
-];
-
-// Cache de keysets remotos por jwks_uri — evita refazer fetch/parse por request.
-const jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
-
-function getJwks(uri: string): ReturnType<typeof createRemoteJWKSet> {
-  let set = jwksCache.get(uri);
-  if (!set) {
-    set = createRemoteJWKSet(new URL(uri));
-    jwksCache.set(uri, set);
-  }
-  return set;
-}
-
 /**
  * Verifica um JWT AT (RFC 9068). Lança (via jose) se a assinatura/claims forem
  * inválidas ou se o `typ` não for `at+jwt` (a menos que `allowAnyTyp`). Retorna as
@@ -73,9 +49,4 @@ export async function verifyJwtAccessToken(
     ...(options.allowAnyTyp ? {} : { typ: 'at+jwt' }),
   });
   return payload as JwtAccessTokenClaims;
-}
-
-/** Limpa o cache de JWKS remotos (útil em testes). */
-export function clearJwksCache(): void {
-  jwksCache.clear();
 }

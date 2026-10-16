@@ -6,8 +6,11 @@ import { buildIdentityFromClaims, introspectToken } from './identity.js';
 type FetchImpl = (url: string, init: any) => Promise<{ ok: boolean; json: () => Promise<any> }>;
 
 export interface OpaqueResolverConfig {
-  /** Endpoint de introspection do IdP (RFC 7662). Ex.: `${issuer}/token/introspection`. */
-  introspectionUrl: string;
+  /**
+   * Endpoint de introspection do IdP (RFC 7662), lido a cada request. `null` (o IdP
+   * não publica um, ou o discovery está falhando) resolve para nenhuma identidade.
+   */
+  introspectionUrl: () => Promise<string | null>;
   /** client_id usado para autenticar a introspection (client confidencial). */
   clientId: string;
   /** client_secret correspondente (Basic auth). */
@@ -67,11 +70,14 @@ export class OpaqueResolver implements SessionResolver {
       if (hit && this.#now() - hit.storedAt < ttl) return hit.identity;
     }
 
+    const introspectionUrl = await this.config.introspectionUrl();
+    if (!introspectionUrl) return null;
+
     const basic = Buffer.from(`${this.config.clientId}:${this.config.clientSecret}`).toString(
       'base64',
     );
     const data = await introspectToken(
-      this.config.introspectionUrl,
+      introspectionUrl,
       token,
       { type: 'basic', value: basic },
       { tokenTypeHint: 'access_token', fetchImpl: this.config.fetchImpl },

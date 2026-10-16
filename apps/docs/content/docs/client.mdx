@@ -402,69 +402,84 @@ configured revocation store, with no extra routing on your side.
 
 If your host needs a flow the generated routes do not express — a multi-tenant issuer chosen
 per request, a step-up re-authentication, an authorize URL with parameters that are not
-simple passthroughs — the primitives are exported and you can assemble the flow yourself:
+simple passthroughs — the manager exposes the same steps one call at a time. Inject it
+like any first-party service (or import `@adonis-agora/authkit-client/services/main`):
 
 ```ts
+import { inject } from "@adonisjs/core";
+import type { HttpContext } from "@adonisjs/core/http";
 import {
-  generatePkce,
-  buildAuthorizeUrl,
-  exchangeCode,
+  AuthkitClientManager,
+  OidcCallbackError,
   buildEndSessionUrl,
 } from "@adonis-agora/authkit-client";
-import authkit from "@adonis-agora/authkit-client/services/main";
-import { randomUUID } from "node:crypto";
 
-// 1. Login: generate PKCE + state, stash both in the session, redirect to the IdP
-const { verifier, challenge } = await generatePkce();
-const state = randomUUID();
-ctx.session.put("my_pkce", { verifier, state });
-return ctx.response.redirect(
-  buildAuthorizeUrl({
-    issuer,
-    clientId,
-    redirectUri,
-    scopes: ["openid", "profile", "email", "offline_access"],
-    state,
-    codeChallenge: challenge,
-  }),
-);
+@inject()
+export default class OidcSessionController {
+  constructor(protected authkit: AuthkitClientManager) {}
 
-// 2. Callback: verify state yourself, exchange the code, start the session
-const stashed = ctx.session.pull("my_pkce");
-if (!stashed || stashed.state !== ctx.request.input("state")) {
-  return ctx.response.redirect("/auth/login");
+  // 1. Login: fresh state + nonce + PKCE, against the discovered endpoints
+  async login({ session, response }: HttpContext) {
+    const { url, pending } = await this.authkit.createAuthorizationRequest({
+      scopes: ["openid", "profile", "email", "offline_access"],
+    });
+    session.put("my_pkce", pending);
+    return response.redirect(url);
+  }
+
+  // 2. Callback: state/iss check, code exchange, id_token validation (nonce included)
+  async callback(ctx: HttpContext) {
+    try {
+      const { tokens } = await this.authkit.completeAuthorization({
+        pending: ctx.session.pull("my_pkce"),
+        callbackParams: ctx.request.qs(),
+      });
+      this.authkit.startSession(ctx, tokens);
+    } catch (error) {
+      if (error instanceof OidcCallbackError && error.restartable) {
+        return ctx.response.redirect("/auth/login");
+      }
+      throw error;
+    }
+    return ctx.response.redirect("/");
+  }
+
+  // 3. Logout: end the local session, then the IdP's
+  async logout(ctx: HttpContext) {
+    const idToken = this.authkit.getIdToken(ctx);
+    this.authkit.endSession(ctx);
+    const { endSessionEndpoint } = await this.authkit.endpoints();
+    if (!endSessionEndpoint) return ctx.response.redirect("/");
+    return ctx.response.redirect(
+      buildEndSessionUrl({
+        issuer: this.authkit.clientConfig.issuer,
+        idToken,
+        endSessionEndpoint,
+        postLogoutRedirectUri: "https://my-app.example.com/",
+      }),
+    );
+  }
 }
-const tokens = await exchangeCode({
-  issuer,
-  clientId,
-  clientSecret,
-  redirectUri,
-  code: ctx.request.input("code"),
-  codeVerifier: stashed.verifier,
-});
-authkit.startSession(ctx, tokens);
-
-// 3. Logout: end the local session, then the IdP's
-const idToken = authkit.getIdToken(ctx);
-authkit.endSession(ctx);
-return ctx.response.redirect(
-  buildEndSessionUrl({
-    issuer,
-    idToken,
-    postLogoutRedirectUri: "https://my-app.example.com/",
-  }),
-);
 ```
 
-Going manual means **you** now own the `state` comparison, the stale-callback path, the
-session teardown ordering, and the back-channel route. Use `startSession` / `endSession`
-rather than writing the session key directly: they are the two methods that also clear a
-parked impersonation credential, and skipping them is how a live refresh token outlives the
-session that stashed it.
+Going manual means **you** now own the stale-callback path, the session teardown ordering,
+and the back-channel route. Use `startSession` / `endSession` rather than writing the
+session key directly: they are the two methods that also clear a parked impersonation
+credential, and skipping them is how a live refresh token outlives the session that stashed
+it.
 
-`buildEndSessionUrl` targets `${issuer}/session/end`. Passing `idToken` as the
-`id_token_hint` lets the IdP skip its confirmation page; the `postLogoutRedirectUri` must
-be registered on the client. See [Security](/docs/security) for the logout details.
+`completeAuthorization` throws `OidcCallbackError` with a `code` (`missing_pending`,
+`state_mismatch`, `issuer_mismatch`, `idp_error`, `missing_code`, `token_exchange_failed`,
+`missing_id_token`, `invalid_id_token`); `restartable` is true for `missing_pending`,
+`state_mismatch`, `idp_error` and `missing_code` — the cases where the answer is to send the
+user back to login. `error.idpError` carries the IdP's `error` (`access_denied`…) if you want
+to treat a refusal differently. Passing `idToken` as the `id_token_hint` lets the IdP
+skip its confirmation page; the `postLogoutRedirectUri` must be registered on the client. See
+[Security](/docs/security) for the logout details.
+
+The raw primitives — `generatePkce`, `buildAuthorizeUrl`, `exchangeCode`, `validateIdToken`,
+and the standalone `createAuthorizationRequest` / `completeAuthorization` — stay exported for
+code that runs without the AdonisJS container.
 
 ## The Authenticator
 
@@ -588,14 +603,30 @@ authkit.endSession(ctx); // tear the session down completely
 await authkit.maybeRefresh(ctx); // refresh if the access token is near expiry
 await authkit.createAuthenticator(ctx); // a fresh Authenticator for this request
 await authkit.handleBackchannelLogout(ctx); // the logout_token endpoint handler
+await authkit.endpoints(); // the IdP endpoints (discovered + overrides)
+await authkit.createAuthorizationRequest(); // { url, pending } for a login
+await authkit.completeAuthorization({ pending, callbackParams }); // { tokens, claims }
+await authkit.validateIdToken(idToken, { nonce }); // claims of a valid id_token
+```
+
+The manager is bound in the container by class, so it can also be injected like any
+first-party service:
+
+```ts
+import { inject } from "@adonisjs/core";
+import { AuthkitClientManager } from "@adonis-agora/authkit-client";
+
+@inject()
+export default class AccountController {
+  constructor(protected authkit: AuthkitClientManager) {}
+}
 ```
 
 The singleton is bound once the application has booted, which covers every HTTP request,
-command, and job. Resolve `authkit.client` from the container instead in the two places where
-the singleton does not yet exist: inside a service provider's `register()` or `boot()`, and
-inside `config/*.ts` files, both of which run before the app is booted. In an HTTP handler
-`ctx.containerResolver.make('authkit.client')` also works and is what the library's own
-middleware use, but the singleton reads better and needs no `await` on the container.
+command, and job. Resolve `AuthkitClientManager` from the container instead in the two places
+where the singleton does not yet exist: inside a service provider's `register()` or `boot()`,
+and inside `config/*.ts` files, both of which run before the app is booted. The string key
+`authkit.client` is kept as an alias of the class binding.
 
 ## Impersonation
 
@@ -670,9 +701,32 @@ directly.
 
 ## Endpoint discovery
 
-The flow helpers derive their URLs from the issuer using the AuthKit IdP's own layout
-(`/auth`, `/token`, `/jwks`, `/session/end`, `/me`, `/token/introspection`). That layout is
-exported as `conventionEndpoints(issuer)`, a pure synchronous function that does no I/O:
+The client discovers the IdP endpoints from `{issuer}/.well-known/openid-configuration` by
+default and uses them everywhere: login, callback, logout, refresh, impersonation,
+back-channel logout, and the default `jwksUri` / introspection URL of the resolvers. That is
+what makes the same config work against authkit-server, Keycloak, Auth0, Okta or Entra.
+
+```ts title="config/authkit_client.ts"
+export default defineConfig({
+  issuer: "https://keycloak.acme.com/realms/acme",
+  // ...
+  discovery: { cacheTtlMs: 15 * 60_000 }, // default: true (15 min cache)
+  endpoints: { endSessionEndpoint: "https://keycloak.acme.com/custom/logout" }, // optional overrides
+});
+```
+
+| Option      | Type                                | Default | Description |
+| ----------- | ----------------------------------- | ------- | ----------- |
+| `discovery` | `boolean \| { cacheTtlMs?: number }` | `true`  | Read the discovery document. `false` uses the AuthKit route layout plus `endpoints`, with no network. |
+| `endpoints` | `Partial<OidcEndpoints>`            | —       | Per-field overrides; always win over the document. |
+
+Discovery runs on first use, so the app boots while the IdP is down. A failure throws
+`OidcDiscoveryError` and is retried on the next request; a document discovered earlier keeps
+being served while refetches fail. The document's `issuer` must match the configured one, and
+its exact value is what `iss` claims are checked against. An endpoint the IdP does not publish
+stays unset rather than being guessed. `authkit.endpoints()` returns the resolved set.
+
+The same logic is exported for code outside the container:
 
 ```ts
 import { conventionEndpoints, discoverEndpoints } from "@adonis-agora/authkit-client";
@@ -682,21 +736,15 @@ const known = conventionEndpoints("https://auth.acme.com/oidc");
 
 // Reads /.well-known/openid-configuration, cached 15 min per issuer.
 const endpoints = await discoverEndpoints("https://keycloak.acme.com/realms/acme", {
+  onError: "throw",
   overrides: { endSessionEndpoint: "https://keycloak.acme.com/custom/logout" },
 });
 ```
 
-`discoverEndpoints` is the one to use against a third-party IdP — Keycloak, Auth0, Okta,
-Entra — because none of them lay their routes out the way the AuthKit IdP does. It caches per
-issuer for 15 minutes (tune with `cacheTtlMs`), so calling it per request is fine, and
-`overrides` win field by field over whatever the document says.
-
-The two are not alternatives so much as layers: `discoverEndpoints` falls back to
-`conventionEndpoints` when the discovery document is unreachable or malformed, and it caches
-that fallback too so a down IdP does not turn into a refetch loop. Call `conventionEndpoints`
-directly only when you want the AuthKit layout with certainty and no network at all — a test
-fixture, a build-time constant, an air-gapped deployment. See
-[BYO IdP](/docs/byo-idp) for the third-party wiring.
+`onError` defaults to `'fallback'` for compatibility: an unusable document falls back to
+`conventionEndpoints`, field by field for an incomplete one. The fallback is never cached, so
+the next call retries. Pass `onError: 'throw'` against a third-party IdP, where the AuthKit
+layout is never right. See [BYO IdP](/docs/byo-idp) for the third-party wiring.
 
 ## Refresh & back-channel logout
 
