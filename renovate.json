@@ -57,7 +57,11 @@
     },
     {
       "description": "The peer catalogs in pnpm-workspace.yaml are peer ranges too: pnpm inlines their literal value into peerDependencies at publish time. Renovate sees them as catalog entries (depType `pnpm.catalog.<name>`), not as peerDependencies, so the rule above does not reach them and the global `rangeStrategy: pin` once rewrote `^7.5.0` to `7.5.0`, shipping exact peers (#238). Same treatment as the rule above.",
-      "matchDepTypes": ["pnpm.catalog.adonisPeers", "pnpm.catalog.frontendPeers", "pnpm.catalog.miscPeers"],
+      "matchDepTypes": [
+        "pnpm.catalog.adonisPeers",
+        "pnpm.catalog.frontendPeers",
+        "pnpm.catalog.miscPeers"
+      ],
       "rangeStrategy": "widen",
       "automerge": false
     }
