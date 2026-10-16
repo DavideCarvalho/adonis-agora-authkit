@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 0.80.1
+
+### Patch Changes
+
+- [#255](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/255) [`481051c`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/481051c86c67b2bf5026f7a49028d260236667c9) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Publish peer dependencies as ranges again (`^7.5.0` instead of `7.5.0`, etc.). A Renovate pinning pass had turned the peer catalogs into exact versions, so any upstream patch release (e.g. `@adonisjs/core` 7.5.1) fell outside the accepted peer range.
+
 ## 0.80.0
 
 ### Minor Changes
