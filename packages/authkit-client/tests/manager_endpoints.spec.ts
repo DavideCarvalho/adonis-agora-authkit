@@ -203,3 +203,61 @@ test.group('AuthkitClientManager | IdP down at boot', (group) => {
     assert.isAbove(state.calls.length, 1);
   });
 });
+
+test.group('resolvers | follow the current endpoints', (group) => {
+  group.each.setup(() => __clearDiscoveryCacheForTests());
+
+  test('a rotated jwks_uri reaches the live resolver', async ({ assert }) => {
+    let jwksUri = 'https://kc.test/keys-1';
+    const factory = resolvers.jwt({ tokenSource: 'bearer' });
+    const resolver = (await factory.resolver({
+      issuer: ISSUER,
+      clientId: 'app1',
+      sessionKey: 'authkit',
+      globalRolesClaim: 'roles',
+      endpoints: async () => ({
+        issuer: ISSUER,
+        authorizationEndpoint: 'a',
+        tokenEndpoint: 't',
+        jwksUri,
+      }),
+    })) as any;
+    const fetched: string[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (url: any) => {
+      fetched.push(String(url));
+      return new Response('{"keys":[]}', { headers: { 'content-type': 'application/json' } });
+    }) as any;
+    try {
+      const token = await signIdToken({ iss: ISSUER });
+      await resolver.resolveToken(token);
+      jwksUri = 'https://kc.test/keys-2';
+      await resolver.resolveToken(token);
+    } finally {
+      globalThis.fetch = original;
+    }
+    assert.deepEqual(fetched, ['https://kc.test/keys-1', 'https://kc.test/keys-2']);
+  });
+
+  test('opaque without an introspection endpoint: no identity, warned once', async ({ assert }) => {
+    const warnings: string[] = [];
+    const resolver = await resolvers.opaque().resolver({
+      issuer: ISSUER,
+      clientId: 'app1',
+      clientSecret: 's',
+      sessionKey: 'authkit',
+      globalRolesClaim: 'roles',
+      logger: { warn: (_obj, msg) => warnings.push(msg) },
+      endpoints: async () => ({
+        issuer: ISSUER,
+        authorizationEndpoint: 'a',
+        tokenEndpoint: 't',
+        jwksUri: 'j',
+      }),
+    });
+    const ctx = { session: { get: () => ({ accessToken: 'at' }) } } as any;
+    assert.isNull(await resolver.resolve(ctx));
+    assert.isNull(await resolver.resolve(ctx));
+    assert.lengthOf(warnings, 1);
+  });
+});

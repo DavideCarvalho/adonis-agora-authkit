@@ -312,8 +312,9 @@ export default class OidcSessionController {
       // parked by a previous login in the same cookie jar.
       this.authkit.startSession(ctx, tokenSet)
     } catch (error) {
-      // Stale or foreign callback (lost state, no code) → start over.
-      if (error instanceof OidcCallbackError && error.restartable) {
+      // Stale or foreign callback (lost state, no code), or the IdP sent the user
+      // back with an error (access_denied…) → start over.
+      if (error instanceof OidcCallbackError && (error.restartable || error.code === 'idp_error')) {
         return ctx.response.redirect('/auth/login')
       }
       throw error
@@ -327,6 +328,8 @@ export default class OidcSessionController {
     const idToken = this.authkit.getIdToken(ctx)
     this.authkit.endSession(ctx)
     const { endSessionEndpoint } = await this.authkit.endpoints()
+    // No end_session_endpoint published by the IdP: the local logout is all there is.
+    if (!endSessionEndpoint) return ctx.response.redirect('/')
     return ctx.response.redirect(
       buildEndSessionUrl({
         issuer: this.authkit.clientConfig.issuer,

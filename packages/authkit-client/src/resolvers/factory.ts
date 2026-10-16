@@ -44,6 +44,8 @@ export interface ResolverContext {
    * contexts keep compiling; without it, the authkit-server convention is used.
    */
   endpoints?: () => Promise<OidcEndpoints>;
+  /** Where a resolver reports that the IdP cannot serve it (e.g. no introspection). */
+  logger?: { warn(obj: object, msg: string): void };
 }
 
 async function endpointsOf(rc: ResolverContext): Promise<OidcEndpoints> {
@@ -51,23 +53,42 @@ async function endpointsOf(rc: ResolverContext): Promise<OidcEndpoints> {
 }
 
 /**
- * Builds the resolver on first use instead of when the factory runs, because the
- * endpoints it needs may come from discovery. While discovery fails, a request
- * resolves to no identity — the same outcome as an unreachable JWKS — instead of
- * failing every request (public pages included, via silent auth). The build is
- * retried on the next request. Any other error is a configuration error and throws.
+ * Builds the resolver from the CURRENT endpoints, on each request: discovery is
+ * cached (15 min), so this is cheap, and a rotated `jwks_uri` / `issuer` reaches a
+ * live process on the next refetch instead of sticking until restart. The resolver
+ * itself is rebuilt only when `select` yields a different key, so its JWKS cache
+ * survives between requests.
+ *
+ * While discovery fails (and nothing was ever discovered), a request resolves to
+ * no identity — the same outcome as an unreachable JWKS — instead of failing every
+ * request, public pages included via silent auth. `select` returning `null` means
+ * "this IdP cannot serve this resolver"; that also resolves to no identity, after
+ * a one-time warning. Any other error is a configuration error and throws.
  */
-function lazily<R>(build: () => Promise<R>): () => Promise<R | null> {
-  let pending: Promise<R> | undefined;
+function endpointBound<R>(
+  rc: ResolverContext,
+  select: (endpoints: OidcEndpoints) => string | null,
+  build: (endpoints: OidcEndpoints) => R,
+  unavailable: string,
+): () => Promise<R | null> {
+  let current: { key: string; resolver: R } | undefined;
+  let warned = false;
   return async () => {
-    pending ??= build();
+    let endpoints: OidcEndpoints;
     try {
-      return await pending;
+      endpoints = await endpointsOf(rc);
     } catch (error) {
-      pending = undefined;
-      if (error instanceof OidcDiscoveryError) return null;
+      if (error instanceof OidcDiscoveryError) return current?.resolver ?? null;
       throw error;
     }
+    const key = select(endpoints);
+    if (key === null) {
+      if (!warned) rc.logger?.warn({ issuer: rc.issuer }, unavailable);
+      warned = true;
+      return null;
+    }
+    if (current?.key !== key) current = { key, resolver: build(endpoints) };
+    return current.resolver;
   };
 }
 
@@ -80,16 +101,19 @@ export const resolvers = {
     const tokenSource = config.tokenSource ?? 'session';
     return {
       async resolver(rc) {
-        const inner = lazily(async () => {
-          const endpoints = await endpointsOf(rc);
-          return new JwtResolver({
-            issuer: endpoints.issuer ?? rc.issuer,
-            jwksUri: config.jwksUri ?? endpoints.jwksUri,
-            audience: rc.clientId,
-            globalRolesClaim: rc.globalRolesClaim,
-            getToken: (httpCtx) => getTokenFromSource(httpCtx, tokenSource, rc.sessionKey),
-          });
-        });
+        const inner = endpointBound(
+          rc,
+          (e) => `${e.issuer ?? rc.issuer} ${config.jwksUri ?? e.jwksUri}`,
+          (e) =>
+            new JwtResolver({
+              issuer: e.issuer ?? rc.issuer,
+              jwksUri: config.jwksUri ?? e.jwksUri,
+              audience: rc.clientId,
+              globalRolesClaim: rc.globalRolesClaim,
+              getToken: (httpCtx) => getTokenFromSource(httpCtx, tokenSource, rc.sessionKey),
+            }),
+          'authkit-client: resolvers.jwt has no jwks_uri',
+        );
         return {
           async resolve(ctx: HttpContext) {
             return (await inner())?.resolve(ctx) ?? null;
@@ -124,24 +148,22 @@ export const resolvers = {
           );
         }
         const clientSecret = rc.clientSecret;
-        const inner = lazily(async () => {
-          const introspectionUrl =
-            config.introspectionUrl ?? (await endpointsOf(rc)).introspectionEndpoint;
-          if (!introspectionUrl) {
-            throw new Error(
-              'resolvers.opaque: the IdP publishes no introspection_endpoint — set introspectionUrl',
-            );
-          }
-          return new OpaqueResolver({
-            introspectionUrl,
-            clientId: rc.clientId,
-            clientSecret,
-            tokenSource,
-            sessionKey: rc.sessionKey,
-            globalRolesClaim: rc.globalRolesClaim,
-            cacheTtlMs: config.cacheTtlMs,
-          });
-        });
+        const inner = endpointBound(
+          rc,
+          (e) => config.introspectionUrl ?? e.introspectionEndpoint ?? null,
+          (e) =>
+            new OpaqueResolver({
+              introspectionUrl: (config.introspectionUrl ?? e.introspectionEndpoint) as string,
+              clientId: rc.clientId,
+              clientSecret,
+              tokenSource,
+              sessionKey: rc.sessionKey,
+              globalRolesClaim: rc.globalRolesClaim,
+              cacheTtlMs: config.cacheTtlMs,
+            }),
+          'authkit-client: the IdP publishes no introspection_endpoint, so resolvers.opaque ' +
+            'resolves every request to no identity — set introspectionUrl',
+        );
         return {
           async resolve(ctx: HttpContext) {
             return (await inner())?.resolve(ctx) ?? null;

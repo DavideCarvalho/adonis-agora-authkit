@@ -31,7 +31,8 @@ export default class OidcSessionController {
       // startSession (not session.put) drops any impersonation parked by a previous session.
       this.authkit.startSession(ctx, tokenSet)
     } catch (error) {
-      if (error instanceof OidcCallbackError && error.restartable) {
+      // Stale callback, or the IdP sent the user back with an error (access_denied…).
+      if (error instanceof OidcCallbackError && (error.restartable || error.code === 'idp_error')) {
         return ctx.response.redirect('/auth/login')
       }
       throw error

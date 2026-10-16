@@ -37,10 +37,23 @@ export interface AuthorizeParams {
   /**
    * Parâmetros extras anexados à URL de autorização (ex.: `audience`, `prompt`,
    * `login_hint`, `ui_locales`, `acr_values`). Evita manipulação manual de URL no
-   * controller. Valores `undefined`/`null` são ignorados.
+   * controller. Valores `undefined`/`null` são ignorados, assim como as chaves que a
+   * própria função monta (`state`, `nonce`, `code_challenge`, `scope`, `client_id`…).
    */
   extraParams?: Record<string, string | number | undefined | null>;
 }
+
+/** Parameters `buildAuthorizeUrl` owns; `extraParams` cannot override them. */
+const RESERVED_AUTHORIZE_PARAMS = new Set([
+  'client_id',
+  'response_type',
+  'redirect_uri',
+  'scope',
+  'state',
+  'nonce',
+  'code_challenge',
+  'code_challenge_method',
+]);
 
 export function buildAuthorizeUrl(p: AuthorizeParams): string {
   const url = new URL(p.authorizationEndpoint ?? `${p.issuer}/auth`);
@@ -54,6 +67,9 @@ export function buildAuthorizeUrl(p: AuthorizeParams): string {
   if (p.nonce) url.searchParams.set('nonce', p.nonce);
   if (p.extraParams) {
     for (const [key, value] of Object.entries(p.extraParams)) {
+      // A reserved key would silently replace the session-bound value (state, nonce,
+      // PKCE…) and the callback could never validate.
+      if (RESERVED_AUTHORIZE_PARAMS.has(key)) continue;
       if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
     }
   }

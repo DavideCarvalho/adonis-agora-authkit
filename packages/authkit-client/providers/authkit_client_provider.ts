@@ -104,6 +104,7 @@ export class AuthkitClientManager {
         sessionKey: this.config.sessionKey,
         globalRolesClaim: this.config.globalRolesClaim,
         endpoints: () => this.endpoints(),
+        logger: this.deps.logger,
       });
     }
     return this.#resolverCache;

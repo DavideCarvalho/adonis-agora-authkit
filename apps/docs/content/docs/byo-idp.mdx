@@ -110,7 +110,7 @@ export default class OidcSessionController {
       this.authkit.startSession(ctx, tokens)
       // claims: the validated id_token payload (sub, email, sid…)
     } catch (error) {
-      if (error instanceof OidcCallbackError && error.restartable) {
+      if (error instanceof OidcCallbackError && (error.restartable || error.code === 'idp_error')) {
         return ctx.response.redirect('/auth/login')
       }
       throw error

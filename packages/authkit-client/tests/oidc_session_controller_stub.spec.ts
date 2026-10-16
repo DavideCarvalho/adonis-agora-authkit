@@ -48,4 +48,9 @@ test.group('oidc_session_controller.stub', () => {
     assert.match(stubContent, /protected authkit: AuthkitClientManager/);
     assert.notMatch(stubContent, /containerResolver\.make\('authkit\.client'\)/);
   });
+
+  test('restarts the login on an IdP error, like registerOidcClient', async ({ assert }) => {
+    const stubContent = await readStub();
+    assert.match(stubContent, /error\.restartable \|\| error\.code === 'idp_error'/);
+  });
 });

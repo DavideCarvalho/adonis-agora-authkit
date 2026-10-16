@@ -236,6 +236,18 @@ test.group('registerOidcClient: id_token and IdP endpoints', () => {
     }
   });
 
+  test('extraParams cannot override state, nonce or PKCE', async ({ assert }) => {
+    const m = manager();
+    const { url, pending } = await m.createAuthorizationRequest({
+      extraParams: { state: 'x', nonce: 'x', code_challenge: 'x', prompt: 'login' },
+    });
+    const params = new URL(url).searchParams;
+    assert.equal(params.get('state'), pending.state);
+    assert.equal(params.get('nonce'), pending.nonce);
+    assert.notEqual(params.get('code_challenge'), 'x');
+    assert.equal(params.get('prompt'), 'login');
+  });
+
   test('callback with an IdP error restarts the login', async ({ assert }) => {
     const { ctx, redirects } = fakeCtx({
       manager: manager(),
