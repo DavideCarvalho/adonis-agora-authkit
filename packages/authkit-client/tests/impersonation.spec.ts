@@ -3,9 +3,11 @@ import { test } from '@japa/runner';
 import { AuthkitClientManager } from '../providers/authkit_client_provider.js';
 import { defineConfig, type ResolvedClientConfig, resolvers } from '../src/define_config.js';
 import type { TokenSet } from '../src/types.js';
+import { signIdToken, testKeys } from './helpers/id_tokens.js';
 
 const ISSUER = 'http://idp.test';
 const IMPERSONATOR_KEY = 'authkit_impersonator';
+const REFRESHED_TARGET_ID_TOKEN = await signIdToken({ iss: ISSUER, sub: 'target-1' });
 
 /** Sessão de mentira com a mesma superfície que o manager usa (get/put/forget). */
 function fakeSession() {
@@ -37,9 +39,10 @@ async function makeManager(): Promise<AuthkitClientManager> {
       clientSecret: 's',
       redirectUri: `${ISSUER}/cb`,
       resolver: resolvers.jwt({ tokenSource: 'session' }),
+      discovery: false,
     }),
   );
-  return new AuthkitClientManager(resolved!);
+  return new AuthkitClientManager(resolved!, { keys: testKeys });
 }
 
 /** Stub do token endpoint: token-exchange e refresh devolvem tokens do ALVO. */
@@ -145,7 +148,7 @@ test.group('impersonation | atribuição do restore', () => {
 
   test('o vínculo sobrevive ao maybeRefresh proativo do middleware', async ({ assert }) => {
     const restore = stubTokenEndpoint({
-      id_token: 'target-id-2',
+      id_token: REFRESHED_TARGET_ID_TOKEN,
       access_token: 'target-at-2',
       refresh_token: 'target-rt-2',
       expires_in: 3600,
@@ -248,6 +251,7 @@ test.group('impersonation | caminhos que encerram a sessão', () => {
               prune: async () => {},
             },
           },
+          discovery: false,
         }),
       );
       const manager = new AuthkitClientManager(resolved!);

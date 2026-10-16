@@ -44,9 +44,10 @@ const DEFAULT_ALGS = [
 ];
 
 // Cache de keysets remotos por jwks_uri — evita refazer fetch/parse por request.
+// Shared with validateIdToken (internal; not re-exported from the package root).
 const jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
-function getJwks(uri: string): ReturnType<typeof createRemoteJWKSet> {
+export function getJwks(uri: string): ReturnType<typeof createRemoteJWKSet> {
   let set = jwksCache.get(uri);
   if (!set) {
     set = createRemoteJWKSet(new URL(uri));

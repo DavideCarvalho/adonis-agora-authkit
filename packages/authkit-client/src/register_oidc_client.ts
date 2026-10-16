@@ -1,7 +1,9 @@
-import { randomUUID } from 'node:crypto';
 import type { Identity } from '@adonis-agora/authkit-core';
 import type { HttpContext, Router } from '@adonisjs/core/http';
-import { buildAuthorizeUrl, buildEndSessionUrl, exchangeCode, generatePkce } from './oidc_login.js';
+import { OidcCallbackError } from './authorization.js';
+import type { OidcEndpoints } from './discovery.js';
+import { buildEndSessionUrl } from './oidc_login.js';
+import type { TokenSet } from './types.js';
 
 /**
  * Mapa role → rota de redirect pós-login. `byGlobalRole` checa as roles globais do
@@ -71,10 +73,6 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
 
   const loginRoute = router.get(`${prefix}/login`, async (ctx: HttpContext) => {
     const manager = await ctx.containerResolver.make('authkit.client');
-    const cfg = manager.clientConfig;
-    const { verifier, challenge } = await generatePkce();
-    const state = randomUUID();
-    (ctx as any).session?.put(pkceKey, { verifier, state });
 
     const extraParams: Record<string, string> = {};
     for (const param of passthrough) {
@@ -82,15 +80,8 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
       if (v !== undefined && v !== null && v !== '') extraParams[param] = String(v);
     }
 
-    const url = buildAuthorizeUrl({
-      issuer: cfg.issuer,
-      clientId: cfg.clientId,
-      redirectUri: cfg.redirectUri,
-      scopes: cfg.scopes,
-      state,
-      codeChallenge: challenge,
-      ...(Object.keys(extraParams).length ? { extraParams } : {}),
-    });
+    const { url, pending } = await manager.createAuthorizationRequest({ extraParams });
+    (ctx as any).session?.put(pkceKey, pending);
     return ctx.response.redirect().withQs(false).toPath(url);
   });
   if (options.loginMiddleware) loginRoute.use(options.loginMiddleware);
@@ -99,28 +90,31 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
   router
     .get(`${prefix}/callback`, async (ctx: HttpContext) => {
       const manager = await ctx.containerResolver.make('authkit.client');
-      const cfg = manager.clientConfig;
-      const { code, state } = ctx.request.qs();
-      const pkce = (ctx as any).session?.get(pkceKey);
+      const pending = (ctx as any).session?.get(pkceKey);
+      // Single use, whatever the outcome.
+      (ctx as any).session?.forget(pkceKey);
 
-      // Callback velho/expirado (state perdido ou code ausente) → recomeça o login.
-      if (!pkce || pkce.state !== state || !code) {
-        (ctx as any).session?.forget(pkceKey);
-        return ctx.response.redirect().withQs(false).toPath(`${prefix}/login`);
+      let tokenSet: TokenSet;
+      try {
+        ({ tokens: tokenSet } = await manager.completeAuthorization({
+          pending,
+          callbackParams: ctx.request.qs(),
+        }));
+      } catch (error) {
+        // Stale/expired callback (lost state, no code) or the IdP sent the user back
+        // with an error (access_denied…) → restart the login, as before. A failed
+        // id_token check or token exchange is a real failure and propagates.
+        if (
+          error instanceof OidcCallbackError &&
+          (error.restartable || error.code === 'idp_error')
+        ) {
+          return ctx.response.redirect().withQs(false).toPath(`${prefix}/login`);
+        }
+        throw error;
       }
-
-      const tokenSet = await exchangeCode({
-        issuer: cfg.issuer,
-        clientId: cfg.clientId,
-        clientSecret: cfg.clientSecret,
-        redirectUri: cfg.redirectUri,
-        code,
-        codeVerifier: pkce.verifier,
-      });
       // startSession, não `put(sessionKey)`: um login novo no mesmo cookie jar não pode
       // herdar a credencial de impersonação parqueada pela sessão anterior.
       manager.startSession(ctx, tokenSet);
-      (ctx as any).session?.forget(pkceKey);
 
       const authenticator = await manager.createAuthenticator(ctx);
       const identity = await authenticator.getIdentity();
@@ -149,11 +143,22 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
           ? options.postLogoutRedirect(ctx)
           : (options.postLogoutRedirect ?? `${new URL(cfg.redirectUri).origin}/`);
 
+      // The local session is already gone. With no end_session_endpoint to send the
+      // browser to — the IdP publishes none (some Auth0 tenants) or discovery is
+      // failing right now — go straight to the destination instead of erroring.
+      const endSessionEndpoint = await manager.endpoints().then(
+        (endpoints: OidcEndpoints) => endpoints.endSessionEndpoint,
+        () => undefined,
+      );
+      if (!endSessionEndpoint) {
+        return ctx.response.redirect().withQs(false).toPath(postLogoutRedirectUri);
+      }
       const endSessionUrl = buildEndSessionUrl({
         issuer: cfg.issuer,
         idToken,
         postLogoutRedirectUri,
         clientId: cfg.clientId,
+        endSessionEndpoint,
       });
       return ctx.response.redirect().withQs(false).toPath(endSessionUrl);
     })

@@ -9,7 +9,7 @@ test.group('oidc_session_controller.stub', () => {
     return readFileSync(join(stubsRoot, 'controllers/oidc_session_controller.stub'), 'utf8');
   }
 
-  test('callback instala a sessão via manager.startSession, não session.put(sessionKey)', async ({
+  test('callback instala a sessão via authkit.startSession, não session.put(sessionKey)', async ({
     assert,
   }) => {
     // O callback escrevia o token set cru (`ctx.session.put(cfg.sessionKey, tokenSet)`),
@@ -17,24 +17,35 @@ test.group('oidc_session_controller.stub', () => {
     // mesmo cookie jar. `manager.startSession` faz essa limpeza. O stub não pode voltar
     // atrás: a escrita crua é a regressão que este teste pega.
     const stubContent = await readStub();
-    assert.match(stubContent, /manager\.startSession\(\s*ctx\s*,\s*tokenSet\s*\)/);
+    assert.match(stubContent, /authkit\.startSession\(\s*ctx\s*,\s*tokenSet\s*\)/);
     assert.notMatch(stubContent, /session\.put\(\s*[^)]*sessionKey/);
   });
 
-  test('logout encerra via manager.endSession, não session.forget(sessionKey)', async ({
+  test('logout encerra via authkit.endSession, não session.forget(sessionKey)', async ({
     assert,
   }) => {
     // `forget(sessionKey)` solto deixa o refresh token do ATOR parqueado no browser
     // depois do logout. `endSession` limpa token set E credencial parqueada.
     const stubContent = await readStub();
-    assert.match(stubContent, /manager\.endSession\(\s*ctx\s*\)/);
+    assert.match(stubContent, /authkit\.endSession\(\s*ctx\s*\)/);
     assert.notMatch(stubContent, /session\.forget\(\s*[^)]*sessionKey/);
   });
 
-  test('preserva PKCE/state e a troca de code do callback', async ({ assert }) => {
+  test('login/callback go through the manager (state, nonce, PKCE, id_token check)', async ({
+    assert,
+  }) => {
     const stubContent = await readStub();
-    assert.match(stubContent, /generatePkce\(\)/);
+    assert.match(stubContent, /createAuthorizationRequest\(/);
+    assert.match(stubContent, /completeAuthorization\(/);
     assert.match(stubContent, /authkit_pkce/);
-    assert.match(stubContent, /exchangeCode\(/);
+    // Hand-rolled exchange skips the id_token/nonce validation — must not come back.
+    assert.notMatch(stubContent, /exchangeCode\(/);
+  });
+
+  test('gets the manager through the container, like first-party packages', async ({ assert }) => {
+    const stubContent = await readStub();
+    assert.match(stubContent, /@inject\(\)/);
+    assert.match(stubContent, /protected authkit: AuthkitClientManager/);
+    assert.notMatch(stubContent, /containerResolver\.make\('authkit\.client'\)/);
   });
 });

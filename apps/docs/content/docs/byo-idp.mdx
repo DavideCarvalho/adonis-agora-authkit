@@ -21,65 +21,117 @@ keeps working — hiding only the pieces that genuinely need the AuthKit server.
 
 ## 1. Server side — `@adonis-agora/authkit-client`
 
-The client toolkit is a full OIDC relying party: authorization-code + PKCE login,
-session management, stateless JWT verification via remote JWKS, RP-initiated and
-back-channel logout. Point `issuer` at your IdP.
+The client toolkit is a full OIDC relying party: authorization-code + PKCE login with
+`state` and `nonce`, id_token validation, session management, stateless JWT verification
+via remote JWKS, RP-initiated and back-channel logout. Point `issuer` at your IdP — that is
+the whole integration:
 
-### Endpoint discovery
+```ts title="config/authkit_client.ts"
+import env from '#start/env'
+import { defineConfig, resolvers } from '@adonis-agora/authkit-client'
 
-Third-party IdPs publish their endpoints at `{issuer}/.well-known/openid-configuration` —
-paths differ per vendor (Keycloak uses `/protocol/openid-connect/auth`, Auth0 uses
-`/authorize`…). The flow helpers all default to the AuthKit provider's own route
-conventions, so against a third-party IdP you resolve the real endpoints once with
-`discoverEndpoints` and pass them through:
-
-```ts
-import {
-  discoverEndpoints,
-  generatePkce,
-  buildAuthorizeUrl,
-  exchangeCode,
-  buildEndSessionUrl,
-} from '@adonis-agora/authkit-client'
-
-const endpoints = await discoverEndpoints(issuer) // cached per issuer (15 min)
-
-// 1. Login
-const { verifier, challenge } = await generatePkce()
-const url = buildAuthorizeUrl({
-  issuer, clientId, redirectUri, state,
-  scopes: ['openid', 'profile', 'email'],
-  codeChallenge: challenge,
-  authorizationEndpoint: endpoints.authorizationEndpoint,
-})
-
-// 2. Callback
-const tokens = await exchangeCode({
-  issuer, clientId, clientSecret, redirectUri,
-  code, codeVerifier: verifier,
-  tokenEndpoint: endpoints.tokenEndpoint,
-})
-
-// 3. Logout
-buildEndSessionUrl({
-  issuer,
-  idToken: tokens.idToken,
-  postLogoutRedirectUri: 'https://app.example.com/',
-  endSessionEndpoint: endpoints.endSessionEndpoint,
+export default defineConfig({
+  issuer: 'https://keycloak.acme.com/realms/acme',
+  clientId: env.get('OIDC_CLIENT_ID'),
+  clientSecret: env.get('OIDC_CLIENT_SECRET'),
+  redirectUri: 'https://app.acme.com/auth/callback',
+  resolver: resolvers.jwt(),
 })
 ```
 
-Notes:
+```ts title="start/routes.ts"
+import { registerOidcClient } from '@adonis-agora/authkit-client'
 
-- **Fail-safe**: if the discovery document is unreachable, `discoverEndpoints` silently
-  falls back to the AuthKit provider's route conventions — so against `authkit-server`
-  everything keeps working even offline. The fallback is cached too, so a flapping
-  discovery endpoint does not turn into a refetch loop.
-- **Manual override**: `discoverEndpoints(issuer, { overrides: { tokenEndpoint: '…' } })`
-  wins field-by-field, ahead of the discovery document — useful behind proxies that rewrite
-  hostnames.
-- The resolvers already accept `jwksUri` / `introspectionUrl` directly — feed them
-  `endpoints.jwksUri` / `endpoints.introspectionEndpoint`.
+registerOidcClient(router) // /auth/login, /auth/callback, /auth/logout, /auth/backchannel-logout
+```
+
+### Endpoint discovery
+
+Third-party IdPs publish their endpoints at `{issuer}/.well-known/openid-configuration`,
+and the paths differ per vendor (Keycloak uses `/protocol/openid-connect/auth`, Auth0 uses
+`/authorize`…). The client reads that document and uses what it publishes everywhere —
+login, callback, logout, token refresh, impersonation, back-channel logout, and the default
+`jwksUri` / introspection URL of the resolvers.
+
+- **Lazy, cached, retried.** Discovery runs on first use, not at boot, so the app starts
+  even while the IdP is down. The document is cached for 15 minutes
+  (`discovery: { cacheTtlMs }`). A failure throws `OidcDiscoveryError` naming the URL and is
+  retried on the next request; a document discovered earlier keeps being served while
+  refetches fail.
+- **Checked.** The document's `issuer` must be the configured one (OIDC Discovery §4.3).
+  Tokens are then checked against the document's exact value, so an issuer with a trailing
+  slash (Auth0: `https://tenant.auth0.com/`) works however you wrote it in the config.
+- **No guessing.** An endpoint the IdP does not publish stays unset. Without an
+  `end_session_endpoint`, `/auth/logout` ends the local session and redirects straight to the
+  post-logout destination.
+
+Override any endpoint field by field — useful behind a proxy, or when a document is
+incomplete:
+
+```ts
+defineConfig({
+  issuer: 'https://acme.us.auth0.com/',
+  // ...
+  endpoints: { endSessionEndpoint: 'https://acme.us.auth0.com/oidc/logout' },
+})
+```
+
+`discovery: false` skips the network entirely and uses `endpoints` on top of the AuthKit
+provider's route layout (`/auth`, `/token`, `/jwks`, `/session/end`).
+
+### Custom login controllers
+
+When the generated routes do not fit, the manager does the same work one call at a time.
+Get it the way the first-party packages are used — inject it, or import the service:
+
+```ts title="app/controllers/oidc_session_controller.ts"
+import { inject } from '@adonisjs/core'
+import type { HttpContext } from '@adonisjs/core/http'
+import { AuthkitClientManager, OidcCallbackError } from '@adonis-agora/authkit-client'
+
+@inject()
+export default class OidcSessionController {
+  constructor(protected authkit: AuthkitClientManager) {}
+
+  async login({ session, response }: HttpContext) {
+    const { url, pending } = await this.authkit.createAuthorizationRequest({
+      extraParams: { prompt: 'login' },
+    })
+    session.put('oidc_pending', pending) // { state, nonce, codeVerifier }
+    return response.redirect(url)
+  }
+
+  async callback(ctx: HttpContext) {
+    try {
+      const { tokens, claims } = await this.authkit.completeAuthorization({
+        pending: ctx.session.pull('oidc_pending'),
+        callbackParams: ctx.request.qs(),
+      })
+      this.authkit.startSession(ctx, tokens)
+      // claims: the validated id_token payload (sub, email, sid…)
+    } catch (error) {
+      if (error instanceof OidcCallbackError && error.restartable) {
+        return ctx.response.redirect('/auth/login')
+      }
+      throw error
+    }
+    return ctx.response.redirect('/')
+  }
+}
+```
+
+`completeAuthorization` checks `state` and the RFC 9207 `iss` parameter, exchanges the code
+with the PKCE verifier, and validates the id_token: signature against the IdP JWKS, `iss`,
+`aud`, `azp`, `exp`, `iat` and `nonce` (plus `auth_time` when you pass `maxAge`). It throws
+`OidcCallbackError` with a `code` — `state_mismatch`, `idp_error`, `invalid_id_token`… — and
+`restartable` is true when the right answer is to send the user back to login.
+
+On refresh, a re-issued id_token is validated too and must be about the same user (OIDC
+Core §12.2); otherwise the refresh is discarded and a warning is logged.
+
+Outside AdonisJS, the same steps are plain functions — `discoverEndpoints(issuer, { onError:
+'throw' })`, `createAuthorizationRequest`, `completeAuthorization`, `validateIdToken` — that
+take the issuer, client and endpoints explicitly.
 
 ### Which resolver against a third-party IdP
 

@@ -3,6 +3,7 @@ import {
   __clearDiscoveryCacheForTests,
   conventionEndpoints,
   discoverEndpoints,
+  OidcDiscoveryError,
 } from '../src/discovery.js';
 import { buildAuthorizeUrl, buildEndSessionUrl, exchangeCode } from '../src/oidc_login.js';
 
@@ -53,7 +54,7 @@ test.group('discoverEndpoints', (group) => {
     const endpoints = await discoverEndpoints(ISSUER, {
       fetchImpl: fakeFetch(() => ({
         status: 200,
-        json: { token_endpoint: `${ISSUER}/custom/token` },
+        json: { issuer: ISSUER, token_endpoint: `${ISSUER}/custom/token` },
       })),
     });
     assert.equal(endpoints.tokenEndpoint, `${ISSUER}/custom/token`);
@@ -153,5 +154,102 @@ test.group('flow helpers + endpoints descobertos', () => {
       }) as typeof fetch,
     });
     assert.equal(posted, KEYCLOAK_DOC.token_endpoint);
+  });
+});
+
+test.group('discoverEndpoints | failures', (group) => {
+  group.each.setup(() => __clearDiscoveryCacheForTests());
+
+  test('a failed discovery is not cached: the next call retries', async ({ assert }) => {
+    let calls = 0;
+    const fetchImpl = fakeFetch(() => {
+      calls++;
+      return calls === 1 ? { status: 503 } : { status: 200, json: KEYCLOAK_DOC };
+    });
+    const first = await discoverEndpoints(ISSUER, { fetchImpl });
+    assert.equal(first.tokenEndpoint, `${ISSUER}/token`);
+    const second = await discoverEndpoints(ISSUER, { fetchImpl });
+    assert.equal(second.tokenEndpoint, KEYCLOAK_DOC.token_endpoint);
+    assert.equal(calls, 2);
+  });
+
+  test("onError: 'throw' raises OidcDiscoveryError instead of guessing", async ({ assert }) => {
+    const error = await discoverEndpoints(ISSUER, {
+      onError: 'throw',
+      fetchImpl: fakeFetch(() => ({ status: 503 })),
+    }).catch((e) => e);
+    assert.instanceOf(error, OidcDiscoveryError);
+    assert.equal(error.url, `${ISSUER}/.well-known/openid-configuration`);
+    assert.include(error.message, '503');
+  });
+
+  test('a previously discovered document is served while refetches fail', async ({ assert }) => {
+    let up = true;
+    const fetchImpl = fakeFetch(() => (up ? { status: 200, json: KEYCLOAK_DOC } : { status: 503 }));
+    await discoverEndpoints(ISSUER, { fetchImpl, onError: 'throw' });
+    up = false;
+    const stale = await discoverEndpoints(ISSUER, { fetchImpl, onError: 'throw', cacheTtlMs: 0 });
+    assert.equal(stale.tokenEndpoint, KEYCLOAK_DOC.token_endpoint);
+  });
+
+  test('a document about another issuer is rejected', async ({ assert }) => {
+    const fetchImpl = fakeFetch(() => ({
+      status: 200,
+      json: { ...KEYCLOAK_DOC, issuer: 'https://evil.example.com' },
+    }));
+    await assert.rejects(
+      () => discoverEndpoints(ISSUER, { fetchImpl, onError: 'throw' }),
+      /does not match the configured issuer/,
+    );
+    __clearDiscoveryCacheForTests();
+    const fallback = await discoverEndpoints(ISSUER, { fetchImpl });
+    assert.deepEqual(fallback, conventionEndpoints(ISSUER));
+  });
+
+  test("onError: 'throw' leaves unpublished optional endpoints undefined", async ({ assert }) => {
+    const { end_session_endpoint: _e, introspection_endpoint: _i, ...doc } = KEYCLOAK_DOC;
+    const endpoints = await discoverEndpoints(ISSUER, {
+      onError: 'throw',
+      fetchImpl: fakeFetch(() => ({ status: 200, json: doc })),
+    });
+    assert.isUndefined(endpoints.endSessionEndpoint);
+    assert.isUndefined(endpoints.introspectionEndpoint);
+  });
+
+  test('a missing required endpoint throws unless an override provides it', async ({ assert }) => {
+    const { jwks_uri: _j, ...doc } = KEYCLOAK_DOC;
+    const fetchImpl = fakeFetch(() => ({ status: 200, json: doc }));
+    await assert.rejects(
+      () => discoverEndpoints(ISSUER, { onError: 'throw', fetchImpl }),
+      /missing jwksUri/,
+    );
+    const endpoints = await discoverEndpoints(ISSUER, {
+      onError: 'throw',
+      fetchImpl,
+      overrides: { jwksUri: 'https://keys.internal/jwks' },
+    });
+    assert.equal(endpoints.jwksUri, 'https://keys.internal/jwks');
+  });
+
+  test('trailing-slash issuer (Auth0): the exact document issuer is returned', async ({
+    assert,
+  }) => {
+    const auth0 = 'https://acme.us.auth0.com/';
+    const endpoints = await discoverEndpoints('https://acme.us.auth0.com', {
+      onError: 'throw',
+      fetchImpl: fakeFetch((url) => {
+        assert.equal(url, 'https://acme.us.auth0.com/.well-known/openid-configuration');
+        return {
+          status: 200,
+          json: {
+            issuer: auth0,
+            authorization_endpoint: `${auth0}authorize`,
+            token_endpoint: `${auth0}oauth/token`,
+            jwks_uri: `${auth0}.well-known/jwks.json`,
+          },
+        };
+      }),
+    });
+    assert.equal(endpoints.issuer, auth0);
   });
 });

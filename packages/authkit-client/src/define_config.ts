@@ -1,6 +1,7 @@
 import type { Identity } from '@adonis-agora/authkit-core';
 import { configProvider } from '@adonisjs/core';
 import type { SessionIndex } from './backchannel_logout.js';
+import type { OidcEndpoints } from './discovery.js';
 import type { ResiliencePolicy } from './http/resilient_fetch.js';
 import { type ResolverFactory, resolvers } from './resolvers/factory.js';
 import type { RevocationStore } from './revocation/revocation_store.js';
@@ -58,6 +59,21 @@ export interface ClientConfigInput {
    * estruturalmente — o authkit-client não importa o pacote de resiliência.
    */
   resilience?: ResiliencePolicy;
+  /**
+   * Resolve the IdP endpoints from `{issuer}/.well-known/openid-configuration`.
+   * Default: `true` — works with authkit-server and any third-party IdP
+   * (Keycloak, Auth0, Okta, Entra…).
+   *
+   * Discovery runs lazily, on first use, so the app boots while the IdP is down.
+   * A failure throws `OidcDiscoveryError` and is retried on the next request; a
+   * previously discovered document keeps being served while refetches fail.
+   *
+   * `false` skips the network and uses `endpoints` on top of the authkit-server
+   * convention (`/auth`, `/token`, `/jwks`, `/session/end`).
+   */
+  discovery?: boolean | { cacheTtlMs?: number };
+  /** Per-field endpoint overrides; always win over discovery. */
+  endpoints?: Partial<OidcEndpoints>;
 }
 
 export interface ResolvedClientConfig {
@@ -76,6 +92,10 @@ export interface ResolvedClientConfig {
   backchannelStore?: RevocationStore;
   /** Política de resiliência opcional p/ chamadas HTTP de saída ao IdP. Ver {@link ClientConfigInput.resilience}. */
   resilience?: ResiliencePolicy;
+  /** `false` when discovery is off; otherwise its options. See {@link ClientConfigInput.discovery}. */
+  discovery: false | { cacheTtlMs?: number };
+  /** Endpoint overrides. See {@link ClientConfigInput.endpoints}. */
+  endpoints?: Partial<OidcEndpoints>;
 }
 
 export function defineConfig(config: ClientConfigInput) {
@@ -107,6 +127,13 @@ export function defineConfig(config: ClientConfigInput) {
       sessionIndex: config.sessionIndex,
       backchannelStore: store,
       resilience: config.resilience,
+      discovery:
+        config.discovery === false
+          ? false
+          : typeof config.discovery === 'object'
+            ? config.discovery
+            : {},
+      endpoints: config.endpoints,
     };
   });
 }

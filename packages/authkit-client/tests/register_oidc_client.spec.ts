@@ -1,5 +1,9 @@
 import { test } from '@japa/runner';
+import { AuthkitClientManager } from '../providers/authkit_client_provider.js';
+import { OidcCallbackError } from '../src/authorization.js';
+import type { ResolvedClientConfig } from '../src/define_config.js';
 import { registerOidcClient } from '../src/register_oidc_client.js';
+import { signIdToken, testKeys } from './helpers/id_tokens.js';
 
 /**
  * Nenhum redirect do client deve encaminhar a query da request atual: os destinos
@@ -72,16 +76,47 @@ function fakeCtx(overrides: { manager?: any; qs?: Record<string, string>; sessio
   return { ctx, redirects };
 }
 
-const manager = () => ({
-  clientConfig: {
-    issuer: 'https://idp.test/oidc',
-    clientId: 'app',
-    redirectUri: 'https://app.test/auth/callback',
-    scopes: ['openid'],
-  },
-  startSession: () => undefined,
-  createAuthenticator: async () => ({ getIdentity: async () => ({ globalRoles: [] }) }),
-});
+const ISSUER = 'https://idp.test/oidc';
+
+/** A real manager (discovery off, local keys) with the session/identity side stubbed. */
+function manager(over: Partial<ResolvedClientConfig> = {}) {
+  const m = new AuthkitClientManager(
+    {
+      issuer: ISSUER,
+      clientId: 'app',
+      redirectUri: 'https://app.test/auth/callback',
+      scopes: ['openid'],
+      resolverFactory: { resolver: async () => ({ resolve: async () => null }) },
+      sessionKey: 'authkit',
+      globalRolesClaim: 'roles',
+      discovery: false,
+      ...over,
+    },
+    { keys: testKeys },
+  );
+  m.startSession = () => undefined;
+  m.createAuthenticator = async () => ({ getIdentity: async () => ({ globalRoles: [] }) }) as any;
+  return m;
+}
+
+const PENDING = { state: 'good-state', nonce: 'good-nonce', codeVerifier: 'verifier' };
+
+function stubTokenEndpoint(idToken: string) {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        access_token: 'at',
+        token_type: 'Bearer',
+        expires_in: 3600,
+        id_token: idToken,
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    )) as any;
+  return () => {
+    globalThis.fetch = originalFetch;
+  };
+}
 
 test.group('registerOidcClient: redirect não encaminha a query da request', () => {
   test('login → authorize sem encaminhar a query', async ({ assert }) => {
@@ -117,17 +152,9 @@ test.group('registerOidcClient: redirect não encaminha a query da request', () 
   });
 
   test('callback com sucesso → destino do app sem encaminhar', async ({ assert }) => {
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () =>
-      new Response(
-        JSON.stringify({
-          access_token: 'at',
-          token_type: 'Bearer',
-          expires_in: 3600,
-          id_token: 'header.payload.signature',
-        }),
-        { status: 200, headers: { 'content-type': 'application/json' } },
-      )) as any;
+    const restore = stubTokenEndpoint(
+      await signIdToken({ iss: ISSUER, aud: 'app', nonce: PENDING.nonce }),
+    );
 
     try {
       const router = fakeRouter();
@@ -139,10 +166,7 @@ test.group('registerOidcClient: redirect não encaminha a query da request', () 
       const { ctx, redirects } = fakeCtx({
         manager: manager(),
         qs: { code: 'good-code', state: 'good-state' },
-        session: {
-          get: () => ({ verifier: 'verifier', state: 'good-state' }),
-          forget: () => undefined,
-        },
+        session: { get: () => PENDING, forget: () => undefined },
       });
       await callback.handler(ctx);
 
@@ -150,7 +174,7 @@ test.group('registerOidcClient: redirect não encaminha a query da request', () 
       assert.strictEqual(redirects[0].url, '/');
       assert.isFalse(redirects[0].forward, 'pós-login encaminhou a query do callback');
     } finally {
-      globalThis.fetch = originalFetch;
+      restore();
     }
   });
 
@@ -160,12 +184,105 @@ test.group('registerOidcClient: redirect não encaminha a query da request', () 
     const logout = router.routes.find((r: { pattern: string }) => r.pattern === '/auth/logout')!;
 
     const { ctx, redirects } = fakeCtx({
-      manager: { ...manager(), getIdToken: () => 'id-token', endSession: () => undefined },
+      manager: Object.assign(manager(), { getIdToken: () => 'id-token' }),
     });
     await logout.handler(ctx);
 
     assert.lengthOf(redirects, 1);
     assert.include(redirects[0].url, '/oidc/');
     assert.isFalse(redirects[0].forward, 'logout encaminhou a query');
+  });
+});
+
+test.group('registerOidcClient: id_token and IdP endpoints', () => {
+  const route = (pattern: string) => {
+    const router = fakeRouter();
+    registerOidcClient(router);
+    return router.routes.find((r: { pattern: string }) => r.pattern === pattern)!;
+  };
+
+  test('login sends nonce and stores it with state and the PKCE verifier', async ({ assert }) => {
+    const stored: Record<string, any> = {};
+    const { ctx, redirects } = fakeCtx({
+      manager: manager(),
+      session: { put: (k: string, v: unknown) => (stored[k] = v) },
+    });
+    await route('/auth/login').handler(ctx);
+
+    const url = new URL(redirects[0].url);
+    const pending = stored.authkit_pkce;
+    assert.equal(url.searchParams.get('nonce'), pending.nonce);
+    assert.equal(url.searchParams.get('state'), pending.state);
+    assert.isString(pending.codeVerifier);
+  });
+
+  test('callback rejects an id_token whose nonce is not the pending one', async ({ assert }) => {
+    const restore = stubTokenEndpoint(
+      await signIdToken({ iss: ISSUER, aud: 'app', nonce: 'other' }),
+    );
+    try {
+      const { ctx } = fakeCtx({
+        manager: manager(),
+        qs: { code: 'good-code', state: PENDING.state },
+        session: { get: () => PENDING, forget: () => undefined },
+      });
+      const error = await route('/auth/callback')
+        .handler(ctx)
+        .catch((e: unknown) => e);
+      assert.instanceOf(error, OidcCallbackError);
+      assert.equal((error as OidcCallbackError).code, 'invalid_id_token');
+    } finally {
+      restore();
+    }
+  });
+
+  test('callback with an IdP error restarts the login', async ({ assert }) => {
+    const { ctx, redirects } = fakeCtx({
+      manager: manager(),
+      qs: { error: 'access_denied', state: PENDING.state },
+      session: { get: () => PENDING, forget: () => undefined },
+    });
+    await route('/auth/callback').handler(ctx);
+    assert.strictEqual(redirects[0].url, '/auth/login');
+  });
+
+  test('login and logout use the configured endpoints', async ({ assert }) => {
+    const m = manager({
+      endpoints: {
+        authorizationEndpoint: 'https://kc.test/realms/acme/protocol/openid-connect/auth',
+        endSessionEndpoint: 'https://kc.test/realms/acme/protocol/openid-connect/logout',
+      },
+    });
+    const login = fakeCtx({ manager: m, session: { put: () => undefined } });
+    await route('/auth/login').handler(login.ctx);
+    assert.isTrue(
+      login.redirects[0].url.startsWith(
+        'https://kc.test/realms/acme/protocol/openid-connect/auth?',
+      ),
+    );
+
+    const logout = fakeCtx({ manager: Object.assign(m, { getIdToken: () => 'id-token' }) });
+    await route('/auth/logout').handler(logout.ctx);
+    assert.isTrue(
+      logout.redirects[0].url.startsWith(
+        'https://kc.test/realms/acme/protocol/openid-connect/logout?',
+      ),
+    );
+  });
+
+  test('logout without an end_session_endpoint goes straight to the destination', async ({
+    assert,
+  }) => {
+    const m = manager({ discovery: {} });
+    // Discovered document without end_session_endpoint (Auth0-style tenant).
+    (m as any).endpoints = async () => ({
+      issuer: ISSUER,
+      authorizationEndpoint: `${ISSUER}/authorize`,
+      tokenEndpoint: `${ISSUER}/oauth/token`,
+      jwksUri: `${ISSUER}/.well-known/jwks.json`,
+    });
+    const { ctx, redirects } = fakeCtx({ manager: Object.assign(m, { getIdToken: () => 'x' }) });
+    await route('/auth/logout').handler(ctx);
+    assert.strictEqual(redirects[0].url, 'https://app.test/');
   });
 });

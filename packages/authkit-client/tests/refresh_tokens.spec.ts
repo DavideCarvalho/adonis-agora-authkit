@@ -2,6 +2,9 @@ import { test } from '@japa/runner';
 import { AuthkitClientManager } from '../providers/authkit_client_provider.js';
 import type { ResolvedClientConfig } from '../src/define_config.js';
 import { refreshTokens } from '../src/oidc_login.js';
+import { signIdToken, testKeys } from './helpers/id_tokens.js';
+
+const NEW_ID_TOKEN = await signIdToken({ sub: 'u1' });
 
 function fakeConfig(over: Partial<ResolvedClientConfig> = {}): ResolvedClientConfig {
   return {
@@ -13,6 +16,7 @@ function fakeConfig(over: Partial<ResolvedClientConfig> = {}): ResolvedClientCon
     sessionKey: 'authkit',
     scopes: ['openid'],
     globalRolesClaim: 'roles',
+    discovery: false,
     ...over,
   };
 }
@@ -87,7 +91,7 @@ test.group('refreshTokens (primitive)', () => {
 test.group('AuthkitClientManager.maybeRefresh', () => {
   test('sem refresh token → no-op (não chama fetch)', async ({ assert }) => {
     let called = false;
-    const m = new AuthkitClientManager(fakeConfig());
+    const m = new AuthkitClientManager(fakeConfig(), { keys: testKeys });
     const ctx = fakeCtxWithSession({ idToken: 'i', accessToken: 'a', expiresAt: 0 });
     await m.maybeRefresh(ctx, {
       now: () => 1_000_000,
@@ -98,7 +102,7 @@ test.group('AuthkitClientManager.maybeRefresh', () => {
 
   test('token ainda fresco → no-op', async ({ assert }) => {
     let called = false;
-    const m = new AuthkitClientManager(fakeConfig());
+    const m = new AuthkitClientManager(fakeConfig(), { keys: testKeys });
     const now = 1_000_000;
     const ctx = fakeCtxWithSession({
       idToken: 'i',
@@ -114,7 +118,7 @@ test.group('AuthkitClientManager.maybeRefresh', () => {
   });
 
   test('perto de expirar → renova e ROTACIONA o refresh token na sessão', async ({ assert }) => {
-    const m = new AuthkitClientManager(fakeConfig());
+    const m = new AuthkitClientManager(fakeConfig(), { keys: testKeys });
     const now = 1_000_000;
     const ctx = fakeCtxWithSession({
       idToken: 'idt_old',
@@ -127,7 +131,7 @@ test.group('AuthkitClientManager.maybeRefresh', () => {
       fetchImpl: (async () => ({
         ok: true,
         json: async () => ({
-          id_token: 'idt_new',
+          id_token: NEW_ID_TOKEN,
           access_token: 'at_new',
           refresh_token: 'rt_new',
           expires_in: 3600,
@@ -137,13 +141,13 @@ test.group('AuthkitClientManager.maybeRefresh', () => {
     const stored = ctx._store.get('authkit');
     assert.equal(stored.accessToken, 'at_new');
     assert.equal(stored.refreshToken, 'rt_new');
-    assert.equal(stored.idToken, 'idt_new');
+    assert.equal(stored.idToken, NEW_ID_TOKEN);
   });
 
   test('preserva id_token e refresh_token anteriores quando o IdP não os reemite', async ({
     assert,
   }) => {
-    const m = new AuthkitClientManager(fakeConfig());
+    const m = new AuthkitClientManager(fakeConfig(), { keys: testKeys });
     const now = 1_000_000;
     const ctx = fakeCtxWithSession({
       idToken: 'idt_old',
@@ -165,7 +169,7 @@ test.group('AuthkitClientManager.maybeRefresh', () => {
   });
 
   test('falha na renovação é silenciosa e mantém o TokenSet', async ({ assert }) => {
-    const m = new AuthkitClientManager(fakeConfig());
+    const m = new AuthkitClientManager(fakeConfig(), { keys: testKeys });
     const now = 1_000_000;
     const original = { idToken: 'i', accessToken: 'a', refreshToken: 'rt', expiresAt: now };
     const ctx = fakeCtxWithSession({ ...original });
@@ -181,7 +185,7 @@ test.group('AuthkitClientManager.maybeRefresh — dedup', () => {
   test('duas chamadas concorrentes pra mesma sessão → só 1 refresh de verdade', async ({
     assert,
   }) => {
-    const m = new AuthkitClientManager(fakeConfig());
+    const m = new AuthkitClientManager(fakeConfig(), { keys: testKeys });
     const now = 1_000_000;
     let callCount = 0;
 
@@ -192,7 +196,7 @@ test.group('AuthkitClientManager.maybeRefresh — dedup', () => {
       return {
         ok: true,
         json: async () => ({
-          id_token: 'idt_new',
+          id_token: NEW_ID_TOKEN,
           access_token: 'at_new',
           refresh_token: 'rt_new',
           expires_in: 3600,
@@ -217,7 +221,7 @@ test.group('AuthkitClientManager.maybeRefresh — dedup', () => {
   });
 
   test('sessões diferentes → N refreshes independentes', async ({ assert }) => {
-    const m = new AuthkitClientManager(fakeConfig());
+    const m = new AuthkitClientManager(fakeConfig(), { keys: testKeys });
     const now = 1_000_000;
     let callCount = 0;
 
@@ -252,7 +256,7 @@ test.group('AuthkitClientManager.maybeRefresh — dedup', () => {
   });
 
   test('sem sessionId no ctx → fallback: faz refresh normal sem dedup', async ({ assert }) => {
-    const m = new AuthkitClientManager(fakeConfig());
+    const m = new AuthkitClientManager(fakeConfig(), { keys: testKeys });
     const now = 1_000_000;
     let callCount = 0;
 
@@ -296,7 +300,7 @@ test.group('AuthkitClientManager.maybeRefresh — dedup entre requests', () => {
   test('requests concorrentes da mesma sessão → 1 refresh e TODAS as sessões ficam com o token novo', async ({
     assert,
   }) => {
-    const m = new AuthkitClientManager(fakeConfig());
+    const m = new AuthkitClientManager(fakeConfig(), { keys: testKeys });
     const now = 1_000_000;
     let callCount = 0;
     const fetchImpl = (async () => {
@@ -305,7 +309,7 @@ test.group('AuthkitClientManager.maybeRefresh — dedup entre requests', () => {
       return {
         ok: true,
         json: async () => ({
-          id_token: 'idt_new',
+          id_token: NEW_ID_TOKEN,
           access_token: 'at_new',
           refresh_token: 'rt_new',
           expires_in: 3600,
@@ -334,7 +338,7 @@ test.group('AuthkitClientManager.maybeRefresh — dedup entre requests', () => {
       const stored = ctx._store.get('authkit');
       assert.equal(stored.accessToken, 'at_new');
       assert.equal(stored.refreshToken, 'rt_new'); // rotacionado nas DUAS sessões
-      assert.equal(stored.idToken, 'idt_new');
+      assert.equal(stored.idToken, NEW_ID_TOKEN);
       assert.equal(stored.impersonationBinding, 'bind_1');
     }
   });
@@ -342,7 +346,7 @@ test.group('AuthkitClientManager.maybeRefresh — dedup entre requests', () => {
   test('refresh que falha deixa as duas sessões intactas e libera o in-flight', async ({
     assert,
   }) => {
-    const m = new AuthkitClientManager(fakeConfig());
+    const m = new AuthkitClientManager(fakeConfig(), { keys: testKeys });
     const now = 1_000_000;
     let callCount = 0;
     const failing = (async () => {

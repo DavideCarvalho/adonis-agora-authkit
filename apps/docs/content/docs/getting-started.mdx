@@ -275,65 +275,64 @@ covered under [Protecting a route group](#protecting-a-route-group).
 
 Login is OIDC authorization-code + PKCE. The bundled `OidcSessionController` stub was
 already published to `app/controllers/oidc_session_controller.ts` by `node ace add` — it's
-the whole flow in three short methods over the client helpers (shown here with an
-RP-initiated logout; the scaffolded `logout` does a simpler local-only session drop):
+the whole flow in three short methods over the injected `AuthkitClientManager` (shown here
+with an RP-initiated logout; the scaffolded `logout` does a simpler local-only session drop):
 
 ```ts title="app/controllers/oidc_session_controller.ts"
+import { inject } from '@adonisjs/core'
 import type { HttpContext } from '@adonisjs/core/http'
 import {
-  buildAuthorizeUrl,
-  exchangeCode,
-  generatePkce,
+  AuthkitClientManager,
+  OidcCallbackError,
   buildEndSessionUrl,
 } from '@adonis-agora/authkit-client'
-import { randomUUID } from 'node:crypto'
 
+@inject()
 export default class OidcSessionController {
-  async login(ctx: HttpContext) {
-    const manager = await ctx.containerResolver.make('authkit.client')
-    const cfg = manager.clientConfig
-    const { verifier, challenge } = await generatePkce()
-    const state = randomUUID()
-    // Stash PKCE verifier + state so we can verify the callback.
-    ctx.session.put('authkit_pkce', { verifier, state })
-    const url = buildAuthorizeUrl({
-      issuer: cfg.issuer, clientId: cfg.clientId, redirectUri: cfg.redirectUri,
-      scopes: cfg.scopes, state, codeChallenge: challenge,
-    })
-    return ctx.response.redirect(url)
+  constructor(protected authkit: AuthkitClientManager) {}
+
+  async login({ session, response }: HttpContext) {
+    // Fresh state + nonce + PKCE verifier, kept in the session for the callback.
+    const { url, pending } = await this.authkit.createAuthorizationRequest()
+    session.put('authkit_pkce', pending)
+    return response.redirect(url)
   }
 
   async callback(ctx: HttpContext) {
-    const manager = await ctx.containerResolver.make('authkit.client')
-    const cfg = manager.clientConfig
-    const { code, state } = ctx.request.qs()
-    const pkce = ctx.session.get('authkit_pkce')
-    if (!pkce || pkce.state !== state) return ctx.response.badRequest({ error: 'invalid state' })
-    const tokenSet = await exchangeCode({
-      issuer: cfg.issuer, clientId: cfg.clientId, clientSecret: cfg.clientSecret,
-      redirectUri: cfg.redirectUri, code, codeVerifier: pkce.verifier,
-    })
-    // Persist the token set as a FRESH session — this is what
-    // resolvers.jwt({ tokenSource: 'session' }) reads on later requests.
-    // Prefer startSession over a raw session.put: it also clears any credential
-    // parked by a previous login in the same cookie jar.
-    manager.startSession(ctx, tokenSet)
-    ctx.session.forget('authkit_pkce')
+    try {
+      // Checks state and iss, swaps the code for a token set and validates the
+      // id_token (signature, aud, nonce…).
+      const { tokens: tokenSet } = await this.authkit.completeAuthorization({
+        pending: ctx.session.pull('authkit_pkce'),
+        callbackParams: ctx.request.qs(),
+      })
+      // Persist the token set as a FRESH session — this is what
+      // resolvers.jwt({ tokenSource: 'session' }) reads on later requests.
+      // Prefer startSession over a raw session.put: it also clears any credential
+      // parked by a previous login in the same cookie jar.
+      this.authkit.startSession(ctx, tokenSet)
+    } catch (error) {
+      // Stale or foreign callback (lost state, no code) → start over.
+      if (error instanceof OidcCallbackError && error.restartable) {
+        return ctx.response.redirect('/auth/login')
+      }
+      throw error
+    }
     return ctx.response.redirect('/')
   }
 
   async logout(ctx: HttpContext) {
-    const manager = await ctx.containerResolver.make('authkit.client')
-    const cfg = manager.clientConfig
-    // RP-initiated logout: end the IdP session, then drop the local one.
+    // RP-initiated logout: drop the local session, then end the IdP one.
     // id_token_hint lets the IdP skip its confirmation page.
-    const idToken = manager.getIdToken(ctx)
-    ctx.session.forget(cfg.sessionKey)
+    const idToken = this.authkit.getIdToken(ctx)
+    this.authkit.endSession(ctx)
+    const { endSessionEndpoint } = await this.authkit.endpoints()
     return ctx.response.redirect(
       buildEndSessionUrl({
-        issuer: cfg.issuer,
+        issuer: this.authkit.clientConfig.issuer,
         idToken,
-        clientId: cfg.clientId,
+        clientId: this.authkit.clientConfig.clientId,
+        endSessionEndpoint,
         postLogoutRedirectUri: 'http://localhost:3333/',
       })
     )
@@ -354,8 +353,8 @@ router.post('/auth/logout', [OidcSessionController, 'logout']).as('auth.logout')
 
 The sequence: `login` redirects the browser to the IdP's `/authorize`; the user
 authenticates there and is bounced back to `redirectUri` with `code` + `state`; `callback`
-verifies `state`, swaps the code for a token set via `exchangeCode`, and stores it with
-`manager.startSession(ctx, tokenSet)`. **The stored token set is the login** — there's
+verifies `state`, swaps the code for a token set, validates the id_token, and stores it with
+`startSession(ctx, tokenSet)`. **The stored token set is the login** — there's
 nothing else to persist on the RP. For the simpler local-only logout and the full
 end-session details, see [Security](/docs/security#rp-initiated-logout) and
 [Back-Channel Logout](/docs/back-channel-logout) for IdP-initiated termination.

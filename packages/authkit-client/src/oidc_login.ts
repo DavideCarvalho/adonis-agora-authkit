@@ -25,6 +25,11 @@ export interface AuthorizeParams {
   state: string;
   codeChallenge: string;
   /**
+   * OIDC `nonce`, echoed back in the id_token and checked by `validateIdToken`.
+   * Binds the id_token to this authorization request (replay protection).
+   */
+  nonce?: string;
+  /**
    * Endpoint de autorização do IdP — obtenha via `discoverEndpoints(issuer)`
    * para IdPs de terceiros. Default: `${issuer}/auth` (convenção oidc-provider).
    */
@@ -46,6 +51,7 @@ export function buildAuthorizeUrl(p: AuthorizeParams): string {
   url.searchParams.set('state', p.state);
   url.searchParams.set('code_challenge', p.codeChallenge);
   url.searchParams.set('code_challenge_method', 'S256');
+  if (p.nonce) url.searchParams.set('nonce', p.nonce);
   if (p.extraParams) {
     for (const [key, value] of Object.entries(p.extraParams)) {
       if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
