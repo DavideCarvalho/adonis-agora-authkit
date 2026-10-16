@@ -30,8 +30,9 @@ sources:
 `@adonis-agora/authkit-client` makes an AdonisJS app consume an OIDC provider (the
 AuthKit IdP or any other) with session-based auth: PKCE authorization-code login,
 locally-validated ID tokens (JWKS), typed `ctx.auth` per request. `configure`
-publishes `config/authkit_client.ts`, `OidcSessionController` (login/callback/logout)
-and registers the provider + middleware.
+publishes `config/authkit_client.ts` and registers the provider + middleware; the
+login/callback/logout routes come from `registerOidcClient(router)`. (`configure` also
+publishes an `OidcSessionController` stub, only for apps that must customise the flow.)
 
 ## Setup
 
@@ -58,12 +59,16 @@ export default authkitClientConfig
 ```ts
 // start/routes.ts
 import router from '@adonisjs/core/services/router'
-import OidcSessionController from '#controllers/oidc_session_controller'
+import { registerOidcClient } from '@adonis-agora/authkit-client'
 
-router.get('/auth/login', [OidcSessionController, 'login'])
-router.get('/auth/callback', [OidcSessionController, 'callback'])
-router.post('/auth/logout', [OidcSessionController, 'logout'])
+// /auth/login, /auth/callback, /auth/logout and /auth/backchannel-logout
+registerOidcClient(router)
 ```
+
+If you wire the scaffolded `OidcSessionController` instead, keep it on the manager:
+`startSession(ctx, tokenSet)` in the callback and `endSession(ctx)` in the logout —
+never a raw `session.put(sessionKey)` / `session.forget(sessionKey)`, which leaves a
+parked impersonation credential alive.
 
 Source: `packages/authkit-client/README.md`, `stubs/config/authkit_client.stub`.
 

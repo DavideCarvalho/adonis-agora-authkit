@@ -7,7 +7,7 @@ import { AuthkitClientManager, OidcCallbackError } from '@adonis-agora/authkit-c
 
 /**
  * Login, callback and logout written out by hand. If you do not need to customise
- * them, `registerOidcClient(router)` registers the same three routes for you.
+ * them, registerOidcClient(router) registers the same three routes for you.
  */
 @inject()
 export default class OidcSessionController {

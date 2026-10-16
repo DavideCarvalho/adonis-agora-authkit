@@ -40,11 +40,23 @@ test.group('configure stubs', () => {
     const stubFiles = collectStubFiles(stubsRoot);
     assert.isAbove(stubFiles.length, 0);
 
+    // try/catch explícito, NÃO `assert.doesNotThrow(fn, mensagem)`: no chai o 2º
+    // argumento string é o matcher da mensagem de erro, então o assert só falhava
+    // se o SyntaxError contivesse o caminho do stub — ou seja, nunca. Foi assim
+    // que uma crase em controllers/oidc_session_controller.stub passou pela CI.
+    const broken: string[] = [];
     for (const stubFile of stubFiles) {
       const content = readFileSync(stubFile, 'utf8');
-      assert.doesNotThrow(() => {
+      try {
         tempura.compile(content, { props: [] });
-      }, `falha ao compilar ${stubFile} via tempura`);
+      } catch (error) {
+        broken.push(`${stubFile}: ${(error as Error).message}`);
+      }
     }
+    assert.deepEqual(
+      broken,
+      [],
+      `stubs que quebram o \`node ace configure\`:\n  ${broken.join('\n  ')}`,
+    );
   });
 });

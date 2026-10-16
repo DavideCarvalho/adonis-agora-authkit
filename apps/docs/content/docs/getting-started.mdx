@@ -125,8 +125,9 @@ composes the mixins the Lucid store needs; add columns to it as your domain grow
 
 - Publishes **`config/authkit_client.ts`** — issuer, client credentials, and a JWT resolver
   reading the token set from the session.
-- Publishes the **`app/controllers/oidc_session_controller.ts`** stub — the
-  login / callback / logout flow over the client helpers.
+- Publishes the **`app/controllers/oidc_session_controller.ts`** stub — the same
+  login / callback / logout flow written out by hand, for when you need to customise it.
+  You don't need it if you use `registerOidcClient` (below).
 - Registers the **provider** in `adonisrc.ts`.
 - Registers **`authkit_middleware` as a router-global middleware** automatically — this is
   what makes `ctx.auth` exist on every request. No manual kernel edit needed.
@@ -135,7 +136,8 @@ composes the mixins the Lucid store needs; add columns to it as your domain grow
   fill them in `.env` yourself (see [Environment variables](#environment-variables)).
 
 The remaining client work is manual: tune the config below, and wire the login / callback /
-logout **routes** (the controller is scaffolded but its routes are not).
+logout **routes** with one `registerOidcClient(router)` call (see
+[Login, callback, logout](#login-callback-logout)).
 
 ## Client config
 
@@ -273,78 +275,38 @@ covered under [Protecting a route group](#protecting-a-route-group).
 
 ## Login, callback, logout
 
-Login is OIDC authorization-code + PKCE. The bundled `OidcSessionController` stub was
-already published to `app/controllers/oidc_session_controller.ts` by `node ace add` — it's
-the whole flow in three short methods over the injected `AuthkitClientManager` (shown here
-with an RP-initiated logout; the scaffolded `logout` does a simpler local-only session drop):
+Login is OIDC authorization-code + PKCE, and the client package ships the whole flow.
+Register it with one call (the `/auth/callback` path is the `redirectUri` you registered for
+the client):
 
-```ts title="app/controllers/oidc_session_controller.ts"
-import { inject } from '@adonisjs/core'
-import type { HttpContext } from '@adonisjs/core/http'
-import {
-  AuthkitClientManager,
-  OidcCallbackError,
-  buildEndSessionUrl,
-} from '@adonis-agora/authkit-client'
+```ts title="start/routes.ts"
+import router from '@adonisjs/core/services/router'
+import { registerOidcClient } from '@adonis-agora/authkit-client'
+import { middleware } from '#start/kernel'
 
-@inject()
-export default class OidcSessionController {
-  constructor(protected authkit: AuthkitClientManager) {}
-
-  async login({ session, response }: HttpContext) {
-    // Fresh state + nonce + PKCE verifier, kept in the session for the callback.
-    const { url, pending } = await this.authkit.createAuthorizationRequest()
-    session.put('authkit_pkce', pending)
-    return response.redirect(url)
-  }
-
-  async callback(ctx: HttpContext) {
-    try {
-      // Checks state and iss, swaps the code for a token set and validates the
-      // id_token (signature, aud, nonce…).
-      const { tokens: tokenSet } = await this.authkit.completeAuthorization({
-        pending: ctx.session.pull('authkit_pkce'),
-        callbackParams: ctx.request.qs(),
-      })
-      // Persist the token set as a FRESH session — this is what
-      // resolvers.jwt({ tokenSource: 'session' }) reads on later requests.
-      // Prefer startSession over a raw session.put: it also clears any credential
-      // parked by a previous login in the same cookie jar.
-      this.authkit.startSession(ctx, tokenSet)
-    } catch (error) {
-      // Stale or foreign callback (lost state, no code), or the IdP sent the user
-      // back with an error (access_denied…) → start over.
-      if (error instanceof OidcCallbackError && error.restartable) {
-        return ctx.response.redirect('/auth/login')
-      }
-      throw error
-    }
-    return ctx.response.redirect('/')
-  }
-
-  async logout(ctx: HttpContext) {
-    // RP-initiated logout: drop the local session, then end the IdP one.
-    // id_token_hint lets the IdP skip its confirmation page.
-    const idToken = this.authkit.getIdToken(ctx)
-    this.authkit.endSession(ctx)
-    const { endSessionEndpoint } = await this.authkit.endpoints()
-    // No end_session_endpoint published by the IdP: the local logout is all there is.
-    if (!endSessionEndpoint) return ctx.response.redirect('/')
-    return ctx.response.redirect(
-      buildEndSessionUrl({
-        issuer: this.authkit.clientConfig.issuer,
-        idToken,
-        clientId: this.authkit.clientConfig.clientId,
-        endSessionEndpoint,
-        postLogoutRedirectUri: 'http://localhost:3333/',
-      })
-    )
-  }
-}
+registerOidcClient(router, {
+  loginMiddleware: middleware.guest(),
+  redirects: { byGlobalRole: { ADMIN: '/admin' }, default: '/' },
+})
 ```
 
-Wire the routes (the `/auth/callback` path is the `redirectUri` you registered for the
-client):
+That registers `GET /auth/login` (`auth.login`), `GET /auth/callback` (`auth.callback`),
+`POST /auth/logout` (`auth.logout`) and `POST /auth/backchannel-logout`.
+
+The sequence: `/auth/login` redirects the browser to the IdP's `/authorize`; the user
+authenticates there and is bounced back to `redirectUri` with `code` + `state`; the callback
+verifies `state`, swaps the code for a token set, validates the id_token, and stores it with
+`startSession(ctx, tokenSet)`. **The stored token set is the login** — there's nothing else
+to persist on the RP. `/auth/logout` ends the local session with `endSession(ctx)` and then
+the IdP one (RP-initiated logout). See [Client](/docs/client#the-login--callback--logout-flow)
+for every option, [Security](/docs/security#rp-initiated-logout) for the end-session details,
+and [Back-Channel Logout](/docs/back-channel-logout) for IdP-initiated termination.
+
+### Owning the flow: the scaffolded controller
+
+When the generated routes do not fit, `node ace add` also published
+`app/controllers/oidc_session_controller.ts` — the same flow in three short methods over the
+injected `AuthkitClientManager`. Wire it instead of `registerOidcClient`:
 
 ```ts title="start/routes.ts"
 const OidcSessionController = () => import('#controllers/oidc_session_controller')
@@ -354,20 +316,14 @@ router.get('/auth/callback', [OidcSessionController, 'callback']).as('auth.callb
 router.post('/auth/logout', [OidcSessionController, 'logout']).as('auth.logout')
 ```
 
-The sequence: `login` redirects the browser to the IdP's `/authorize`; the user
-authenticates there and is bounced back to `redirectUri` with `code` + `state`; `callback`
-verifies `state`, swaps the code for a token set, validates the id_token, and stores it with
-`startSession(ctx, tokenSet)`. **The stored token set is the login** — there's
-nothing else to persist on the RP. For the simpler local-only logout and the full
-end-session details, see [Security](/docs/security#rp-initiated-logout) and
-[Back-Channel Logout](/docs/back-channel-logout) for IdP-initiated termination.
-
-<Callout type="info">
-  If you don't need to customise any of that, `registerOidcClient(router)` registers the
-  same three routes (plus back-channel logout) with this exact flow already implemented,
-  and adds post-login redirects by global role. Keep the scaffolded controller when you
-  want to own the flow; drop it for `registerOidcClient` when you don't. See
-  [Client](/docs/client).
+<Callout type="warn">
+  When you edit it, keep going through the manager: `startSession(ctx, tokenSet)` in the
+  callback and `endSession(ctx)` in the logout — never a raw `session.put(sessionKey)` /
+  `session.forget(sessionKey)`. Only those two clear a parked
+  [impersonation](/docs/impersonation) credential, so a raw write lets the actor's refresh
+  token outlive the session that stashed it. The scaffolded `logout` is local-only; the
+  RP-initiated version and the back-channel route are yours to add — see
+  [Client](/docs/client#escape-hatch-build-your-own-flow).
 </Callout>
 
 ## Registering your first client
