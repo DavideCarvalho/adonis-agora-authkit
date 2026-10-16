@@ -1,7 +1,3 @@
-{
-  exports({ to: app.makePath('inertia/pages/authkit/reset.tsx') });
-}
-
 import AuthShell from '../../components/auth_shell';
 
 const inputClass =

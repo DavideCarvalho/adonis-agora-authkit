@@ -1,6 +1,3 @@
-{
-  exports({ to: app.makePath('inertia/pages/authkit/account/mfa.tsx') });
-}
 interface Props {
   csrfToken: string;
   enabled: boolean;

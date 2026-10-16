@@ -20,4 +20,13 @@ export async function configure(command: Configure) {
       AUTHKIT_REDIRECT_URI: `Env.schema.string({ format: 'url', tld: false })`,
     },
   });
+
+  // As rotas não são registradas pelo configure. O caminho é o `registerOidcClient`
+  // (startSession/endSession, RP-initiated logout, back-channel); o controller
+  // ejetado acima existe só para quem precisa customizar o fluxo.
+  command.logger.info(
+    'Registre as rotas de sessão em start/routes.ts com registerOidcClient(router) ' +
+      "(import { registerOidcClient } from '@adonis-agora/authkit-client'). " +
+      'O app/controllers/oidc_session_controller.ts publicado é só para customizar o fluxo.',
+  );
 }

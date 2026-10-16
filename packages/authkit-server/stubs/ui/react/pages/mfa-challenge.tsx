@@ -1,7 +1,3 @@
-{
-  exports({ to: app.makePath('inertia/pages/authkit/mfa-challenge.tsx') });
-}
-
 import { useRef, useState } from 'react';
 import AuthShell, { type AuthBrand } from '../../components/auth_shell';
 
