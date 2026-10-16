@@ -97,9 +97,11 @@ test.group('discoverEndpoints', (group) => {
   });
 
   test('issuer com barra final normaliza igual', async ({ assert }) => {
-    const a = conventionEndpoints('https://x.example.com/');
-    const b = conventionEndpoints('https://x.example.com');
+    const { issuer, ...a } = conventionEndpoints('https://x.example.com/');
+    const { issuer: _, ...b } = conventionEndpoints('https://x.example.com');
     assert.deepEqual(a, b);
+    // The issuer stays as configured: it is what the `iss` claim is compared against.
+    assert.equal(issuer, 'https://x.example.com/');
   });
 });
 

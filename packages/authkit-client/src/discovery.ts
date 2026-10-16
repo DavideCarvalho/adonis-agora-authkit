@@ -19,13 +19,12 @@ import { type ResiliencePolicy, resilientFetch } from './http/resilient_fetch.js
 
 export interface OidcEndpoints {
   /**
-   * Exact issuer identifier advertised by the discovery document. Token `iss`
-   * claims are compared against this value, so an IdP whose issuer carries a
-   * trailing slash (Auth0: `https://tenant.auth0.com/`) validates no matter how
-   * the issuer was written in the config. Absent when the endpoints did not come
-   * from a discovery document.
+   * The issuer tokens are checked against (`iss`). From a discovery document it
+   * is the document's exact value, so an IdP whose issuer carries a trailing
+   * slash (Auth0: `https://tenant.auth0.com/`) validates no matter how the issuer
+   * was written in the config; otherwise it is the configured issuer.
    */
-  issuer?: string;
+  issuer: string;
   authorizationEndpoint: string;
   tokenEndpoint: string;
   jwksUri: string;
@@ -41,6 +40,7 @@ export interface OidcEndpoints {
 export function conventionEndpoints(issuer: string): OidcEndpoints {
   const base = issuer.replace(/\/$/, '');
   return {
+    issuer,
     authorizationEndpoint: `${base}/auth`,
     tokenEndpoint: `${base}/token`,
     jwksUri: `${base}/jwks`,
@@ -48,6 +48,23 @@ export function conventionEndpoints(issuer: string): OidcEndpoints {
     userinfoEndpoint: `${base}/me`,
     introspectionEndpoint: `${base}/token/introspection`,
   };
+}
+
+/**
+ * Layers endpoint sources, later ones winning field by field. `undefined` never
+ * overwrites, so a layer only contributes what it actually has.
+ */
+export function mergeEndpoints<T extends Partial<OidcEndpoints>>(
+  base: T,
+  ...layers: Array<Partial<OidcEndpoints> | undefined>
+): T {
+  const merged: Record<string, unknown> = { ...base };
+  for (const layer of layers) {
+    for (const [key, value] of Object.entries(layer ?? {})) {
+      if (value !== undefined) merged[key] = value;
+    }
+  }
+  return merged as T;
 }
 
 /** Thrown by `discoverEndpoints(..., { onError: 'throw' })` when discovery fails. */
@@ -141,54 +158,14 @@ export async function discoverEndpoints(
     }
   }
 
-  const endpoints = applyOverrides(
-    doc ? fromDocument(base, doc, onError) : conventionEndpoints(base),
-    options.overrides,
-  );
-  if (onError === 'throw') assertRequired(base, endpoints);
+  // Lowest to highest priority: the convention (fallback mode only — `throw`
+  // mode guesses nothing), what the document publishes, the overrides.
+  if (onError === 'fallback') {
+    return mergeEndpoints(conventionEndpoints(issuer), doc, options.overrides);
+  }
+  const endpoints = mergeEndpoints({ issuer }, doc, options.overrides);
+  assertRequired(base, endpoints);
   return endpoints;
-}
-
-function fromDocument(
-  base: string,
-  doc: DiscoveryDocument,
-  onError: 'fallback' | 'throw',
-): OidcEndpoints {
-  if (onError === 'throw') {
-    // No guessing: what the document does not publish stays undefined. The three
-    // required endpoints are checked by assertRequired once overrides are applied.
-    return {
-      issuer: doc.issuer,
-      authorizationEndpoint: doc.authorizationEndpoint as string,
-      tokenEndpoint: doc.tokenEndpoint as string,
-      jwksUri: doc.jwksUri as string,
-      endSessionEndpoint: doc.endSessionEndpoint,
-      userinfoEndpoint: doc.userinfoEndpoint,
-      introspectionEndpoint: doc.introspectionEndpoint,
-    };
-  }
-  const fallback = conventionEndpoints(base);
-  return {
-    issuer: doc.issuer,
-    authorizationEndpoint: doc.authorizationEndpoint ?? fallback.authorizationEndpoint,
-    tokenEndpoint: doc.tokenEndpoint ?? fallback.tokenEndpoint,
-    jwksUri: doc.jwksUri ?? fallback.jwksUri,
-    endSessionEndpoint: doc.endSessionEndpoint ?? fallback.endSessionEndpoint,
-    userinfoEndpoint: doc.userinfoEndpoint ?? fallback.userinfoEndpoint,
-    introspectionEndpoint: doc.introspectionEndpoint ?? fallback.introspectionEndpoint,
-  };
-}
-
-function applyOverrides(
-  endpoints: OidcEndpoints,
-  overrides: Partial<OidcEndpoints> | undefined,
-): OidcEndpoints {
-  if (!overrides) return endpoints;
-  const merged = { ...endpoints };
-  for (const [key, value] of Object.entries(overrides)) {
-    if (value !== undefined) (merged as Record<string, unknown>)[key] = value;
-  }
-  return merged;
 }
 
 async function fetchDiscovery(
@@ -223,10 +200,12 @@ async function fetchDiscovery(
   // OIDC Discovery §4.3: the document must be about the issuer we asked for —
   // otherwise tokens from another issuer would validate against its keys.
   if (!docIssuer || docIssuer.replace(/\/$/, '') !== base) {
-    fail(`document issuer ${JSON.stringify(docIssuer)} does not match the configured issuer`);
+    return fail(
+      `document issuer ${JSON.stringify(docIssuer)} does not match the configured issuer`,
+    );
   }
   return {
-    issuer: docIssuer as string,
+    issuer: docIssuer,
     authorizationEndpoint: str(raw.authorization_endpoint),
     tokenEndpoint: str(raw.token_endpoint),
     jwksUri: str(raw.jwks_uri),
@@ -238,10 +217,13 @@ async function fetchDiscovery(
 
 /**
  * Throws when neither the document nor the overrides provide an endpoint the
- * login flow cannot work without. Only enforced in `onError: 'throw'` mode — the
+ * login flow cannot work without. Only `onError: 'throw'` needs it — the
  * fallback mode fills the gap with the convention, as it always did.
  */
-function assertRequired(base: string, endpoints: OidcEndpoints): void {
+function assertRequired(
+  base: string,
+  endpoints: Partial<OidcEndpoints>,
+): asserts endpoints is OidcEndpoints {
   const missing = (['authorizationEndpoint', 'tokenEndpoint', 'jwksUri'] as const).filter(
     (key) => !endpoints[key],
   );

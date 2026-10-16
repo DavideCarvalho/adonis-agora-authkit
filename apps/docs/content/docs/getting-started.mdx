@@ -314,7 +314,7 @@ export default class OidcSessionController {
     } catch (error) {
       // Stale or foreign callback (lost state, no code), or the IdP sent the user
       // back with an error (access_denied…) → start over.
-      if (error instanceof OidcCallbackError && (error.restartable || error.code === 'idp_error')) {
+      if (error instanceof OidcCallbackError && error.restartable) {
         return ctx.response.redirect('/auth/login')
       }
       throw error

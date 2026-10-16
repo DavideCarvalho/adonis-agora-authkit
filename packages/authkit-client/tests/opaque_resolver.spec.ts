@@ -17,7 +17,7 @@ function ctxWithBearer(token?: string) {
 }
 
 const base = {
-  introspectionUrl: 'http://idp/token/introspection',
+  introspectionUrl: async () => 'http://idp/token/introspection',
   clientId: 'app1',
   clientSecret: 's',
   sessionKey: 'authkit',

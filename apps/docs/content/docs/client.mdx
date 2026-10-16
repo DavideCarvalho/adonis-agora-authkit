@@ -436,7 +436,7 @@ export default class OidcSessionController {
       });
       this.authkit.startSession(ctx, tokens);
     } catch (error) {
-      if (error instanceof OidcCallbackError && (error.restartable || error.code === "idp_error")) {
+      if (error instanceof OidcCallbackError && error.restartable) {
         return ctx.response.redirect("/auth/login");
       }
       throw error;
@@ -470,8 +470,10 @@ it.
 
 `completeAuthorization` throws `OidcCallbackError` with a `code` (`missing_pending`,
 `state_mismatch`, `issuer_mismatch`, `idp_error`, `missing_code`, `token_exchange_failed`,
-`missing_id_token`, `invalid_id_token`); `restartable` is true for the first three that mean
-"this callback is stale or not ours". Passing `idToken` as the `id_token_hint` lets the IdP
+`missing_id_token`, `invalid_id_token`); `restartable` is true for `missing_pending`,
+`state_mismatch`, `idp_error` and `missing_code` — the cases where the answer is to send the
+user back to login. `error.idpError` carries the IdP's `error` (`access_denied`…) if you want
+to treat a refusal differently. Passing `idToken` as the `id_token_hint` lets the IdP
 skip its confirmation page; the `postLogoutRedirectUri` must be registered on the client. See
 [Security](/docs/security) for the logout details.
 

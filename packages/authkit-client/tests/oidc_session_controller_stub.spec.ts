@@ -51,6 +51,6 @@ test.group('oidc_session_controller.stub', () => {
 
   test('restarts the login on an IdP error, like registerOidcClient', async ({ assert }) => {
     const stubContent = await readStub();
-    assert.match(stubContent, /error\.restartable \|\| error\.code === 'idp_error'/);
+    assert.match(stubContent, /error instanceof OidcCallbackError && error\.restartable\)/);
   });
 });

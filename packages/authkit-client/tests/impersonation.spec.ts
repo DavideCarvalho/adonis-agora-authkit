@@ -3,30 +3,14 @@ import { test } from '@japa/runner';
 import { AuthkitClientManager } from '../providers/authkit_client_provider.js';
 import { defineConfig, type ResolvedClientConfig, resolvers } from '../src/define_config.js';
 import type { TokenSet } from '../src/types.js';
+import { type FakeSession, fakeSession } from './helpers/http.js';
 import { signIdToken, testKeys } from './helpers/id_tokens.js';
 
 const ISSUER = 'http://idp.test';
 const IMPERSONATOR_KEY = 'authkit_impersonator';
 const REFRESHED_TARGET_ID_TOKEN = await signIdToken({ iss: ISSUER, sub: 'target-1' });
 
-/** Sessão de mentira com a mesma superfície que o manager usa (get/put/forget). */
-function fakeSession() {
-  const store = new Map<string, unknown>();
-  return {
-    store,
-    get(key: string) {
-      return store.get(key);
-    },
-    put(key: string, value: unknown) {
-      store.set(key, value);
-    },
-    forget(key: string) {
-      store.delete(key);
-    },
-  };
-}
-
-function ctxWith(session: ReturnType<typeof fakeSession>) {
+function ctxWith(session: FakeSession) {
   return { session } as any;
 }
 

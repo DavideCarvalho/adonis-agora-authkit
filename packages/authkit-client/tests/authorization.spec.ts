@@ -4,6 +4,7 @@ import {
   createAuthorizationRequest,
   OidcCallbackError,
 } from '../src/authorization.js';
+import { conventionEndpoints } from '../src/discovery.js';
 import { signIdToken, testKeys } from './helpers/id_tokens.js';
 
 const BASE = {
@@ -38,7 +39,7 @@ async function finish(
   const endpoint = tokenEndpoint(idToken, status);
   const result = await completeAuthorization({
     ...BASE,
-    endpoints: { tokenEndpoint: 'http://idp/custom/token' },
+    endpoints: { ...conventionEndpoints(BASE.issuer), tokenEndpoint: 'http://idp/custom/token' },
     pending,
     callbackParams,
     idToken: { keys: testKeys },
@@ -109,6 +110,12 @@ test.group('completeAuthorization', () => {
       finish(pending, { code: 'c', state: pending.state, iss: 'http://evil' }),
     );
     assert.equal(code, 'issuer_mismatch');
+    const error = await finish(pending, {
+      code: 'c',
+      state: pending.state,
+      iss: 'http://evil',
+    }).catch((e) => e);
+    assert.isFalse(error.restartable);
   });
 
   test('an IdP error carries error and description', async ({ assert }) => {
@@ -120,7 +127,8 @@ test.group('completeAuthorization', () => {
     }).catch((e) => e);
     assert.equal(error.code, 'idp_error');
     assert.deepEqual(error.idpError, { error: 'access_denied', description: 'User said no' });
-    assert.isFalse(error.restartable);
+    // The IdP turned the user away: back to login, like a stale callback.
+    assert.isTrue(error.restartable);
   });
 
   test('token endpoint failure, missing or invalid id_token', async ({ assert }) => {

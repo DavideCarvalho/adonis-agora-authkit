@@ -22,7 +22,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { base64url } from 'jose';
-import type { OidcEndpoints } from './discovery.js';
+import { conventionEndpoints, type OidcEndpoints } from './discovery.js';
 import type { ResiliencePolicy } from './http/resilient_fetch.js';
 import {
   type IdTokenClaims,
@@ -131,13 +131,16 @@ export class OidcCallbackError extends Error {
   readonly idpError?: { error: string; description?: string };
 
   /**
-   * True when restarting the login is the right answer — the callback is stale or
-   * did not belong to this browser, rather than something being wrong with the IdP.
+   * True when the right answer is to send the user back to login: the callback is
+   * stale or did not belong to this browser, or the IdP sent the user back with an
+   * error (`access_denied`, `login_required`…; see `idpError` to tell them apart).
+   * False for real failures — a mix-up, a failed token exchange or id_token check.
    */
   get restartable(): boolean {
     return (
       this.code === 'missing_pending' ||
       this.code === 'state_mismatch' ||
+      this.code === 'idp_error' ||
       this.code === 'missing_code'
     );
   }
@@ -149,7 +152,7 @@ export interface CompleteAuthorizationParams {
   clientSecret?: string;
   redirectUri: string;
   /** Discovered endpoints. Without them, the authkit-server convention is used. */
-  endpoints?: Partial<Pick<OidcEndpoints, 'issuer' | 'tokenEndpoint' | 'jwksUri'>>;
+  endpoints?: Pick<OidcEndpoints, 'issuer' | 'tokenEndpoint' | 'jwksUri'>;
   /** What `createAuthorizationRequest` returned in `pending`. */
   pending: PendingAuthorization | null | undefined;
   /** The callback query string (`request.qs()`). */
@@ -170,15 +173,15 @@ export interface CompletedAuthorization {
  * Finishes the authorization-code flow: checks `state` and `iss`, exchanges the
  * code (with the PKCE verifier) and validates the id_token, `nonce` included.
  *
- * Throws {@link OidcCallbackError}; `error.restartable` tells a stale callback
- * (send the user back to login) from a real failure.
+ * Throws {@link OidcCallbackError}; `error.restartable` tells "send the user back
+ * to login" from a real failure.
  */
 export async function completeAuthorization(
   p: CompleteAuthorizationParams,
 ): Promise<CompletedAuthorization> {
   const q = p.callbackParams;
   const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
-  const issuer = p.endpoints?.issuer ?? p.issuer;
+  const { issuer, tokenEndpoint, jwksUri } = p.endpoints ?? conventionEndpoints(p.issuer);
 
   const pending = p.pending;
   if (!pending?.state || !pending.nonce || !pending.codeVerifier) {
@@ -212,7 +215,7 @@ export async function completeAuthorization(
       redirectUri: p.redirectUri,
       code,
       codeVerifier: pending.codeVerifier,
-      tokenEndpoint: p.endpoints?.tokenEndpoint,
+      tokenEndpoint,
       fetchImpl: p.fetchImpl,
       resilience: p.resilience,
     });
@@ -234,7 +237,7 @@ export async function completeAuthorization(
       ...p.idToken,
       issuer,
       clientId: p.clientId,
-      jwksUri: p.endpoints?.jwksUri,
+      jwksUri,
       nonce: pending.nonce,
       maxAge: pending.maxAge,
     });

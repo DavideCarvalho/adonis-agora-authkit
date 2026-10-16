@@ -5,8 +5,8 @@ import { test } from '@japa/runner';
 import { GenericContainer, type StartedTestContainer, Wait } from 'testcontainers';
 import { AuthkitClientManager } from '../providers/authkit_client_provider.js';
 import { defineConfig, type ResolvedClientConfig, resolvers } from '../src/define_config.js';
-import { registerOidcClient } from '../src/register_oidc_client.js';
 import type { TokenSet } from '../src/types.js';
+import { fakeHttpCtx, fakeSession, oidcRoutes } from './helpers/http.js';
 
 /**
  * Real third-party IdPs (testcontainers). The unit specs fake the IdP, so they
@@ -172,51 +172,6 @@ const IDPS: Idp[] = [keycloak, mockOAuth2Server];
 
 // --- the app side: real routes, fake HTTP objects ----------------------------
 
-function fakeSession() {
-  const store = new Map<string, unknown>();
-  return {
-    sessionId: 'sess-1',
-    get: (k: string) => store.get(k),
-    put: (k: string, v: unknown) => void store.set(k, v),
-    forget: (k: string) => void store.delete(k),
-    pull: (k: string) => {
-      const v = store.get(k);
-      store.delete(k);
-      return v;
-    },
-  };
-}
-
-function fakeCtx(
-  manager: AuthkitClientManager,
-  session: ReturnType<typeof fakeSession>,
-  qs: Record<string, string> = {},
-) {
-  const redirects: string[] = [];
-  const builder = {
-    withQs: () => builder,
-    toPath: (url: string) => void redirects.push(url),
-  };
-  const ctx = {
-    containerResolver: { make: async () => manager },
-    request: { qs: () => qs, input: (k: string) => qs[k] },
-    session,
-    response: { redirect: () => builder, header: () => {} },
-  } as any;
-  return { ctx, redirects };
-}
-
-function routes() {
-  const table = new Map<string, (ctx: any) => Promise<unknown>>();
-  const add = (pattern: string, handler: (ctx: any) => Promise<unknown>) => {
-    table.set(pattern, handler);
-    const chain = { use: () => chain, as: () => chain };
-    return chain;
-  };
-  registerOidcClient({ get: add, post: add } as any, { postLogoutRedirect: POST_LOGOUT });
-  return (pattern: string) => table.get(pattern)!;
-}
-
 async function managerFor(idp: StartedIdp) {
   const config = await configProvider.resolve<ResolvedClientConfig>(
     {} as any,
@@ -237,8 +192,8 @@ for (const spec of IDPS) {
   test.group(`third-party IdP | ${spec.label}`, (group) => {
     let idp: StartedIdp;
     let manager: AuthkitClientManager;
-    const route = routes();
-    const session = fakeSession();
+    const route = oidcRoutes({ postLogoutRedirect: POST_LOGOUT });
+    const session = fakeSession({ sessionId: 'sess-1' });
 
     group.setup(async () => {
       if (!DOCKER) return;
@@ -251,14 +206,21 @@ for (const spec of IDPS) {
 
     /** Full browser round trip through /auth/login and /auth/callback. */
     async function signIn(): Promise<TokenSet> {
-      const login = fakeCtx(manager, session);
+      const login = fakeHttpCtx({ manager, session });
       await route('/auth/login')(login.ctx);
-      const callbackUrl = await idp.login(login.redirects[0]);
+      const callbackUrl = await idp.login(login.redirects[0].url);
       ensure(callbackUrl.href.startsWith(REDIRECT_URI), `IdP redirected to ${callbackUrl}`);
 
-      const callback = fakeCtx(manager, session, Object.fromEntries(callbackUrl.searchParams));
+      const callback = fakeHttpCtx({
+        manager,
+        session,
+        qs: Object.fromEntries(callbackUrl.searchParams),
+      });
       await route('/auth/callback')(callback.ctx);
-      ensure(callback.redirects[0] === '/', `callback redirected to ${callback.redirects[0]}`);
+      ensure(
+        callback.redirects[0].url === '/',
+        `callback redirected to ${callback.redirects[0].url}`,
+      );
       return session.get('authkit') as TokenSet;
     }
 
@@ -272,9 +234,9 @@ for (const spec of IDPS) {
       .timeout(FLOW_TIMEOUT_MS);
 
     test('login: authorize carries state, nonce and S256 PKCE', async ({ assert }) => {
-      const login = fakeCtx(manager, fakeSession());
+      const login = fakeHttpCtx({ manager, session: fakeSession({ sessionId: 'sess-1' }) });
       await route('/auth/login')(login.ctx);
-      const params = new URL(login.redirects[0]).searchParams;
+      const params = new URL(login.redirects[0].url).searchParams;
       assert.isString(params.get('state'));
       assert.isString(params.get('nonce'));
       assert.equal(params.get('code_challenge_method'), 'S256');
@@ -293,7 +255,7 @@ for (const spec of IDPS) {
 
       // resolvers.jwt() verified the session id_token against the discovered JWKS.
       const identity = await (
-        await manager.createAuthenticator(fakeCtx(manager, session).ctx)
+        await manager.createAuthenticator(fakeHttpCtx({ manager, session }).ctx)
       ).getIdentity();
       assert.equal(identity?.userId, claims.sub);
     })
@@ -301,17 +263,17 @@ for (const spec of IDPS) {
       .timeout(FLOW_TIMEOUT_MS);
 
     test('a replayed callback is not accepted twice', async ({ assert }) => {
-      const replaySession = fakeSession();
-      const login = fakeCtx(manager, replaySession);
+      const replaySession = fakeSession({ sessionId: 'sess-1' });
+      const login = fakeHttpCtx({ manager, session: replaySession });
       await route('/auth/login')(login.ctx);
-      const callbackUrl = await idp.login(login.redirects[0]);
+      const callbackUrl = await idp.login(login.redirects[0].url);
       const qs = Object.fromEntries(callbackUrl.searchParams);
 
-      await route('/auth/callback')(fakeCtx(manager, replaySession, qs).ctx);
+      await route('/auth/callback')(fakeHttpCtx({ manager, session: replaySession, qs }).ctx);
       replaySession.forget('authkit');
-      const replay = fakeCtx(manager, replaySession, qs);
+      const replay = fakeHttpCtx({ manager, session: replaySession, qs });
       await route('/auth/callback')(replay.ctx);
-      assert.equal(replay.redirects[0], '/auth/login');
+      assert.equal(replay.redirects[0].url, '/auth/login');
       assert.isUndefined(replaySession.get('authkit'));
     })
       .skip(!DOCKER, 'Docker not available')
@@ -325,7 +287,7 @@ for (const spec of IDPS) {
       // Pretend the access token is about to expire.
       session.put('authkit', { ...before, expiresAt: Date.now() + 1_000 });
 
-      await manager.maybeRefresh(fakeCtx(manager, session).ctx);
+      await manager.maybeRefresh(fakeHttpCtx({ manager, session }).ctx);
       const after = session.get('authkit') as TokenSet;
       assert.notEqual(after.accessToken, before.accessToken);
       assert.isAbove(after.expiresAt ?? 0, Date.now() + 1_000);
@@ -338,11 +300,11 @@ for (const spec of IDPS) {
       assert,
     }) => {
       if (!session.get('authkit')) await signIn();
-      const logout = fakeCtx(manager, session);
+      const logout = fakeHttpCtx({ manager, session });
       await route('/auth/logout')(logout.ctx);
       assert.isUndefined(session.get('authkit'));
 
-      const endSession = new URL(logout.redirects[0]);
+      const endSession = new URL(logout.redirects[0].url);
       const { endSessionEndpoint } = await manager.endpoints();
       assert.equal(`${endSession.origin}${endSession.pathname}`, endSessionEndpoint);
       assert.equal(endSession.searchParams.get('post_logout_redirect_uri'), POST_LOGOUT);

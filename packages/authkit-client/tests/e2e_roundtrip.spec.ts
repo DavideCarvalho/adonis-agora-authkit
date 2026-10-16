@@ -10,6 +10,7 @@ import { test } from '@japa/runner';
 import RedisMock from 'ioredis-mock';
 import { buildAuthorizeUrl, generatePkce } from '../src/oidc_login.js';
 import { resolvers } from '../src/resolvers/factory.js';
+import { resolverContext } from './helpers/resolvers.js';
 
 const PORT = 9821;
 const ISSUER = `http://localhost:${PORT}`;
@@ -149,12 +150,7 @@ test.group('client ↔ server round-trip (ID token)', (group) => {
     };
     assert.isString(disco.jwks_uri);
     const factory = resolvers.jwt({ jwksUri: disco.jwks_uri });
-    const resolver = await factory.resolver({
-      issuer: ISSUER,
-      clientId: CLIENT_ID,
-      sessionKey: 'authkit',
-      globalRolesClaim: 'roles',
-    });
+    const resolver = await factory.resolver(resolverContext(ISSUER, { clientId: CLIENT_ID }));
 
     const identity = await (resolver as any).resolveToken(tokens.id_token);
     assert.isNotNull(identity, 'ID token deve ser válido e resolver para uma Identity');

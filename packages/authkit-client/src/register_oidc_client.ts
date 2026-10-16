@@ -104,10 +104,7 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
         // Stale/expired callback (lost state, no code) or the IdP sent the user back
         // with an error (access_denied…) → restart the login, as before. A failed
         // id_token check or token exchange is a real failure and propagates.
-        if (
-          error instanceof OidcCallbackError &&
-          (error.restartable || error.code === 'idp_error')
-        ) {
+        if (error instanceof OidcCallbackError && error.restartable) {
           return ctx.response.redirect().withQs(false).toPath(`${prefix}/login`);
         }
         throw error;

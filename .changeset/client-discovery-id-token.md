@@ -11,3 +11,5 @@ Third-party IdPs (Keycloak, Auth0, Okta, Entra) now work with the integrated cli
 - **No more silent failures.** A failing refresh is logged as a warning; `/auth/logout` goes straight to the post-logout destination when the IdP publishes no `end_session_endpoint`.
 - Token endpoint failures now carry the IdP's `error` / `error_description` (`Token endpoint returned 400: not_allowed (…)`) instead of a bare status.
 - `discoverEndpoints` gains `onError: 'fallback' | 'throw'`. With the default `'fallback'`, the convention fallback is no longer cached, and a document without a matching `issuer` is treated as unusable.
+- `OidcEndpoints.issuer` is now always present: the document's exact issuer when discovered, the configured one otherwise (`conventionEndpoints(issuer)` fills it in). Code that builds an `OidcEndpoints` literal by hand must add it.
+- Back-channel logout reuses the cached remote JWKS instead of fetching the IdP keys on every `logout_token`.

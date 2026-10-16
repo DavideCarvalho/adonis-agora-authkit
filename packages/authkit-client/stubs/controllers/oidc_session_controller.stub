@@ -32,7 +32,7 @@ export default class OidcSessionController {
       this.authkit.startSession(ctx, tokenSet)
     } catch (error) {
       // Stale callback, or the IdP sent the user back with an error (access_denied…).
-      if (error instanceof OidcCallbackError && (error.restartable || error.code === 'idp_error')) {
+      if (error instanceof OidcCallbackError && error.restartable) {
         return ctx.response.redirect('/auth/login')
       }
       throw error

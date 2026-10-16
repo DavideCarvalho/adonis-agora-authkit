@@ -1,6 +1,5 @@
 import type { SessionResolver } from '@adonis-agora/authkit-core';
-import type { HttpContext } from '@adonisjs/core/http';
-import { conventionEndpoints, OidcDiscoveryError, type OidcEndpoints } from '../discovery.js';
+import { OidcDiscoveryError, type OidcEndpoints } from '../discovery.js';
 import { getTokenFromSource, type TokenSource } from '../token_source.js';
 import { JwtResolver } from './jwt_resolver.js';
 import { OpaqueResolver } from './opaque_resolver.js';
@@ -39,57 +38,25 @@ export interface ResolverContext {
   clientSecret?: string;
   sessionKey: string;
   globalRolesClaim: string;
-  /**
-   * Resolved IdP endpoints (discovery + overrides). Optional so hand-built
-   * contexts keep compiling; without it, the authkit-server convention is used.
-   */
-  endpoints?: () => Promise<OidcEndpoints>;
+  /** The IdP endpoints (discovery + overrides), cached by the caller — call it per request. */
+  endpoints: () => Promise<OidcEndpoints>;
   /** Where a resolver reports that the IdP cannot serve it (e.g. no introspection). */
-  logger?: { warn(obj: object, msg: string): void };
-}
-
-async function endpointsOf(rc: ResolverContext): Promise<OidcEndpoints> {
-  return rc.endpoints ? rc.endpoints() : conventionEndpoints(rc.issuer);
+  logger: { warn(obj: object, msg: string): void };
 }
 
 /**
- * Builds the resolver from the CURRENT endpoints, on each request: discovery is
- * cached (15 min), so this is cheap, and a rotated `jwks_uri` / `issuer` reaches a
- * live process on the next refetch instead of sticking until restart. The resolver
- * itself is rebuilt only when `select` yields a different key, so its JWKS cache
- * survives between requests.
- *
- * While discovery fails (and nothing was ever discovered), a request resolves to
- * no identity — the same outcome as an unreachable JWKS — instead of failing every
- * request, public pages included via silent auth. `select` returning `null` means
- * "this IdP cannot serve this resolver"; that also resolves to no identity, after
- * a one-time warning. Any other error is a configuration error and throws.
+ * The current endpoints, or `null` while discovery fails (and nothing was ever
+ * discovered): a request then resolves to no identity — the same outcome as an
+ * unreachable JWKS — instead of failing every request, public pages included via
+ * silent auth. Any other error is a configuration error and throws.
  */
-function endpointBound<R>(
-  rc: ResolverContext,
-  select: (endpoints: OidcEndpoints) => string | null,
-  build: (endpoints: OidcEndpoints) => R,
-  unavailable: string,
-): () => Promise<R | null> {
-  let current: { key: string; resolver: R } | undefined;
-  let warned = false;
-  return async () => {
-    let endpoints: OidcEndpoints;
-    try {
-      endpoints = await endpointsOf(rc);
-    } catch (error) {
-      if (error instanceof OidcDiscoveryError) return current?.resolver ?? null;
-      throw error;
-    }
-    const key = select(endpoints);
-    if (key === null) {
-      if (!warned) rc.logger?.warn({ issuer: rc.issuer }, unavailable);
-      warned = true;
-      return null;
-    }
-    if (current?.key !== key) current = { key, resolver: build(endpoints) };
-    return current.resolver;
-  };
+async function currentEndpoints(rc: ResolverContext): Promise<OidcEndpoints | null> {
+  try {
+    return await rc.endpoints();
+  } catch (error) {
+    if (error instanceof OidcDiscoveryError) return null;
+    throw error;
+  }
 }
 
 export interface ResolverFactory {
@@ -101,28 +68,16 @@ export const resolvers = {
     const tokenSource = config.tokenSource ?? 'session';
     return {
       async resolver(rc) {
-        const inner = endpointBound(
-          rc,
-          (e) => `${e.issuer ?? rc.issuer} ${config.jwksUri ?? e.jwksUri}`,
-          (e) =>
-            new JwtResolver({
-              issuer: e.issuer ?? rc.issuer,
-              jwksUri: config.jwksUri ?? e.jwksUri,
-              audience: rc.clientId,
-              globalRolesClaim: rc.globalRolesClaim,
-              getToken: (httpCtx) => getTokenFromSource(httpCtx, tokenSource, rc.sessionKey),
-            }),
-          'authkit-client: resolvers.jwt has no jwks_uri',
-        );
-        return {
-          async resolve(ctx: HttpContext) {
-            return (await inner())?.resolve(ctx) ?? null;
+        return new JwtResolver({
+          endpoints: async () => {
+            const endpoints = await currentEndpoints(rc);
+            if (!endpoints) return null;
+            return { issuer: endpoints.issuer, jwksUri: config.jwksUri ?? endpoints.jwksUri };
           },
-          /** Validates a raw JWT (same contract as `JwtResolver.resolveToken`). */
-          async resolveToken(token: string) {
-            return (await inner())?.resolveToken(token) ?? null;
-          },
-        };
+          audience: rc.clientId,
+          globalRolesClaim: rc.globalRolesClaim,
+          getToken: (httpCtx) => getTokenFromSource(httpCtx, tokenSource, rc.sessionKey),
+        });
       },
     };
   },
@@ -147,28 +102,29 @@ export const resolvers = {
             'resolvers.opaque requer um client confidencial (clientSecret) para introspection',
           );
         }
-        const clientSecret = rc.clientSecret;
-        const inner = endpointBound(
-          rc,
-          (e) => config.introspectionUrl ?? e.introspectionEndpoint ?? null,
-          (e) =>
-            new OpaqueResolver({
-              introspectionUrl: (config.introspectionUrl ?? e.introspectionEndpoint) as string,
-              clientId: rc.clientId,
-              clientSecret,
-              tokenSource,
-              sessionKey: rc.sessionKey,
-              globalRolesClaim: rc.globalRolesClaim,
-              cacheTtlMs: config.cacheTtlMs,
-            }),
-          'authkit-client: the IdP publishes no introspection_endpoint, so resolvers.opaque ' +
-            'resolves every request to no identity — set introspectionUrl',
-        );
-        return {
-          async resolve(ctx: HttpContext) {
-            return (await inner())?.resolve(ctx) ?? null;
+        let warned = false;
+        return new OpaqueResolver({
+          introspectionUrl: async () => {
+            if (config.introspectionUrl) return config.introspectionUrl;
+            const endpoints = await currentEndpoints(rc);
+            if (!endpoints) return null;
+            if (!endpoints.introspectionEndpoint && !warned) {
+              warned = true;
+              rc.logger.warn(
+                { issuer: rc.issuer },
+                'authkit-client: the IdP publishes no introspection_endpoint, so resolvers.opaque ' +
+                  'resolves every request to no identity — set introspectionUrl',
+              );
+            }
+            return endpoints.introspectionEndpoint ?? null;
           },
-        };
+          clientId: rc.clientId,
+          clientSecret: rc.clientSecret,
+          tokenSource,
+          sessionKey: rc.sessionKey,
+          globalRolesClaim: rc.globalRolesClaim,
+          cacheTtlMs: config.cacheTtlMs,
+        });
       },
     };
   },

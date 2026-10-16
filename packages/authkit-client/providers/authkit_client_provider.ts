@@ -19,12 +19,18 @@ import {
 } from '../src/authorization.js';
 import { validateLogoutToken } from '../src/backchannel_logout.js';
 import type { ResolvedClientConfig } from '../src/define_config.js';
-import { conventionEndpoints, discoverEndpoints, type OidcEndpoints } from '../src/discovery.js';
+import {
+  conventionEndpoints,
+  discoverEndpoints,
+  mergeEndpoints,
+  type OidcEndpoints,
+} from '../src/discovery.js';
 import {
   type IdTokenClaims,
   type ValidateIdTokenOptions,
   validateIdToken,
 } from '../src/id_token.js';
+import { getJwks } from '../src/jwks.js';
 import { exchangeToken, refreshTokens } from '../src/oidc_login.js';
 import type { TokenSet } from '../src/types.js';
 
@@ -82,6 +88,12 @@ export interface AuthkitClientManagerDeps {
   keys?: JWTVerifyGetKey;
 }
 
+/** The IdP as this client talks to it: its endpoints and the keys its tokens are signed with. */
+interface ResolvedIdp {
+  endpoints: OidcEndpoints;
+  keys: JWTVerifyGetKey;
+}
+
 export class AuthkitClientManager {
   #resolverCache?: SessionResolver;
   /**
@@ -90,10 +102,13 @@ export class AuthkitClientManager {
    * o refresh token de origem, pra quem espera saber se é da mesma linhagem.
    */
   #refreshPromises = new Map<string, { refreshToken: string; promise: Promise<TokenSet | null> }>();
+  #logger: AuthkitClientLogger;
   constructor(
     private config: ResolvedClientConfig,
     private deps: AuthkitClientManagerDeps = {},
-  ) {}
+  ) {
+    this.#logger = deps.logger ?? { warn: () => {} };
+  }
 
   async #getResolver(): Promise<SessionResolver> {
     if (!this.#resolverCache) {
@@ -104,7 +119,7 @@ export class AuthkitClientManager {
         sessionKey: this.config.sessionKey,
         globalRolesClaim: this.config.globalRolesClaim,
         endpoints: () => this.endpoints(),
-        logger: this.deps.logger,
+        logger: this.#logger,
       });
     }
     return this.#resolverCache;
@@ -121,7 +136,7 @@ export class AuthkitClientManager {
    */
   async endpoints(): Promise<OidcEndpoints> {
     const { discovery, endpoints: overrides, issuer } = this.config;
-    if (discovery === false) return { ...conventionEndpoints(issuer), ...definedOnly(overrides) };
+    if (discovery === false) return mergeEndpoints(conventionEndpoints(issuer), overrides);
     return discoverEndpoints(issuer, {
       overrides,
       cacheTtlMs: discovery.cacheTtlMs,
@@ -129,6 +144,12 @@ export class AuthkitClientManager {
       fetchImpl: this.deps.fetchImpl,
       onError: 'throw',
     });
+  }
+
+  /** {@link endpoints} plus the key function every token signature is checked with. */
+  async #idp(): Promise<ResolvedIdp> {
+    const endpoints = await this.endpoints();
+    return { endpoints, keys: this.deps.keys ?? getJwks(endpoints.jwksUri) };
   }
 
   /**
@@ -166,32 +187,32 @@ export class AuthkitClientManager {
    * Throws `OidcCallbackError`; `error.restartable` means "send them back to login".
    */
   async completeAuthorization(
-    params: Pick<CompleteAuthorizationParams, 'pending' | 'callbackParams' | 'idToken'>,
+    params: Pick<CompleteAuthorizationParams, 'pending' | 'callbackParams'>,
   ): Promise<CompletedAuthorization> {
+    const { endpoints, keys } = await this.#idp();
     return completeAuthorization({
       ...params,
-      idToken: { keys: this.deps.keys, ...params.idToken },
       issuer: this.config.issuer,
       clientId: this.config.clientId,
       clientSecret: this.config.clientSecret,
       redirectUri: this.config.redirectUri,
-      endpoints: await this.endpoints(),
+      endpoints,
+      idToken: { keys },
       resilience: this.config.resilience,
     });
   }
 
-  /** Validates an id_token issued to this client (issuer, client_id and JWKS filled in). */
+  /** Validates an id_token issued to this client (issuer, client_id and keys filled in). */
   async validateIdToken(
     idToken: string,
-    options: Omit<ValidateIdTokenOptions, 'issuer' | 'clientId' | 'jwksUri'> = {},
+    options: Omit<ValidateIdTokenOptions, 'issuer' | 'clientId' | 'jwksUri' | 'keys'> = {},
   ): Promise<IdTokenClaims> {
-    const endpoints = await this.endpoints();
+    const { endpoints, keys } = await this.#idp();
     return validateIdToken(idToken, {
-      keys: this.deps.keys,
       ...options,
-      issuer: endpoints.issuer ?? this.config.issuer,
+      issuer: endpoints.issuer,
       clientId: this.config.clientId,
-      jwksUri: endpoints.jwksUri,
+      keys,
     });
   }
 
@@ -212,12 +233,8 @@ export class AuthkitClientManager {
 
   /**
    * Renova o TokenSet da sessão proativamente se o access token estiver perto de
-   * expirar (dentro de REFRESH_SKEW_MS) e houver refresh_token. Persiste o TokenSet
-   * renovado — incluindo o refresh_token ROTACIONADO — de volta na sessão. Preserva
-   * o id_token / refresh_token anteriores quando o IdP não os reemite.
-   *
-   * Preserva TAMBÉM o `impersonationBinding`: renovar o token do alvo não muda a
-   * sessão, então não pode invalidar o vínculo e trancar o ator na impersonação.
+   * expirar (dentro de REFRESH_SKEW_MS) e houver refresh_token, e persiste o resultado
+   * de {@link #renew} — incluindo o refresh_token ROTACIONADO — de volta na sessão.
    *
    * Dedup por sessionId: requests concorrentes da mesma sessão (ex.: autosave + vários
    * GETs chegando juntos quando o access token vence) disparam UM refresh só. Quem
@@ -226,14 +243,15 @@ export class AuthkitClientManager {
    * com o access token vencido (→ 401) e com o refresh token antigo, já invalidado
    * pela rotação, que ele poderia gravar de volta e envenenar a sessão.
    *
-   * Best-effort: qualquer falha (token revogado, IdP fora) é silenciosa — o resolver
-   * lida com a sessão expirada no fluxo normal. Chamado pelo middleware por request.
+   * Best-effort: uma falha (token revogado, IdP fora) vai para o logger e não lança —
+   * o resolver lida com a sessão expirada no fluxo normal. Chamado pelo middleware.
    */
   async maybeRefresh(ctx: HttpContext, deps: RefreshDeps = {}): Promise<void> {
     const session = (ctx as CtxWithSession).session;
     if (!session) return;
     const tokenSet = session.get(this.config.sessionKey) as TokenSet | undefined;
-    if (!tokenSet?.refreshToken) return;
+    const refreshToken = tokenSet?.refreshToken;
+    if (!tokenSet || !refreshToken) return;
 
     const now = deps.now ?? Date.now;
     // Sem expiresAt conhecido, não renova proativamente (evita refresh a cada request).
@@ -248,7 +266,7 @@ export class AuthkitClientManager {
       // Só aproveita o refresh in-flight se ele partiu do MESMO refresh token que esta
       // request tem — senão o TokenSet renovado é de outra linhagem (ex.: a sessão
       // trocou de token set no meio do caminho) e não pode ser gravado aqui.
-      if (inFlight && inFlight.refreshToken === tokenSet.refreshToken) {
+      if (inFlight && inFlight.refreshToken === refreshToken) {
         const refreshed = await inFlight.promise;
         if (refreshed) {
           session.put(this.config.sessionKey, {
@@ -266,41 +284,15 @@ export class AuthkitClientManager {
 
     // Promise que NUNCA rejeita: resolve com o TokenSet gravado, ou `null` se a
     // renovação falhou — aí o TokenSet original fica como está (o resolver decide).
-    const promise: Promise<TokenSet | null> = this.endpoints()
-      .then((endpoints) =>
-        refreshTokens({
-          issuer: this.config.issuer,
-          clientId: this.config.clientId,
-          clientSecret: this.config.clientSecret,
-          refreshToken: tokenSet.refreshToken as string,
-          tokenEndpoint: endpoints.tokenEndpoint,
-          fetchImpl: deps.fetchImpl,
-          resilience: this.config.resilience,
-        }),
-      )
-      .then(async (next) => {
-        // OIDC Core §12.2: a re-issued id_token must be valid and about the same
-        // end-user. No nonce here — none is sent on refresh.
-        if (next.idToken) {
-          await this.validateIdToken(next.idToken, { subject: subjectOf(tokenSet.idToken) });
-        }
-        return next;
-      })
-      .then((next) => {
-        const merged = {
-          idToken: next.idToken || tokenSet.idToken,
-          accessToken: next.accessToken,
-          refreshToken: next.refreshToken ?? tokenSet.refreshToken,
-          expiresAt: next.expiresAt,
-          impersonationBinding: tokenSet.impersonationBinding,
-        } satisfies TokenSet;
-        session.put(this.config.sessionKey, merged);
-        return merged;
+    const promise: Promise<TokenSet | null> = this.#renew(tokenSet, refreshToken, deps)
+      .then((renewed) => {
+        session.put(this.config.sessionKey, renewed);
+        return renewed;
       })
       .catch((error: unknown) => {
         // Still best-effort — the resolver handles the expired session — but no
         // longer silent: a misconfigured token endpoint used to fail here forever.
-        this.deps.logger?.warn(
+        this.#logger.warn(
           { err: error, issuer: this.config.issuer },
           'authkit-client: token refresh failed; keeping the current token set',
         );
@@ -312,7 +304,7 @@ export class AuthkitClientManager {
       return;
     }
 
-    const entry = { refreshToken: tokenSet.refreshToken, promise };
+    const entry = { refreshToken, promise };
     this.#refreshPromises.set(sessionId, entry);
     try {
       await promise;
@@ -320,6 +312,42 @@ export class AuthkitClientManager {
       // Só remove se a entrada ainda é a nossa.
       if (this.#refreshPromises.get(sessionId) === entry) this.#refreshPromises.delete(sessionId);
     }
+  }
+
+  /**
+   * Um refresh: tokens novos do IdP, id_token reemitido validado, mesclados sobre
+   * `tokenSet`. Preserva o id_token / refresh_token anteriores quando o IdP não os
+   * reemite, e TAMBÉM o `impersonationBinding`: renovar o token do alvo não muda a
+   * sessão, então não pode invalidar o vínculo e trancar o ator na impersonação.
+   */
+  async #renew(tokenSet: TokenSet, refreshToken: string, deps: RefreshDeps): Promise<TokenSet> {
+    const { endpoints, keys } = await this.#idp();
+    const next = await refreshTokens({
+      issuer: this.config.issuer,
+      clientId: this.config.clientId,
+      clientSecret: this.config.clientSecret,
+      refreshToken,
+      tokenEndpoint: endpoints.tokenEndpoint,
+      fetchImpl: deps.fetchImpl,
+      resilience: this.config.resilience,
+    });
+    // OIDC Core §12.2: a re-issued id_token must be valid and about the same
+    // end-user. No nonce here — none is sent on refresh.
+    if (next.idToken) {
+      await validateIdToken(next.idToken, {
+        issuer: endpoints.issuer,
+        clientId: this.config.clientId,
+        keys,
+        subject: subjectOf(tokenSet.idToken),
+      });
+    }
+    return {
+      idToken: next.idToken || tokenSet.idToken,
+      accessToken: next.accessToken,
+      refreshToken: next.refreshToken ?? refreshToken,
+      expiresAt: next.expiresAt,
+      impersonationBinding: tokenSet.impersonationBinding,
+    };
   }
 
   /**
@@ -339,12 +367,12 @@ export class AuthkitClientManager {
       return response.badRequest({ error: 'invalid_request' });
     }
 
-    let endpoints: OidcEndpoints;
+    let idp: ResolvedIdp;
     try {
-      endpoints = await this.endpoints();
+      idp = await this.#idp();
     } catch (error) {
       // Not the token's fault: tell the OP to retry instead of rejecting it.
-      this.deps.logger?.warn(
+      this.#logger.warn(
         { err: error, issuer: this.config.issuer },
         'authkit-client: back-channel logout received while discovery is failing',
       );
@@ -354,10 +382,9 @@ export class AuthkitClientManager {
     let validated: { sid?: string; sub?: string };
     try {
       validated = await validateLogoutToken(token, {
-        issuer: endpoints.issuer ?? this.config.issuer,
+        issuer: idp.endpoints.issuer,
         clientId: this.config.clientId,
-        jwksUri: endpoints.jwksUri,
-        keys: this.deps.keys,
+        keys: idp.keys,
       });
     } catch {
       return response.badRequest({ error: 'invalid_request' });
@@ -561,9 +588,4 @@ function subjectOf(idToken: string | undefined): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-function definedOnly<T extends object>(value: T | undefined): Partial<T> {
-  if (!value) return {};
-  return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) as Partial<T>;
 }

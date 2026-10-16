@@ -1,19 +1,5 @@
 import { type JWTPayload, type JWTVerifyGetKey, jwtVerify } from 'jose';
-import { getJwks } from './verify_access_token.js';
-
-/** Signature algorithms accepted on the id_token (defence against alg confusion). */
-const DEFAULT_ALGS = [
-  'RS256',
-  'RS384',
-  'RS512',
-  'PS256',
-  'PS384',
-  'PS512',
-  'ES256',
-  'ES384',
-  'ES512',
-  'EdDSA',
-];
+import { DEFAULT_ALGS, getJwks } from './jwks.js';
 
 /** Typed error thrown when an id_token does not satisfy OIDC Core §3.1.3.7. */
 export class InvalidIdTokenError extends Error {

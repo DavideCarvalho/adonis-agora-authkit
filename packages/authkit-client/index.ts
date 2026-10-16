@@ -59,6 +59,7 @@ export type { ResiliencePolicy } from './src/http/resilient_fetch.js';
 export { resilientFetch } from './src/http/resilient_fetch.js';
 export type { IdTokenClaims, ValidateIdTokenOptions } from './src/id_token.js';
 export { InvalidIdTokenError, validateIdToken } from './src/id_token.js';
+export { clearJwksCache } from './src/jwks.js';
 export type { LucidMirrorOptions } from './src/lucid_mirror.js';
 export { lucidMirror } from './src/lucid_mirror.js';
 export { default as AuthkitContextMiddleware } from './src/middleware/authkit_context_middleware.js';
@@ -106,7 +107,4 @@ export type {
   JwtAccessTokenClaims,
   VerifyJwtAccessTokenOptions,
 } from './src/verify_access_token.js';
-export {
-  clearJwksCache,
-  verifyJwtAccessToken,
-} from './src/verify_access_token.js';
+export { verifyJwtAccessToken } from './src/verify_access_token.js';
