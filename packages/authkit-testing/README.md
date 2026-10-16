@@ -27,7 +27,7 @@ Mints a **real** RS256-signed JWT plus the public JWKS that validates it. Return
 
 ```ts
 import { mintTestIdToken, serveJwks } from '@adonis-agora/authkit-testing'
-import { resolvers } from '@adonis-agora/authkit-client'
+import { conventionEndpoints, resolvers } from '@adonis-agora/authkit-client'
 
 const { token, jwks } = await mintTestIdToken({
   issuer: 'https://idp.test',
@@ -43,6 +43,8 @@ const resolver = await factory.resolver({
   clientId: 'my-app',
   sessionKey: 'authkit',
   globalRolesClaim: 'roles',
+  endpoints: async () => conventionEndpoints('https://idp.test'),
+  logger: { warn: () => {} },
 })
 // ... use resolver in your host test, then:
 await served.close()
