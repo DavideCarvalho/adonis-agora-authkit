@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type Configure from '@adonisjs/core/commands/configure';
 import { stubsRoot } from '../stubs/main.js';
-import { resolveUiPreset, type UiPreset, uiStubPaths } from './ui_preset.js';
+import { resolveUiPreset, type UiPreset, uiStubDestination, uiStubPaths } from './ui_preset.js';
 
 function assertPresetPrereqs(preset: UiPreset, appRoot: string) {
   if (preset !== 'react') return;
@@ -49,8 +49,16 @@ export async function configure(command: Configure) {
     },
   });
   await codemods.makeUsingStub(stubsRoot, 'models/auth_user.stub', {});
+  // As páginas React vão byte a byte: o `page.stub` só define o destino e o
+  // conteúdo vem do `.tsx` via `contentsFromFile`, sem passar pelo template
+  // engine (que quebraria nas crases das template literals — bug #194).
   for (const path of uiStubPaths(preset)) {
-    await codemods.makeUsingStub(stubsRoot, path, {});
+    await codemods.makeUsingStub(
+      stubsRoot,
+      'ui/react/page.stub',
+      { destination: uiStubDestination(path) },
+      { contentsFromFile: join(stubsRoot, path) },
+    );
   }
 
   await codemods.updateRcFile((rcFile) => {

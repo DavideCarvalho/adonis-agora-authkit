@@ -1,7 +1,3 @@
-{
-  exports({ to: app.makePath('inertia/components/auth_shell.tsx') });
-}
-
 import type { ReactNode } from 'react';
 
 export interface AuthBrand {

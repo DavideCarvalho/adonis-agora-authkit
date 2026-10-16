@@ -1,6 +1,3 @@
-{
-  exports({ to: app.makePath('inertia/pages/authkit/account/login.tsx') });
-}
 interface Props {
   csrfToken: string;
   error?: string;

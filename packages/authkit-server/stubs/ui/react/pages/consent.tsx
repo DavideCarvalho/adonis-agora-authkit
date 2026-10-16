@@ -1,7 +1,3 @@
-{
-  exports({ to: app.makePath('inertia/pages/authkit/consent.tsx') });
-}
-
 import AuthShell, { type AuthBrand } from '../../components/auth_shell';
 
 export default function AuthkitConsent({

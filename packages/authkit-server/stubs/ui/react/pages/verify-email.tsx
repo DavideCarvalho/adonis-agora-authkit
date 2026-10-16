@@ -1,7 +1,3 @@
-{
-  exports({ to: app.makePath('inertia/pages/authkit/verify-email.tsx') });
-}
-
 import AuthShell from '../../components/auth_shell';
 
 export default function AuthkitVerifyEmail({ verified }: { verified?: boolean }) {

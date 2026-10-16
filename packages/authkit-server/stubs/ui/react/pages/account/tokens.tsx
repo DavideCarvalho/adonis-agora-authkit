@@ -1,6 +1,3 @@
-{
-  exports({ to: app.makePath('inertia/pages/authkit/account/tokens.tsx') });
-}
 interface TokenRow {
   id: string;
   name: string;
