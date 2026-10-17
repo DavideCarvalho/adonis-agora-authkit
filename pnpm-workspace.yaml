@@ -43,7 +43,7 @@ catalog:
   "@poppinss/ts-exec": "1.4.4"
   "@videojs/http-streaming": "3.17.5"
   "@vinejs/vine": "4.4.0"
-  "@vitejs/plugin-react": "6.1.1"
+  "@vitejs/plugin-react": "6.1.2"
   "adonis-lucid-filter": "5.2.0"
   "concurrently": "10.0.5"
   "dotenv": "17.4.2"
