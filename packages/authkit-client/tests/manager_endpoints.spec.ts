@@ -161,9 +161,7 @@ test.group('AuthkitClientManager | refresh against a third-party IdP', (group) =
 });
 
 test.group('AuthkitClientProvider | container', () => {
-  test('binds the manager by class (for @inject) and keeps the string alias', async ({
-    assert,
-  }) => {
+  function register() {
     const container = new Container<any>();
     container.bindValue('logger', { warn: () => {} });
     const app = {
@@ -180,11 +178,37 @@ test.group('AuthkitClientProvider | container', () => {
       },
     } as any;
     new AuthkitClientProvider(app).register();
+    return container;
+  }
+
+  test('binds the manager by class (for @inject) and under the string key', async ({ assert }) => {
+    const container = register();
 
     const byClass = await container.make(AuthkitClientManager);
-    const byAlias = await container.make('authkit.client');
+    const byKey = await container.make('authkit.client');
     assert.instanceOf(byClass, AuthkitClientManager);
-    assert.strictEqual(byAlias, byClass);
+    assert.strictEqual(byKey, byClass);
+  });
+
+  test('a fake bound under the string key replaces the manager, as before 0.19', async ({
+    assert,
+  }) => {
+    const container = register();
+    const fake = { fake: true };
+    container.bindValue('authkit.client', fake);
+
+    assert.strictEqual(await container.make('authkit.client'), fake);
+  });
+
+  test('swapping the class reaches the string key, even after its first use', async ({
+    assert,
+  }) => {
+    const container = register();
+    await container.make('authkit.client');
+    const fake = { fake: true } as unknown as AuthkitClientManager;
+    container.swap(AuthkitClientManager, () => fake);
+
+    assert.strictEqual(await container.make('authkit.client'), fake);
   });
 });
 

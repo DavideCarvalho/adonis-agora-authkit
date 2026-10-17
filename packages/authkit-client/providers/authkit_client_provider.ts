@@ -563,7 +563,7 @@ export default class AuthkitClientProvider {
 
   register() {
     // Bound by class, like the first-party packages do, so `@inject()` works with
-    // `AuthkitClientManager` as a constructor type. The string key stays as an alias.
+    // `AuthkitClientManager` as a constructor type.
     this.app.container.singleton(AuthkitClientManager, async (resolver) => {
       const value = this.app.config.get('authkit_client');
       const config = (await configProvider.resolve(this.app, value)) as ResolvedClientConfig | null;
@@ -575,7 +575,12 @@ export default class AuthkitClientProvider {
       const logger = await resolver.make('logger');
       return new AuthkitClientManager(config, { logger });
     });
-    this.app.container.alias('authkit.client', AuthkitClientManager);
+    // The string key resolves the class binding on every lookup — the same singleton — rather
+    // than being an `alias`: the container follows an alias before it checks bound values, so
+    // `bindValue('authkit.client', fake)`, how apps replaced the manager in tests before it was
+    // bound by class, would silently get the real one. Not cached here, so a `swap` of the class
+    // also reaches the string key, even after its first use.
+    this.app.container.bind('authkit.client', (resolver) => resolver.make(AuthkitClientManager));
   }
 }
 
