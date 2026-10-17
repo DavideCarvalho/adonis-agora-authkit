@@ -169,6 +169,26 @@ export interface CompletedAuthorization {
   claims: IdTokenClaims;
 }
 
+const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+
+/**
+ * The checks that say whether a callback belongs to this browser's pending authorization at all
+ * (`missing_pending`, `state_mismatch`). They need nothing from the IdP, so a caller that has to
+ * discover the IdP's endpoints first runs them before that: a stale or forged callback is
+ * restartable even while the IdP is unreachable, rather than surfacing as a discovery failure.
+ */
+export function assertCallbackBelongs(
+  pending: PendingAuthorization | null | undefined,
+  callbackParams: Record<string, unknown>,
+): asserts pending is PendingAuthorization {
+  if (!pending?.state || !pending.nonce || !pending.codeVerifier) {
+    throw new OidcCallbackError('missing_pending', 'No pending authorization for this callback');
+  }
+  if (str(callbackParams.state) !== pending.state) {
+    throw new OidcCallbackError('state_mismatch', 'Callback state does not match');
+  }
+}
+
 /**
  * Finishes the authorization-code flow: checks `state` and `iss`, exchanges the
  * code (with the PKCE verifier) and validates the id_token, `nonce` included.
@@ -180,16 +200,10 @@ export async function completeAuthorization(
   p: CompleteAuthorizationParams,
 ): Promise<CompletedAuthorization> {
   const q = p.callbackParams;
-  const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+  const pending = p.pending;
+  assertCallbackBelongs(pending, q);
   const { issuer, tokenEndpoint, jwksUri } = p.endpoints ?? conventionEndpoints(p.issuer);
 
-  const pending = p.pending;
-  if (!pending?.state || !pending.nonce || !pending.codeVerifier) {
-    throw new OidcCallbackError('missing_pending', 'No pending authorization for this callback');
-  }
-  if (str(q.state) !== pending.state) {
-    throw new OidcCallbackError('state_mismatch', 'Callback state does not match');
-  }
   const iss = str(q.iss);
   if (iss !== undefined && iss !== issuer) {
     throw new OidcCallbackError('issuer_mismatch', `Callback iss ${iss} is not ${issuer}`);

@@ -3,6 +3,7 @@ import { test } from '@japa/runner';
 import AuthkitClientProvider, {
   AuthkitClientManager,
 } from '../providers/authkit_client_provider.js';
+import { OidcCallbackError } from '../src/authorization.js';
 import { defineConfig, type ResolvedClientConfig, resolvers } from '../src/define_config.js';
 import {
   __clearDiscoveryCacheForTests,
@@ -190,6 +191,24 @@ test.group('AuthkitClientProvider | container', () => {
 
 test.group('AuthkitClientManager | IdP down at boot', (group) => {
   group.each.setup(() => __clearDiscoveryCacheForTests());
+
+  test('a stale or forged callback is restartable while discovery fails', async ({ assert }) => {
+    const state = { up: false, calls: [] as string[] };
+    const m = new AuthkitClientManager(config(), { fetchImpl: docFetch(state) });
+    const pending = { state: 'good', nonce: 'n', codeVerifier: 'v' };
+
+    for (const [p, callbackParams, code] of [
+      [undefined, { code: 'c', state: 'good' }, 'missing_pending'],
+      [pending, { code: 'c', state: 'forged' }, 'state_mismatch'],
+    ] as const) {
+      const error = await m.completeAuthorization({ pending: p, callbackParams }).catch((e) => e);
+      assert.instanceOf(error, OidcCallbackError);
+      assert.equal(error.code, code);
+      assert.isTrue(error.restartable);
+    }
+    // Rejected before the IdP was asked for anything.
+    assert.deepEqual(state.calls, []);
+  });
 
   test('requests resolve to no identity while discovery fails, then recover', async ({
     assert,
