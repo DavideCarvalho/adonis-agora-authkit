@@ -11,6 +11,7 @@ import { decodeJwt, type JWTVerifyGetKey } from 'jose';
 import { Authenticator } from '../src/authenticator.js';
 import {
   type AuthorizationRequest,
+  assertCallbackBelongs,
   type CompleteAuthorizationParams,
   type CompletedAuthorization,
   type CreateAuthorizationRequestParams,
@@ -189,6 +190,8 @@ export class AuthkitClientManager {
   async completeAuthorization(
     params: Pick<CompleteAuthorizationParams, 'pending' | 'callbackParams'>,
   ): Promise<CompletedAuthorization> {
+    // Before discovery: a stale or forged callback is restartable even while the IdP is down.
+    assertCallbackBelongs(params.pending, params.callbackParams);
     const { endpoints, keys } = await this.#idp();
     return completeAuthorization({
       ...params,
