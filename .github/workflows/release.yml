@@ -72,6 +72,10 @@ jobs:
           // maintenance, devDependency bumps and Actions bumps do not each cut a release.
           import { execFileSync } from "node:child_process";
           import { existsSync, readdirSync, writeFileSync } from "node:fs";
+          import { createRequire } from "node:module";
+
+          // Resolved from the checkout: this script runs from $RUNNER_TEMP.
+          const { parse } = createRequire(process.cwd() + "/")("yaml");
 
           const before = process.env.BEFORE;
           const after = process.env.AFTER || "HEAD";
@@ -89,10 +93,41 @@ jobs:
           if (pending.length > 0) skip("changeset(s) already pending (" + pending.join(", ") + ")");
           if (!before || /^0+$/.test(before)) skip("no previous commit to compare against");
 
-          const changed = git("diff", "--name-only", before + ".." + after)
-            .split("\n")
-            .filter((f) => f === "package.json" || f.endsWith("/package.json"));
-          if (changed.length === 0) skip("no package.json changed");
+          const files = git("diff", "--name-only", before + ".." + after).split("\n").filter(Boolean);
+          const isManifest = (f) => f === "package.json" || f.endsWith("/package.json");
+
+          // Most versions here live in the pnpm-workspace.yaml catalogs, and pnpm inlines a catalog's
+          // version into every published manifest that says `catalog:<name>`. A catalog bump moves no
+          // package.json, yet it moves a runtime dependency all the same.
+          const catalogsAt = (rev) => {
+            let doc = {};
+            try {
+              doc = parse(git("show", rev + ":pnpm-workspace.yaml")) ?? {};
+            } catch {}
+            return { default: doc.catalog ?? {}, ...(doc.catalogs ?? {}) };
+          };
+          const movedEntries = new Set();
+          if (files.includes("pnpm-workspace.yaml")) {
+            const then = catalogsAt(before);
+            for (const [name, entries] of Object.entries(catalogsAt(after))) {
+              for (const [dep, version] of Object.entries(entries ?? {})) {
+                if (then[name]?.[dep] !== version) movedEntries.add(name + " " + dep);
+              }
+            }
+          }
+          const catalogMoved = (deps) =>
+            Object.entries(deps ?? {}).some(([dep, spec]) => {
+              if (typeof spec !== "string" || !spec.startsWith("catalog:")) return false;
+              return movedEntries.has((spec.slice("catalog:".length) || "default") + " " + dep);
+            });
+
+          // Every manifest a bump can reach: the ones the diff touched, plus — after a catalog bump —
+          // all of them, since any may reference a moved entry.
+          const changed =
+            movedEntries.size > 0
+              ? git("ls-files", "package.json", "**/package.json").split("\n").filter(Boolean)
+              : files.filter(isManifest);
+          if (changed.length === 0) skip("no package.json or catalog entry changed");
 
           const readAt = (rev, path) => {
             try {
@@ -108,7 +143,9 @@ jobs:
             if (!now || !now.name || now.private === true) continue;
             const then = readAt(before, path) || {};
             const moved = ["dependencies", "peerDependencies"].some(
-              (field) => JSON.stringify(now[field] || {}) !== JSON.stringify(then[field] || {}),
+              (field) =>
+                JSON.stringify(now[field] || {}) !== JSON.stringify(then[field] || {}) ||
+                catalogMoved(now[field]),
             );
             if (moved) bumped.push(now.name);
           }
