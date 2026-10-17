@@ -105,6 +105,11 @@ pnpm changeset           # record a version bump
 pnpm release             # build + changeset publish
 ```
 
+## Sponsors
+
+Every Agora library is MIT and stays free. The work is funded by partners and
+sponsors — [become one](https://davidecarvalho.github.io/agora/partners).
+
 ## License
 
 [MIT](./LICENSE) © Davi de Carvalho
