@@ -227,8 +227,8 @@ catalogs:
       specifier: 3.7.2
       version: 3.7.2
     vite:
-      specifier: 8.2.2
-      version: 8.2.2
+      specifier: 8.3.4
+      version: 8.3.4
   frontend:
     '@inertiajs/react':
       specifier: 3.7.1
@@ -304,7 +304,7 @@ importers:
         version: 16.16.2(@mdx-js/mdx@3.1.1(supports-color@10.2.2))(@types/estree-jsx@1.0.5)(@types/hast@3.0.5)(@types/mdast@4.0.4)(@types/react@19.2.18)(lucide-react@1.45.0(react@19.2.8))(next@16.3.5(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@10.2.2)(zod@4.6.7)
       fumadocs-mdx:
         specifier: 15.4.0
-        version: 15.4.0(@types/mdast@4.0.4)(@types/mdx@2.0.14)(@types/react@19.2.18)(fumadocs-core@16.16.2(@mdx-js/mdx@3.1.1(supports-color@10.2.2))(@types/estree-jsx@1.0.5)(@types/hast@3.0.5)(@types/mdast@4.0.4)(@types/react@19.2.18)(lucide-react@1.45.0(react@19.2.8))(next@16.3.5(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@10.2.2)(zod@4.6.7))(next@16.3.5(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)(rolldown@1.2.14)(supports-color@10.2.2)(vite@8.2.2(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
+        version: 15.4.0(@types/mdast@4.0.4)(@types/mdx@2.0.14)(@types/react@19.2.18)(fumadocs-core@16.16.2(@mdx-js/mdx@3.1.1(supports-color@10.2.2))(@types/estree-jsx@1.0.5)(@types/hast@3.0.5)(@types/mdast@4.0.4)(@types/react@19.2.18)(lucide-react@1.45.0(react@19.2.8))(next@16.3.5(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@10.2.2)(zod@4.6.7))(next@16.3.5(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)(rolldown@1.2.14)(supports-color@10.2.2)(vite@8.3.4(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
       fumadocs-ui:
         specifier: 16.16.2
         version: 16.16.2(@types/mdx@2.0.14)(@types/react-dom@19.2.7(@types/react@19.2.18))(@types/react@19.2.18)(fumadocs-core@16.16.2(@mdx-js/mdx@3.1.1(supports-color@10.2.2))(@types/estree-jsx@1.0.5)(@types/hast@3.0.5)(@types/mdast@4.0.4)(@types/react@19.2.18)(lucide-react@1.45.0(react@19.2.8))(next@16.3.5(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@10.2.2)(zod@4.6.7))(next@16.3.5(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
@@ -626,7 +626,7 @@ importers:
         version: 4.4.0
       '@vitejs/plugin-react':
         specifier: 'catalog:'
-        version: 6.1.1(vite@8.2.2(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
+        version: 6.1.1(vite@8.3.4(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
       better-sqlite3:
         specifier: 13.0.3
         version: 13.0.3
@@ -671,7 +671,7 @@ importers:
         version: 7.0.2
       vite:
         specifier: 'catalog:'
-        version: 8.2.2(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)
+        version: 8.3.4(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)
 
   packages/authkit-testing:
     dependencies:
@@ -5654,6 +5654,10 @@ packages:
     resolution: {integrity: sha512-RRuzqDtt5Y9h3quz5hWhK+TPnsmVs6WwSU6LkJMeY4HstUEDuYTG8UJSdawMRzmzAtV+KEoG8N3Qg2qLy5vM/A==}
     engines: {node: ^10 || ^12 || >=14}
 
+  postcss@8.5.30:
+    resolution: {integrity: sha512-zkd+e9S1AQHhmaBKye9zlFHWjOwVgqXl1q3ECYy8561K7qxR2cREf/STLskulBFd78k6AOFeA+ff1TtEzk9bAA==}
+    engines: {node: ^10 || ^12 || >=14}
+
   powershell-utils@0.2.1:
     resolution: {integrity: sha512-C+y9x90UElAddDZmV4qOx9W53B61PO7cIqWz2dQsWlwswuq4mr8NEwytdGKboYbQlGZ3awrkTeNvcZiZNHnQ8A==}
     engines: {node: '>=20'}
@@ -6384,13 +6388,13 @@ packages:
   victory-vendor@37.3.6:
     resolution: {integrity: sha512-SbPDPdDBYp+5MJHhBCAyI7wKM3d5ivekigc2Dk2s7pgbZ9wIgIBYGVw4zGHBml/qTFbexrofXW6Gu4noGxrOwQ==}
 
-  vite@8.2.2:
-    resolution: {integrity: sha512-cFKLV/PRgAUlIRm5WjMjJ86jrftzpqcgH+Us+DS8mI3CDNiH30Whrz8uHL3+MOLPAgqbMBAqWdAHAphOAM+z/Q==}
+  vite@8.3.4:
+    resolution: {integrity: sha512-IftLE8phJhdNRIGNEV4JCCvfNScoZQVfcXaN8TQropWGJtOHcu+iAB9pHcuGvmEb/kddw0LBe/jS8ztdC6xdiQ==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
     peerDependencies:
       '@types/node': ^20.19.0 || >=22.12.0
-      '@vitejs/devtools': ^0.4.0 || ^0.5.0
+      '@vitejs/devtools': ^0.7.1
       esbuild: ^0.27.0 || ^0.28.0
       jiti: '>=1.21.0'
       less: ^4.0.0
@@ -9149,10 +9153,10 @@ snapshots:
       normalize-url: 8.1.1
       validator: 13.15.35
 
-  '@vitejs/plugin-react@6.1.1(vite@8.2.2(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))':
+  '@vitejs/plugin-react@6.1.1(vite@8.3.4(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))':
     dependencies:
       '@rolldown/pluginutils': 1.0.1
-      vite: 8.2.2(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)
+      vite: 8.3.4(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)
 
   '@yuku-analyzer/binding-android-arm64@0.9.5':
     optional: true
@@ -10007,7 +10011,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  fumadocs-mdx@15.4.0(@types/mdast@4.0.4)(@types/mdx@2.0.14)(@types/react@19.2.18)(fumadocs-core@16.16.2(@mdx-js/mdx@3.1.1(supports-color@10.2.2))(@types/estree-jsx@1.0.5)(@types/hast@3.0.5)(@types/mdast@4.0.4)(@types/react@19.2.18)(lucide-react@1.45.0(react@19.2.8))(next@16.3.5(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@10.2.2)(zod@4.6.7))(next@16.3.5(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)(rolldown@1.2.14)(supports-color@10.2.2)(vite@8.2.2(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)):
+  fumadocs-mdx@15.4.0(@types/mdast@4.0.4)(@types/mdx@2.0.14)(@types/react@19.2.18)(fumadocs-core@16.16.2(@mdx-js/mdx@3.1.1(supports-color@10.2.2))(@types/estree-jsx@1.0.5)(@types/hast@3.0.5)(@types/mdast@4.0.4)(@types/react@19.2.18)(lucide-react@1.45.0(react@19.2.8))(next@16.3.5(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@10.2.2)(zod@4.6.7))(next@16.3.5(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)(rolldown@1.2.14)(supports-color@10.2.2)(vite@8.3.4(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)):
     dependencies:
       '@mdx-js/mdx': 3.1.1(supports-color@10.2.2)
       '@standard-schema/spec': 1.1.0
@@ -10036,7 +10040,7 @@ snapshots:
       next: 16.3.5(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       react: 19.2.8
       rolldown: 1.2.14
-      vite: 8.2.2(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)
+      vite: 8.3.4(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)
     transitivePeerDependencies:
       - supports-color
 
@@ -11458,6 +11462,12 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.2
 
+  postcss@8.5.30:
+    dependencies:
+      nanoid: 3.3.20
+      picocolors: 1.1.1
+      source-map-js: 1.2.2
+
   powershell-utils@0.2.1: {}
 
   pretty-format@30.5.1:
@@ -12329,11 +12339,11 @@ snapshots:
       d3-time: 3.1.0
       d3-timer: 3.0.1
 
-  vite@8.2.2(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1):
+  vite@8.3.4(@types/node@26.5.1)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.7
-      postcss: 8.5.28
+      postcss: 8.5.30
       rolldown: 1.2.14
       tinyglobby: 0.2.17
     optionalDependencies:
