@@ -59,5 +59,36 @@ jobs:
       - name: Typecheck
         run: pnpm -r typecheck
 
+  # The suite runs on every Node line Node itself still maintains (the range `engines.node`
+  # promises). Lint, typecheck and the packaging checks above stay on the single pinned version:
+  # only the test run is multiplied.
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24, 26]
+    name: test (node ${{ matrix.node }})
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6.1.0
+        with:
+          version: 12.13.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Dependents import @adonis-agora/authkit-core (and friends) through their built output.
+      - name: Build
+        run: pnpm -r build
+
       - name: Test
         run: pnpm -r test
