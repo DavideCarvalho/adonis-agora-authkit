@@ -22,7 +22,7 @@
     "release": "pnpm build && pnpm changeset publish"
   },
   "devDependencies": {
-    "@adonisjs/assembler": "8.5.1",
+    "@adonisjs/assembler": "8.5.2",
     "@adonisjs/tsconfig": "2.0.0",
     "@biomejs/biome": "2.5.13",
     "@changesets/changelog-github": "1.0.1",
