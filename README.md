@@ -1,5 +1,7 @@
 # AuthKit for AdonisJS
 
+[![npm version](https://img.shields.io/npm/v/@adonis-agora/authkit-server)](https://www.npmjs.com/package/@adonis-agora/authkit-server) [![npm downloads](https://img.shields.io/npm/dm/@adonis-agora/authkit-server)](https://www.npmjs.com/package/@adonis-agora/authkit-server) [![CI](https://github.com/DavideCarvalho/adonis-agora-authkit/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/DavideCarvalho/adonis-agora-authkit/actions/workflows/ci.yml) [![license](https://img.shields.io/npm/l/@adonis-agora/authkit-server)](https://www.npmjs.com/package/@adonis-agora/authkit-server)
+
 AuthKit is a set of packages that turn an [AdonisJS](https://adonisjs.com) app into
 a full **OpenID Connect / OAuth2 Authorization Server** (Identity Provider), let other
 apps consume it as **OIDC clients**, and give React frontends typed auth ergonomics.
@@ -45,11 +47,11 @@ It is built as an idiomatic wrapper around
 
 | Package | Description |
 | --- | --- |
-| [`@adonis-agora/authkit-core`](./packages/authkit-core) | Shared contracts and types (`Identity`, `SessionResolver`, server config types, metric names). No runtime — consumed by the server and client packages. |
-| [`@adonis-agora/authkit-server`](./packages/authkit-server) | AdonisJS OIDC/OAuth2 Authorization Server (Identity Provider): ejectable auth server with sessions, rate-limiting, MFA/TOTP, audit log, federated logout, and OpenTelemetry metrics. |
-| [`@adonis-agora/authkit-client`](./packages/authkit-client) | OIDC relying-party (client) adapter: session-based authentication against an OpenID Connect identity provider, with JWT/PAT user resolvers and OpenTelemetry metrics. |
-| [`@adonis-agora/authkit-react`](./packages/authkit-react) | Frontend ergonomics for AdonisJS + Inertia + React apps: a typed `useAuth()` hook, role-gating hooks, and gating components. |
-| [`@adonis-agora/authkit-sdk`](./packages/authkit-sdk) | Backend SDK over the Admin API with one typed interface and two drivers: `remote` (HTTP/Bearer) and `embedded` (in-process). |
+| [`@adonis-agora/authkit-core`](./packages/authkit-core) [![npm](https://img.shields.io/npm/v/@adonis-agora/authkit-core)](https://www.npmjs.com/package/@adonis-agora/authkit-core) | Shared contracts and types (`Identity`, `SessionResolver`, server config types, metric names). No runtime — consumed by the server and client packages. |
+| [`@adonis-agora/authkit-server`](./packages/authkit-server) [![npm](https://img.shields.io/npm/v/@adonis-agora/authkit-server)](https://www.npmjs.com/package/@adonis-agora/authkit-server) | AdonisJS OIDC/OAuth2 Authorization Server (Identity Provider): ejectable auth server with sessions, rate-limiting, MFA/TOTP, audit log, federated logout, and OpenTelemetry metrics. |
+| [`@adonis-agora/authkit-client`](./packages/authkit-client) [![npm](https://img.shields.io/npm/v/@adonis-agora/authkit-client)](https://www.npmjs.com/package/@adonis-agora/authkit-client) | OIDC relying-party (client) adapter: session-based authentication against an OpenID Connect identity provider, with JWT/PAT user resolvers and OpenTelemetry metrics. |
+| [`@adonis-agora/authkit-react`](./packages/authkit-react) [![npm](https://img.shields.io/npm/v/@adonis-agora/authkit-react)](https://www.npmjs.com/package/@adonis-agora/authkit-react) | Frontend ergonomics for AdonisJS + Inertia + React apps: a typed `useAuth()` hook, role-gating hooks, and gating components. |
+| [`@adonis-agora/authkit-sdk`](./packages/authkit-sdk) [![npm](https://img.shields.io/npm/v/@adonis-agora/authkit-sdk)](https://www.npmjs.com/package/@adonis-agora/authkit-sdk) | Backend SDK over the Admin API with one typed interface and two drivers: `remote` (HTTP/Bearer) and `embedded` (in-process). |
 
 ## Install
 
