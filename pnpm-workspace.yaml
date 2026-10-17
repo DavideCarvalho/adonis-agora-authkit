@@ -104,7 +104,7 @@ catalogs:
     "edge.js": "^6.5.1"
 
   adonis:
-    "@adonisjs/ally": "6.3.0"
+    "@adonisjs/ally": "6.3.2"
     "@adonisjs/auth": "10.1.0"
     "@adonisjs/bouncer": "4.0.1"
     "@adonisjs/core": "7.5.0"
