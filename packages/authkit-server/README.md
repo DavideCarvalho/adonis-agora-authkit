@@ -1,5 +1,7 @@
 # @adonis-agora/authkit-server
 
+[![npm version](https://img.shields.io/npm/v/@adonis-agora/authkit-server)](https://www.npmjs.com/package/@adonis-agora/authkit-server) [![npm downloads](https://img.shields.io/npm/dm/@adonis-agora/authkit-server)](https://www.npmjs.com/package/@adonis-agora/authkit-server) [![CI](https://github.com/DavideCarvalho/adonis-agora-authkit/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/DavideCarvalho/adonis-agora-authkit/actions/workflows/ci.yml) [![license](https://img.shields.io/npm/l/@adonis-agora/authkit-server)](https://www.npmjs.com/package/@adonis-agora/authkit-server)
+
 OpenID Connect / OAuth2 Authorization Server (Identity Provider) for AdonisJS — an idiomatic
 wrapper around [`oidc-provider`](https://github.com/panva/node-oidc-provider).
 
