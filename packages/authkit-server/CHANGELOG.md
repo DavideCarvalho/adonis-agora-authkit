@@ -1,5 +1,16 @@
 # @adonis-agora/authkit-server
 
+## 0.81.0
+
+### Minor Changes
+
+- [#269](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/269) [`b0ca480`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/b0ca4802419aba93a9f913775f697cc4075cff88) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Drop Node 20, which reached end-of-life on 2026-04-30, and Node 22, which AdonisJS 7 does not support (it requires Node >=24): `engines.node` is now `>=24`. The supported Node lines are 24 and 26, and CI runs the test suite on each of them.
+
+### Patch Changes
+
+- Updated dependencies [[`b0ca480`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/b0ca4802419aba93a9f913775f697cc4075cff88)]:
+  - @adonis-agora/authkit-core@0.10.0
+
 ## 0.80.2
 
 ### Patch Changes
