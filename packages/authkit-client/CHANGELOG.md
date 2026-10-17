@@ -1,5 +1,13 @@
 # @adonis-agora/authkit-client
 
+## 0.19.2
+
+### Patch Changes
+
+- [#265](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/265) [`e94c12f`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/e94c12f708562392af9a0b0d593f554702d382c0) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `AuthkitClientManager.completeAuthorization` checks that a callback belongs to the pending authorization (`missing_pending`, `state_mismatch`) before it discovers the IdP. A stale or forged callback that arrived while discovery was failing surfaced as an `OidcDiscoveryError` (a 500 in `registerOidcClient`) instead of a restartable `OidcCallbackError` that sends the user back to login.
+
+- [#266](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/266) [`660ce2d`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/660ce2d13a94fb971d2e14a2bfa94eeb04b90a36) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `bindValue('authkit.client', fake)` replaces the manager again. Since 0.19 the manager is bound by class and the string key was an `alias`, and the container follows an alias before it checks bound values: a fake bound under the string key was silently ignored, and the real manager came back. This is how apps replaced it in tests before 0.19, and the changelog promised the key was kept. The key is now a binding that resolves the class: the same singleton, overridable under either name, and a `swap` of the class reaches it even after its first use.
+
 ## 0.19.1
 
 ### Patch Changes
