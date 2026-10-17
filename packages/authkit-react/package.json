@@ -39,6 +39,9 @@
     "./types": "./build/index.js",
     "./styles.css": "./styles.css"
   },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.tests.json",
