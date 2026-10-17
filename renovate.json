@@ -13,8 +13,15 @@
       "enabled": false
     },
     {
-      "description": "Patch, minor and pin bumps merge on their own once CI is green. These are the ones `release.yml` turns into an automatic patch release. `pin` is its own update type in Renovate rather than a flavour of patch, so it has to be named here or the initial pinning PR sits open forever. Same for `packageManager`, the pnpm version in package.json: it is neither a dependency nor a devDependency, so every pnpm bump used to wait for a person.",
-      "matchDepTypes": ["dependencies", "devDependencies", "packageManager"],
+      "description": "Patch, minor and pin bumps merge on their own once CI is green. These are the ones `release.yml` turns into an automatic patch release. `pin` is its own update type in Renovate rather than a flavour of patch, so it has to be named here or the initial pinning PR sits open forever. Same for `packageManager`, the pnpm version in package.json: it is neither a dependency nor a devDependency, so every pnpm bump used to wait for a person. And for the version catalogs in pnpm-workspace.yaml, which hold most of this repo's versions: Renovate files their entries under `pnpm.catalog.<name>`, so a zod or vite bump there waited for a person too. Only the version catalogs are listed: the peer catalogs (`adonisPeers`, `frontendPeers`, `miscPeers`) are ranges a person decides, see the rule below.",
+      "matchDepTypes": [
+        "dependencies",
+        "devDependencies",
+        "packageManager",
+        "pnpm.catalog.default",
+        "pnpm.catalog.adonis",
+        "pnpm.catalog.frontend"
+      ],
       "matchUpdateTypes": ["patch", "minor", "pin"],
       "automerge": true,
       "automergeStrategy": "squash"
