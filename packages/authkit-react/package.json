@@ -40,7 +40,7 @@
     "./styles.css": "./styles.css"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
     "build": "tsc",

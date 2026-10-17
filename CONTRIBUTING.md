@@ -7,7 +7,7 @@ Thanks for your interest in contributing! AuthKit is a pnpm monorepo of packages
 ## Setup
 
 ```sh
-# Requires Node >= 22 and pnpm 11.x
+# Requires Node >= 24 and pnpm 11.x
 corepack enable
 pnpm install
 ```
