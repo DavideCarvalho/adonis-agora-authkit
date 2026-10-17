@@ -192,8 +192,8 @@ catalogs:
       specifier: 2.0.0
       version: 2.0.0
     '@types/luxon':
-      specifier: 3.7.5
-      version: 3.7.5
+      specifier: 3.7.6
+      version: 3.7.6
     '@types/node':
       specifier: 26.5.1
       version: 26.5.1
@@ -608,7 +608,7 @@ importers:
         version: 4.0.5
       '@types/luxon':
         specifier: catalog:adonis
-        version: 3.7.5
+        version: 3.7.6
       '@types/node':
         specifier: catalog:adonis
         version: 26.5.1
@@ -3295,8 +3295,8 @@ packages:
   '@types/koa@3.0.3':
     resolution: {integrity: sha512-TdtNEJ7sYSrFQcVuS2ySsVqnq5EyE3oJbnfFJvkC9UtGP4Kpem5KE7r+ivHIbIAQAofSqnlB5D3vkfYO69TQpg==}
 
-  '@types/luxon@3.7.5':
-    resolution: {integrity: sha512-jJ41Q4z6ZVO260MNDdHfW7+7a5iMiX8Mr6ZJHcmgrvhZha6dz5704o/lF2kKl6URjH6ivEL97w9xS/MgpJEphg==}
+  '@types/luxon@3.7.6':
+    resolution: {integrity: sha512-6KSjliQAXK8ZLgFQO4B7iE4Rpf/B3rItzCFuXezBY/XIAGxOdLd7vRNK9/StRPwiS/yJsVbB7HKpW46B8tcEuQ==}
 
   '@types/mdast@4.0.4':
     resolution: {integrity: sha512-kGaNbPh1k7AFzgpud/gMdvIm5xuECykRR+JnWKQno9TAXVa6WIVCGTPvYGekIDL4uwCZQSYbUxNBSb1aUo79oA==}
@@ -8990,7 +8990,7 @@ snapshots:
       '@types/koa-compose': 3.2.9
       '@types/node': 26.5.1
 
-  '@types/luxon@3.7.5': {}
+  '@types/luxon@3.7.6': {}
 
   '@types/mdast@4.0.4':
     dependencies:
