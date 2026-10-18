@@ -664,7 +664,7 @@ importers:
         specifier: 0.2.2
         version: 0.2.2
       tempura:
-        specifier: ^0.4.1
+        specifier: 0.4.1
         version: 0.4.1
       typescript:
         specifier: catalog:frontend
