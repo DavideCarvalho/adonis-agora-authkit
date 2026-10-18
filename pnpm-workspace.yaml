@@ -196,7 +196,7 @@ catalogs:
     "recharts": "3.10.1"
     "date-fns": "4.4.0"
     "use-mask-input": "3.14.2"
-    "nuqs": "2.10.1"
+    "nuqs": "2.10.2"
     "zod": "4.6.7"
     "typescript": "7.0.2"
     "tailwindcss": "4.3.3"
