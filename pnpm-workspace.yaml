@@ -138,8 +138,8 @@ catalogs:
     "@types/tdigest": "0.1.5"
     "@types/node": "26.5.1"
   frontend:
-    "react": "19.3.0"
-    "react-dom": "19.3.0"
+    "react": "19.3.1"
+    "react-dom": "19.3.1"
     "@types/react": "19.3.0"
     "@types/react-dom": "19.3.0"
     "@inertiajs/react": "3.7.1"
