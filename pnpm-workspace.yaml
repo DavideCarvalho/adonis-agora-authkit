@@ -148,7 +148,7 @@ catalogs:
     "@hookform/resolvers": "5.9.1"
     "react-hook-form": "7.90.0"
     "react-error-boundary": "6.1.6"
-    "react-i18next": "17.0.19"
+    "react-i18next": "17.0.21"
     "react-day-picker": "10.0.2"
     "react-resizable-panels": "4.12.4"
     "@radix-ui/react-accordion": "1.2.20"
