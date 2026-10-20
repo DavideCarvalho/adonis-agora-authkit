@@ -145,7 +145,7 @@ catalogs:
     "@inertiajs/react": "3.7.1"
     "@tanstack/react-query": "5.102.8"
     "@tanstack/react-table": "9.2.4"
-    "@hookform/resolvers": "5.9.1"
+    "@hookform/resolvers": "5.9.2"
     "react-hook-form": "7.90.0"
     "react-error-boundary": "6.1.6"
     "react-i18next": "17.0.21"
