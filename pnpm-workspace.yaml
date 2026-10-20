@@ -129,7 +129,7 @@ catalogs:
     "@adonisjs/eslint-config": "3.1.0"
     "@adonisjs/prettier-config": "1.5.0"
     "@adonisjs/tsconfig": "2.0.0"
-    "@tuyau/core": "1.2.2"
+    "@tuyau/core": "1.2.3"
     "@tuyau/inertia": "0.0.15"
     "@tuyau/react-query": "1.1.0"
     "@tuyau/superjson": "1.0.0"
