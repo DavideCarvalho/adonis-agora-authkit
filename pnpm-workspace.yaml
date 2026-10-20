@@ -131,7 +131,7 @@ catalogs:
     "@adonisjs/tsconfig": "2.0.0"
     "@tuyau/core": "1.2.2"
     "@tuyau/inertia": "0.0.15"
-    "@tuyau/react-query": "1.1.0"
+    "@tuyau/react-query": "1.1.1"
     "@tuyau/superjson": "1.0.0"
     "@tuyau/utils": "0.0.9"
     "@types/luxon": "3.7.6"
