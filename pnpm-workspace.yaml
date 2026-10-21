@@ -68,7 +68,7 @@ catalog:
   "sharp": "0.35.5"
   "superjson": "2.2.6"
   "tdigest": "0.1.3"
-  "uuid": "14.0.2"
+  "uuid": "14.0.3"
   "video.js": "8.24.0"
   "videojs-contrib-quality-levels": "4.1.0"
   "vite": "8.3.4"
