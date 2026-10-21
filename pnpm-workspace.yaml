@@ -59,7 +59,7 @@ catalog:
   "ioredis": "6.0.0"
   "knex": "3.3.0"
   "luxon": "3.7.2"
-  "mediabunny": "1.61.5"
+  "mediabunny": "1.61.6"
   "nanoid": "6.0.2"
   "pg": "8.23.1"
   "pino-pretty": "13.1.3"
