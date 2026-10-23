@@ -318,7 +318,7 @@ test.group('Durable account lifecycle — deletion workflow', (group) => {
 
     const engine = makeEngine();
     const wf = defineAccountDeletionWorkflow({ oidc: () => service });
-    engine.register(wf.name, wf.version, wf.body);
+    engine.register(wf.name, wf.version, wf.body, wf.options);
 
     const runId = `${ACCOUNT_DELETE_WORKFLOW}:${acc.id}`;
     await engine.start(
@@ -332,6 +332,8 @@ test.group('Durable account lifecycle — deletion workflow', (group) => {
     const res = await engine.waitForRun(runId);
 
     assert.equal(res.status, 'completed');
+    // Registrado com `wf.options` → o run carrega o origin do pacote.
+    assert.equal((await engine.getRun(runId))?.origin, '@adonis-agora/authkit-server');
     const result = res.output as any;
     assert.isTrue(result.ok);
     assert.equal(result.sessions, 1);
@@ -466,6 +468,8 @@ test.group('Durable account lifecycle — deletion workflow', (group) => {
       actor: { actorId: acc.id, ip: null, source: 'self' },
     });
     assert.equal(runId, `${ACCOUNT_DELETE_WORKFLOW}:${acc.id}`);
+    // O enqueue da lib carimba o origin mesmo com o registro sem `wf.options`.
+    assert.equal((await engine.getRun(runId))?.origin, '@adonis-agora/authkit-server');
 
     // O cascade async então completa a deleção da conta.
     const res = await engine.waitForRun(runId);

@@ -1,6 +1,7 @@
 import type { OidcService } from '../../provider/oidc_service.js';
 import { type AccountExport, AccountExportService } from '../account_export_service.js';
 import type { DurableStepCtx } from './account_deletion_workflow.js';
+import { PACKAGE_ORIGIN } from './package_origin.js';
 
 /** Nome canônico do workflow durável de export de dados de conta. */
 export const ACCOUNT_EXPORT_WORKFLOW = 'authkit.account.export';
@@ -106,6 +107,8 @@ export function defineAccountExportWorkflow(deps: AccountExportWorkflowDeps): {
     ctx: DurableStepCtx & { runId?: string },
     input: AccountExportWorkflowInput,
   ) => Promise<unknown>;
+  /** Opções de `engine.register` — carimba `origin` com o nome deste pacote. */
+  options: { origin: string };
 } {
   const persist = deps.persist ?? defaultPersist;
   const deliver = deps.deliver ?? noopDeliver;
@@ -150,5 +153,5 @@ export function defineAccountExportWorkflow(deps: AccountExportWorkflowDeps): {
     return { ok: true, artifactKey, bytes: json.length };
   };
 
-  return { name: ACCOUNT_EXPORT_WORKFLOW, version: '1', body };
+  return { name: ACCOUNT_EXPORT_WORKFLOW, version: '1', body, options: { origin: PACKAGE_ORIGIN } };
 }

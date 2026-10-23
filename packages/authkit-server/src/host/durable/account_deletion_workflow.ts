@@ -15,6 +15,7 @@ import {
   unlinkProviders,
 } from '../account_deletion_ops.js';
 import type { DeletionActor, DeletionResult } from '../account_deletion_service.js';
+import { PACKAGE_ORIGIN } from './package_origin.js';
 
 /** Nome canônico do workflow durável de deleção de conta. */
 export const ACCOUNT_DELETE_WORKFLOW = 'authkit.account.delete';
@@ -75,7 +76,7 @@ export interface AccountDeletionWorkflowDeps {
  * ```ts
  * import { defineAccountDeletionWorkflow } from '@adonis-agora/authkit-server/durable'
  * const wf = defineAccountDeletionWorkflow({ oidc: () => app.container.make('authkit.server') })
- * engine.register(wf.name, wf.version, wf.body)
+ * engine.register(wf.name, wf.version, wf.body, wf.options)
  * ```
  *
  * O corpo é FORWARD-ONLY (sem compensação — nunca des-deleta): cada etapa do
@@ -89,6 +90,8 @@ export function defineAccountDeletionWorkflow(deps: AccountDeletionWorkflowDeps)
   name: string;
   version: string;
   body: WorkflowBody;
+  /** Opções de `engine.register` — carimba `origin` com o nome deste pacote. */
+  options: { origin: string };
 } {
   const body: WorkflowBody = async (ctx, input) => {
     const { accountId, actor } = input;
@@ -176,5 +179,5 @@ export function defineAccountDeletionWorkflow(deps: AccountDeletionWorkflowDeps)
     return result;
   };
 
-  return { name: ACCOUNT_DELETE_WORKFLOW, version: '1', body };
+  return { name: ACCOUNT_DELETE_WORKFLOW, version: '1', body, options: { origin: PACKAGE_ORIGIN } };
 }
