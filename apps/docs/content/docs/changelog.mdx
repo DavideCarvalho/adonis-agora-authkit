@@ -70,13 +70,14 @@ changelogs.
 </Step>
 
 <Step>
-**On merge to `main`, the Release workflow opens a "Version Packages" PR.** It applies the
-pending changesets: versions are bumped in each `package.json`, the changeset files are
-consumed, and each affected `CHANGELOG.md` gets its new section.
+**On merge to `main`, the Release workflow applies the pending changesets.** Versions are
+bumped in each `package.json`, the changeset files are consumed, each affected
+`CHANGELOG.md` gets its new section, and that lands on `main` as a
+`chore: version packages` commit. There is no separate PR to merge.
 </Step>
 
 <Step>
-**Merging that PR publishes the affected packages to npm** — with
+**The same run publishes the affected packages to npm** — with
 [provenance](https://docs.npmjs.com/generating-provenance-statements), so the build origin
 of each tarball is verifiable against the workflow run that produced it.
 </Step>
