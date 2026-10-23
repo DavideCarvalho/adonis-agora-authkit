@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 0.81.3
+
+### Patch Changes
+
+- [#326](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/326) [`e9c1987`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/e9c19871f238a1c9cef9dcf5918cc848a2352cf1) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Durable account-lifecycle runs are now attributed to `@adonis-agora/authkit-server` (`WorkflowRun.origin`), so the durable console's ORIGIN facet separates them from the app's own runs. `enqueueAccountDeletion` / `enqueueAccountExport` stamp the origin at start, and `defineAccountDeletionWorkflow` / `defineAccountExportWorkflow` now also return `options: { origin }` to pass as the fourth `engine.register` argument. Engines older than `@adonis-agora/durable` 0.36 ignore it.
+
 ## 0.81.2
 
 ### Patch Changes
