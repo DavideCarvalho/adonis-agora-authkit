@@ -21,8 +21,8 @@
  * const oidc = () => app.container.make('authkit.server')
  * const del = defineAccountDeletionWorkflow({ oidc })
  * const exp = defineAccountExportWorkflow({ oidc })
- * engine.register(del.name, del.version, del.body)
- * engine.register(exp.name, exp.version, exp.body)
+ * engine.register(del.name, del.version, del.body, del.options)
+ * engine.register(exp.name, exp.version, exp.body, exp.options)
  * // ...e rode um worker (engine.runPending / runOne) p/ o grupo do authkit.
  * ```
  */
@@ -36,6 +36,7 @@ import {
   ACCOUNT_EXPORT_WORKFLOW,
   type AccountExportWorkflowInput,
 } from './account_export_workflow.js';
+import { PACKAGE_ORIGIN } from './package_origin.js';
 
 export {
   ACCOUNT_DELETE_WORKFLOW,
@@ -98,7 +99,7 @@ export async function enqueueAccountDeletion(
   input: AccountDeleteWorkflowInput,
 ): Promise<string> {
   const runId = `${ACCOUNT_DELETE_WORKFLOW}:${input.accountId}`;
-  await engine.start(ACCOUNT_DELETE_WORKFLOW, input, runId);
+  await engine.start(ACCOUNT_DELETE_WORKFLOW, input, runId, { origin: PACKAGE_ORIGIN });
   return runId;
 }
 
@@ -111,7 +112,7 @@ export async function enqueueAccountExport(
   input: AccountExportWorkflowInput,
 ): Promise<string> {
   const runId = `${ACCOUNT_EXPORT_WORKFLOW}:${input.accountId}`;
-  await engine.start(ACCOUNT_EXPORT_WORKFLOW, input, runId);
+  await engine.start(ACCOUNT_EXPORT_WORKFLOW, input, runId, { origin: PACKAGE_ORIGIN });
   return runId;
 }
 

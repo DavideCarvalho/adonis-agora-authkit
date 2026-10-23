@@ -472,12 +472,14 @@ const oidc = () => app.container.make('authkit.server')
 const deletion = defineAccountDeletionWorkflow({ oidc })
 const dataExport = defineAccountExportWorkflow({ oidc })
 
-engine.register(deletion.name, deletion.version, deletion.body)
-engine.register(dataExport.name, dataExport.version, dataExport.body)
+engine.register(deletion.name, deletion.version, deletion.body, deletion.options)
+engine.register(dataExport.name, dataExport.version, dataExport.body, dataExport.options)
 ```
 
-Both `define*` helpers return `{ name, version, body }` — the exact triple
-`engine.register` takes. The names are also exported as constants
+Both `define*` helpers return `{ name, version, body, options }` — exactly what
+`engine.register` takes. `options` carries `origin: '@adonis-agora/authkit-server'`, so the
+durable console's ORIGIN facet files these runs under AuthKit rather than your app (runs AuthKit
+enqueues itself are stamped at start either way). The names are also exported as constants
 (`ACCOUNT_DELETE_WORKFLOW`, `ACCOUNT_EXPORT_WORKFLOW`) so you can reference a run in your
 own dashboards without hard-coding a string.
 </Step>
