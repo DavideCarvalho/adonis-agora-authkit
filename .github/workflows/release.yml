@@ -1,31 +1,38 @@
 name: Release
 
-# Manual trigger: run from the Actions tab (or `gh workflow run release.yml`).
-# - With pending changesets, opens/updates a "version packages" PR.
-# - With none, publishes any package whose version isn't on npm yet.
+# Publishing lives in THIS FILE ONLY, and that is a constraint rather than a preference:
+# npm trusted publishing binds each package to exactly one (repository, workflow file) pair,
+# so a second workflow that ran `npm publish` could not authenticate. Same shape as
+# adonis-agora-durable's release:
+#
+#   push to main        -> run the gate, version the pending changesets in place (a
+#                          "chore: version packages" commit pushed to main) and publish
+#                          them, in the same run
+#   run manually        -> throwaway beta snapshot, changesets and git untouched
+#
+# No "version packages" PR to merge: merging a PR that carries a changeset IS the release.
 on:
-  # Renovate's automerge of a patch/minor dependency bump lands here; the job below is
-  # fenced so that a push by anyone else still releases nothing on its own.
   push:
     branches: [main]
   workflow_dispatch:
 
+# Never run two releases concurrently (avoids a double-publish race). Shared by both paths
+# on purpose: a snapshot racing a real publish is the same hazard.
 concurrency:
   group: release-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
-permissions:
-  contents: write
-  pull-requests: write
-  # Lets the job mint an OIDC token for npm trusted publishing, so a release needs no
-  # long-lived NPM_TOKEN. changesets/action probes for this; without it the run logs
-  # "No NPM_TOKEN or OIDC available" and never attempts OIDC at all.
-  id-token: write
-
 jobs:
   release:
-    if: github.event_name == 'workflow_dispatch' || github.actor == 'renovate[bot]'
+    name: Version and publish
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the "version packages" commit + git tags
+      # Lets the job mint an OIDC token for npm trusted publishing, so a release needs no
+      # long-lived NPM_TOKEN. changesets/action probes for this; without it the run logs
+      # "No NPM_TOKEN or OIDC available" and never attempts OIDC at all.
+      id-token: write
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -55,13 +62,30 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # A published version is effectively unrecallable, and every push to main with a pending
+      # changeset publishes: verify the exact commit being released here (the same checks as
+      # ci.yml, on its pinned Node) rather than trusting the PR's CI on an older base.
+      - name: Lint
+        run: pnpm lint
+      - name: Build
+        run: pnpm -r build
+      - name: Import smoke (packaging)
+        run: node scripts/import-smoke.mjs
+      - name: Check committed host CSS
+        run: pnpm --filter @adonis-agora/authkit-server check:host-css
+      - name: Check committed WebAuthn bundle
+        run: pnpm --filter @adonis-agora/authkit-server check:webauthn-bundle
+      - name: Typecheck
+        run: pnpm -r typecheck
+      - name: Test
+        run: pnpm -r test
+
       # A Renovate patch/minor bump automerges on its own and brings no changeset with it, so
-      # the step below would find nothing to publish and the new dependency would reach npm
-      # only whenever someone next released by hand. This writes the changeset for it and
-      # versions it in place, leaving the release a plain "nothing pending, publish" run.
+      # the new dependency would reach npm only with the next hand-written changeset. This writes
+      # a patch changeset for it, which the version step below then releases like any other.
       # Majors are merged by a person, so github.actor is not renovate[bot] and none of it runs.
       - name: Release a Renovate dependency bump
-        if: github.event_name == 'push' && github.actor == 'renovate[bot]'
+        if: github.actor == 'renovate[bot]'
         env:
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
@@ -159,25 +183,94 @@ jobs:
           console.log("Patch release queued for " + bumped.join(", "));
           NODE
           node "$RUNNER_TEMP/renovate-release.mjs"
-          if [ -z "$(git status --porcelain .changeset)" ]; then exit 0; fi
+
+      # Pending changesets -> bump the versions and changelogs, and push that as a
+      # "chore: version packages" commit straight to main. A push made with GITHUB_TOKEN does not
+      # start another workflow run, so this cannot loop. Rebased onto main first, so a commit
+      # that landed while the tests ran does not reject the push.
+      - name: Version packages
+        run: |
+          pending=$(find .changeset -maxdepth 1 -name '*.md' ! -iname 'readme.md' | wc -l)
+          if [ "$pending" -eq 0 ]; then
+            echo "No pending changesets: publishing whatever is not on npm yet."
+            exit 0
+          fi
           pnpm version-packages
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           git commit -m "chore: version packages"
+          git pull --rebase origin ${{ github.ref_name }}
           git push origin HEAD:${{ github.ref_name }}
+        env:
+          # `@changesets/changelog-github` looks up each changeset's PR and author while writing the
+          # changelogs, and throws without a token.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create release PR or publish
+      # No changesets are left by now, so the action takes its publish path: `pnpm release`
+      # publishes every package whose version is not on npm yet, then tags git and creates the
+      # GitHub releases.
+      - name: Publish to npm
         uses: changesets/action@v2.1.2
         with:
-          version-script: pnpm version-packages
           publish-script: pnpm release
-          commit-message: 'chore: version packages'
-          pr-title: 'chore: version packages'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Deliberately empty: setup-node writes .npmrc with _authToken=${NODE_AUTH_TOKEN},
           # and a real token there wins over OIDC -- npm uses the token and never exchanges
           # the id-token for a credential. Empty, npm sees no auth and falls back to trusted
           # publishing.
+          NODE_AUTH_TOKEN: ''
+
+  snapshot:
+    name: Publish beta snapshot to npm
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # mints the OIDC credential npm exchanges for a publish token
+    steps:
+      # Cuts a THROWAWAY prerelease of every package with a pending changeset, published under the
+      # `beta` dist-tag as `0.0.0-beta-<timestamp>`. It does NOT consume the changesets, bump source
+      # versions, or tag git, so the eventual real release (the next push to main) is untouched
+      # and still produces clean semver. Use it to try unreleased work: `pnpm add <pkg>@beta`.
+      - uses: actions/checkout@v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6.1.0
+        with:
+          version: 12.13.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24.21.0
+          cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
+
+      # Trusted publishing needs npm CLI >= 11.5.1; Node 22 still bundles npm 10.x.
+      #
+      # Pinned to 11.x, NOT @latest: npm 12 changed `npm info <pkg> --json` to return an
+      # array of manifests where 11 returned a single packument object. Changesets reads
+      # `pkgInfo.versions` off that value, which is `undefined` for an array, so on npm 12
+      # EVERY package looks unpublished and it republishes already-live versions, which npm
+      # rejects -- turning a fine release red. Revisit when changesets supports npm 12.
+      - run: npm install -g 'npm@^11.5.1'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Stamp every pending-changeset package (and any out-of-range dependent) to
+      # `0.0.0-beta-<datetime>` in the runner only, never committed.
+      - name: Version as beta snapshot
+        run: pnpm changeset version --snapshot beta
+
+      - name: Build all packages
+        run: pnpm build
+
+      # `@latest` is untouched: these land under the `beta` dist-tag with no git tag.
+      - name: Publish beta snapshot
+        run: pnpm changeset publish --tag beta --no-git-tag
+        env:
+          # Empty on purpose, as in the release job: a real token here would win over OIDC.
           NODE_AUTH_TOKEN: ''
