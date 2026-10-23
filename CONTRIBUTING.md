@@ -57,8 +57,10 @@ Pick the affected packages and the semver bump (patch/minor/major) and write a
 short summary — it becomes the CHANGELOG entry. Commit the generated file in
 `.changeset/` with your PR.
 
-Maintainers merge changesets into `main`; the Release workflow opens a "Version
-Packages" PR and, once merged, publishes to npm (with provenance).
+Merging a PR that carries a changeset into `main` is the release: the Release
+workflow versions the packages (a `chore: version packages` commit on `main`) and
+publishes them to npm (with provenance) in the same run. Running the workflow by
+hand publishes a throwaway beta snapshot under the `beta` dist-tag instead.
 
 ## Pull requests
 
