@@ -189,44 +189,53 @@ jobs:
           NODE
           node "$RUNNER_TEMP/renovate-release.mjs"
 
-      # Pending changesets -> bump the versions and changelogs, and push that as a
-      # "chore: version packages" commit straight to main. A push made with GITHUB_TOKEN does not
-      # start another workflow run, so this cannot loop.
+      # Pending changesets -> bump versions and changelogs and push them as a "chore: version
+      # packages" commit to the branch (a GITHUB_TOKEN push starts no new run, so this cannot loop).
       #
-      # No rebase: everything this run publishes must be what the gate above verified. If main
-      # moved while it ran, the push is rejected and this run stops without publishing. The run
-      # queued (by the concurrency group) for the newer commit then gates the combined tree and
-      # versions + publishes it all.
+      # Only what the gate tested is released. If the branch moved during this run, the only commits
+      # tolerated on top of the tested one are this bot's own version commits (same code, only
+      # versions and changelogs moved): fast-forward onto them so their changesets are not versioned
+      # twice. Any other commit is untested here, so stop cleanly -- no version, no publish -- and let
+      # the run queued for it (concurrency group) gate and release the combined tree.
       - name: Version packages
         id: version
+        env:
+          TESTED: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
+          # @changesets/changelog-github looks up each changeset's PR and author; throws without it.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          superseded() {
+            echo "::notice::branch moved past the tested commit; the newer run will release"
+            echo "superseded=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git fetch origin "$BRANCH"
+          moved=$(git rev-list "$TESTED..origin/$BRANCH")
+          for c in $moved; do
+            [ "$(git log -1 --format='%an|%s' "$c")" = 'github-actions[bot]|chore: version packages' ] || superseded
+          done
+          git merge --ff-only "origin/$BRANCH"
           pending=$(find .changeset -maxdepth 1 -name '*.md' ! -iname 'readme.md' | wc -l)
           if [ "$pending" -eq 0 ]; then
             echo "No pending changesets: publishing whatever is not on npm yet."
             exit 0
           fi
           pnpm version-packages
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           if git diff --cached --quiet; then
             echo "version-packages changed nothing (e.g. only private packages): nothing to commit."
             exit 0
           fi
           git commit -m "chore: version packages"
-          if git push origin HEAD:${{ github.ref_name }}; then exit 0; fi
-          git fetch origin ${{ github.ref_name }}
-          if [ "$(git rev-parse FETCH_HEAD)" != "${{ github.sha }}" ]; then
-            echo "::notice::main moved during this run; the run for the newer commit releases it."
-            echo "superseded=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "::error::Pushing the version commit failed and main has not moved."
+          git push origin "HEAD:$BRANCH" && exit 0
+          # Rejected: the branch moved after the check above. Fail loudly only if it did not move.
+          git fetch origin "$BRANCH"
+          [ "$(git rev-parse "origin/$BRANCH")" != "$(git rev-parse HEAD~1)" ] && superseded
+          echo "::error::Pushing the version commit failed and the branch has not moved."
           exit 1
-        env:
-          # `@changesets/changelog-github` looks up each changeset's PR and author while writing the
-          # changelogs, and throws without a token.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # No changesets are left by now, so the action takes its publish path: `pnpm release`
       # publishes every package whose version is not on npm yet, then tags git and creates the
