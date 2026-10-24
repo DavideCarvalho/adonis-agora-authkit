@@ -38,7 +38,7 @@ catalog:
   "@ffprobe-installer/ffprobe": "2.1.2"
   "@japa/assert": "4.2.0"
   "@japa/plugin-adonisjs": "5.2.0"
-  "@japa/runner": "5.3.0"
+  "@japa/runner": "5.4.0"
   "@jrmc/adonis-attachment": "5.2.1"
   "@poppinss/ts-exec": "1.4.4"
   "@videojs/http-streaming": "3.17.5"

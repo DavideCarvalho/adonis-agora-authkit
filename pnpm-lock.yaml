@@ -206,8 +206,8 @@ catalogs:
       specifier: 4.2.0
       version: 4.2.0
     '@japa/runner':
-      specifier: 5.3.0
-      version: 5.3.0
+      specifier: 5.4.0
+      version: 5.4.0
     '@poppinss/ts-exec':
       specifier: 1.4.4
       version: 1.4.4
@@ -378,10 +378,10 @@ importers:
         version: 2.0.0
       '@japa/assert':
         specifier: 'catalog:'
-        version: 4.2.0(@japa/runner@5.3.0)
+        version: 4.2.0(@japa/runner@5.4.0)
       '@japa/runner':
         specifier: 'catalog:'
-        version: 5.3.0
+        version: 5.4.0
       '@poppinss/ts-exec':
         specifier: 'catalog:'
         version: 1.4.4(@swc/helpers@0.5.23)
@@ -414,10 +414,10 @@ importers:
         version: 2.0.0
       '@japa/assert':
         specifier: 'catalog:'
-        version: 4.2.0(@japa/runner@5.3.0)
+        version: 4.2.0(@japa/runner@5.4.0)
       '@japa/runner':
         specifier: 'catalog:'
-        version: 5.3.0
+        version: 5.4.0
       '@poppinss/ts-exec':
         specifier: 'catalog:'
         version: 1.4.4(@swc/helpers@0.5.23)
@@ -445,10 +445,10 @@ importers:
         version: 3.7.1(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       '@japa/assert':
         specifier: 'catalog:'
-        version: 4.2.0(@japa/runner@5.3.0)
+        version: 4.2.0(@japa/runner@5.4.0)
       '@japa/runner':
         specifier: 'catalog:'
-        version: 5.3.0
+        version: 5.4.0
       '@poppinss/ts-exec':
         specifier: 'catalog:'
         version: 1.4.4(@swc/helpers@0.5.23)
@@ -490,10 +490,10 @@ importers:
         version: 2.0.0
       '@japa/assert':
         specifier: 'catalog:'
-        version: 4.2.0(@japa/runner@5.3.0)
+        version: 4.2.0(@japa/runner@5.4.0)
       '@japa/runner':
         specifier: 'catalog:'
-        version: 5.3.0
+        version: 5.4.0
       '@poppinss/ts-exec':
         specifier: 'catalog:'
         version: 1.4.4(@swc/helpers@0.5.23)
@@ -578,10 +578,10 @@ importers:
         version: 2.0.0
       '@japa/assert':
         specifier: 'catalog:'
-        version: 4.2.0(@japa/runner@5.3.0)
+        version: 4.2.0(@japa/runner@5.4.0)
       '@japa/runner':
         specifier: 'catalog:'
-        version: 5.3.0
+        version: 5.4.0
       '@poppinss/ts-exec':
         specifier: 'catalog:'
         version: 1.4.4(@swc/helpers@0.5.23)
@@ -690,10 +690,10 @@ importers:
         version: 2.0.0
       '@japa/assert':
         specifier: 'catalog:'
-        version: 4.2.0(@japa/runner@5.3.0)
+        version: 4.2.0(@japa/runner@5.4.0)
       '@japa/runner':
         specifier: 'catalog:'
-        version: 5.3.0
+        version: 5.4.0
       '@poppinss/ts-exec':
         specifier: 'catalog:'
         version: 1.4.4(@swc/helpers@0.5.23)
@@ -715,10 +715,10 @@ importers:
         version: 2.0.0
       '@japa/assert':
         specifier: 'catalog:'
-        version: 4.2.0(@japa/runner@5.3.0)
+        version: 4.2.0(@japa/runner@5.4.0)
       '@japa/runner':
         specifier: 'catalog:'
-        version: 5.3.0
+        version: 5.4.0
       '@poppinss/ts-exec':
         specifier: 'catalog:'
         version: 1.4.4(@swc/helpers@0.5.23)
@@ -743,10 +743,10 @@ importers:
         version: 2.0.0
       '@japa/assert':
         specifier: 'catalog:'
-        version: 4.2.0(@japa/runner@5.3.0)
+        version: 4.2.0(@japa/runner@5.4.0)
       '@japa/runner':
         specifier: 'catalog:'
-        version: 5.3.0
+        version: 5.4.0
       '@poppinss/ts-exec':
         specifier: 'catalog:'
         version: 1.4.4(@swc/helpers@0.5.23)
@@ -768,10 +768,10 @@ importers:
         version: 2.0.0
       '@japa/assert':
         specifier: 'catalog:'
-        version: 4.2.0(@japa/runner@5.3.0)
+        version: 4.2.0(@japa/runner@5.4.0)
       '@japa/runner':
         specifier: 'catalog:'
-        version: 5.3.0
+        version: 5.4.0
       '@poppinss/ts-exec':
         specifier: 'catalog:'
         version: 1.4.4(@swc/helpers@0.5.23)
@@ -2023,8 +2023,8 @@ packages:
     resolution: {integrity: sha512-ogPT87QLaugKyPVcq+ZypcetVeJpXZN7RfVRlRDIrSHsHBw6ILCtNXghVxD9POjqxtUM7RON3sUkgZzLnVQA5g==}
     engines: {node: '>=18.16.0'}
 
-  '@japa/runner@5.3.0':
-    resolution: {integrity: sha512-WCnTd1q2EpbKKa96NzL16kVxJXVLRj1VqbswNAn17hYSuMlNKKhPGNbAosB32QZVFcoe9fv4Ebh1HtjyAT/viw==}
+  '@japa/runner@5.4.0':
+    resolution: {integrity: sha512-lX9G8PTAE1jeooYnOjLxa1hB1wFmbS2jUk+mi8hyN4n+AGwmYi1ThYc7JMw2CyZ7qnZ7AukWjYG3D+vDPIckXQ==}
     engines: {node: '>=18.16.0'}
 
   '@jest/diff-sequences@30.5.0':
@@ -7687,9 +7687,9 @@ snapshots:
       wrap-ansi: 8.1.0
       wrap-ansi-cjs: wrap-ansi@7.0.0
 
-  '@japa/assert@4.2.0(@japa/runner@5.3.0)':
+  '@japa/assert@4.2.0(@japa/runner@5.4.0)':
     dependencies:
-      '@japa/runner': 5.3.0
+      '@japa/runner': 5.4.0
       '@poppinss/macroable': 1.1.2
       '@types/chai': 5.2.3
       assertion-error: 2.0.1
@@ -7711,7 +7711,7 @@ snapshots:
       supports-color: 10.2.2
       youch: 4.1.1
 
-  '@japa/runner@5.3.0':
+  '@japa/runner@5.4.0':
     dependencies:
       '@japa/core': 10.4.0
       '@japa/errors-printer': 4.1.4
