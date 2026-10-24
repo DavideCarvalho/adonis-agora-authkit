@@ -129,7 +129,7 @@
   },
   "devDependencies": {
     "@adonis-agora/authkit-react": "workspace:*",
-    "@adonis-agora/durable": "0.45.0",
+    "@adonis-agora/durable": "0.46.0",
     "@adonis-agora/telescope": "0.22.0",
     "@adonisjs/ally": "catalog:adonis",
     "@adonisjs/auth": "catalog:adonis",
