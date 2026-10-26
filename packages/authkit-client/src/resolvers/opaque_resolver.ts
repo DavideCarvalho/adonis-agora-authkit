@@ -24,7 +24,9 @@ export interface OpaqueResolverConfig {
   /**
    * TTL (ms) do cache em memória de respostas `active:true`, para não introspectar
    * a cada request. Default 0 (sem cache → revogação propaga imediatamente). Suba
-   * para trocar imediatismo por menos round-trips.
+   * para trocar imediatismo por menos round-trips. Uma entrada vence no que vier
+   * primeiro entre o TTL e o `exp` do token; o cache guarda no máximo 10.000 tokens
+   * (expirados saem primeiro, depois o mais antigo).
    */
   cacheTtlMs?: number;
   fetchImpl?: FetchImpl;

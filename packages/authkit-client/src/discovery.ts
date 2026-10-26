@@ -106,7 +106,7 @@ const inflight = new Map<string, Promise<DiscoveryDocument>>();
 export interface DiscoverOptions {
   /** Manual overrides — win over the discovery document, field by field. */
   overrides?: Partial<OidcEndpoints>;
-  /** Per-issuer cache TTL. Default: 15 min. */
+  /** Per-issuer cache TTL; past it the document is served stale while one background refetch runs. Default: 15 min. */
   cacheTtlMs?: number;
   fetchImpl?: typeof fetch;
   /**

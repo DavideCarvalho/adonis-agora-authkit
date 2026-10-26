@@ -67,6 +67,9 @@ export interface ClientConfigInput {
    * Discovery runs lazily, on first use, so the app boots while the IdP is down.
    * A failure throws `OidcDiscoveryError` and is retried on the next request; a
    * previously discovered document keeps being served while refetches fail.
+   * Concurrent callers share one fetch per issuer; once `cacheTtlMs` (default
+   * 15 min) runs out, the cached document is served while one background refetch
+   * replaces it. Each request attempt is aborted after 10 s.
    *
    * `false` skips the network and uses `endpoints` on top of the authkit-server
    * convention (`/auth`, `/token`, `/jwks`, `/session/end`).

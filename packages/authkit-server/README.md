@@ -120,7 +120,7 @@ router.post('/auth/interaction/:uid/consent', [AuthInteractionController, 'conse
 
 Escolha o backend no `config/authkit.ts`:
 - `adapters.redis({ connection })` — requer `@adonisjs/redis` configurado.
-- `adapters.database({ connection? })` — Lucid; rode a migração `authkit_oidc_payloads`.
+- `adapters.database({ connection? })` — Lucid; tabela `authkit_oidc_payloads`, criada pelo `ensureAuthkitSchema` no boot (com `schema: { autoManage: false }`, chame-o numa migração). A coluna indexada `account_id` mantém as buscas e revogações por conta em SQL; linhas antigas com `account_id` NULL continuam sendo encontradas. Postgres, MySQL e SQLite.
 
 ## Observabilidade
 

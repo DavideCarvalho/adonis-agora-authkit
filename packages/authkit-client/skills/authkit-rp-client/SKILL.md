@@ -222,6 +222,9 @@ The opaque resolver introspects with `clientId`/`clientSecret` and the factory
 throws `resolvers.opaque requer um client confidencial (clientSecret)` when the
 config lacks a secret — a public client cannot authenticate introspection.
 
+With `cacheTtlMs`, a cached identity expires at the earlier of the TTL and the
+token's `exp`, and the cache holds at most 10,000 tokens per resolver.
+
 Source: `src/resolvers/factory.ts` (`resolvers.opaque` throw), README.
 
 ### MEDIUM — Bearer resolver in a browser session app (or vice versa)

@@ -6,7 +6,7 @@ description: Database-driven runtime configuration — the setting-key catalogue
 
 AuthKit's **runtime settings** let you change operational behaviour without redeploying.
 Settings are persisted as JSON rows in the `auth_settings` table and take effect on every
-request (with a 15-second in-process cache). When the table is absent every setting falls
+request (with a 15-second in-process cache shared by the whole process). When the table is absent every setting falls
 back to the static config — zero breaking change.
 
 ## Philosophy
@@ -47,7 +47,7 @@ changes existing columns). Runtime settings are therefore active out of the box.
 
 | Table | What it holds |
 | --- | --- |
-| `authkit_oidc_payloads` | The OIDC provider's own storage (grants, sessions, codes) when you use the Lucid adapter |
+| `authkit_oidc_payloads` | The OIDC provider's own storage (grants, sessions, codes) when you use the Lucid adapter — see [below](#the-authkit_oidc_payloads-table) |
 | `auth_settings` | Runtime settings — the subject of this page |
 | `auth_password_history` | Previous password hashes, for reuse prevention |
 | `auth_mfa` | Enrolled MFA factors and recovery codes |
@@ -105,8 +105,68 @@ other key is global, and the uniqueness constraint on `(key, organization_id)` i
 a global row and a per-org row for the same key coexist.
 
 AuthKit detects the table on first access — with a real `SELECT` rather than a
-`hasTable` probe, so a schema reached through a Postgres `search_path` is found correctly —
-and memoises the result per `RuntimeSettings` instance.
+`hasTable` probe, so a schema reached through a Postgres `search_path` is found correctly.
+The probe result and the 15-second value cache are shared by every `RuntimeSettings`
+instance on the same database and connection, so a guarded request reads a setting from
+memory rather than the database. A write through any instance (the admin console, the CLI,
+`authkit.settings`, or a `RuntimeSettings` you construct yourself) clears the cache for all
+of them in that process; other processes see the change once their 15-second entry expires.
+A table found present is remembered for the life of the process. A table found absent, or a
+probe that failed, is checked again after 15 seconds, so creating the table while the app
+runs takes effect without a restart.
+
+### The `authkit_oidc_payloads` table
+
+When you use `adapters.database`, oidc-provider stores every artifact (sessions, grants,
+access and refresh tokens, codes) as a JSON row in `authkit_oidc_payloads`. Besides the
+payload, each row carries the columns AuthKit looks artifacts up by:
+
+| Column / index | Purpose |
+| --- | --- |
+| `(model_name, id)` primary key | `find` by artifact id |
+| `grant_id`, `user_code`, `uid` | oidc-provider's own lookups; `grant_id` also finds the tokens of a revoked grant |
+| `account_id` + index `authkit_oidc_payloads_account_idx` on `(model_name, account_id)` | Per-account lookups: the account's sessions page, single-session login, "sign out everywhere" |
+| `expires_at` + index `authkit_oidc_payloads_expires_idx` | Skipping and pruning expired rows |
+
+`ensureAuthkitSchema` adds `account_id` and both indexes to an existing table in one
+`ALTER`. It adds the two indexes only together with the column: if you add `account_id`
+yourself, create the indexes too. With auto-management on, boot
+does this for you. With `autoManage: false`, run `ensureAuthkitSchema(this.db)` in a
+migration (above), or write the change by hand:
+
+```ts title="database/migrations/xxxx_authkit_oidc_payloads_account.ts"
+import { BaseSchema } from '@adonisjs/lucid/schema'
+
+export default class extends BaseSchema {
+  async up() {
+    this.schema.alterTable('authkit_oidc_payloads', (table) => {
+      table.string('account_id', 255).nullable()
+      table.index(['model_name', 'account_id'], 'authkit_oidc_payloads_account_idx')
+      table.index(['expires_at'], 'authkit_oidc_payloads_expires_idx')
+    })
+  }
+}
+```
+
+The column is nullable and needs no backfill, so adding it is cheap; building the two
+indexes reads the whole table. On a large Postgres table a plain
+`CREATE INDEX` blocks writes while it runs, so add the column first and build both indexes
+with `CREATE INDEX CONCURRENTLY` under the names above; `ensureAuthkitSchema` then finds the
+column and leaves the table alone.
+
+Rows written before the column existed, or by an older AuthKit during a rolling deploy, hold
+`NULL` in `account_id`. Per-account lookups read those rows as well and match them on the
+payload's `accountId`, so revocation never misses one. A `NULL` row that belongs to an
+account gets its `account_id` filled in the first time a lookup reads it. Until the column
+exists, the adapter keeps working without it: it writes no `account_id` and per-account
+lookups read every row of the model, checking again for the column every minute.
+
+Expired rows are already invisible to every read. The adapter also deletes them, at most
+once every 10 minutes per connection: a write starts the delete in the background, off the
+request path, and a failed delete is ignored and retried on a later write.
+
+`expires_at` holds a native timestamp on Postgres and MySQL (the adapter binds a `Date` and
+the driver formats it), and ISO-8601 text on SQLite. The adapter works on all three.
 
 ## Complete setting catalog
 

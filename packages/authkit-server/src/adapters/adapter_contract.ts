@@ -42,7 +42,8 @@ export interface OidcAdapter {
   /**
    * Artefatos vivos deste model cujo `payload.accountId` é `accountId` — o mesmo
    * resultado de `list()` filtrado pela conta, sem enumerar as outras contas.
-   * OPCIONAL: ausente, os consumidores caem em `list()` + filtro.
+   * OPCIONAL: ausente, os consumidores caem em `list()` + filtro. Tem de ser completo
+   * (a revogação confia nele): um artefato que fique de fora continua valendo.
    */
   listByAccount?(accountId: string): Promise<EnumeratedArtifact[]>;
   /**
