@@ -104,6 +104,39 @@ test.group('authkit_oidc_payloads — account index', (group) => {
     assert.include(names, 'authkit_oidc_payloads_expires_idx');
   });
 
+  test('ensureAuthkitSchema creates the indexes when account_id was added by hand', async ({
+    assert,
+  }) => {
+    await createLegacyTable(db);
+    await db.connection().schema.alterTable(TABLE, (t: any) => {
+      t.string('account_id', 255).nullable();
+    });
+
+    const report = await ensureAuthkitSchema(db);
+    assert.notInclude(report.altered[TABLE] ?? [], 'account_id');
+    assert.deepEqual(report.indexed?.[TABLE], [
+      'authkit_oidc_payloads_account_idx',
+      'authkit_oidc_payloads_expires_idx',
+    ]);
+    const names = await indexNames(db);
+    assert.include(names, 'authkit_oidc_payloads_account_idx');
+    assert.include(names, 'authkit_oidc_payloads_expires_idx');
+
+    const second = await ensureAuthkitSchema(db);
+    assert.isUndefined(second.indexed);
+  });
+
+  test('ensureAuthkitSchema leaves an index the host already built alone', async ({ assert }) => {
+    await createLegacyTable(db);
+    await db.connection().schema.alterTable(TABLE, (t: any) => {
+      t.string('account_id', 255).nullable();
+      t.index(['model_name', 'account_id'], 'authkit_oidc_payloads_account_idx');
+    });
+
+    const report = await ensureAuthkitSchema(db);
+    assert.deepEqual(report.indexed?.[TABLE], ['authkit_oidc_payloads_expires_idx']);
+  });
+
   test('the per-account query uses the account index', async ({ assert }) => {
     await ensureAuthkitSchema(db);
     const plan = await db

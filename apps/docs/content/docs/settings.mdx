@@ -128,10 +128,11 @@ payload, each row carries the columns AuthKit looks artifacts up by:
 | `account_id` + index `authkit_oidc_payloads_account_idx` on `(model_name, account_id)` | Per-account lookups: the account's sessions page, single-session login, "sign out everywhere" |
 | `expires_at` + index `authkit_oidc_payloads_expires_idx` | Skipping and pruning expired rows |
 
-`ensureAuthkitSchema` adds `account_id` and both indexes to an existing table in one
-`ALTER`. It adds the two indexes only together with the column: if you add `account_id`
-yourself, create the indexes too. With auto-management on, boot
-does this for you. With `autoManage: false`, run `ensureAuthkitSchema(this.db)` in a
+`ensureAuthkitSchema` adds `account_id` to an existing table, then checks each of the two
+indexes by name and creates whichever is missing. The index check does not depend on the
+column, so a table whose `account_id` you added yourself still gets both indexes, and an
+index you already built under one of these names is left alone. With auto-management on,
+boot does this for you. With `autoManage: false`, run `ensureAuthkitSchema(this.db)` in a
 migration (above), or write the change by hand:
 
 ```ts title="database/migrations/xxxx_authkit_oidc_payloads_account.ts"
@@ -150,9 +151,10 @@ export default class extends BaseSchema {
 
 The column is nullable and needs no backfill, so adding it is cheap; building the two
 indexes reads the whole table. On a large Postgres table a plain
-`CREATE INDEX` blocks writes while it runs, so add the column first and build both indexes
-with `CREATE INDEX CONCURRENTLY` under the names above; `ensureAuthkitSchema` then finds the
-column and leaves the table alone.
+`CREATE INDEX` blocks writes while it runs. If that matters, add the column first and build
+both indexes with `CREATE INDEX CONCURRENTLY` under the names above before the next boot;
+`ensureAuthkitSchema` then finds the column and both indexes and leaves the table alone.
+Otherwise the next boot builds the missing indexes with a plain `CREATE INDEX`.
 
 Rows written before the column existed, or by an older AuthKit during a rolling deploy, hold
 `NULL` in `account_id`. Per-account lookups read those rows as well and match them on the

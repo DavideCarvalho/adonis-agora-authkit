@@ -36,18 +36,18 @@ interface TableDef {
    * (unique/FK ficam só no `create`).
    */
   columns: Record<string, (table: TableBuilder) => void>;
+  /**
+   * Índices garantidos por nome, independentes das colunas: uma tabela cuja coluna
+   * já existe (adicionada à mão) também os ganha. O `create` deve declará-los.
+   */
+  indexes?: Array<{ name: string; columns: string[] }>;
 }
 
-/**
- * `account_id` (dono do artefato, para as buscas por conta) e o índice de
- * `expires_at` (limpeza dos expirados). Os dois índices nascem junto com a coluna,
- * então tabelas antigas os ganham no mesmo ALTER que adiciona `account_id`.
- */
-function oidcPayloadAccountColumn(t: TableBuilder): void {
-  t.string('account_id', 255).nullable();
-  t.index(['model_name', 'account_id'], 'authkit_oidc_payloads_account_idx');
-  t.index(['expires_at'], 'authkit_oidc_payloads_expires_idx');
-}
+/** Busca por conta (`account_id`) e limpeza dos expirados (`expires_at`). */
+const OIDC_PAYLOAD_INDEXES = [
+  { name: 'authkit_oidc_payloads_account_idx', columns: ['model_name', 'account_id'] },
+  { name: 'authkit_oidc_payloads_expires_idx', columns: ['expires_at'] },
+];
 
 const TABLES: TableDef[] = [
   {
@@ -61,7 +61,8 @@ const TABLES: TableDef[] = [
       t.string('uid', 255).nullable().index();
       t.timestamp('expires_at', { useTz: true }).nullable();
       t.primary(['model_name', 'id']);
-      oidcPayloadAccountColumn(t);
+      t.string('account_id', 255).nullable();
+      for (const index of OIDC_PAYLOAD_INDEXES) t.index(index.columns, index.name);
     },
     columns: {
       id: (t) => t.string('id', 255),
@@ -71,8 +72,9 @@ const TABLES: TableDef[] = [
       user_code: (t) => t.string('user_code', 255).nullable().index(),
       uid: (t) => t.string('uid', 255).nullable().index(),
       expires_at: (t) => t.timestamp('expires_at', { useTz: true }).nullable(),
-      account_id: oidcPayloadAccountColumn,
+      account_id: (t) => t.string('account_id', 255).nullable(),
     },
+    indexes: OIDC_PAYLOAD_INDEXES,
   },
   {
     name: 'auth_settings',
@@ -493,6 +495,8 @@ export interface EnsureSchemaReport {
   created: string[];
   /** Colunas adicionadas em tabelas já existentes: tabela → colunas. */
   altered: Record<string, string[]>;
+  /** Índices criados em tabelas já existentes: tabela → nomes. Ausente quando nenhum. */
+  indexed?: Record<string, string[]>;
   /**
    * Desfecho da coluna `login_methods`. `ensured: false` significa que a tabela
    * da conta não existe no banco, então NADA foi feito — e é o caso que
@@ -513,6 +517,76 @@ async function tableExists(conn: any, table: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * O índice existe? Por nome, no catálogo do dialeto (no Postgres via `to_regclass`,
+ * que resolve pelo search_path). `null` = dialeto sem consulta conhecida.
+ */
+async function indexExists(conn: any, table: string, name: string): Promise<boolean | null> {
+  const dialect: string | undefined = conn.dialect?.name;
+  const rows = (result: any): any[] =>
+    Array.isArray(result) ? (Array.isArray(result[0]) ? result[0] : result) : (result?.rows ?? []);
+  switch (dialect) {
+    case 'postgres':
+    case 'redshift': {
+      const found = rows(await conn.rawQuery('select to_regclass(?) as oid', [name]));
+      return found[0]?.oid != null;
+    }
+    case 'mysql':
+      return (
+        rows(
+          await conn.rawQuery(
+            'select 1 from information_schema.statistics where table_schema = database() and table_name = ? and index_name = ? limit 1',
+            [table, name],
+          ),
+        ).length > 0
+      );
+    case 'sqlite3':
+    case 'better-sqlite3':
+    case 'libsql':
+      return (
+        rows(
+          await conn.rawQuery("select 1 from sqlite_master where type = 'index' and name = ?", [
+            name,
+          ]),
+        ).length > 0
+      );
+    case 'mssql':
+      return (
+        rows(
+          await conn.rawQuery(
+            'select 1 from sys.indexes where name = ? and object_id = object_id(?)',
+            [name, table],
+          ),
+        ).length > 0
+      );
+    default:
+      return null;
+  }
+}
+
+/**
+ * Cria o índice quando falta. Idempotente: um índice já existente (inclusive
+ * criado por outra instância no mesmo boot) não é erro.
+ */
+async function ensureIndex(
+  conn: any,
+  table: string,
+  index: { name: string; columns: string[] },
+): Promise<boolean> {
+  if ((await indexExists(conn, table, index.name)) === true) return false;
+  try {
+    await conn.schema.alterTable(table, (t: TableBuilder) => t.index(index.columns, index.name));
+    return true;
+  } catch (error) {
+    const exists = await indexExists(conn, table, index.name).catch(() => null);
+    if (exists === true) return false;
+    if (exists === null && /already exists|duplicate/i.test(String((error as Error)?.message))) {
+      return false;
+    }
+    throw error;
   }
 }
 
@@ -561,6 +635,13 @@ export async function ensureAuthkitSchema(
       await conn.schema.alterTable(def.name, (t: TableBuilder) => add(t));
       if (!report.altered[def.name]) report.altered[def.name] = [];
       report.altered[def.name].push(column);
+    }
+
+    for (const index of def.indexes ?? []) {
+      if (!(await ensureIndex(conn, def.name, index))) continue;
+      if (!report.indexed) report.indexed = {};
+      if (!report.indexed[def.name]) report.indexed[def.name] = [];
+      report.indexed[def.name].push(index.name);
     }
   }
 
