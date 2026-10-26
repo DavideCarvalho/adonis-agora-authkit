@@ -116,4 +116,43 @@ test.group('OpaqueResolver', () => {
     await r.resolve(ctx);
     assert.equal(calls, 1);
   });
+
+  test('cacheTtlMs>0 → o cache não serve um token além do exp dele', async ({ assert }) => {
+    let calls = 0;
+    const r = new OpaqueResolver({
+      ...base,
+      tokenSource: 'session',
+      cacheTtlMs: 60_000,
+      fetchImpl: async () => {
+        calls++;
+        const exp = Math.floor(Date.now() / 1000);
+        return { ok: true, json: async () => ({ active: true, sub: 'u1', exp }) } as any;
+      },
+    });
+    const ctx = ctxWithSession('at_expiring');
+    await r.resolve(ctx);
+    await r.resolve(ctx);
+    assert.equal(calls, 2);
+  });
+
+  test('cacheTtlMs>0 → o cache tem teto de entradas (o mais antigo sai)', async ({ assert }) => {
+    const introspected: string[] = [];
+    const r = new OpaqueResolver({
+      ...base,
+      tokenSource: 'session',
+      cacheTtlMs: 60_000,
+      fetchImpl: async (_url: string, init: any) => {
+        introspected.push(new URLSearchParams(init.body).get('token')!);
+        return { ok: true, json: async () => ({ active: true, sub: 'u1' }) } as any;
+      },
+    });
+    for (let i = 0; i <= 10_000; i++) await r.resolve(ctxWithSession(`at_${i}`));
+    introspected.length = 0;
+
+    await r.resolve(ctxWithSession('at_10000'));
+    await r.resolve(ctxWithSession('at_1'));
+    assert.deepEqual(introspected, []);
+    await r.resolve(ctxWithSession('at_0'));
+    assert.deepEqual(introspected, ['at_0']);
+  });
 });

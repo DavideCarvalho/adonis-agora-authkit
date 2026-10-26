@@ -32,8 +32,12 @@ export interface OpaqueResolverConfig {
 
 interface CacheEntry {
   identity: Identity;
-  storedAt: number;
+  /** Instante (relógio de `#now()`) a partir do qual a entrada não vale mais. */
+  expiresAt: number;
 }
+
+/** Teto de tokens no cache; o mais antigo sai primeiro. */
+const MAX_CACHE_ENTRIES = 10_000;
 
 /**
  * Resolver de access token OPACO via introspection padrão (RFC 7662) a cada request.
@@ -66,8 +70,8 @@ export class OpaqueResolver implements SessionResolver {
     const ttl = this.config.cacheTtlMs ?? 0;
     if (ttl > 0) {
       const hit = this.#cache.get(token);
-      // `nowMs` vem do ctx (request) para não depender de Date.* — ver #now().
-      if (hit && this.#now() - hit.storedAt < ttl) return hit.identity;
+      if (hit && this.#now() < hit.expiresAt) return hit.identity;
+      if (hit) this.#cache.delete(token);
     }
 
     const introspectionUrl = await this.config.introspectionUrl();
@@ -89,8 +93,29 @@ export class OpaqueResolver implements SessionResolver {
 
     const identity = buildIdentityFromClaims(data, this.config.globalRolesClaim);
 
-    if (ttl > 0) this.#cache.set(token, { identity, storedAt: this.#now() });
+    if (ttl > 0) this.#store(token, identity, ttl, data.exp);
     return identity;
+  }
+
+  /**
+   * Guarda a identidade por `ttl`, nunca além do `exp` do token: um token que
+   * expira antes do TTL deixa de resolver quando expira, não quando o cache vence.
+   */
+  #store(token: string, identity: Identity, ttl: number, exp: unknown): void {
+    const lifetime = typeof exp === 'number' ? Math.min(ttl, exp * 1000 - Date.now()) : ttl;
+    if (lifetime <= 0) return;
+    const now = this.#now();
+    if (this.#cache.size >= MAX_CACHE_ENTRIES) {
+      for (const [key, entry] of this.#cache) {
+        if (entry.expiresAt <= now) this.#cache.delete(key);
+      }
+      for (const key of this.#cache.keys()) {
+        if (this.#cache.size < MAX_CACHE_ENTRIES) break;
+        this.#cache.delete(key);
+      }
+    }
+    this.#cache.delete(token);
+    this.#cache.set(token, { identity, expiresAt: now + lifetime });
   }
 
   /** Relógio monotônico de processo (evita Date.* direto; testável). */
