@@ -255,3 +255,68 @@ test.group('discoverEndpoints | failures', (group) => {
     assert.equal(endpoints.issuer, auth0);
   });
 });
+
+test.group('discoverEndpoints | refresh', (group) => {
+  group.each.setup(() => __clearDiscoveryCacheForTests());
+
+  test('concurrent first calls share one fetch', async ({ assert }) => {
+    let calls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const fetchImpl = (async () => {
+      calls++;
+      await gate;
+      return { ok: true, status: 200, json: async () => KEYCLOAK_DOC } as Response;
+    }) as typeof fetch;
+
+    const pending = Array.from({ length: 10 }, () => discoverEndpoints(ISSUER, { fetchImpl }));
+    release();
+    const results = await Promise.all(pending);
+
+    assert.equal(calls, 1);
+    for (const endpoints of results) {
+      assert.equal(endpoints.tokenEndpoint, KEYCLOAK_DOC.token_endpoint);
+    }
+  });
+
+  test('an expired document is served while one background refetch replaces it', async ({
+    assert,
+  }) => {
+    let calls = 0;
+    let doc: Record<string, unknown> = KEYCLOAK_DOC;
+    let release: (() => void) | undefined;
+    const fetchImpl = (async () => {
+      calls++;
+      if (calls > 1) await new Promise<void>((r) => (release = r));
+      return { ok: true, status: 200, json: async () => doc } as Response;
+    }) as typeof fetch;
+    await discoverEndpoints(ISSUER, { fetchImpl });
+
+    doc = { ...KEYCLOAK_DOC, token_endpoint: `${ISSUER}/rotated/token` };
+    const during = await Promise.all(
+      Array.from({ length: 5 }, () => discoverEndpoints(ISSUER, { fetchImpl, cacheTtlMs: 0 })),
+    );
+    for (const endpoints of during) {
+      assert.equal(endpoints.tokenEndpoint, KEYCLOAK_DOC.token_endpoint);
+    }
+    assert.equal(calls, 2);
+
+    release!();
+    await new Promise((r) => setTimeout(r, 0));
+    const after = await discoverEndpoints(ISSUER, { fetchImpl });
+    assert.equal(after.tokenEndpoint, `${ISSUER}/rotated/token`);
+  });
+
+  test('the discovery request carries a timeout signal', async ({ assert }) => {
+    let signal: AbortSignal | undefined;
+    const fetchImpl = (async (_input: unknown, init?: RequestInit) => {
+      signal = init?.signal ?? undefined;
+      return { ok: true, status: 200, json: async () => KEYCLOAK_DOC } as Response;
+    }) as typeof fetch;
+    await discoverEndpoints(ISSUER, { fetchImpl });
+    assert.instanceOf(signal, AbortSignal);
+    assert.isFalse(signal!.aborted);
+  });
+});

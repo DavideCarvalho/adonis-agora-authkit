@@ -97,7 +97,11 @@ interface DiscoveryDocument {
 }
 
 const DEFAULT_TTL_MS = 15 * 60_000;
+/** Each discovery request is aborted after this long. */
+const FETCH_TIMEOUT_MS = 10_000;
 const cache = new Map<string, CacheEntry>();
+/** One fetch per issuer at a time; concurrent callers share it. */
+const inflight = new Map<string, Promise<DiscoveryDocument>>();
 
 export interface DiscoverOptions {
   /** Manual overrides — win over the discovery document, field by field. */
@@ -129,6 +133,8 @@ export interface DiscoverOptions {
  * Resolves the IdP endpoints via `/.well-known/openid-configuration`.
  *
  * - Successful documents are cached per issuer (TTL 15 min) — safe to call per request.
+ *   Once the TTL runs out the cached document keeps being served while one
+ *   background refetch replaces it; concurrent first calls share one fetch.
  * - The document's `issuer` must match the configured one (OIDC Discovery §4.3;
  *   a trailing-slash difference is tolerated and the document's exact value is
  *   returned in `issuer`).
@@ -144,17 +150,17 @@ export async function discoverEndpoints(
 
   const cached = cache.get(base);
   let doc: DiscoveryDocument | undefined;
-  if (cached && Date.now() - cached.fetchedAt < ttl) {
+  if (cached) {
     doc = cached.doc;
+    // Stale-while-revalidate (and stale-while-error): an IdP blip must not break a
+    // client that already knows the endpoints. A failed refetch writes nothing, so
+    // the next call retries.
+    if (Date.now() - cached.fetchedAt >= ttl) refresh(base, options).catch(() => {});
   } else {
     try {
-      doc = await fetchDiscovery(base, options.fetchImpl ?? fetch, options.resilience);
-      cache.set(base, { doc, fetchedAt: Date.now() });
+      doc = await refresh(base, options);
     } catch (error) {
-      // Stale-while-error: an IdP blip must not break a client that already knows
-      // the endpoints. Nothing is written, so the next call retries.
-      if (cached) doc = cached.doc;
-      else if (onError === 'throw') throw error;
+      if (onError === 'throw') throw error;
     }
   }
 
@@ -166,6 +172,31 @@ export async function discoverEndpoints(
   const endpoints = mergeEndpoints({ issuer }, doc, options.overrides);
   assertRequired(base, endpoints);
   return endpoints;
+}
+
+function refresh(base: string, options: DiscoverOptions): Promise<DiscoveryDocument> {
+  let pending = inflight.get(base);
+  if (!pending) {
+    pending = fetchDiscovery(base, withTimeout(options.fetchImpl ?? fetch), options.resilience)
+      .then((doc) => {
+        cache.set(base, { doc, fetchedAt: Date.now() });
+        return doc;
+      })
+      .finally(() => inflight.delete(base));
+    inflight.set(base, pending);
+  }
+  return pending;
+}
+
+/** A fresh timeout per attempt, so a retrying resilience policy is not cut short. */
+function withTimeout(fetchImpl: typeof fetch): typeof fetch {
+  return ((input, init) =>
+    fetchImpl(input, {
+      ...init,
+      signal: init?.signal
+        ? AbortSignal.any([init.signal, AbortSignal.timeout(FETCH_TIMEOUT_MS)])
+        : AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    })) as typeof fetch;
 }
 
 async function fetchDiscovery(
@@ -239,4 +270,5 @@ function assertRequired(
 /** Clears the discovery cache (tests). */
 export function __clearDiscoveryCacheForTests(): void {
   cache.clear();
+  inflight.clear();
 }
