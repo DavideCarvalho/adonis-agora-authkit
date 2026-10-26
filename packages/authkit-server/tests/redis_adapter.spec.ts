@@ -49,4 +49,26 @@ test.group('RedisAdapter', () => {
     await a.revokeByGrantId('G1');
     assert.isUndefined(await a.find('g-at'));
   });
+
+  test('list lê cada página do SCAN num único MGET', async ({ assert }) => {
+    const client = new RedisMock();
+    const a = new RedisAdapter('Session', client as any, 'list-batch');
+    for (let i = 0; i < 50; i++) await a.upsert(`s${String(i).padStart(2, '0')}`, { i }, 60);
+    await new RedisAdapter('Grant', client as any, 'list-batch').upsert('g1', { other: true }, 60);
+
+    const calls = { get: 0, mget: 0, scan: 0 };
+    for (const command of Object.keys(calls) as Array<keyof typeof calls>) {
+      const original = (client as any)[command].bind(client);
+      (client as any)[command] = (...args: unknown[]) => {
+        calls[command]++;
+        return original(...args);
+      };
+    }
+
+    const rows = await a.list();
+    assert.lengthOf(rows, 50);
+    assert.deepEqual(rows[0], { id: 's00', payload: { i: 0 } });
+    assert.equal(calls.get, 0);
+    assert.isAtMost(calls.mget, calls.scan);
+  });
 });

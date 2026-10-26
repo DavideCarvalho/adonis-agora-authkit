@@ -38,6 +38,17 @@ interface TableDef {
   columns: Record<string, (table: TableBuilder) => void>;
 }
 
+/**
+ * `account_id` (dono do artefato, para as buscas por conta) e o índice de
+ * `expires_at` (limpeza dos expirados). Os dois índices nascem junto com a coluna,
+ * então tabelas antigas os ganham no mesmo ALTER que adiciona `account_id`.
+ */
+function oidcPayloadAccountColumn(t: TableBuilder): void {
+  t.string('account_id', 255).nullable();
+  t.index(['model_name', 'account_id'], 'authkit_oidc_payloads_account_idx');
+  t.index(['expires_at'], 'authkit_oidc_payloads_expires_idx');
+}
+
 const TABLES: TableDef[] = [
   {
     name: 'authkit_oidc_payloads',
@@ -50,6 +61,7 @@ const TABLES: TableDef[] = [
       t.string('uid', 255).nullable().index();
       t.timestamp('expires_at', { useTz: true }).nullable();
       t.primary(['model_name', 'id']);
+      oidcPayloadAccountColumn(t);
     },
     columns: {
       id: (t) => t.string('id', 255),
@@ -59,6 +71,7 @@ const TABLES: TableDef[] = [
       user_code: (t) => t.string('user_code', 255).nullable().index(),
       uid: (t) => t.string('uid', 255).nullable().index(),
       expires_at: (t) => t.timestamp('expires_at', { useTz: true }).nullable(),
+      account_id: oidcPayloadAccountColumn,
     },
   },
   {

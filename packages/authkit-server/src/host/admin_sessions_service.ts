@@ -192,6 +192,34 @@ export class AdminSessionsService {
     return adapter.list();
   }
 
+  /** Artefatos do model da conta — pela busca por conta do adapter, quando existe. */
+  async #listModelOfAccount(model: string, accountId: string): Promise<EnumeratedArtifact[]> {
+    const adapter = this.#adapter(model);
+    if (adapter.listByAccount) return adapter.listByAccount(accountId);
+    if (!adapter.list) return [];
+    return (await adapter.list()).filter(
+      (r) => (r.payload.accountId as string | undefined) === accountId,
+    );
+  }
+
+  /** Artefatos de um model token que referenciam algum dos grants. */
+  async #listTokensOfGrants(model: string, grantIds: Set<string>): Promise<EnumeratedArtifact[]> {
+    if (grantIds.size === 0) return [];
+    const adapter = this.#adapter(model);
+    if (adapter.listByGrantIds) return adapter.listByGrantIds([...grantIds]);
+    if (!adapter.list) return [];
+    return (await adapter.list()).filter((r) => grantIds.has(r.payload.grantId as string));
+  }
+
+  /** Grants da conta, exceto os espelhos `pgrant_` de Account Tokens do Poppy. */
+  async #accountGrants(accountId: string): Promise<EnumeratedArtifact[]> {
+    // Os grants `pgrant_` são o espelho de um Account Token do Poppy (Bearer de MCP) — aparecem e
+    // são revogados como personal agent, não como app OIDC.
+    return (await this.#listModelOfAccount('Grant', accountId)).filter(
+      (r) => !r.id.startsWith('pgrant_'),
+    );
+  }
+
   /**
    * Conta TODAS as sessões ativas do IdP (todas as contas). 0 quando o adapter não
    * enumera. Usado pelo dashboard de métricas.
@@ -203,15 +231,13 @@ export class AdminSessionsService {
 
   /** Lista as sessões ativas da conta (vazio quando o adapter não enumera). */
   async listSessions(accountId: string): Promise<AdminSession[]> {
-    const rows = await this.#listModel('Session');
-    return rows
-      .filter((r) => (r.payload.accountId as string | undefined) === accountId)
-      .map((r) => ({
-        id: r.id,
-        accountId,
-        loginTs: r.payload.loginTs as number | undefined,
-        amr: (r.payload.amr as string[] | undefined) ?? undefined,
-      }));
+    const rows = await this.#listModelOfAccount('Session', accountId);
+    return rows.map((r) => ({
+      id: r.id,
+      accountId,
+      loginTs: r.payload.loginTs as number | undefined,
+      amr: (r.payload.amr as string[] | undefined) ?? undefined,
+    }));
   }
 
   /**
@@ -260,17 +286,12 @@ export class AdminSessionsService {
    * enumeração de cada model token), feitas só quando o adapter enumera.
    */
   async listGrants(accountId: string): Promise<AdminGrant[]> {
-    const rows = await this.#listModel('Grant');
-    // Os grants `pgrant_` são o espelho de um Account Token do Poppy (Bearer de MCP) — aparecem e
-    // são revogados como personal agent, não como app OIDC.
-    const grants = rows.filter(
-      (r) =>
-        (r.payload.accountId as string | undefined) === accountId && !r.id.startsWith('pgrant_'),
-    );
+    const grants = await this.#accountGrants(accountId);
     if (grants.length === 0) return [];
 
-    const atByGrant = await this.#countByGrant('AccessToken');
-    const rtByGrant = await this.#countByGrant('RefreshToken');
+    const grantIds = new Set(grants.map((g) => g.id));
+    const atByGrant = await this.#countByGrant('AccessToken', grantIds);
+    const rtByGrant = await this.#countByGrant('RefreshToken', grantIds);
 
     return grants.map((g) => ({
       id: g.id,
@@ -281,9 +302,9 @@ export class AdminSessionsService {
     }));
   }
 
-  /** Conta artefatos de um model token agrupados por `grantId`. */
-  async #countByGrant(model: string): Promise<Map<string, number>> {
-    const rows = await this.#listModel(model);
+  /** Conta os artefatos de um model token dos grants, agrupados por `grantId`. */
+  async #countByGrant(model: string, grantIds: Set<string>): Promise<Map<string, number>> {
+    const rows = await this.#listTokensOfGrants(model, grantIds);
     const map = new Map<string, number>();
     for (const r of rows) {
       const gid = r.payload.grantId as string | undefined;
@@ -315,7 +336,7 @@ export class AdminSessionsService {
     // Revogamos todos os grants da conta (que pertencem à conta, não à sessão
     // específica). A sessão corrente gerará novos grants no próximo authorize.
     // Isso garante que sessões antigas não mantenham tokens vivos.
-    const grants = await this.listGrants(accountId);
+    const grants = await this.#accountGrants(accountId);
     const grantIds = new Set(grants.map((g) => g.id));
     let accessTokens = 0;
     let refreshTokens = 0;
@@ -369,7 +390,7 @@ export class AdminSessionsService {
       await sessionAdapter.destroy(s.id);
     }
 
-    const grants = await this.listGrants(accountId);
+    const grants = await this.#accountGrants(accountId);
     const grantIds = new Set(grants.map((g) => g.id));
     let accessTokens = 0;
     let refreshTokens = 0;
@@ -409,7 +430,9 @@ export class AdminSessionsService {
    */
   async revokeClientGrants(accountId: string, clientId: string): Promise<RevokeResult> {
     const grantAdapter = this.#adapter('Grant');
-    const grants = (await this.listGrants(accountId)).filter((g) => g.clientId === clientId);
+    const grants = (await this.#accountGrants(accountId)).filter(
+      (g) => g.payload.clientId === clientId,
+    );
     const grantIds = new Set(grants.map((g) => g.id));
 
     const accessTokens = await this.#destroyTokensOfGrants('AccessToken', grantIds);
@@ -445,11 +468,11 @@ export class AdminSessionsService {
    */
   async revokeOrgGrants(orgId: string, accountId?: string): Promise<RevokeResult> {
     const grantAdapter = this.#adapter('Grant');
-    const rows = await this.#listModel('Grant');
-    const grants = rows.filter((r) => {
-      if (normalizeActiveOrg(r.payload.activeOrg)?.orgId !== orgId) return false;
-      return accountId === undefined || r.payload.accountId === accountId;
-    });
+    const rows =
+      accountId === undefined
+        ? await this.#listModel('Grant')
+        : await this.#listModelOfAccount('Grant', accountId);
+    const grants = rows.filter((r) => normalizeActiveOrg(r.payload.activeOrg)?.orgId === orgId);
     if (grants.length === 0) {
       return { sessions: 0, grants: 0, accessTokens: 0, refreshTokens: 0 };
     }
@@ -480,16 +503,8 @@ export class AdminSessionsService {
   /** Destrói (quando enumerável) os artefatos de um model token cujos grantId estão em `grantIds`. */
   async #destroyTokensOfGrants(model: string, grantIds: Set<string>): Promise<number> {
     const adapter = this.#adapter(model);
-    if (!adapter.list) return 0;
-    const rows = await adapter.list();
-    let count = 0;
-    for (const r of rows) {
-      const gid = r.payload.grantId as string | undefined;
-      if (gid && grantIds.has(gid)) {
-        await adapter.destroy(r.id);
-        count++;
-      }
-    }
-    return count;
+    const rows = await this.#listTokensOfGrants(model, grantIds);
+    for (const r of rows) await adapter.destroy(r.id);
+    return rows.length;
   }
 }
