@@ -1,8 +1,18 @@
 import type { Identity } from '@adonis-agora/authkit-core';
 
-/** Model Lucid mínimo que o mirror precisa (só `updateOrCreate`). */
+/** Model Lucid mínimo que o mirror precisa. */
 interface LucidModelLike {
   updateOrCreate(search: Record<string, unknown>, payload: Record<string, unknown>): Promise<any>;
+  /** Leitura sem transação nem lock, usada quando o espelho já está em dia. */
+  findBy?(key: string, value: unknown): Promise<any>;
+}
+
+/** O usuário já tem exatamente esses valores? Valores não primitivos contam como diferentes. */
+function alreadyMirrored(user: any, payload: Record<string, unknown>): boolean {
+  return Object.entries(payload).every(([key, value]) => {
+    if (value !== null && typeof value === 'object') return false;
+    return Object.is(user[key], value);
+  });
 }
 
 export interface LucidMirrorOptions {
@@ -25,7 +35,9 @@ export interface LucidMirrorOptions {
 /**
  * Factory do padrão "espelho local" de `resolveUser`: faz `updateOrCreate` do usuário
  * de domínio a partir das claims do id_token, opcionalmente pré-carrega relações e
- * injeta os papéis globais. Substitui o `resolveUser` que cada app reescrevia.
+ * injeta os papéis globais. Quando a linha já tem os valores das claims (o caso de
+ * todo request depois do login), lê com `findBy` em vez de abrir a transação com
+ * `SELECT ... FOR UPDATE` do `updateOrCreate`. Substitui o `resolveUser` que cada app reescrevia.
  *
  * ```ts
  * resolveUser: lucidMirror(AppUser, {
@@ -41,10 +53,11 @@ export function lucidMirror(Model: LucidModelLike, options: LucidMirrorOptions =
   const idColumn = options.idColumn ?? 'id';
   return async (identity: Identity): Promise<unknown> => {
     const synced = options.sync ? options.sync(identity) : { email: identity.email };
-    const user = await Model.updateOrCreate(
-      { [idColumn]: identity.userId },
-      { [idColumn]: identity.userId, ...synced },
-    );
+    const payload = { [idColumn]: identity.userId, ...synced };
+    let user = Model.findBy ? await Model.findBy(idColumn, identity.userId) : null;
+    if (!user || !alreadyMirrored(user, payload)) {
+      user = await Model.updateOrCreate({ [idColumn]: identity.userId }, payload);
+    }
 
     if (options.preload) {
       for (const relation of options.preload) {
