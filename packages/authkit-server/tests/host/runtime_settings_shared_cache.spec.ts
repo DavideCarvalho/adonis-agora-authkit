@@ -71,14 +71,19 @@ test.group('RuntimeSettings — cache shared across requests', (group) => {
     assert.isNull(await next!.getSetting('bot_protection'));
   });
 
-  test('a missing table is probed again after the TTL', async ({ assert }) => {
-    const settings = new RuntimeSettings(db, { ttlMs: 20 });
+  test('a missing table is probed again after the TTL', async ({ assert, cleanup }) => {
+    const settings = new RuntimeSettings(db, { ttlMs: 60_000 });
     assert.isFalse(await settings.isTablePresent());
-
     await ensureAuthkitSchema(db);
     assert.isFalse(await settings.isTablePresent());
-    await new Promise((r) => setTimeout(r, 30));
-    assert.isTrue(await new RuntimeSettings(db, { ttlMs: 20 }).isTablePresent());
+
+    const short = createTestDatabase();
+    cleanup(() => short.manager.closeAll());
+    const probe = new RuntimeSettings(short, { ttlMs: 50 });
+    assert.isFalse(await probe.isTablePresent());
+    await ensureAuthkitSchema(short);
+    await new Promise((r) => setTimeout(r, 60));
+    assert.isTrue(await new RuntimeSettings(short, { ttlMs: 50 }).isTablePresent());
   });
 
   test('different databases keep separate caches', async ({ assert, cleanup }) => {

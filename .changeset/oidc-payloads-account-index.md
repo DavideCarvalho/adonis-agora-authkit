@@ -7,3 +7,5 @@ Per-account session operations no longer read the whole OIDC store. `authkit_oid
 The runtime-settings cache now actually caches across requests: the account and admin guards no longer query `auth_settings` on every request. Writes through any `RuntimeSettings` instance invalidate the shared cache.
 
 `lucidPatStore` writes a token's `lastUsedAt` at most once a minute instead of on every request.
+
+Fix: the database adapter now works on MySQL. It wrote and compared `expires_at` as an ISO-8601 string ending in `Z`, which MySQL rejects for `TIMESTAMP` columns ("Incorrect datetime value"), so every write failed. It now binds a `Date` (serialized by the driver in the database's own format) on every dialect except SQLite, which keeps the ISO text it already stores.
