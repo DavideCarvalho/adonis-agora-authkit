@@ -115,6 +115,37 @@ export interface RuntimeSettingsOptions {
 
 type CacheEntry = { value: unknown | null; expiresAt: number };
 
+/**
+ * Cache e resultado do probe da tabela, compartilhados por TODAS as instâncias
+ * sobre o mesmo `db` + conexão: as fábricas montam um `RuntimeSettings` por
+ * request, e a escrita de qualquer instância invalida a leitura de todas.
+ */
+interface SharedState {
+  cache: Map<string, CacheEntry>;
+  /** true = presente (definitivo); false = ausente até `tableAbsentUntil`. */
+  tablePresent: boolean | null;
+  tableAbsentUntil: number;
+}
+
+const sharedStates = new WeakMap<object, Map<string, SharedState>>();
+
+function sharedStateFor(db: unknown, connection: string | undefined): SharedState {
+  const fresh = (): SharedState => ({ cache: new Map(), tablePresent: null, tableAbsentUntil: 0 });
+  if (!db || (typeof db !== 'object' && typeof db !== 'function')) return fresh();
+  let byConnection = sharedStates.get(db);
+  if (!byConnection) {
+    byConnection = new Map();
+    sharedStates.set(db, byConnection);
+  }
+  const name = connection ?? '';
+  let state = byConnection.get(name);
+  if (!state) {
+    state = fresh();
+    byConnection.set(name, state);
+  }
+  return state;
+}
+
 /** Chave de cache: combina key + escopo de org (null = global). */
 function cacheKey(key: string, orgId: string | null | undefined): string {
   return orgId ? `${key}\x00${orgId}` : key;
@@ -129,14 +160,17 @@ export class RuntimeSettings implements SettingsCapability {
   private readonly db: any;
   private readonly ttlMs: number;
   private readonly connectionName: string | undefined;
-  private cache = new Map<string, CacheEntry>();
-  /** null = não foi verificado ainda; false = tabela ausente; true = presente */
-  private tablePresent: boolean | null = null;
+  private readonly shared: SharedState;
 
   constructor(db: any, opts: RuntimeSettingsOptions = {}) {
     this.db = db;
     this.ttlMs = opts.ttlMs ?? 15_000;
     this.connectionName = opts.connection;
+    this.shared = sharedStateFor(db, opts.connection);
+  }
+
+  private get cache(): Map<string, CacheEntry> {
+    return this.shared.cache;
   }
 
   /**
@@ -158,15 +192,21 @@ export class RuntimeSettings implements SettingsCapability {
    * detecta a tabela corretamente independente do schema.
    *
    * Fail-safe: qualquer erro → false (tabela considerada ausente, sem lançar).
+   * "Presente" vale pela vida do processo; "ausente" é re-verificado após o TTL,
+   * para que uma migração rodada com o app no ar (ou um erro transitório) não
+   * desligue as settings até o restart.
    */
   private async hasTable(): Promise<boolean> {
-    if (this.tablePresent !== null) return this.tablePresent;
+    const shared = this.shared;
+    if (shared.tablePresent === true) return true;
+    if (shared.tablePresent === false && shared.tableAbsentUntil > Date.now()) return false;
     try {
       await this.conn().from('auth_settings').select('key').limit(1);
-      this.tablePresent = true;
+      shared.tablePresent = true;
       return true;
     } catch {
-      this.tablePresent = false;
+      shared.tablePresent = false;
+      shared.tableAbsentUntil = Date.now() + this.ttlMs;
       return false;
     }
   }
