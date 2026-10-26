@@ -163,6 +163,7 @@
     "ioredis": "catalog:",
     "ioredis-mock": "8.13.1",
     "luxon": "catalog:",
+    "mysql2": "3.24.6",
     "nuqs": "2.10.2",
     "react": "catalog:frontend",
     "react-dom": "catalog:frontend",

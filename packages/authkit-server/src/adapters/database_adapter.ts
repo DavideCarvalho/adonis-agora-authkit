@@ -19,6 +19,8 @@ interface ConnectionState {
   accountColumn: boolean | null;
   accountColumnRecheckAt: number;
   nextPruneAt: number;
+  /** Nome do dialeto Lucid (`undefined` = ainda não lido, `null` = desconhecido). */
+  dialect?: string | null;
 }
 
 const connectionStates = new WeakMap<object, ConnectionState>();
@@ -31,6 +33,13 @@ function connectionState(db: object): ConnectionState {
   }
   return state;
 }
+
+/** Dialetos que gravam `expires_at` como texto ISO-8601 (comparado lexicograficamente). */
+const TEXT_TIMESTAMP_DIALECTS: ReadonlySet<string> = new Set([
+  'sqlite3',
+  'better-sqlite3',
+  'libsql',
+]);
 
 function chunks<T>(items: T[]): T[][] {
   const out: T[][] = [];
@@ -48,9 +57,29 @@ export class DatabaseAdapter implements OidcAdapter {
     return this.db.query().from(TABLE).where('model_name', this.name);
   }
 
+  /**
+   * Valor de `expires_at` (gravação e comparação) para o dialeto da conexão. No
+   * SQLite a coluna guarda texto ISO-8601 (o driver gravaria um `Date` como número,
+   * que não se compara com o texto já gravado); nos demais vai um `Date`, que o
+   * driver serializa no formato do banco — o MySQL recusa o ISO com `Z`.
+   */
+  #timestamp(ms: number): Date | string {
+    const state = connectionState(this.db);
+    if (state.dialect === undefined) {
+      // O factory passa o manager (`Database`) ou um `QueryClient` de conexão nomeada.
+      const db = this.db as any;
+      const client = typeof db.connection === 'function' ? db.connection() : db;
+      state.dialect = client?.dialect?.name ?? null;
+    }
+    const dialect = state.dialect;
+    return !dialect || TEXT_TIMESTAMP_DIALECTS.has(dialect)
+      ? new Date(ms).toISOString()
+      : new Date(ms);
+  }
+
   /** `#query()` restrito às linhas não expiradas. */
   #liveQuery() {
-    const now = new Date().toISOString();
+    const now = this.#timestamp(Date.now());
     return this.#query().where((q: any) =>
       q.whereNull('expires_at').orWhere('expires_at', '>', now),
     );
@@ -92,16 +121,14 @@ export class DatabaseAdapter implements OidcAdapter {
           .query()
           .from(TABLE)
           .whereNotNull('expires_at')
-          .where('expires_at', '<=', new Date(now).toISOString())
+          .where('expires_at', '<=', this.#timestamp(now))
           .delete(),
       )
       .catch(() => {});
   }
 
   async upsert(id: string, payload: OidcPayload, expiresIn: number): Promise<void> {
-    // Armazenamos como ISO string para que o parse de expiração seja determinístico
-    // independente do backend (SQLite/Postgres) e do formato nativo de timestamp.
-    const expiresAt = expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : null;
+    const expiresAt = expiresIn ? this.#timestamp(Date.now() + expiresIn * 1000) : null;
     const row: Record<string, unknown> = {
       id,
       model_name: this.name,
@@ -150,10 +177,10 @@ export class DatabaseAdapter implements OidcAdapter {
     const changed = await this.#query()
       .where('id', id)
       .where('payload', row.payload)
-      .where('expires_at', '>', new Date(now).toISOString())
+      .where('expires_at', '>', this.#timestamp(now))
       .update({
         payload: JSON.stringify({ ...payload, exp: Math.floor(now / 1000) + expiresIn }),
-        expires_at: new Date(now + expiresIn * 1000).toISOString(),
+        expires_at: this.#timestamp(now + expiresIn * 1000),
       });
     if (Number(changed) > 0) return true;
     // A parallel renewal is harmless; a deletion must remain deleted.
