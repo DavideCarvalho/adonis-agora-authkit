@@ -9,3 +9,5 @@ The runtime-settings cache now actually caches across requests: the account and 
 `lucidPatStore` writes a token's `lastUsedAt` at most once a minute instead of on every request.
 
 Fix: the database adapter now works on MySQL. It wrote and compared `expires_at` as an ISO-8601 string ending in `Z`, which MySQL rejects for `TIMESTAMP` columns ("Incorrect datetime value"), so every write failed. It now binds a `Date` (serialized by the driver in the database's own format) on every dialect except SQLite, which keeps the ISO text it already stores.
+
+Fix: `ensureAuthkitSchema` inside a host migration. It checked whether each table and column existed by selecting from it, and on Postgres a SELECT on a missing table (such as an absent account table) aborts the migration's transaction, so every later statement failed. Existence is now read from the catalog (`to_regclass`/`pg_attribute` on Postgres, `information_schema` on MySQL, `sqlite_master`/`pragma_table_info` on SQLite). It also accepts the migration's own client (`ensureAuthkitSchema(this.db)`, as documented), not only the `Database` manager.
