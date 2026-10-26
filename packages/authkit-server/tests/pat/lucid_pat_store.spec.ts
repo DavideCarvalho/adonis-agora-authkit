@@ -94,4 +94,31 @@ test.group('lucidPatStore', (group) => {
     await row!.save();
     assert.isNull(await store.findActiveByToken(token));
   });
+
+  test('findActiveByToken regrava lastUsedAt no máximo uma vez por minuto', async ({ assert }) => {
+    const store = lucidPatStore(TestPat);
+    const { token, pat } = await store.issue({ accountId: 'u1', name: 'A' });
+    const updates: string[] = [];
+    db.connection()
+      .getWriteClient()
+      .on('query', (q: { sql: string }) => {
+        if (/^update/i.test(q.sql) && q.sql.includes('personal_access_tokens')) updates.push(q.sql);
+      });
+
+    for (let i = 0; i < 5; i++) assert.isNotNull(await store.findActiveByToken(token));
+    assert.lengthOf(updates, 1);
+
+    const row = await TestPat.find(pat.id);
+    row!.lastUsedAt = DateTime.now().minus({ minutes: 2 });
+    await row!.save();
+    updates.length = 0;
+
+    await store.findActiveByToken(token);
+    assert.lengthOf(updates, 1);
+    const refreshed = await TestPat.find(pat.id);
+    assert.isAbove(
+      refreshed!.lastUsedAt!.toMillis(),
+      DateTime.now().minus({ minutes: 1 }).toMillis(),
+    );
+  });
 });
