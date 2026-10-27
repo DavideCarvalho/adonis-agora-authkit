@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-client
 
+## 0.20.2
+
+### Patch Changes
+
+- [#349](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/349) [`5512d90`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/5512d907f1a1960f7387651616c2a12d25abfa14) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `discoverEndpoints` shares one in-flight fetch per issuer, keeps serving an expired document while a single background refetch replaces it, and aborts the request after 10 s. The `OpaqueResolver` cache (with `cacheTtlMs`) now expires an entry at the token's `exp` when that comes first, and is capped at 10,000 tokens. `lucidMirror` returns an up-to-date row from a plain `findBy` instead of a locking `updateOrCreate` transaction on every request.
+
 ## 0.20.1
 
 ### Patch Changes
