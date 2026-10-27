@@ -83,8 +83,12 @@ export default authServerConfig
 
 `adapter` is where oidc-provider persists grants/tokens/codes: `adapters.redis({
 connection })` requires `@adonisjs/redis` configured; `adapters.database({
-connection? })` uses Lucid and requires running the `authkit_oidc_payloads`
-migration. `accountStore` is the identity contract — `lucidAccountStore(AuthUser)`
+connection? })` uses Lucid and stores artifacts in `authkit_oidc_payloads`, which
+`ensureAuthkitSchema` creates on boot (with `schema: { autoManage: false }`, call it
+from a migration). The table carries an indexed `account_id` column so per-account
+session lookups and revocation stay in SQL; rows with a NULL `account_id` are still
+found and get classified on read, so no backfill is needed. Works on Postgres,
+MySQL and SQLite; expired rows are pruned every 10 minutes per connection. `accountStore` is the identity contract — `lucidAccountStore(AuthUser)`
 derives `findAccount`/`verifyCredentials` from your user model.
 
 Source: `stubs/config/authkit.stub`, `src/define_config.ts` (`AuthServerConfigInput`),

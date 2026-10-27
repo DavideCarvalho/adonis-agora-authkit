@@ -163,13 +163,16 @@
     "ioredis": "catalog:",
     "ioredis-mock": "8.13.1",
     "luxon": "catalog:",
+    "mysql2": "3.24.6",
     "nuqs": "2.10.2",
+    "pg": "8.23.1",
     "react": "catalog:frontend",
     "react-dom": "catalog:frontend",
     "react-error-boundary": "catalog:frontend",
     "recharts": "3.10.1",
     "reflect-metadata": "0.2.2",
     "tempura": "0.4.1",
+    "testcontainers": "12.2.1",
     "typescript": "catalog:frontend",
     "vite": "catalog:"
   }

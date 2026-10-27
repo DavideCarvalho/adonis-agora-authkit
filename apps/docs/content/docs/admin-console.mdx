@@ -344,8 +344,25 @@ counts in `metadata`.
 
 Like the client list, enumeration relies on the adapter's **optional** `list?()` capability
 (the database and Redis adapters both implement it). When the adapter can't enumerate, the
-page **degrades gracefully** with a notice instead of erroring. Both the database adapter's
-table query and the Redis adapter's `SCAN` are scoped per model, so the lookup is cheap.
+page **degrades gracefully** with a notice instead of erroring.
+
+Per-account work (the account's sessions page, single-session login, "sign out everywhere")
+uses two further **optional** adapter methods when the adapter has them:
+
+| Method | Returns |
+| --- | --- |
+| `listByAccount(accountId)` | The model's live artifacts whose `payload.accountId` is `accountId` — the same as `list()` filtered by account |
+| `listByGrantIds(grantIds)` | The model's live artifacts whose `payload.grantId` is one of `grantIds` |
+
+The database adapter implements both in SQL, on the indexed `account_id` and `grant_id`
+columns of [`authkit_oidc_payloads`](/docs/settings#the-authkit_oidc_payloads-table), so a
+single-session login reads only the signing-in account's rows, however many accounts the
+table holds. Token clean-up is skipped when the account has no grants. An adapter without
+these methods (the Redis adapter, or one you write) gets `list()` plus a filter by account,
+which reads every artifact of the model on each per-account call; implement them in a custom
+adapter whose store can look artifacts up by account. Results must be complete: revocation
+trusts them, so a method that can miss an artifact leaves that session signed in. The Redis
+adapter enumerates with `SCAN` and reads each page with one `MGET`.
 
 ## Impersonation panel
 

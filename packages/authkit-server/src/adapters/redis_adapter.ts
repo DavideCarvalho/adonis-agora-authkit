@@ -136,23 +136,25 @@ export class RedisAdapter implements OidcAdapter {
    * prefixo de chave do model (`<prefix>:<name>:*`). É limpo porque cada artefato
    * é uma chave única já namespaceada por `prefix` + `name`; SCAN é não-bloqueante
    * (cursor) ao contrário de KEYS. Usado pelo console admin (`Client`, `Session`,
-   * `Grant`, tokens).
+   * `Grant`, tokens). Cada página do SCAN é lida num único MGET.
    */
   async list(): Promise<EnumeratedArtifact[]> {
     const prefix = `${this.prefix}:${this.name}:`;
     const result: EnumeratedArtifact[] = [];
     let cursor = '0';
     do {
-      const [next, keys] = await this.redis.scan(cursor, 'MATCH', `${prefix}*`, 'COUNT', 100);
+      const [next, keys] = await this.redis.scan(cursor, 'MATCH', `${prefix}*`, 'COUNT', 1000);
       cursor = next;
-      for (const key of keys) {
-        const data = await this.redis.get(key);
-        if (!data) continue;
+      if (keys.length === 0) continue;
+      const values = await this.redis.mget(...keys);
+      keys.forEach((key, i) => {
+        const data = values[i];
+        if (!data) return;
         result.push({
           id: key.slice(prefix.length),
           payload: JSON.parse(data) as Record<string, unknown>,
         });
-      }
+      });
     } while (cursor !== '0');
     result.sort((a, b) => a.id.localeCompare(b.id));
     return result;

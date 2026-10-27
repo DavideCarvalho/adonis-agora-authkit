@@ -75,7 +75,7 @@ resolver: resolvers.opaque({ tokenSource: 'session' })
 | --- | --- | --- | --- |
 | `tokenSource` | `'session' \| 'bearer'` | `'session'` | `'session'` introspects the **access token** stored in the token set (not the ID token, which is what `resolvers.jwt` reads); `'bearer'` introspects the `Authorization` header token (APIs). |
 | `introspectionUrl` | `string` | discovered `introspection_endpoint` | The IdP's introspection endpoint (`${issuer}/token/introspection` with `discovery: false`). |
-| `cacheTtlMs` | `number` | `0` | In-memory TTL (ms) for `active: true` responses. `0` introspects every request (revocation is immediate); raise it to trade immediacy for fewer round-trips. |
+| `cacheTtlMs` | `number` | `0` | In-memory TTL (ms) for `active: true` responses. `0` introspects every request (revocation is immediate); raise it to trade immediacy for fewer round-trips. An entry never outlives the token's `exp`. |
 
 <Callout type="warn">
   `resolvers.opaque` requires a **confidential** client (a `clientSecret`): the
@@ -85,7 +85,10 @@ resolver: resolvers.opaque({ tokenSource: 'session' })
 
 The cache is keyed by the token itself and lives in the process, so a rolling deploy or a
 multi-instance topology gives each instance its own window. Treat `cacheTtlMs` as an upper
-bound on how stale a revocation decision can be, not as a shared cache.
+bound on how stale a revocation decision can be, not as a shared cache. An entry expires at
+the earlier of `cacheTtlMs` and the token's `exp`, so an expired token is introspected again
+rather than served from the cache. The cache holds at most 10,000 tokens per resolver: when
+it is full, expired entries are dropped first, then the oldest.
 
 ## The Identity
 

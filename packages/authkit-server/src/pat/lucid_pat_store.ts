@@ -2,6 +2,9 @@ import { DateTime } from 'luxon';
 import type { IssuePatInput, PatRecord, PatStore } from './pat_store.js';
 import { generatePatToken, hashPatToken } from './pat_tokens.js';
 
+/** Resolução de `lastUsedAt`: um uso dentro desta janela não regrava a linha. */
+const LAST_USED_RESOLUTION_MS = 60_000;
+
 /**
  * Implementação default do {@link PatStore} sobre um model Lucid composto de
  * `withPersonalAccessToken()`. A coluna DB `user_id` é mapeada de `accountId`.
@@ -47,9 +50,15 @@ export function lucidPatStore(Model: any): PatStore {
       const hash = hashPatToken(token);
       const row = await Model.query().where('token_hash', hash).first();
       if (!row) return null;
-      if (row.expiresAt && row.expiresAt < DateTime.now()) return null;
-      row.lastUsedAt = DateTime.now();
-      await row.save();
+      const now = DateTime.now();
+      if (row.expiresAt && row.expiresAt < now) return null;
+      if (
+        !row.lastUsedAt ||
+        now.toMillis() - row.lastUsedAt.toMillis() >= LAST_USED_RESOLUTION_MS
+      ) {
+        row.lastUsedAt = now;
+        await row.save();
+      }
       return {
         accountId: row.userId,
         scopes: row.scopes ?? [],

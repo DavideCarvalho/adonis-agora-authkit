@@ -5,6 +5,7 @@ export interface PatRecord {
   scopes: string[];
   audience: string | null;
   createdAt: string;
+  /** Last successful lookup, at a one-minute resolution (`lucidPatStore` writes it at most once a minute). */
   lastUsedAt: string | null;
   expiresAt: string | null;
 }

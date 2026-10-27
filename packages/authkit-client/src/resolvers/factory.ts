@@ -26,7 +26,8 @@ export interface OpaqueResolverFactoryConfig {
   introspectionUrl?: string;
   /**
    * TTL (ms) do cache de respostas `active:true`. Default 0 (revogação imediata).
-   * Suba para reduzir round-trips ao custo de imediatismo.
+   * Suba para reduzir round-trips ao custo de imediatismo. Nunca além do `exp` do
+   * token; no máximo 10.000 tokens por processo.
    */
   cacheTtlMs?: number;
 }

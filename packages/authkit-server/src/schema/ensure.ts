@@ -36,7 +36,18 @@ interface TableDef {
    * (unique/FK ficam só no `create`).
    */
   columns: Record<string, (table: TableBuilder) => void>;
+  /**
+   * Índices garantidos por nome, independentes das colunas: uma tabela cuja coluna
+   * já existe (adicionada à mão) também os ganha. O `create` deve declará-los.
+   */
+  indexes?: Array<{ name: string; columns: string[] }>;
 }
+
+/** Busca por conta (`account_id`) e limpeza dos expirados (`expires_at`). */
+const OIDC_PAYLOAD_INDEXES = [
+  { name: 'authkit_oidc_payloads_account_idx', columns: ['model_name', 'account_id'] },
+  { name: 'authkit_oidc_payloads_expires_idx', columns: ['expires_at'] },
+];
 
 const TABLES: TableDef[] = [
   {
@@ -50,6 +61,8 @@ const TABLES: TableDef[] = [
       t.string('uid', 255).nullable().index();
       t.timestamp('expires_at', { useTz: true }).nullable();
       t.primary(['model_name', 'id']);
+      t.string('account_id', 255).nullable();
+      for (const index of OIDC_PAYLOAD_INDEXES) t.index(index.columns, index.name);
     },
     columns: {
       id: (t) => t.string('id', 255),
@@ -59,7 +72,9 @@ const TABLES: TableDef[] = [
       user_code: (t) => t.string('user_code', 255).nullable().index(),
       uid: (t) => t.string('uid', 255).nullable().index(),
       expires_at: (t) => t.timestamp('expires_at', { useTz: true }).nullable(),
+      account_id: (t) => t.string('account_id', 255).nullable(),
     },
+    indexes: OIDC_PAYLOAD_INDEXES,
   },
   {
     name: 'auth_settings',
@@ -480,6 +495,8 @@ export interface EnsureSchemaReport {
   created: string[];
   /** Colunas adicionadas em tabelas já existentes: tabela → colunas. */
   altered: Record<string, string[]>;
+  /** Índices criados em tabelas já existentes: tabela → nomes. Ausente quando nenhum. */
+  indexed?: Record<string, string[]>;
   /**
    * Desfecho da coluna `login_methods`. `ensured: false` significa que a tabela
    * da conta não existe no banco, então NADA foi feito — e é o caso que
@@ -489,12 +506,66 @@ export interface EnsureSchemaReport {
   loginMethods: { table: string; ensured: boolean };
 }
 
+/** Linhas de um `rawQuery`, no formato de cada driver (pg, mysql2, sqlite). */
+function catalogRows(result: any): any[] {
+  if (Array.isArray(result)) return Array.isArray(result[0]) ? result[0] : result;
+  return result?.rows ?? [];
+}
+
+async function catalogHas(conn: any, sql: string, bindings: unknown[]): Promise<boolean> {
+  return catalogRows(await conn.rawQuery(sql, bindings)).length > 0;
+}
+
+const SQLITE_DIALECTS: ReadonlySet<string> = new Set(['sqlite3', 'better-sqlite3', 'libsql']);
+
 /**
- * Probe searchPath-aware: `schema.hasTable` no Postgres ignora o
- * search_path, então testamos com um SELECT de verdade (mesma técnica do
- * RuntimeSettings).
+ * Nome de tabela (`tabela` ou `schema.tabela`) como o `to_regclass` espera, com cada
+ * parte entre aspas — o mesmo identificador que o knex gera.
+ */
+function pgRelation(table: string): string {
+  return table
+    .split('.')
+    .map((part) => `"${part.replace(/"/g, '""')}"`)
+    .join('.');
+}
+
+/** `[schema, tabela]` para o MySQL; sem schema explícito vale o `database()` corrente. */
+function mysqlRelation(table: string): [string | null, string] {
+  const dot = table.indexOf('.');
+  return dot === -1 ? [null, table] : [table.slice(0, dot), table.slice(dot + 1)];
+}
+
+/**
+ * Existência de tabela, coluna e índice pelo CATÁLOGO do dialeto, nunca por um
+ * SELECT na própria tabela: dentro de uma transação do Postgres (uma migration do
+ * host), um SELECT numa tabela ausente aborta a transação inteira. No Postgres a
+ * resolução é pelo search_path (`to_regclass`), como faz uma query de verdade.
+ * Dialeto sem consulta conhecida cai no SELECT de prova.
  */
 async function tableExists(conn: any, table: string): Promise<boolean> {
+  const dialect: string | undefined = conn.dialect?.name;
+  if (dialect === 'postgres' || dialect === 'redshift') {
+    const found = catalogRows(
+      await conn.rawQuery('select to_regclass(?) as oid', [pgRelation(table)]),
+    );
+    return found[0]?.oid != null;
+  }
+  if (dialect === 'mysql') {
+    const [schema, name] = mysqlRelation(table);
+    return catalogHas(
+      conn,
+      'select 1 from information_schema.tables where table_schema = coalesce(?, database()) and table_name = ? limit 1',
+      [schema, name],
+    );
+  }
+  if (dialect && SQLITE_DIALECTS.has(dialect)) {
+    return catalogHas(conn, "select 1 from sqlite_master where type = 'table' and name = ?", [
+      table,
+    ]);
+  }
+  if (dialect === 'mssql') {
+    return catalogHas(conn, "select 1 where object_id(?, 'U') is not null", [table]);
+  }
   try {
     await conn.from(table).limit(1);
     return true;
@@ -504,6 +575,28 @@ async function tableExists(conn: any, table: string): Promise<boolean> {
 }
 
 async function columnExists(conn: any, table: string, column: string): Promise<boolean> {
+  const dialect: string | undefined = conn.dialect?.name;
+  if (dialect === 'postgres' || dialect === 'redshift') {
+    return catalogHas(
+      conn,
+      'select 1 from pg_attribute where attrelid = to_regclass(?) and attname = ? and attnum > 0 and not attisdropped',
+      [pgRelation(table), column],
+    );
+  }
+  if (dialect === 'mysql') {
+    const [schema, name] = mysqlRelation(table);
+    return catalogHas(
+      conn,
+      'select 1 from information_schema.columns where table_schema = coalesce(?, database()) and table_name = ? and column_name = ? limit 1',
+      [schema, name, column],
+    );
+  }
+  if (dialect && SQLITE_DIALECTS.has(dialect)) {
+    return catalogHas(conn, 'select 1 from pragma_table_info(?) where name = ?', [table, column]);
+  }
+  if (dialect === 'mssql') {
+    return catalogHas(conn, 'select 1 where col_length(?, ?) is not null', [table, column]);
+  }
   try {
     await conn.from(table).select(column).limit(1);
     return true;
@@ -512,16 +605,77 @@ async function columnExists(conn: any, table: string, column: string): Promise<b
   }
 }
 
+/** O índice existe? Por nome, no catálogo do dialeto. `null` = dialeto sem consulta conhecida. */
+async function indexExists(conn: any, table: string, name: string): Promise<boolean | null> {
+  const dialect: string | undefined = conn.dialect?.name;
+  if (dialect === 'postgres' || dialect === 'redshift') {
+    const found = catalogRows(await conn.rawQuery('select to_regclass(?) as oid', [name]));
+    return found[0]?.oid != null;
+  }
+  if (dialect === 'mysql') {
+    const [schema, relation] = mysqlRelation(table);
+    return catalogHas(
+      conn,
+      'select 1 from information_schema.statistics where table_schema = coalesce(?, database()) and table_name = ? and index_name = ? limit 1',
+      [schema, relation, name],
+    );
+  }
+  if (dialect && SQLITE_DIALECTS.has(dialect)) {
+    return catalogHas(conn, "select 1 from sqlite_master where type = 'index' and name = ?", [
+      name,
+    ]);
+  }
+  if (dialect === 'mssql') {
+    return catalogHas(
+      conn,
+      'select 1 from sys.indexes where name = ? and object_id = object_id(?)',
+      [name, table],
+    );
+  }
+  return null;
+}
+
+/**
+ * Cria o índice quando falta. Idempotente: um índice já existente (inclusive
+ * criado por outra instância no mesmo boot) não é erro.
+ */
+async function ensureIndex(
+  conn: any,
+  table: string,
+  index: { name: string; columns: string[] },
+): Promise<boolean> {
+  if ((await indexExists(conn, table, index.name)) === true) return false;
+  try {
+    await conn.schema.alterTable(table, (t: TableBuilder) => t.index(index.columns, index.name));
+    return true;
+  } catch (error) {
+    const exists = await indexExists(conn, table, index.name).catch(() => null);
+    if (exists === true) return false;
+    if (exists === null && /already exists|duplicate/i.test(String((error as Error)?.message))) {
+      return false;
+    }
+    throw error;
+  }
+}
+
 /**
  * Garante que as tabelas do authkit existem e têm todas as colunas que esta
  * versão da lib espera. Aditivo e idempotente — seguro de rodar em todo boot
  * e dentro de migrations.
+ *
+ * `db` é o manager (`Database`, no boot) ou o client da própria migration
+ * (`this.db`, um `QueryClient`/`TransactionClient`, usado como está).
  */
 export async function ensureAuthkitSchema(
   db: any,
   options: EnsureSchemaOptions = {},
 ): Promise<EnsureSchemaReport> {
-  const conn = options.connection ? db.connection(options.connection) : db.connection();
+  const conn =
+    typeof db.connection !== 'function'
+      ? db
+      : options.connection
+        ? db.connection(options.connection)
+        : db.connection();
   const report: EnsureSchemaReport = {
     created: [],
     altered: {},
@@ -548,6 +702,13 @@ export async function ensureAuthkitSchema(
       await conn.schema.alterTable(def.name, (t: TableBuilder) => add(t));
       if (!report.altered[def.name]) report.altered[def.name] = [];
       report.altered[def.name].push(column);
+    }
+
+    for (const index of def.indexes ?? []) {
+      if (!(await ensureIndex(conn, def.name, index))) continue;
+      if (!report.indexed) report.indexed = {};
+      if (!report.indexed[def.name]) report.indexed[def.name] = [];
+      report.indexed[def.name].push(index.name);
     }
   }
 

@@ -147,8 +147,12 @@ resolveUser: lucidMirror(AppUser, {
 });
 ```
 
-On each resolution it runs `Model.updateOrCreate({ [idColumn]: identity.userId }, { ...sync(identity) })`,
-then loads the relations you listed, then — if you asked for it — assigns the IdP's global
+On each resolution it reads the row with `Model.findBy(idColumn, identity.userId)`. When the
+row exists and already holds every synced value, that row is used as is: one plain `SELECT`,
+no transaction. Otherwise — a missing row, a changed claim, or a synced value that is an
+object or array — it runs `Model.updateOrCreate({ [idColumn]: identity.userId }, { ...sync(identity) })`,
+which opens a transaction around `SELECT ... FOR UPDATE`. Either way the result is the
+current row; there is no cache. It then loads the relations you listed, then — if you asked for it — assigns the IdP's global
 roles onto a **non-persisted** property of the instance so policies can read them without a
 second lookup.
 
@@ -159,7 +163,8 @@ second lookup.
 | `injectGlobalRoles` | `boolean \| string` | `false` | `true` assigns `identity.globalRoles` to `globalRoles`; pass a string to name the property yourself. |
 | `idColumn` | `string` | `id` | Column matched against `identity.userId` (the `sub` claim). |
 
-The only requirement on the model is a static `updateOrCreate` — any Lucid model qualifies.
+The only requirement on the model is a static `updateOrCreate`; a static `findBy` enables the
+read-only path above — any Lucid model has both.
 `@adonisjs/lucid` is an **optional** peer dependency, so an app that never calls
 `lucidMirror` never needs it installed.
 
@@ -720,9 +725,12 @@ export default defineConfig({
 | `discovery` | `boolean \| { cacheTtlMs?: number }` | `true`  | Read the discovery document. `false` uses the AuthKit route layout plus `endpoints`, with no network. |
 | `endpoints` | `Partial<OidcEndpoints>`            | —       | Per-field overrides; always win over the document. |
 
-Discovery runs on first use, so the app boots while the IdP is down. A failure throws
-`OidcDiscoveryError` and is retried on the next request; a document discovered earlier keeps
-being served while refetches fail. The document's `issuer` must match the configured one, and
+Discovery runs on first use, so the app boots while the IdP is down. Concurrent first calls
+share one fetch per issuer. Once `cacheTtlMs` runs out, the cached document keeps being
+served while one background refetch replaces it, so no request waits on the IdP after the
+first. Each request attempt is aborted after 10 seconds (every retry of a `resilience`
+policy gets its own 10 seconds). A failure throws `OidcDiscoveryError` and is retried on the
+next request; a document discovered earlier keeps being served while refetches fail. The document's `issuer` must match the configured one, and
 its exact value is what `iss` claims are checked against. An endpoint the IdP does not publish
 stays unset rather than being guessed. `authkit.endpoints()` returns the resolved set.
 

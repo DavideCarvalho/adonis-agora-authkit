@@ -39,4 +39,16 @@ export interface OidcAdapter {
    * (`new AdapterClass(model)`), então não recebe parâmetro.
    */
   list?(): Promise<EnumeratedArtifact[]>;
+  /**
+   * Artefatos vivos deste model cujo `payload.accountId` é `accountId` — o mesmo
+   * resultado de `list()` filtrado pela conta, sem enumerar as outras contas.
+   * OPCIONAL: ausente, os consumidores caem em `list()` + filtro. Tem de ser completo
+   * (a revogação confia nele): um artefato que fique de fora continua valendo.
+   */
+  listByAccount?(accountId: string): Promise<EnumeratedArtifact[]>;
+  /**
+   * Artefatos vivos deste model cujo `payload.grantId` está em `grantIds` — o
+   * mesmo resultado de `list()` filtrado pelos grants. OPCIONAL, como `listByAccount`.
+   */
+  listByGrantIds?(grantIds: string[]): Promise<EnumeratedArtifact[]>;
 }

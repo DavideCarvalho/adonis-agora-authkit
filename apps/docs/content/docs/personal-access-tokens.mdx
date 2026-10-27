@@ -39,6 +39,10 @@ The account console (mounted by `registerAuthHost`) exposes the user-facing mana
 Tokens are generated with `generatePatToken()` and only the hash (`hashPatToken()`) is
 persisted — the raw value is returned to the user exactly once at issue time.
 
+A token's `lastUsedAt` has a one-minute resolution: `lucidPatStore` updates it on a
+successful lookup only when the stored value is at least 60 seconds old, so a token used on
+every request costs at most one write per minute.
+
 ## Introspection (machine-to-machine)
 
 A relying party validates an inbound PAT by calling the IdP's introspection endpoint,

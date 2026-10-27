@@ -191,30 +191,36 @@ gracefully when it is absent (fail-safe).
 
 ```sql
 CREATE TABLE auth_settings (
-  key        TEXT PRIMARY KEY,
-  value      TEXT NOT NULL,        -- JSON
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_by TEXT                  -- nullable account id of the admin
+  key             TEXT NOT NULL,
+  organization_id TEXT,                -- NULL = global setting
+  value           TEXT NOT NULL,       -- JSON
+  updated_at      TIMESTAMP,
+  updated_by      TEXT,                -- nullable account id of the admin who wrote it
+  UNIQUE (key, organization_id)
 );
 ```
 
-Create the table with a migration of your own. AuthKit never creates it automatically —
-it is an opt-in capability.
+`ensureAuthkitSchema` creates it along with AuthKit's other tables (on boot, unless
+`schema.autoManage` is `false`); see
+[Runtime Settings — Setting up the table](/docs/settings#setting-up-the-table).
 
 ### `RuntimeSettings`
 
 Class from `@adonis-agora/authkit-server` (internal, used by the admin console and
 API controllers). Accepts a Lucid `Database` instance and an optional `ttlMs` (default
-`15_000` — 15 s). Implements `SettingsCapability`.
+`15_000` — 15 s). Implements `SettingsCapability`. Every instance on the same `Database` and
+connection shares one value cache and one table probe, so constructing an instance per
+request costs nothing, and a write through any instance invalidates the cache for all of
+them in the process.
 
 | Method | Notes |
 | --- | --- |
 | `getSetting(key)` | Returns `unknown \| null`. Null = table absent or key not found. Cached with TTL. |
-| `setSetting(key, value, updatedBy?)` | Upsert. Invalidates cache. No-op when the table is absent. |
-| `deleteSetting(key)` | Delete. Invalidates cache. No-op when the table is absent. |
+| `setSetting(key, value, updatedBy?)` | Upsert. Invalidates the shared cache. No-op when the table is absent. |
+| `deleteSetting(key)` | Delete. Invalidates the shared cache. No-op when the table is absent. |
 | `listSettings()` | Returns `SettingRow[]`. No cache (low-frequency). Empty array when the table is absent. |
-| `isTablePresent()` | Returns `boolean`. Result is memoised (probed once per instance). |
-| `invalidate(key?)` | Manually clear the in-memory cache (all keys when called without argument). |
+| `isTablePresent()` | Returns `boolean`. Shared per database + connection: "present" is remembered for the life of the process, "absent" is probed again after the TTL. |
+| `invalidate(key?)` | Manually clear the shared in-memory cache (all keys when called without argument). |
 
 ### `SettingsCapability` and `supportsSettings`
 

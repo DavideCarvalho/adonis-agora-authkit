@@ -54,10 +54,11 @@ login, callback, logout, token refresh, impersonation, back-channel logout, and 
 `jwksUri` / introspection URL of the resolvers.
 
 - **Lazy, cached, retried.** Discovery runs on first use, not at boot, so the app starts
-  even while the IdP is down. The document is cached for 15 minutes
-  (`discovery: { cacheTtlMs }`). A failure throws `OidcDiscoveryError` naming the URL and is
-  retried on the next request; a document discovered earlier keeps being served while
-  refetches fail.
+  even while the IdP is down. Concurrent first calls share one fetch. The document is cached
+  for 15 minutes (`discovery: { cacheTtlMs }`); after that it keeps being served while one
+  background refetch replaces it. Each attempt is aborted after 10 seconds. A failure throws
+  `OidcDiscoveryError` naming the URL and is retried on the next request; a document
+  discovered earlier keeps being served while refetches fail.
 - **Checked.** The document's `issuer` must be the configured one (OIDC Discovery §4.3).
   Tokens are then checked against the document's exact value, so an issuer with a trailing
   slash (Auth0: `https://tenant.auth0.com/`) works however you wrote it in the config.

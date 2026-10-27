@@ -29,6 +29,25 @@ test.group('ensureAuthkitSchema', (group) => {
     return () => db.manager.closeAll();
   });
 
+  test('nunca prova existência com SELECT na própria tabela (abortaria a transação do Postgres)', async ({
+    assert,
+  }) => {
+    const selects: string[] = [];
+    db.connection()
+      .getWriteClient()
+      .on('query', (q: { sql: string }) => {
+        if (/^\s*select/i.test(q.sql)) selects.push(q.sql);
+      });
+
+    // Banco vazio, sem a tabela da conta: toda checagem tem de ir ao catálogo.
+    await ensureAuthkitSchema(db, { accountTable: 'users' });
+    await ensureAuthkitSchema(db, { accountTable: 'users' });
+
+    assert.isNotEmpty(selects);
+    const probing = selects.filter((sql) => !/sqlite_master|pragma_table_info/.test(sql));
+    assert.deepEqual(probing, []);
+  });
+
   test('cria todas as tabelas do authkit num banco vazio', async ({ assert }) => {
     const report = await ensureAuthkitSchema(db);
 

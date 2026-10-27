@@ -13,6 +13,9 @@ export default class extends BaseSchema {
       table.string('uid', 255).nullable().index();
       table.timestamp('expires_at', { useTz: true }).nullable();
       table.primary(['model_name', 'id']);
+      table.string('account_id', 255).nullable();
+      table.index(['model_name', 'account_id'], 'authkit_oidc_payloads_account_idx');
+      table.index(['expires_at'], 'authkit_oidc_payloads_expires_idx');
     });
   }
 
