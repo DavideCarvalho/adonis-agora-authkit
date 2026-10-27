@@ -29,6 +29,35 @@ test.group('RedisAdapter', () => {
     assert.isOk(found.consumed);
   });
 
+  test('consume lê payload e TTL num único round trip e preserva o TTL', async ({ assert }) => {
+    const client = new RedisMock();
+    const a = new RedisAdapter('RefreshToken', client as any, 'consume-rtt');
+    await a.upsert('r1', { jti: 'r1', accountId: 'u1' }, 600);
+    await new RedisAdapter('RefreshToken', client as any, 'consume-rtt').upsert('r2', { x: 1 }, 0);
+
+    const calls = { get: 0, ttl: 0, pipeline: 0 };
+    for (const command of Object.keys(calls) as Array<keyof typeof calls>) {
+      const original = (client as any)[command].bind(client);
+      (client as any)[command] = (...args: unknown[]) => {
+        calls[command]++;
+        return original(...args);
+      };
+    }
+
+    await a.consume('r1');
+    await a.consume('r2');
+    await a.consume('missing');
+    assert.deepEqual(calls, { get: 0, ttl: 0, pipeline: 3 });
+
+    const ttl = await client.ttl('consume-rtt:RefreshToken:r1');
+    assert.isAbove(ttl, 590);
+    assert.deepInclude(await a.find('r1'), { jti: 'r1', accountId: 'u1' });
+    assert.isNumber((await a.find('r1'))!.consumed);
+    assert.equal(await client.ttl('consume-rtt:RefreshToken:r2'), -1);
+    assert.isNumber((await a.find('r2'))!.consumed);
+    assert.isUndefined(await a.find('missing'));
+  });
+
   test('findByUid encontra Session pelo uid', async ({ assert }) => {
     const a = make('Session');
     await a.upsert('s1', { jti: 's1', uid: 'uid-1' }, 60);

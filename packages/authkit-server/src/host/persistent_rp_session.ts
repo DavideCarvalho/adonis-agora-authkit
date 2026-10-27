@@ -7,6 +7,31 @@ export interface PersistentRpOptions {
   acceptIdpSession?: boolean | ((ctx: HttpContext) => boolean);
 }
 
+/**
+ * How long (seconds) a renewal stays good enough: a linked RP whose IdP session was
+ * renewed less than this ago, with the current TTL, is not renewed again. Without
+ * it every authenticated request wrote the IdP session row and re-sent its cookie.
+ */
+const RENEW_RESOLUTION_SEC = 60;
+
+/**
+ * The linked RP's IdP session already expires between `ttl - RENEW_RESOLUTION_SEC`
+ * and `ttl` from now, i.e. it was renewed with this TTL moments ago. Renewing again
+ * would only move the expiry by those few seconds. A session that expires LATER
+ * than `now + ttl` (the TTL was lowered) is still renewed, which shortens it.
+ * Restoration (no local login yet) always renews.
+ */
+function renewedRecently(
+  idp: { uid: string; exp: number },
+  ttl: number,
+  current: unknown,
+  linkedUid: unknown,
+): boolean {
+  if (!current || linkedUid !== idp.uid || typeof idp.exp !== 'number') return false;
+  const remaining = idp.exp - Date.now() / 1000;
+  return remaining <= ttl && remaining > ttl - RENEW_RESOLUTION_SEC;
+}
+
 /** Same-host RP restoration: the signed IdP cookie is the persistent credential. */
 export async function ensureRpSession(ctx: HttpContext, sessionKey: string): Promise<void> {
   const service: OidcService = await ctx.containerResolver.make('authkit.server');
@@ -49,7 +74,7 @@ export async function ensureRpSession(ctx: HttpContext, sessionKey: string): Pro
   }
   const adapter = service.provider.Session.adapter;
   const ttl = service.sessionTtlHolder.rememberSec;
-  if (adapter.renewSession) {
+  if (adapter.renewSession && !renewedRecently(idp, ttl, current, linkedUid)) {
     if (!(await adapter.renewSession(idp.id, ttl))) {
       if (linkedUid) ctx.session.clear();
       return;

@@ -144,7 +144,8 @@ export class DatabaseAdapter implements OidcAdapter {
       const accountId = payload.accountId;
       row.account_id = typeof accountId === 'string' && accountId ? accountId : null;
     }
-    const existing = await this.#query().where('id', id).first();
+    // Only whether the row exists matters: don't read the (possibly large) payload back.
+    const existing = await this.#query().where('id', id).select('id').first();
     if (existing) {
       await this.#query().where('id', id).update(row);
     } else {
