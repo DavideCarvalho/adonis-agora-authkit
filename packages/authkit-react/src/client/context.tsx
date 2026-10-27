@@ -25,7 +25,7 @@
  */
 
 import { QueryClient } from '@tanstack/react-query';
-import { createContext, createElement, type ReactNode, useContext } from 'react';
+import { createContext, createElement, type ReactNode, useContext, useMemo } from 'react';
 import { type AuthkitClient, type AuthkitClientOptions, createAuthkitClient } from './client.js';
 
 // ---------------------------------------------------------------------------
@@ -79,7 +79,9 @@ export interface AuthkitClientProviderProps {
  * um `QueryClient` com configuração recomendada para o AuthKit.
  */
 export function AuthkitClientProvider({ client, opts, children }: AuthkitClientProviderProps) {
-  const resolved = client ?? createAuthkitClient(opts);
+  // Without `client`, build one per `opts` identity rather than per render: a new
+  // instance on every render re-rendered every `useAuthkitClient()` consumer.
+  const resolved = useMemo(() => client ?? createAuthkitClient(opts), [client, opts]);
   return createElement(AuthkitClientContext.Provider, { value: resolved }, children);
 }
 

@@ -1,4 +1,4 @@
-import { createElement, type ReactNode } from 'react';
+import { createElement, type ReactNode, useMemo } from 'react';
 import { type AuthkitConfig, AuthkitConfigContext, resolveConfig } from './config.js';
 import { AuthContext } from './provider.js';
 import type { AuthSharedProps } from './types.js';
@@ -26,7 +26,9 @@ export interface AuthkitProviderProps {
  * ```
  */
 export function AuthkitProvider({ config, value, children }: AuthkitProviderProps) {
-  const resolved = resolveConfig(config);
+  // Memoized on the `config` identity: a fresh object on every render would re-render
+  // every `useAuthkitConfig()` consumer whenever this provider re-renders.
+  const resolved = useMemo(() => resolveConfig(config), [config]);
   const tree = createElement(AuthkitConfigContext.Provider, { value: resolved }, children);
   if (value !== undefined) {
     return createElement(AuthContext.Provider, { value }, tree);
