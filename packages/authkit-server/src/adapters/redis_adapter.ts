@@ -110,12 +110,18 @@ export class RedisAdapter implements OidcAdapter {
   }
 
   async consume(id: string): Promise<void> {
-    const found = await this.find(id);
-    if (!found) return;
+    const key = this.#key(id);
+    // GET + TTL in one round trip (a pipeline, read-only: nothing changes before the SET).
+    const results = await this.redis.pipeline().get(key).ttl(key).exec();
+    const [getError, data] = results?.[0] ?? [null, null];
+    if (getError) throw getError;
+    if (!data) return;
+    const [ttlError, ttl] = results?.[1] ?? [null, -1];
+    if (ttlError) throw ttlError;
+    const found = JSON.parse(data as string) as OidcPayload;
     found.consumed = Math.floor(Date.now() / 1000);
-    const ttl = await this.redis.ttl(this.#key(id));
-    if (ttl > 0) await this.redis.set(this.#key(id), JSON.stringify(found), 'EX', ttl);
-    else await this.redis.set(this.#key(id), JSON.stringify(found));
+    if ((ttl as number) > 0) await this.redis.set(key, JSON.stringify(found), 'EX', ttl as number);
+    else await this.redis.set(key, JSON.stringify(found));
   }
 
   async destroy(id: string): Promise<void> {

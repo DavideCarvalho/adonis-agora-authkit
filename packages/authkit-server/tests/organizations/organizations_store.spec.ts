@@ -349,6 +349,43 @@ test.group('OrganizationsCapability — CRUD de org', (group) => {
     assert.isTrue(orgs.every((o: any) => o.role === 'owner'));
   });
 
+  test('listOrgsForAccount lê todas as orgs numa query só, na ordem das memberships', async ({
+    assert,
+  }) => {
+    const created = [];
+    for (const slug of ['c-org', 'd-org', 'e-org', 'f-org']) {
+      created.push(await store.createOrg({ name: slug, slug, ownerAccountId: account.id }));
+    }
+    const other = await store.create({ email: 'other@acme.test', password: 'pass12345678' });
+    await store.createOrg({ name: 'Other', slug: 'other-org', ownerAccountId: other.id });
+    await store.addOrgMember(created[1].id, other.id, 'member');
+
+    const selects: string[] = [];
+    const clients = new Set([db.connection().getReadClient(), db.connection().getWriteClient()]);
+    for (const client of clients) {
+      client.on('query', (q: { sql: string }) => {
+        if (/^select/i.test(q.sql) && /from [`"]auth_organizations[`"]/.test(q.sql))
+          selects.push(q.sql);
+      });
+    }
+
+    const memberships = await TestOrgMember.query().where('account_id', account.id);
+    const orgs = await store.listOrgsForAccount(account.id);
+    assert.lengthOf(selects, 1);
+    assert.deepEqual(
+      orgs.map((o: any) => o.id),
+      memberships.map((m) => m.organizationId),
+    );
+    assert.isTrue(orgs.every((o: any) => o.role === 'owner'));
+
+    const otherOrgs = await store.listOrgsForAccount(other.id);
+    assert.sameMembers(
+      otherOrgs.map((o: any) => `${o.slug}:${o.role}`),
+      ['other-org:owner', 'd-org:member'],
+    );
+    assert.deepEqual(await store.listOrgsForAccount('nobody'), []);
+  });
+
   test('updateOrg atualiza campos', async ({ assert }) => {
     const org = await store.createOrg({ name: 'Old', slug: 'old', ownerAccountId: account.id });
     const updated = await store.updateOrg(org.id, { name: 'New' });

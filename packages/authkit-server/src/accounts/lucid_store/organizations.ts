@@ -102,9 +102,15 @@ export function buildOrganizations(ctx: OrgStoreContext): OrganizationsCapabilit
 
     async listOrgsForAccount(accountId) {
       const memberships = await MemberModel.query().where('account_id', accountId);
+      if (memberships.length === 0) return [];
+      // One query for every org (by primary key, like `find`), instead of one per
+      // membership. The result keeps the memberships' order.
+      const ids = [...new Set<string>(memberships.map((m: any) => m.organizationId))];
+      const orgs = new Map<string, any>();
+      for (const org of await OrgModel.findMany(ids)) orgs.set(String(org.id), org);
       const result: Array<OrgSummary & { role: string }> = [];
       for (const m of memberships) {
-        const org = await OrgModel.find(m.organizationId);
+        const org = orgs.get(String(m.organizationId));
         if (org) result.push({ ...toOrgSummary(org), role: m.role });
       }
       return result;

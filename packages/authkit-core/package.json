@@ -34,6 +34,7 @@
     ".": "./build/index.js",
     "./types": "./build/index.js"
   },
+  "sideEffects": false,
   "engines": {
     "node": ">=24"
   },

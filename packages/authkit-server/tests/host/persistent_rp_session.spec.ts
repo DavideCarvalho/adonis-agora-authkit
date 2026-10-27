@@ -18,6 +18,8 @@ function harness(
     renewal?: boolean;
     databaseError?: boolean;
     accept?: boolean;
+    /** IdP session `exp` (epoch seconds). Default: one minute from now. */
+    exp?: number;
   } = {},
 ) {
   const store: Record<string, unknown> = {};
@@ -32,7 +34,7 @@ function harness(
     uid: 'idp-uid',
     accountId: 'u1',
     transient: options.transient,
-    exp: Date.now() / 1000 + 60,
+    exp: options.exp ?? Date.now() / 1000 + 60,
     destroy: async () => {
       destroyed++;
     },
@@ -186,6 +188,64 @@ test.group('Remembered same-host RP session', () => {
     assert.isTrue(await h.guard.check());
     assert.equal(h.store[ACCOUNT_SESSION_KEY], 'u2');
     assert.deepEqual(h.renewed, []);
+  });
+
+  test('a linked RP renewed moments ago is not renewed again on the next request', async ({
+    assert,
+  }) => {
+    const h = harness({ current: 'u1', linked: true, exp: Math.floor(Date.now() / 1000) + 3600 });
+    assert.isTrue(await h.guard.check());
+    assert.equal(h.store[ACCOUNT_SESSION_KEY], 'u1');
+    assert.deepEqual(h.renewed, []);
+    assert.deepEqual(h.cookies, []);
+  });
+
+  for (const [label, offset] of [
+    ['renewed over a minute ago', 3600 - 120],
+    ['longer than the current TTL (TTL lowered)', 7200],
+  ] as const) {
+    test(`a linked RP whose IdP session was ${label} is renewed`, async ({ assert }) => {
+      const h = harness({
+        current: 'u1',
+        linked: true,
+        exp: Math.floor(Date.now() / 1000) + offset,
+      });
+      assert.isTrue(await h.guard.check());
+      assert.deepEqual(h.renewed, [{ id: 'idp-id', ttl: 3600 }]);
+      assert.lengthOf(h.cookies, 1);
+    });
+  }
+
+  test('a linked RP still loses its login when the fresh IdP session is gone', async ({
+    assert,
+  }) => {
+    const h = harness({
+      current: 'u1',
+      linked: true,
+      missing: true,
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    assert.isFalse(await h.guard.check());
+    assert.isUndefined(h.store[ACCOUNT_SESSION_KEY]);
+  });
+
+  test('a linked RP of an account disabled since is logged out, even with a fresh IdP session', async ({
+    assert,
+  }) => {
+    const h = harness({
+      current: 'u1',
+      linked: true,
+      disabled: true,
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    assert.isFalse(await h.guard.check());
+    assert.isUndefined(h.store[ACCOUNT_SESSION_KEY]);
+  });
+
+  test('restoration always renews, even when the IdP session is fresh', async ({ assert }) => {
+    const h = harness({ exp: Math.floor(Date.now() / 1000) + 3600 });
+    assert.isTrue(await h.guard.check());
+    assert.deepEqual(h.renewed, [{ id: 'idp-id', ttl: 3600 }]);
   });
 
   test('propagates IdP storage errors', async ({ assert }) => {
