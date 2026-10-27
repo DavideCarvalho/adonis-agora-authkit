@@ -1,5 +1,13 @@
 # @adonis-agora/authkit-client
 
+## 0.20.3
+
+### Patch Changes
+
+- [#361](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/361) [`1b9c90c`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/1b9c90ced4356d2c754e850e307954455ddeeb3a) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Performance: `lucidRevocationStore` imports the Lucid `db` service module once per process instead of running a dynamic `import()` on every `isRevoked` call (every authenticated request when back-channel logout is on). It still reads the service's live binding on each call, and a failed import is retried.
+- Updated dependencies [[`1b9c90c`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/1b9c90ced4356d2c754e850e307954455ddeeb3a)]:
+  - @adonis-agora/authkit-core@0.10.1
+
 ## 0.20.2
 
 ### Patch Changes

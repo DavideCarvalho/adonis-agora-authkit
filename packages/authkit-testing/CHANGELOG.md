@@ -1,5 +1,12 @@
 # @adonis-agora/authkit-testing
 
+## 0.6.2
+
+### Patch Changes
+
+- Updated dependencies [[`1b9c90c`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/1b9c90ced4356d2c754e850e307954455ddeeb3a)]:
+  - @adonis-agora/authkit-core@0.10.1
+
 ## 0.6.1
 
 ### Patch Changes

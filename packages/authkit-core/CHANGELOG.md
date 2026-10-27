@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-core
 
+## 0.10.1
+
+### Patch Changes
+
+- [#361](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/361) [`1b9c90c`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/1b9c90ced4356d2c754e850e307954455ddeeb3a) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Declare `"sideEffects": false` so bundlers can tree-shake the package in client bundles. It has no module-level side effects.
+
 ## 0.10.0
 
 ### Minor Changes
