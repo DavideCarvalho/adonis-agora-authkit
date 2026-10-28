@@ -157,6 +157,8 @@ export type { InteractionFormProps } from './src/components/interaction_form.js'
 export { InteractionForm } from './src/components/interaction_form.js';
 export type { KeyRotationProps } from './src/components/key_rotation.js';
 export { KeyRotation } from './src/components/key_rotation.js';
+export type { LastUsedBadgeProps } from './src/components/last_used_badge.js';
+export { LastUsedBadge } from './src/components/last_used_badge.js';
 export type { MagicLinkButtonProps } from './src/components/magic_link_button.js';
 export { MagicLinkButton } from './src/components/magic_link_button.js';
 export type { OAuthButtonProps } from './src/components/oauth_button.js';
@@ -261,6 +263,8 @@ export type { UseSwitchOrganizationResult } from './src/hooks/use_switch_organiz
 export { useSwitchOrganization } from './src/hooks/use_switch_organization.js';
 export type { UseUserResult } from './src/hooks/use_user.js';
 export { useUser } from './src/hooks/use_user.js';
+export type { LastLoginMethod } from './src/interaction/last_used.js';
+export { isLastUsedLoginMethod } from './src/interaction/last_used.js';
 export type {
   InteractionPostStep,
   InteractionUrls,

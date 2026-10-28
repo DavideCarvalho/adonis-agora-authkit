@@ -591,3 +591,76 @@ test.group('account/confirm.edge (SPI de métodos de sudo)', () => {
     assert.notInclude(none, badge);
   });
 });
+
+test.group('login.edge — selo "último usado"', () => {
+  const LAST_USED = translate({ ...DEFAULT_MESSAGES }, 'login.last_used');
+  const count = (html: string) => html.split(LAST_USED).length - 1;
+  /** Trecho do HTML do link de um provedor social (até o `</a>`). */
+  const socialAnchor = (html: string, provider: string) => {
+    const start = html.indexOf(`/auth/${provider}/redirect/`);
+    return html.slice(start, html.indexOf('</a>', start));
+  };
+  const identifier = (lastUsedLoginMethod?: string) =>
+    makeEdge().render('authkit::login', {
+      uid: 'i1',
+      csrfToken: 'c',
+      step: 'identifier',
+      brand: { appName: 'X' },
+      authMethods: { social: ['google', 'github'] },
+      lastUsedLoginMethod,
+    });
+  const password = (lastUsedLoginMethod?: string) =>
+    makeEdge().render('authkit::login', {
+      uid: 'i1',
+      csrfToken: 'c',
+      step: 'password',
+      email: 'u@x.com',
+      account: null,
+      brand: { appName: 'X' },
+      magicLinkAvailable: true,
+      passkeyFirstAvailable: true,
+      lastUsedLoginMethod,
+    });
+
+  test('sem método salvo não há selo', async ({ assert }) => {
+    assert.equal(count(await identifier()), 0);
+    assert.equal(count(await password()), 0);
+  });
+
+  test('social: o selo vai só no botão do provedor usado', async ({ assert }) => {
+    const html = await identifier('social:github');
+    assert.equal(count(html), 1);
+    assert.include(socialAnchor(html, 'github'), LAST_USED);
+    assert.notInclude(socialAnchor(html, 'google'), LAST_USED);
+  });
+
+  test('método por e-mail marca o campo de e-mail no passo identifier', async ({ assert }) => {
+    for (const method of ['password', 'magic_link', 'otp', 'passkey']) {
+      const html = await identifier(method);
+      assert.equal(count(html), 1, method);
+      assert.notInclude(socialAnchor(html, 'google'), LAST_USED);
+    }
+  });
+
+  test('método custom não marca o campo de e-mail', async ({ assert }) => {
+    assert.equal(count(await identifier('custom:whatsapp')), 0);
+  });
+
+  test('passo de senha: o selo segue o método', async ({ assert }) => {
+    const pwd = await password('password');
+    assert.equal(count(pwd), 1);
+    assert.isBelow(pwd.indexOf(LAST_USED), pwd.indexOf('id="password"'));
+
+    for (const method of ['magic_link', 'otp']) {
+      const html = await password(method);
+      assert.equal(count(html), 1, method);
+      const magic = html.indexOf('/auth/interaction/i1/magic');
+      assert.isAbove(html.indexOf(LAST_USED), magic, method);
+      assert.isBelow(html.indexOf(LAST_USED), html.indexOf('id="passkey-button"'), method);
+    }
+
+    const pk = await password('passkey');
+    assert.equal(count(pk), 1);
+    assert.isAbove(pk.indexOf(LAST_USED), pk.indexOf('id="passkey-button"'));
+  });
+});

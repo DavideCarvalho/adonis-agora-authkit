@@ -1,0 +1,110 @@
+---
+icon: History
+title: Last used method
+description: A "Last used" badge on the login screen that points each device back to the method it signed in with last time.
+---
+
+When a login screen offers several ways in (password, magic link, a code, a passkey,
+Google, GitHub…), returning users often forget which one they used. That is how duplicate
+accounts get created. AuthKit remembers the method each **device** last signed in with and
+the login screen marks it with a **"Last used"** badge, as Cloudflare, Vercel and Clerk do.
+
+It is **on by default** and needs no migration and no store capability.
+
+```ts title="config/authkit.ts"
+login: {
+  lastUsedMethod: false, // opt out
+},
+```
+
+## How it works
+
+When the **primary factor** of a login is accepted, the server writes the method to a
+cookie on the device:
+
+| Cookie | Value | Attributes |
+| --- | --- | --- |
+| `authkit_last_login` | the method, nothing else | `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` on HTTPS, one year (renewed on every login) |
+
+On the next visit, every render of the `login` screen gets a `lastUsedLoginMethod` prop,
+with the Edge renderer and the Inertia renderer alike. It is `undefined` on a first visit,
+when the feature is off, or when the cookie holds anything the server does not recognise.
+
+| `lastUsedLoginMethod` | Recorded when |
+| --- | --- |
+| `'password'` | the password was accepted, including through the forced change of an expired password |
+| `'magic_link'` | a magic link was opened |
+| `'otp'` | a six-digit [email code](/docs/passwordless#email-login-codes-otp) was accepted |
+| `'passkey'` | a passkey signed the user in as the **first** factor (passkey-first or autofill) |
+| `` `social:${provider}` `` | a social login came back, e.g. `'social:google'` |
+| `` `custom:${id}` `` | a custom login method completed |
+
+A passkey used as the **second** factor is not recorded. The badge answers "how did you
+identify yourself?", which is the button the user looks for next time. For the same reason,
+on an account with MFA the method is recorded once the primary factor is accepted, before
+the second-factor challenge.
+
+## Why per device and not per account
+
+The badge is most useful on the very first step, where the user has typed nothing yet and
+the server cannot know whose account this is. A per-account hint could only appear after
+the email is entered. It would then tell anyone who types an address how that account
+signs in, which leaks information about the account (user enumeration).
+
+The cookie only tells a browser what that browser did. It carries no email and no account
+id.
+
+<Callout type="info">
+  The badge is cosmetic. The methods on screen still come from `authMethods` and the user's
+  own login-method preferences. A forged cookie can at most move the badge to another
+  button, and a value that fails validation shows no badge at all.
+</Callout>
+
+## The built-in Edge screen
+
+The bundled `login.edge` places the badge for you:
+
+- **Email step**: on the social button that was used, or next to the email field for any
+  email-based method (password, link, code, passkey).
+- **Password step**: next to the password field, on "Email me a login link" (for both
+  `magic_link` and `otp`), or on "Sign in with a passkey".
+
+The label is the `login.last_used` message (`Last used` / `Último usado`), which you can
+override like any other [i18n](/docs/i18n) key.
+
+## Your own screens (Inertia)
+
+Read the prop and render [`LastUsedBadge`](/docs/components#lastusedbadge) inside the
+matching button. It renders nothing unless the method matches.
+
+```tsx title="inertia/pages/authkit/login.tsx"
+import { LastUsedBadge, MagicLinkButton, OAuthButton } from '@adonis-agora/authkit-react'
+
+export default function Login({ uid, csrfToken, lastUsedLoginMethod }: LoginProps) {
+  return (
+    <>
+      <OAuthButton provider="google" uid={uid}>
+        Continue with Google
+        <LastUsedBadge lastUsed={lastUsedLoginMethod} method="social:google" />
+      </OAuthButton>
+
+      {/* One button that sends both a link and a code covers both methods. */}
+      <MagicLinkButton uid={uid} csrfToken={csrfToken}>
+        Email me a login link
+        <LastUsedBadge lastUsed={lastUsedLoginMethod} method={['magic_link', 'otp']} />
+      </MagicLinkButton>
+    </>
+  )
+}
+```
+
+For anything other than a badge, such as reordering the buttons or highlighting a whole
+card, use the pure helper:
+
+```ts
+import { isLastUsedLoginMethod } from '@adonis-agora/authkit-react'
+
+const googleFirst = isLastUsedLoginMethod(lastUsedLoginMethod, 'social:google')
+```
+
+The cookie is `HttpOnly`, so client-side code cannot read it. Use the prop.

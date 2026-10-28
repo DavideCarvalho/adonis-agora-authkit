@@ -33,6 +33,7 @@ test.group('otp login — config', () => {
     assert.deepEqual(resolveLogin(), {
       requireVerifiedEmail: false,
       otp: OTP_LOGIN_DEFAULTS,
+      lastUsedMethod: true,
     });
   });
 

@@ -27,6 +27,7 @@ import {
 import { sendMagicLinkEmail, sendOtpUnlockEmail } from '../default_mailer.js';
 import { normalizeEmailIdentifier } from '../email_identifier.js';
 import { translate } from '../i18n.js';
+import { readLastLoginMethod, rememberLastLoginMethod } from '../last_login_method.js';
 import type { AccountStatusReason } from '../login_attempt.js';
 import {
   assertLoginAllowed,
@@ -177,6 +178,7 @@ export default class AuthInteractionController {
         message: maintenance.message ?? translate(cfg.messages, 'maintenance.default_message'),
       });
     }
+    rememberLastLoginMethod(ctx, cfg, `custom:${input.method}`);
     const gate = await this.secondFactorGate(
       ctx,
       cfg,
@@ -247,6 +249,8 @@ export default class AuthInteractionController {
       authMethods,
       magicLinkAvailable: authMethods.magicLink && magicLinkCapableConfig,
       otpEnabled,
+      // Selo "último usado": método com que ESTE dispositivo entrou da última vez.
+      lastUsedLoginMethod: readLastLoginMethod(ctx, cfg),
     };
   }
 
@@ -629,6 +633,7 @@ export default class AuthInteractionController {
     // Gate do 2º fator — a MESMA regra dos três caminhos de login (ver
     // `secondFactorGate`). Quando desafia, não finaliza a interaction: guarda o
     // accountId pendente e devolve a tela.
+    rememberLastLoginMethod(ctx, cfg, 'password');
     const gate = await this.secondFactorGate(ctx, cfg, acc.id, details, 'pwd');
     if (gate.kind === 'challenge') return gate.response;
     if (gate.kind === 'trusted') {
@@ -1633,6 +1638,7 @@ export default class AuthInteractionController {
     }
 
     // Conta com segundo fator não termina o login só com o e-mail.
+    rememberLastLoginMethod(ctx, cfg, 'magic_link');
     const magicGate = await this.secondFactorGate(
       ctx,
       cfg,
@@ -1772,6 +1778,7 @@ export default class AuthInteractionController {
         clientId,
       });
       // Conta com segundo fator não termina o login só com o código do e-mail.
+      rememberLastLoginMethod(ctx, cfg, 'otp');
       const otpGate = await this.secondFactorGate(
         ctx,
         cfg,
@@ -2062,6 +2069,11 @@ export default class AuthInteractionController {
         return ctx.response.redirect(`/auth/interaction/${ctx.request.param('uid')}`);
       return this.finishVerifiedMfa(ctx, cfg, details, 'webauthn', 'webauthn');
     }
+    // Passkey como fator PRIMÁRIO (passkey-first/autofill). Como 2º fator ela não
+    // é o método com que a pessoa se identificou — o selo fica com o primário.
+    if (ctx.session.get(MFA_PENDING_KEY) !== accountId) {
+      rememberLastLoginMethod(ctx, cfg, 'passkey');
+    }
     if (cfg.mfa) {
       const gate = await this.secondFactorGate(ctx, cfg, accountId, details, 'webauthn');
       if (gate.kind === 'challenge') return gate.response;
@@ -2183,6 +2195,7 @@ export default class AuthInteractionController {
     ctx.session.forget(PASSWORD_EXPIRED_KEY);
 
     // Verifica se precisa de MFA mesmo após a troca — mesma regra do resto.
+    rememberLastLoginMethod(ctx, cfg, 'password');
     const expiredGate = await this.secondFactorGate(ctx, cfg, accountId, details, 'pwd');
     if (expiredGate.kind === 'challenge') return expiredGate.response;
 

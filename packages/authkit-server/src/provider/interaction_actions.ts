@@ -4,6 +4,7 @@ import {
   InteractionSessionLostException,
   isInteractionSessionLost,
 } from '../host/interaction_recovery.js';
+import { relayPendingCookies } from '../host/last_login_method.js';
 
 export interface InteractionDeps {
   verifyCredentials?: (email: string, password: string) => Promise<{ id: string } | null>;
@@ -74,6 +75,7 @@ export function createInteractionActions(provider: any, deps: InteractionDeps): 
       }
       const account = await deps.verifyCredentials(email, password);
       if (!account) return { ok: false };
+      relayPendingCookies(ctx);
       await provider.interactionFinished(
         ctx.request.request,
         ctx.response.response,
@@ -93,6 +95,10 @@ export function createInteractionActions(provider: any, deps: InteractionDeps): 
       // `remember: true` ou ausente → sessão persistente (padrão do oidc-provider).
       // O campo `remember` é nativo do oidc-provider v9 — veja resume.js.
       if (extra?.remember === false) login.remember = false;
+      // O `interactionFinished` encerra a resposta crua: os cookies que o handler
+      // gravou no Adonis (último método de login, dispositivo confiável) só saem
+      // se forem repassados antes.
+      relayPendingCookies(ctx);
       await provider.interactionFinished(
         ctx.request.request,
         ctx.response.response,
@@ -129,6 +135,7 @@ export function createInteractionActions(provider: any, deps: InteractionDeps): 
         }
       }
       const grantId = await grant.save();
+      relayPendingCookies(ctx);
       return provider.interactionFinished(
         ctx.request.request,
         ctx.response.response,

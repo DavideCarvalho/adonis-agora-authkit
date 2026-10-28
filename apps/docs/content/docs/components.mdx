@@ -33,6 +33,7 @@ import {
   MagicLinkButton,
   OAuthButton,
   PasskeyButton,
+  LastUsedBadge,
   CanPermission,
   KeyRotation,
 } from '@adonis-agora/authkit-react'
@@ -390,6 +391,33 @@ const urls = interactionUrls(uid)
 `@simplewebauthn/browser` is an optional peer dependency; without it the ceremony fails with
 an install instruction instead of reaching for a CDN. See
 [WebAuthn / passkeys](/docs/webauthn) for the server side.
+
+## LastUsedBadge
+
+The "Last used" badge for a custom login screen. It renders a `<span class="authkit-last-used">`
+only when `lastUsed` matches `method`, and `null` otherwise, so you can place one in every
+login button unconditionally. `lastUsed` is the `lastUsedLoginMethod` prop that AuthKit
+passes to the `login` screen. See [Last used method](/docs/last-used-method).
+
+| Prop | Type | Default | Description |
+| --- | --- | --- | --- |
+| `lastUsed` | `string \| null \| undefined` | — | The `lastUsedLoginMethod` prop. |
+| `method` | `LastLoginMethod \| LastLoginMethod[]` | — | The method(s) this button stands for, e.g. `'social:google'` or `['magic_link', 'otp']`. |
+| `children` | `ReactNode` | `'Último usado'` | Badge label. |
+| `className` | `string` | — | Merged with `authkit-last-used`. |
+| `...rest` | `HTMLAttributes<HTMLSpanElement>` | — | Forwarded to the `<span>`. |
+
+```tsx
+<OAuthButton provider="google" uid={uid}>
+  <GoogleIcon /> Continue with Google
+  <LastUsedBadge lastUsed={lastUsedLoginMethod} method="social:google">
+    Last used
+  </LastUsedBadge>
+</OAuthButton>
+```
+
+`isLastUsedLoginMethod(lastUsed, method)` is the same check as a pure function, for when you
+want to reorder or highlight buttons rather than add a badge.
 
 ## Interaction URLs
 
