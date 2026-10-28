@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
 import type { HttpContext } from '@adonisjs/core/http';
 import { accountPath } from '../account_paths.js';
-import { resolveAccountRoles } from '../account_roles.js';
+import { resolveAccountRoles, rolesManagedExternally } from '../account_roles.js';
 import { getAdminPrefix } from '../admin_prefix.js';
 
 // ─── Shell HTML cache ─────────────────────────────────────────────────────────
@@ -154,6 +154,8 @@ export default class AdminShellController {
       features: {
         // A página de personal agents só aparece com `personalAgents` no config.
         personalAgents: !!cfg.personalAgents,
+        // Papéis vindos de fora (resolveTokenRoles): a tela só mostra, não edita.
+        rolesManagedExternally: rolesManagedExternally(cfg),
       },
     };
 

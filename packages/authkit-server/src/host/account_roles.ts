@@ -34,3 +34,14 @@ export async function resolveAccountRoles(
   }
   return account.globalRoles ?? [];
 }
+
+/**
+ * true quando os papéis da conta vêm de fora do authkit: o host configurou
+ * `resolveTokenRoles` (ex.: `@adonis-agora/authz` ou uma tabela própria). Nesse
+ * caso `globalRoles` não decide nada, então o console e a Admin API mostram os
+ * papéis do hook e recusam editá-los — gravar na coluna diria "salvo" sem mudar
+ * acesso nenhum. Quem edita é o próprio app, na fonte dele.
+ */
+export function rolesManagedExternally(cfg: RoleResolverConfig): boolean {
+  return typeof cfg.resolveTokenRoles === 'function';
+}

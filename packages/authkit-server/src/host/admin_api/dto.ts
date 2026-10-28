@@ -5,6 +5,7 @@ import type {
   OrgSummary,
 } from '../../accounts/account_store.js';
 import type { StoredAuditEvent } from '../../audit/audit_sink.js';
+import { resolveAccountRoles } from '../account_roles.js';
 import type { AdminClient, CreatedClient } from '../admin_clients_service.js';
 import type { AdminGrant, AdminSession } from '../admin_sessions_service.js';
 import type { OrgDetail } from './admin_orgs_service.js';
@@ -19,6 +20,20 @@ export function userDto(account: AuthAccount, disabled = false) {
     globalRoles: account.globalRoles ?? [],
     disabled,
   };
+}
+
+/**
+ * {@link userDto} + `roles`: os papéis efetivos da conta, pela mesma fonte do
+ * claim (`resolveAccountRoles`). Sem `resolveTokenRoles` é igual a
+ * `globalRoles`; com ele, é o que o app diz (ex.: authz) e `globalRoles` segue
+ * sendo só a coluna guardada.
+ */
+export async function userDtoWithRoles(
+  cfg: Parameters<typeof resolveAccountRoles>[0],
+  account: AuthAccount,
+  disabled = false,
+) {
+  return { ...userDto(account, disabled), roles: await resolveAccountRoles(cfg, account) };
 }
 
 export function clientDto(client: AdminClient) {
@@ -145,4 +160,12 @@ export function settingDto(row: SettingRow) {
     locked,
     ...(locked ? { lockedBy: 'config' as const } : {}),
   };
+}
+
+/** 409 de quem tenta editar papéis geridos fora do authkit (`resolveTokenRoles`). */
+export function rolesManagedExternallyError() {
+  return apiError(
+    'roles_managed_externally',
+    'Os papéis desta instalação vêm do app (resolveTokenRoles) e só podem ser alterados lá.',
+  );
 }

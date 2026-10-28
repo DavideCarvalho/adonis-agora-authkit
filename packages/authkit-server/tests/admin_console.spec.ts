@@ -507,6 +507,39 @@ test.group('Console JSON API — controller unit tests', (group) => {
     assert.equal(captured.status(), 404);
   });
 
+  // Papéis de fora do authkit (resolveTokenRoles, ex.: authz): a tela mostra os
+  // papéis do app e não edita a coluna, que não decide acesso nenhum.
+  test('papéis externos: GET mostra os do hook e PATCH roles → 409', async ({ assert }) => {
+    const c = fakeCtx({ service, inputs: { email: 'ext@x.com', password: 'pw123' } });
+    const created: any = await new ConsoleUsersController().store(c.ctx);
+    service.config.resolveTokenRoles = async () => ['COORDINATOR'];
+
+    const shown = fakeCtx({ service, params: { id: created.id } });
+    const user: any = await new ConsoleUsersController().show(shown.ctx);
+    assert.deepEqual(user.roles, ['COORDINATOR']);
+    assert.deepEqual(user.globalRoles, []);
+
+    const { ctx, captured } = fakeCtx({
+      service,
+      params: { id: created.id },
+      inputs: { roles: ['ADMIN'] },
+    });
+    await new ConsoleUsersController().updateRoles(ctx);
+    assert.equal(captured.status(), 409);
+    assert.equal(captured.body().error.code, 'roles_managed_externally');
+    const after = await service.config.accountStore.findById(created.id);
+    assert.deepEqual(after.globalRoles ?? [], [], 'a coluna não foi tocada');
+  });
+
+  test('sem o hook: roles do DTO = globalRoles e a edição segue valendo', async ({ assert }) => {
+    const c = fakeCtx({ service, inputs: { email: 'own@x.com', password: 'pw123' } });
+    const created: any = await new ConsoleUsersController().store(c.ctx);
+    const { ctx } = fakeCtx({ service, params: { id: created.id }, inputs: { roles: ['ADMIN'] } });
+    const result: any = await new ConsoleUsersController().updateRoles(ctx);
+    assert.deepEqual(result.globalRoles, ['ADMIN']);
+    assert.deepEqual(result.roles, ['ADMIN']);
+  });
+
   test('POST /api/users/:id/disable + enable → status muda', async ({ assert }) => {
     const store = new ConsoleUsersController();
     const c = fakeCtx({ service, inputs: { email: 'dave@x.com', password: 'pw123' } });
