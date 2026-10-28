@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 0.85.1
+
+### Patch Changes
+
+- [#371](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/371) [`380e058`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/380e0589a0c34cad2c7e05484b95a1b3516f9a36) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The console's "Save roles" button returned 404. It calls `client.admin.users.update`, which sends `PATCH {console}/api/users/:id` with `{ globalRoles }`, and the console only had `PATCH /api/users/:id/roles`. That route now exists and goes through the same checks as `/roles`: 404, 409 when roles are managed outside authkit, last admin, self-demotion, and validation against the catalog.
+
 ## 0.85.0
 
 ### Minor Changes
