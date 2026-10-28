@@ -22,7 +22,7 @@
           {{-- Selo "último usado": este dispositivo entrou por e-mail (senha, link, código ou passkey). --}}
           <div class="mb-1 flex items-center justify-between">
             <label for="email" class="block text-sm font-medium text-gray-700">{{ t('login.email_label') }}</label>
-            @if(lastUsedLoginMethod && !lastUsedLoginMethod.startsWith('social:'))
+            @if(['password', 'magic_link', 'otp', 'passkey'].includes(lastUsedLoginMethod))
               <span class="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">{{ t('login.last_used') }}</span>
             @end
           </div>

@@ -165,6 +165,39 @@ test.group('last login method — completeLogin repassa os cookies', () => {
     assert.isTrue(atFinish.some((c) => c.startsWith(`${LAST_LOGIN_METHOD_COOKIE}=`)));
   });
 
+  test('login e consent também repassam antes do interactionFinished', async ({ assert }) => {
+    for (const run of ['login', 'consent'] as const) {
+      const ctx = realCtx();
+      let atFinish: string[] = [];
+      class Grant {
+        addOIDCScope() {}
+        addResourceScope() {}
+        async save() {
+          return 'g1';
+        }
+      }
+      const provider = {
+        Grant,
+        async interactionDetails() {
+          return { params: { client_id: 'web' }, session: { accountId: 'u1' }, prompt: {} };
+        },
+        async interactionFinished() {
+          atFinish = rawSetCookies(ctx);
+        },
+      };
+      const actions = createInteractionActions(provider, {
+        verifyCredentials: async () => ({ id: 'u1' }),
+      });
+      rememberLastLoginMethod(ctx, ENABLED, 'password');
+      if (run === 'login') await actions.login(ctx, { email: 'a@b.com', password: 'x' });
+      else await actions.consent(ctx);
+      assert.isTrue(
+        atFinish.some((c) => c.startsWith(`${LAST_LOGIN_METHOD_COOKIE}=`)),
+        run,
+      );
+    }
+  });
+
   test('ctx mínimo (sem Response do Adonis) não quebra o completeLogin', async ({ assert }) => {
     let finished = false;
     const actions = createInteractionActions(
@@ -251,5 +284,72 @@ test.group('last login method — tela de login recebe o selo', () => {
     const { ctx, rendered } = setup(undefined);
     await new InteractionController().show(ctx);
     assert.isUndefined(rendered[0].props.lastUsedLoginMethod);
+  });
+});
+
+test.group('last login method — cadastro por senha', () => {
+  test('o auto-login do cadastro registra password', async ({ assert }) => {
+    const cookies: Array<[string, string]> = [];
+    let loggedIn = false;
+    const service = {
+      config: {
+        render: async (_ctx: any, view: string, props: any) => ({ view, props }),
+        messages: {},
+        branding: { default: { appName: 'Acme', logoUrl: null }, clients: {}, firstParty: [] },
+        registration: { enabled: true },
+        login: resolveLogin(),
+        accountStore: {
+          findByEmail: async () => null,
+          create: async (input: any) => ({ id: 'new-1', email: input.email }),
+          issueEmailVerificationToken: async () => null,
+        },
+      },
+      interactions: {
+        details: async () => ({ uid: 'u1', params: { client_id: 'web' } }),
+        login: async () => {
+          loggedIn = true;
+          return { ok: true };
+        },
+      },
+    };
+    const ctx = {
+      containerResolver: {
+        make: async (key: string) => {
+          if (key === 'authkit.server') return service;
+          return {
+            from() {
+              return (this as any).table();
+            },
+            table() {
+              throw new Error('no table');
+            },
+          };
+        },
+      },
+      request: {
+        csrfToken: 'csrf',
+        param: () => 'u1',
+        input: () => '',
+        ip: () => '1.2.3.4',
+        secure: () => false,
+        validateUsing: async () => ({
+          email: 'novo@example.com',
+          password: 'correct-horse-battery',
+          fullName: 'Novo',
+        }),
+      },
+      session: { get: () => undefined, put: () => {}, forget: () => {} },
+      logger: { error: () => {} },
+      response: {
+        redirect: () => undefined,
+        plainCookie: (name: string, value: string) => cookies.push([name, value]),
+      },
+    } as any;
+    const { default: RegistrationController } = await import(
+      '../../src/host/controllers/registration_controller.js'
+    );
+    await new RegistrationController().signup(ctx);
+    assert.isTrue(loggedIn);
+    assert.deepInclude(cookies, [LAST_LOGIN_METHOD_COOKIE, 'password']);
   });
 });

@@ -12,6 +12,7 @@ import {
   sendPasswordResetEmail,
 } from '../default_mailer.js';
 import { translate } from '../i18n.js';
+import { rememberLastLoginMethod } from '../last_login_method.js';
 import { authkitOrigin } from '../origin.js';
 import { RuntimeSettings, resolveRuntimeSettings } from '../runtime_settings.js';
 import {
@@ -209,6 +210,8 @@ export default class AuthRegistrationController {
       clientId: (details.params.client_id as string | undefined) ?? null,
     });
 
+    // Conta nova entra por senha: o selo "último usado" já nasce no método certo.
+    rememberLastLoginMethod(ctx, cfg, 'password');
     // Finaliza a interaction como login (interactionFinished escreve o redirect 303 que
     // retoma o authorize; o form nativo da tela segue esse redirect no sucesso).
     const result = await service.interactions.login(ctx, {

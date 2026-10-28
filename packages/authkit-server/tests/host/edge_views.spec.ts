@@ -642,6 +642,10 @@ test.group('login.edge — selo "último usado"', () => {
     }
   });
 
+  test('método custom não marca o campo de e-mail', async ({ assert }) => {
+    assert.equal(count(await identifier('custom:whatsapp')), 0);
+  });
+
   test('passo de senha: o selo segue o método', async ({ assert }) => {
     const pwd = await password('password');
     assert.equal(count(pwd), 1);

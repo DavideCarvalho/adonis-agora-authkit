@@ -75,6 +75,7 @@ export function createInteractionActions(provider: any, deps: InteractionDeps): 
       }
       const account = await deps.verifyCredentials(email, password);
       if (!account) return { ok: false };
+      relayPendingCookies(ctx);
       await provider.interactionFinished(
         ctx.request.request,
         ctx.response.response,
@@ -134,6 +135,7 @@ export function createInteractionActions(provider: any, deps: InteractionDeps): 
         }
       }
       const grantId = await grant.save();
+      relayPendingCookies(ctx);
       return provider.interactionFinished(
         ctx.request.request,
         ctx.response.response,
