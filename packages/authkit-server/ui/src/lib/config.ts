@@ -5,7 +5,7 @@ export interface AuthKitConfig {
   messages: Record<string, string>;
   currentUser: { id: string; email: string; roles: string[] } | null;
   endpoints: { api: string; confirm?: string };
-  features?: { personalAgents?: boolean };
+  features?: { personalAgents?: boolean; rolesManagedExternally?: boolean };
 }
 
 declare global {

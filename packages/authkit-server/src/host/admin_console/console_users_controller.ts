@@ -2,9 +2,16 @@ import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import { supportsAccountDeletion, supportsAccountStatus } from '../../accounts/account_store.js';
 import { ADMIN_LIST_HTTP_DEFAULT_SIZE, parseListPage, parseListSize } from '../../pagination.js';
+import { rolesManagedExternally } from '../account_roles.js';
 import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { AdminUsersService } from '../admin_api/admin_users_service.js';
-import { apiError, grantDto, sessionDto, userDto } from '../admin_api/dto.js';
+import {
+  apiError,
+  grantDto,
+  rolesManagedExternallyError,
+  sessionDto,
+  userDtoWithRoles,
+} from '../admin_api/dto.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
 import { adminUserCreateValidator, adminUserRolesValidator } from '../admin_validators.js';
 import type { RuntimeSettings } from '../runtime_settings.js';
@@ -68,7 +75,7 @@ export default class ConsoleUsersController {
     const users = new AdminUsersService(cfg);
 
     const data = await Promise.all(
-      result.data.map(async (u: any) => userDto(u, await users.isDisabled(u.id))),
+      result.data.map(async (u: any) => userDtoWithRoles(cfg, u, await users.isDisabled(u.id))),
     );
 
     return { meta: { page, size, total: result.total }, data };
@@ -105,7 +112,7 @@ export default class ConsoleUsersController {
     }
 
     return {
-      ...userDto(account, disabled),
+      ...(await userDtoWithRoles(cfg, account, disabled)),
       sessionsSupported: sessions.canList,
       sessions: enriched.map(sessionDto),
       grants: grants.map(grantDto),
@@ -147,7 +154,7 @@ export default class ConsoleUsersController {
     }
 
     ctx.response.status(201);
-    return { ...userDto(result.account), invited: result.invited };
+    return { ...(await userDtoWithRoles(cfg, result.account)), invited: result.invited };
   }
 
   /** PATCH {prefix}/api/users/:id/roles */
@@ -158,6 +165,12 @@ export default class ConsoleUsersController {
 
     const account = await cfg.accountStore.findById(id);
     if (!account) return ctx.response.notFound(apiError('not_found', 'Usuário não encontrado.'));
+
+    // Papéis de fora do authkit (resolveTokenRoles): a coluna não decide acesso,
+    // então gravar nela seria um "salvo" mentiroso. O app edita na fonte dele.
+    if (rolesManagedExternally(cfg)) {
+      return ctx.response.status(409).send(rolesManagedExternallyError());
+    }
 
     const actorId = (ctx.session?.get(ACCOUNT_SESSION_KEY) as string) ?? null;
 
@@ -199,7 +212,7 @@ export default class ConsoleUsersController {
 
     const updated = await cfg.accountStore.findById(id);
     const disabled = await users.isDisabled(id);
-    return userDto(updated!, disabled);
+    return userDtoWithRoles(cfg, updated!, disabled);
   }
 
   /** POST {prefix}/api/users/:id/disable */
@@ -241,7 +254,7 @@ export default class ConsoleUsersController {
     }
     const updated = await cfg.accountStore.findById(id);
     const disabled = await users.isDisabled(id);
-    return userDto(updated!, disabled);
+    return userDtoWithRoles(cfg, updated!, disabled);
   }
 
   /** POST {prefix}/api/users/:id/reset-password */

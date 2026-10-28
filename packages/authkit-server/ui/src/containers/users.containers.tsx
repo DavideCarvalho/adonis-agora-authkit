@@ -19,6 +19,7 @@ import { Modal } from '../components/Modal';
 import { Pagination } from '../components/Pagination';
 import { QueryBoundary } from '../components/QueryBoundary';
 import { SkeletonDrawerSection, SkeletonPanelTable } from '../components/Skeleton';
+import { getConfig } from '../lib/config';
 import { useToast } from '../lib/toast';
 
 /** Page size sent as `?size=` to `GET {prefix}/api/users`. */
@@ -103,10 +104,10 @@ export function UsersTableContainer({
                       </td>
                       <td>
                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                          {u.globalRoles.length === 0 ? (
+                          {(u.roles ?? u.globalRoles).length === 0 ? (
                             <span className="badge badge-muted">no roles</span>
                           ) : (
-                            u.globalRoles.map((r) => (
+                            (u.roles ?? u.globalRoles).map((r) => (
                               <span key={r} className="badge badge-accent">
                                 {r}
                               </span>
@@ -467,6 +468,7 @@ export function UserRolesContainer({ userId, onMutated }: UserRolesContainerProp
   const { data: user, isLoading, error, refetch } = useQuery(useUserQueryOptions(userId));
   const updateRolesMutation = useMutation(useUpdateUserMutationOptions(userId));
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+  const rolesManagedExternally = getConfig().features?.rolesManagedExternally === true;
 
   useEffect(() => {
     if (user) setSelectedRoles(user.globalRoles);
@@ -526,7 +528,25 @@ export function UserRolesContainer({ userId, onMutated }: UserRolesContainerProp
           </div>
         }
       >
-        {user && (
+        {user && rolesManagedExternally && (
+          <>
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
+              {(user.roles ?? []).length === 0 ? (
+                <span className="badge badge-muted">no roles</span>
+              ) : (
+                (user.roles ?? []).map((r) => (
+                  <span key={r} className="badge badge-accent">
+                    {r}
+                  </span>
+                ))
+              )}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--faint)' }}>
+              Roles come from the application (resolveTokenRoles) and are managed there.
+            </div>
+          </>
+        )}
+        {user && !rolesManagedExternally && (
           <>
             {selectedRoles.length === 0 && (
               <div style={{ fontSize: 12, color: 'var(--faint)', marginBottom: 8 }}>

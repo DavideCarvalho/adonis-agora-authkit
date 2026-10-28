@@ -308,6 +308,28 @@ test.group('Admin REST API (controllers)', (group) => {
     };
   });
 
+  test('papéis externos: PATCH com globalRoles → 409, nome segue editável', async ({ assert }) => {
+    const users = new ApiUsersController();
+    const c = fakeCtx({ service, inputs: { email: 'ext@x.com', password: 'pw-12345678' } });
+    const created: any = await users.store(c.ctx);
+    service.config.resolveTokenRoles = async () => ['COORDINATOR'];
+
+    const rolesPatch = fakeCtx({
+      service,
+      params: { id: created.id },
+      inputs: { globalRoles: ['ADMIN'] },
+    });
+    await users.update(rolesPatch.ctx);
+    assert.equal(rolesPatch.captured.status(), 409);
+    assert.equal(rolesPatch.captured.body().error.code, 'roles_managed_externally');
+
+    const namePatch = fakeCtx({ service, params: { id: created.id }, inputs: { name: 'Ext' } });
+    const patched: any = await users.update(namePatch.ctx);
+    assert.equal(patched.name, 'Ext');
+    assert.deepEqual(patched.roles, ['COORDINATOR']);
+    assert.deepEqual(patched.globalRoles, []);
+  });
+
   test('users CRUD roundtrip: create → get → patch roles → disable → login blocked → enable', async ({
     assert,
   }) => {

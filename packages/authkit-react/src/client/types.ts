@@ -25,6 +25,11 @@ export interface AdminUser {
   name: string | null;
   avatarUrl: string | null;
   globalRoles: string[];
+  /**
+   * Papéis efetivos (mesma fonte do claim `roles`). Igual a `globalRoles` sem
+   * `resolveTokenRoles`; com ele, vem da fonte do app (ex.: authz).
+   */
+  roles?: string[];
   disabled: boolean;
   /** Apenas em create: indica se o usuário foi convidado via e-mail. */
   invited?: boolean;

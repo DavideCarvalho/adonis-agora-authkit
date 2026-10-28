@@ -2,12 +2,19 @@ import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import type { AuthAccount } from '../../accounts/account_store.js';
 import { ADMIN_LIST_HTTP_DEFAULT_SIZE, parseListPage, parseListSize } from '../../pagination.js';
+import { rolesManagedExternally } from '../account_roles.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
 import { adminUserCreateValidator, adminUserUpdateValidator } from '../admin_validators.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { enrichSessionsWithContext } from '../session_context.js';
 import { AdminUsersService } from './admin_users_service.js';
-import { apiError, grantDto, sessionDto, userDto } from './dto.js';
+import {
+  apiError,
+  grantDto,
+  rolesManagedExternallyError,
+  sessionDto,
+  userDtoWithRoles,
+} from './dto.js';
 
 /**
  * Lê a config + monta o actor `admin-api` para auditoria. O `actorId` recebe o
@@ -41,7 +48,9 @@ export default class ApiUsersController {
     const result = await cfg.accountStore.listAccounts({ search, page, size });
     const users = new AdminUsersService(cfg);
     const data = await Promise.all(
-      result.data.map(async (u: AuthAccount) => userDto(u, await users.isDisabled(u.id))),
+      result.data.map(async (u: AuthAccount) =>
+        userDtoWithRoles(cfg, u, await users.isDisabled(u.id)),
+      ),
     );
     return { meta: { page, size, total: result.total }, data };
   }
@@ -53,7 +62,7 @@ export default class ApiUsersController {
     const account = await cfg.accountStore.findById(id);
     if (!account) return ctx.response.notFound(apiError('not_found', 'Usuário não encontrado.'));
     const disabled = await new AdminUsersService(cfg).isDisabled(id);
-    return userDto(account, disabled);
+    return userDtoWithRoles(cfg, account, disabled);
   }
 
   /** POST /users — { email, name?, password? | invite?:true }. */
@@ -82,7 +91,7 @@ export default class ApiUsersController {
       return ctx.response.conflict(apiError('email_taken', 'Já existe uma conta com este e-mail.'));
     }
     ctx.response.status(201);
-    return { ...userDto(result.account), invited: result.invited };
+    return { ...(await userDtoWithRoles(cfg, result.account)), invited: result.invited };
   }
 
   /** PATCH /users/:id — { globalRoles?, name?, avatarUrl? }. */
@@ -98,6 +107,9 @@ export default class ApiUsersController {
       name,
       avatarUrl,
     } = await ctx.request.validateUsing(adminUserUpdateValidator);
+    if (Array.isArray(roles) && rolesManagedExternally(cfg)) {
+      return ctx.response.conflict(rolesManagedExternallyError());
+    }
     if (Array.isArray(roles)) {
       const normalized = Array.from(new Set(roles.map((r) => r.trim()).filter(Boolean)));
 
@@ -140,7 +152,7 @@ export default class ApiUsersController {
     }
 
     const updated = await cfg.accountStore.findById(id);
-    return userDto(updated!, await users.isDisabled(id));
+    return userDtoWithRoles(cfg, updated!, await users.isDisabled(id));
   }
 
   /** DELETE /users/:id — deleção completa (cascade) da conta. */
