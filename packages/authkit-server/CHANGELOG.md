@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 0.82.2
+
+### Patch Changes
+
+- [#363](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/363) [`5656057`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/5656057d3b2a701eea5515004fcd000086c38f25) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Load `@simplewebauthn/server` on the first passkey ceremony instead of at import time. Importing the package no longer evaluates it (~290 modules, ~4.5 MB of heap per process), which most processes — queue workers, ace commands, apps without passkeys — never need. The `webauthnCeremonies` override seam and every public export are unchanged.
+
 ## 0.82.1
 
 ### Patch Changes
