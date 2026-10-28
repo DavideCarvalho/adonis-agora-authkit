@@ -1,9 +1,3 @@
-import {
-  generateAuthenticationOptions,
-  generateRegistrationOptions,
-  verifyAuthenticationResponse,
-  verifyRegistrationResponse,
-} from '@simplewebauthn/server';
 import type { AuditSink } from '../audit/audit_sink.js';
 import { type PasswordConfigInput, PasswordManager } from '../password/password_manager.js';
 import type { FetchLike, PwnedLogger } from '../password/pwned.js';
@@ -17,6 +11,7 @@ import { buildPasswordExpiration, buildPasswordHistory } from './lucid_store/pas
 import { buildProviderIdentity } from './lucid_store/provider_identity.js';
 import {
   type AccountSecretEncrypter,
+  defaultWebauthnCeremonies,
   hasTable,
   type LucidStoreContext,
   type WebauthnCeremonies,
@@ -367,10 +362,7 @@ export function lucidAccountStore(
   };
   // Cerimônias WebAuthn: reais por default, injetáveis para testes.
   const ceremonies: WebauthnCeremonies = {
-    generateRegistrationOptions,
-    verifyRegistrationResponse,
-    generateAuthenticationOptions,
-    verifyAuthenticationResponse,
+    ...defaultWebauthnCeremonies,
     ...options.webauthnCeremonies,
   };
 

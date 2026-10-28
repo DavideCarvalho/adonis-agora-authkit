@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import {
+import type {
   generateAuthenticationOptions,
   generateRegistrationOptions,
   verifyAuthenticationResponse,
@@ -31,6 +31,36 @@ export interface WebauthnCeremonies {
   generateAuthenticationOptions: typeof generateAuthenticationOptions;
   verifyAuthenticationResponse: typeof verifyAuthenticationResponse;
 }
+
+/**
+ * `@simplewebauthn/server` carregado na primeira cerimônia, não no boot: a maioria
+ * dos processos (workers, ace, apps sem passkeys) nunca faz uma. Um import por
+ * processo; uma falha não fica em cache (a próxima cerimônia tenta de novo).
+ */
+let simpleWebauthn: Promise<typeof import('@simplewebauthn/server')> | undefined;
+function loadSimpleWebauthn(): Promise<typeof import('@simplewebauthn/server')> {
+  simpleWebauthn ??= import('@simplewebauthn/server').catch((error: unknown) => {
+    simpleWebauthn = undefined;
+    throw error;
+  });
+  return simpleWebauthn;
+}
+
+/**
+ * As cerimônias reais (default de {@link WebauthnCeremonies}). Todas já são
+ * assíncronas no `@simplewebauthn/server`; cada uma só espera o import lazy antes
+ * de delegar.
+ */
+export const defaultWebauthnCeremonies: WebauthnCeremonies = {
+  generateRegistrationOptions: async (options) =>
+    (await loadSimpleWebauthn()).generateRegistrationOptions(options),
+  verifyRegistrationResponse: async (options) =>
+    (await loadSimpleWebauthn()).verifyRegistrationResponse(options),
+  generateAuthenticationOptions: async (options) =>
+    (await loadSimpleWebauthn()).generateAuthenticationOptions(options),
+  verifyAuthenticationResponse: async (options) =>
+    (await loadSimpleWebauthn()).verifyAuthenticationResponse(options),
+};
 
 /** RP (Relying Party) do WebAuthn usado nas cerimônias. */
 export interface ResolvedRp {

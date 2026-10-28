@@ -1134,6 +1134,22 @@ test.group('lucidAccountStore', (group) => {
     assert.isNull(await store.generatePasskeyRegistrationOptions!('nope'));
   });
 
+  test('cerimônias reais (default, @simplewebauthn/server carregado sob demanda) geram options e recusam resposta inválida', async ({
+    assert,
+  }) => {
+    const store = lucidAccountStore(TestAccount, {
+      webauthnCredentialModel: TestWebauthnCredential,
+      webauthn: { rpName: 'Test', rpId: 'localhost', origin: 'http://localhost' },
+    });
+    const acc = await store.create({ email: 'pk-real@x.com', password: 'pass123456' });
+    const gen = await store.generatePasskeyRegistrationOptions!(acc.id);
+    assert.isNotNull(gen);
+    assert.isString(gen!.challenge);
+    assert.isAbove(gen!.challenge.length, 0);
+    assert.equal((gen!.options as { rp?: { id?: string } }).rp?.id, 'localhost');
+    assert.isFalse(await store.verifyPasskeyRegistration!(acc.id, { id: 'x' }, gen!.challenge));
+  });
+
   test('verifyPasskeyRegistration: resposta válida persiste credencial e habilita MFA', async ({
     assert,
   }) => {
