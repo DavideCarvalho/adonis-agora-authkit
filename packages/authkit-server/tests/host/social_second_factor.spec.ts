@@ -173,22 +173,43 @@ test.group('login social — 2º fator no callback', () => {
     assert.lengthOf(completeLoginCalls, 1);
   });
 
-  test('política por conta: papel administrativo exige o fator mesmo sem cadastro', async ({
+  test('política por conta: papéis vêm do resolveTokenRoles (authz), não do globalRoles', async ({
     assert,
   }) => {
-    const { store } = makeStore({ totp: false, roles: ['ADMIN'] });
+    // A conta guarda só USER; o papel administrativo vive na autoridade do host.
+    const { store } = makeStore({ totp: false, roles: ['USER'] });
+    const seen: string[][] = [];
     const { service, completeLoginCalls } = buildService(store, {
-      secondFactor: (account: { globalRoles?: string[] }) =>
-        account.globalRoles?.includes('ADMIN') ? 'required' : 'enrolled',
+      secondFactor: (account: { roles: string[] }) => {
+        seen.push(account.roles);
+        return account.roles.includes('COORDINATOR') ? 'required' : 'enrolled';
+      },
     });
+    service.config.resolveTokenRoles = async () => ['RESEARCHER', 'COORDINATOR'];
     const session: Record<string, unknown> = { authkit_social_uid: UID };
     const ctx = fakeCtx(service, session);
 
     await callback(ctx);
 
+    assert.deepEqual(seen, [['RESEARCHER', 'COORDINATOR']]);
     assert.lengthOf(completeLoginCalls, 0);
     assert.deepEqual(ctx.__redirects, [CONTINUE_URL]);
     assert.isTrue((session[SOCIAL_PENDING_KEY] as { required: boolean }).required);
+  });
+
+  test('sem resolveTokenRoles: cai no globalRoles da conta', async ({ assert }) => {
+    const { store } = makeStore({ totp: false, roles: ['ADMIN'] });
+    const seen: string[][] = [];
+    const { service } = buildService(store, {
+      secondFactor: (account: { roles: string[] }) => {
+        seen.push(account.roles);
+        return 'enrolled';
+      },
+    });
+
+    await callback(fakeCtx(service, { authkit_social_uid: UID }));
+
+    assert.deepEqual(seen, [['ADMIN']]);
   });
 });
 

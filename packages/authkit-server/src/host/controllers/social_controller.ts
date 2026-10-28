@@ -3,12 +3,14 @@ import { randomUUID } from 'node:crypto';
 import type { AllyDriverContract } from '@adonisjs/ally/types';
 import type { HttpContext } from '@adonisjs/core/http';
 import {
+  type AuthAccount,
   supportsLoginMethodsPreference,
   supportsMagicLink,
   supportsPasskeys,
   supportsProviderIdentity,
 } from '../../accounts/account_store.js';
 import type { SocialSecondFactorPolicy } from '../../define_config.js';
+import { resolveAccountRoles } from '../account_roles.js';
 import { normalizeEmailIdentifier } from '../email_identifier.js';
 import { assertLoginAllowed } from '../login_attempt.js';
 import { type RuntimeSettings, resolveRuntimeSettingsOrNoop } from '../runtime_settings.js';
@@ -50,14 +52,20 @@ async function resolveGlobalAuthMethodsForUser(
 
 /**
  * Política de 2º fator do login social para esta conta (ver
- * `AuthSocialConfig.secondFactor`). Default `'enrolled'`.
+ * `AuthSocialConfig.secondFactor`). Default `'enrolled'`. Os papéis passados à
+ * função vêm de `resolveAccountRoles` (o `resolveTokenRoles` do host, ex.: authz).
  */
 async function resolveSecondFactorPolicy(
   cfg: any,
-  account: { id: string; email: string; globalRoles?: string[] },
+  account: AuthAccount,
 ): Promise<SocialSecondFactorPolicy> {
   const policy = cfg.social?.secondFactor ?? 'enrolled';
-  return typeof policy === 'function' ? await policy(account) : policy;
+  if (typeof policy !== 'function') return policy;
+  return await policy({
+    id: account.id,
+    email: account.email,
+    roles: await resolveAccountRoles(cfg, account),
+  });
 }
 
 /** true se a conta tem TOTP confirmado ou ao menos uma passkey. */
@@ -230,11 +238,7 @@ export default class AuthSocialController {
     // aqui espera que o fator valha também neste caminho. O desafio mora no
     // interaction controller (mesmo gate de senha/magic link/OTP), então este
     // passo só registra o login pendente e manda o browser para lá.
-    const policy = await resolveSecondFactorPolicy(cfg, {
-      id: user.id,
-      email: user.email,
-      globalRoles: (user as { globalRoles?: string[] }).globalRoles,
-    });
+    const policy = await resolveSecondFactorPolicy(cfg, user);
     const needsGate =
       policy === 'required' ||
       (policy === 'enrolled' && (!!cfg.mfa || (await hasEnrolledSecondFactor(store, user.id))));
