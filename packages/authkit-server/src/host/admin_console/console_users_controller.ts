@@ -13,7 +13,11 @@ import {
   userDtoWithRoles,
 } from '../admin_api/dto.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
-import { adminUserCreateValidator, adminUserRolesValidator } from '../admin_validators.js';
+import {
+  adminUserCreateValidator,
+  adminUserRolesValidator,
+  adminUserUpdateValidator,
+} from '../admin_validators.js';
 import type { RuntimeSettings } from '../runtime_settings.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { resolveEffectiveRolesCatalog } from '../runtime_toggles.js';
@@ -157,8 +161,25 @@ export default class ConsoleUsersController {
     return { ...(await userDtoWithRoles(cfg, result.account)), invited: result.invited };
   }
 
-  /** PATCH {prefix}/api/users/:id/roles */
+  /** PATCH {prefix}/api/users/:id/roles — body `{ roles }`. */
   async updateRoles(ctx: HttpContext) {
+    const { roles } = await ctx.request.validateUsing(adminUserRolesValidator);
+    return this.#setRoles(ctx, roles);
+  }
+
+  /**
+   * PATCH {prefix}/api/users/:id — body `{ globalRoles }`, a mesma forma do
+   * `PATCH /users/:id` da Admin API. É o que o `client.admin.users.update` do
+   * authkit-react chama, e o que o botão "Salvar papéis" do console usa: sem
+   * esta rota ele dava 404. Só papéis por aqui; nome e avatar não se editam no
+   * console.
+   */
+  async update(ctx: HttpContext) {
+    const { globalRoles } = await ctx.request.validateUsing(adminUserUpdateValidator);
+    return this.#setRoles(ctx, globalRoles);
+  }
+
+  async #setRoles(ctx: HttpContext, rolesInput: string[] | undefined) {
     const service = await ctx.containerResolver.make('authkit.server');
     const cfg = service.config;
     const id = ctx.request.param('id') as string;
@@ -174,7 +195,6 @@ export default class ConsoleUsersController {
 
     const actorId = (ctx.session?.get(ACCOUNT_SESSION_KEY) as string) ?? null;
 
-    const { roles: rolesInput } = await ctx.request.validateUsing(adminUserRolesValidator);
     const roles = Array.from(new Set((rolesInput ?? []).map((r) => r.trim()).filter(Boolean)));
 
     const users = new AdminUsersService(cfg);

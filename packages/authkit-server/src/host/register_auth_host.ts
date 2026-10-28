@@ -1212,6 +1212,7 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
         router.get(`${ap}/api/users/:id`, [C.consoleUsers, 'show']);
         router.post(`${ap}/api/users`, [C.consoleUsers, 'store']);
         router.patch(`${ap}/api/users/:id/roles`, [C.consoleUsers, 'updateRoles']);
+        router.patch(`${ap}/api/users/:id`, [C.consoleUsers, 'update']);
         router.post(`${ap}/api/users/:id/disable`, [C.consoleUsers, 'disable']);
         router.post(`${ap}/api/users/:id/enable`, [C.consoleUsers, 'enable']);
         router.post(`${ap}/api/users/:id/reset-password`, [C.consoleUsers, 'resetPassword']);
