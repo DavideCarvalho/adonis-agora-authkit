@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 0.82.3
+
+### Patch Changes
+
+- [#364](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/364) [`8b6dae4`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/8b6dae4dc88e0a3841c28f8feeba1de6c7020e49) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - perf(admin): list organizations in a bounded number of queries. The admin org list (`AdminOrgsService.listOrgs`, console + Admin REST API) used to walk every account and query its orgs and each org's members, so the query count grew with the account base. The Lucid store now answers it in 3 queries via a new optional `listAllOrgsWithMemberCount` store capability, returning exactly the same list in the same order; custom stores without it keep the previous path.
+
 ## 0.82.2
 
 ### Patch Changes
