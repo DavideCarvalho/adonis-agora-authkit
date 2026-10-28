@@ -146,7 +146,7 @@ catalogs:
     "@tanstack/react-query": "5.104.5"
     "@tanstack/react-table": "9.3.1"
     "@hookform/resolvers": "5.9.2"
-    "react-hook-form": "7.90.0"
+    "react-hook-form": "7.91.0"
     "react-error-boundary": "6.1.6"
     "react-i18next": "17.0.21"
     "react-day-picker": "10.0.2"
