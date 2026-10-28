@@ -905,9 +905,13 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
     ),
   );
   // Passkey como 2º fator alternativo no login (begin/finish; challenge na sessão).
+  // O `options` também cria estado (challenge) e é anônimo: mesmo bucket `login` do
+  // `/identifier` e do `/magic`. Um login normal gasta 1 ponto aqui quando usa passkey.
   keep(
     'passkeyOptions',
-    router.post('/auth/interaction/:uid/passkey/options', [C.interaction, 'passkeyOptions']),
+    withLogin(
+      router.post('/auth/interaction/:uid/passkey/options', [C.interaction, 'passkeyOptions']),
+    ),
   );
   withLogin(
     keep(

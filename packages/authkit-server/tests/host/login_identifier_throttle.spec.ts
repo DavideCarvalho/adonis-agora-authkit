@@ -102,6 +102,18 @@ test.group('interaction — throttle e escape hatch do host', () => {
     assert.strictEqual(identifier.uses[1][0], meuThrottle);
   });
 
+  test('o passo de opções de passkey também leva o throttle de login', ({ assert }) => {
+    const router = throttleTrackingRouter();
+    registerAuthHost(router, { mountPath: '/oidc' });
+
+    const options = router.routes.get('POST /auth/interaction/:uid/passkey/options')!;
+    const identifier = router.routes.get('POST /auth/interaction/:uid/identifier')!;
+
+    // Mesma classe do identifier: anônimo que cria estado, no bucket `login`.
+    assert.isAbove(options.uses.length, 0, 'passkey/options precisa de throttle');
+    assert.strictEqual(options.uses[0][0], identifier.uses[0][0]);
+  });
+
   test('routes/urls expõem o fluxo para o host (href sem hardcode)', ({ assert }) => {
     const router = throttleTrackingRouter();
     const map = registerAuthHost(router, { mountPath: '/oidc' });

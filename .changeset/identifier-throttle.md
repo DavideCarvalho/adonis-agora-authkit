@@ -4,11 +4,11 @@
 
 Throttle no `/identifier` e escape hatch para o host cuidar das rotas do login.
 
-**Throttle no passo de e-mail.** `POST /auth/interaction/:uid/identifier` era a única rota
-do fluxo de login sem rate-limit: o `/magic` (envio do e-mail) já tinha, o passo anterior
-não. O fluxo é passwordless, então o risco não é força bruta nem enumeração (a resposta é
-uniforme) — é criação ilimitada de estado de interaction por um anônimo. O `identifier`
-agora consome o bucket `login` (por IP), o mesmo do `magic`: um login normal gasta 2 dos 10
+**Throttle nos passos anônimos do login.** `POST /auth/interaction/:uid/identifier` e
+`POST /auth/interaction/:uid/passkey/options` eram as duas rotas do fluxo sem rate-limit: o
+`/magic` (envio do e-mail) já tinha, os passos anteriores não. O fluxo é passwordless, então o risco não é força bruta nem enumeração (a resposta é
+uniforme) — é criação ilimitada de estado de interaction por um anônimo. Os dois agora
+consomem o bucket `login` (por IP), o mesmo do `magic`: um login normal gasta 2 a 3 dos 10
 pontos por minuto.
 
 **Rotas exportadas.** `registerAuthHost()` passou a devolver, no `AuthHostRouteMap`:
