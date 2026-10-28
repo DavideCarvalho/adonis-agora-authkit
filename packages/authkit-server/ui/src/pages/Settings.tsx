@@ -147,6 +147,34 @@ const SETTING_SECTIONS: SettingSection[] = [
     ],
   },
   {
+    title: 'Login social: 2º fator',
+    description:
+      'Quando o "Continuar com Google" pede o 2º fator da conta. Travável via defineConfig({ social: { secondFactor } }).',
+    settingKey: 'social_second_factor',
+    fields: [
+      {
+        field: 'policy',
+        label: 'Política',
+        description: 'Para quem não tem um dos papéis abaixo',
+        type: 'select',
+        options: [
+          { value: 'enrolled', label: 'Pedir se a conta tem fator cadastrado' },
+          { value: 'required', label: 'Sempre exigir' },
+          { value: 'never', label: 'Confiar só no provider' },
+        ],
+        defaultValue: 'enrolled',
+      },
+      {
+        field: 'requiredRoles',
+        label: 'Papéis que sempre exigem',
+        description:
+          'Separados por vírgula. Conta sem fator cadastrado com esses papéis precisa cadastrar antes de entrar pelo Google.',
+        type: 'list',
+        defaultValue: [],
+      },
+    ],
+  },
+  {
     title: 'TTL dos tokens',
     description: 'Tempo de vida dos tokens OIDC (segundos).',
     settingKey: 'token_ttl',

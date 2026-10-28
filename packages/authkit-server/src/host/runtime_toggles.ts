@@ -46,6 +46,7 @@ export const SETTING_KEYS = {
   SUDO_MODE: 'sudo_mode',
   ACCOUNT_EXPIRATION: 'account_expiration',
   KEY_ROTATION: 'key_rotation',
+  SOCIAL_SECOND_FACTOR: 'social_second_factor',
 } as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];
@@ -1647,6 +1648,64 @@ export async function resolveEffectiveAccountExpiration(
           ? Math.floor(s.warnDays)
           : defaults.warnDays,
     };
+  } catch {
+    return defaults;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// social_second_factor setting
+// ---------------------------------------------------------------------------
+
+/** Política do 2º fator no login social (ver `AuthSocialConfig.secondFactor`). */
+export type SocialSecondFactorPolicyValue = 'enrolled' | 'required' | 'never';
+
+const SOCIAL_SECOND_FACTOR_POLICIES: readonly SocialSecondFactorPolicyValue[] = [
+  'enrolled',
+  'required',
+  'never',
+];
+
+/**
+ * Shape da setting `social_second_factor` em `auth_settings` — o equivalente,
+ * editável no console, de `social.secondFactor` do config. Declarar
+ * `social.secondFactor` no `defineConfig` TRAVA esta key (config locks).
+ *
+ *  - `policy`: `'enrolled'` | `'required'` | `'never'` (ver `SocialSecondFactorPolicy`).
+ *  - `requiredRoles`: papéis que SEMPRE exigem o fator, qualquer que seja a
+ *    `policy` (ex.: `['ADMIN']`). Os papéis vêm de `resolveAccountRoles` — a
+ *    mesma fonte do claim, então valem com `resolveTokenRoles`/authz.
+ */
+export interface SocialSecondFactorSetting {
+  policy?: SocialSecondFactorPolicyValue;
+  requiredRoles?: string[];
+}
+
+export interface ResolvedSocialSecondFactorSetting {
+  policy: SocialSecondFactorPolicyValue;
+  requiredRoles: string[];
+}
+
+/**
+ * Resolve a política efetiva da setting. Ausente ou inválida → `'enrolled'` sem
+ * papéis exigidos (o default da lib). FAIL-SAFE: qualquer erro → default.
+ */
+export async function resolveEffectiveSocialSecondFactor(
+  settings: SettingsCapability,
+): Promise<ResolvedSocialSecondFactorSetting> {
+  const defaults: ResolvedSocialSecondFactorSetting = { policy: 'enrolled', requiredRoles: [] };
+  try {
+    const raw = await settings.getSetting(SETTING_KEYS.SOCIAL_SECOND_FACTOR);
+    if (raw === null || raw === undefined) return defaults;
+    if (typeof raw !== 'object' || Array.isArray(raw)) return defaults;
+    const s = raw as SocialSecondFactorSetting;
+    const policy = SOCIAL_SECOND_FACTOR_POLICIES.includes(s.policy as SocialSecondFactorPolicyValue)
+      ? (s.policy as SocialSecondFactorPolicyValue)
+      : defaults.policy;
+    const requiredRoles = Array.isArray(s.requiredRoles)
+      ? s.requiredRoles.filter((r): r is string => typeof r === 'string' && r.trim() !== '')
+      : [];
+    return { policy, requiredRoles: requiredRoles.map((r) => r.trim()) };
   } catch {
     return defaults;
   }

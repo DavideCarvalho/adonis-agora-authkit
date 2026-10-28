@@ -42,6 +42,8 @@ export function deriveLockedSettingKeys(config: Record<string, any>): string[] {
   add(config.organizations !== undefined, SETTING_KEYS.ORGANIZATIONS_POLICY);
   add(config.admin?.impersonation !== undefined, SETTING_KEYS.ADMIN_IMPERSONATION);
   add(config.ttl !== undefined, SETTING_KEYS.TOKEN_TTL);
+  // `social.secondFactor` (política fixa ou função por conta) manda; o console não altera.
+  add(config.social?.secondFactor !== undefined, SETTING_KEYS.SOCIAL_SECOND_FACTOR);
   return locked;
 }
 

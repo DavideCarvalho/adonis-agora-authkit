@@ -86,6 +86,17 @@ function validateKnownKey(key: string, value: unknown): string | null {
       }
       return null;
     }
+    case SETTING_KEYS.SOCIAL_SECOND_FACTOR: {
+      if ('policy' in obj && !['enrolled', 'required', 'never'].includes(obj.policy as string))
+        return "social_second_factor.policy must be 'enrolled', 'required' or 'never'";
+      if (
+        'requiredRoles' in obj &&
+        (!Array.isArray(obj.requiredRoles) ||
+          obj.requiredRoles.some((r: unknown) => typeof r !== 'string'))
+      )
+        return 'social_second_factor.requiredRoles must be string[]';
+      return null;
+    }
     case SETTING_KEYS.TRUSTED_DEVICES: {
       if ('enabled' in obj && typeof obj.enabled !== 'boolean')
         return 'trusted_devices.enabled must be boolean';
