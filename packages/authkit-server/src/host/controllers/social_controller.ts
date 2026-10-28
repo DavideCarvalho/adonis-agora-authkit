@@ -8,10 +8,12 @@ import {
   supportsPasskeys,
   supportsProviderIdentity,
 } from '../../accounts/account_store.js';
+import type { SocialSecondFactorPolicy } from '../../define_config.js';
 import { normalizeEmailIdentifier } from '../email_identifier.js';
 import { assertLoginAllowed } from '../login_attempt.js';
 import { type RuntimeSettings, resolveRuntimeSettingsOrNoop } from '../runtime_settings.js';
 import { resolveEffectiveAuthMethods } from '../runtime_toggles.js';
+import { SOCIAL_PENDING_KEY, type SocialPendingLogin } from '../social_pending.js';
 import {
   type ResolvedAuthMethodsLike,
   resolveEffectiveUserLoginMethods,
@@ -44,6 +46,27 @@ async function resolveGlobalAuthMethodsForUser(
     passkeyCapable: supportsPasskeys(cfg.accountStore),
     configOverrides: cfg.authMethods,
   });
+}
+
+/**
+ * Política de 2º fator do login social para esta conta (ver
+ * `AuthSocialConfig.secondFactor`). Default `'enrolled'`.
+ */
+async function resolveSecondFactorPolicy(
+  cfg: any,
+  account: { id: string; email: string; globalRoles?: string[] },
+): Promise<SocialSecondFactorPolicy> {
+  const policy = cfg.social?.secondFactor ?? 'enrolled';
+  return typeof policy === 'function' ? await policy(account) : policy;
+}
+
+/** true se a conta tem TOTP confirmado ou ao menos uma passkey. */
+async function hasEnrolledSecondFactor(store: any, accountId: string): Promise<boolean> {
+  const mfa = (await store.getMfaState?.(accountId)) ?? { enabled: false };
+  if (mfa.totp ?? mfa.enabled) return true;
+  if (!supportsPasskeys(store)) return false;
+  const list = await store.listPasskeys(accountId);
+  return Array.isArray(list) && list.length > 0;
 }
 
 export default class AuthSocialController {
@@ -94,6 +117,22 @@ export default class AuthSocialController {
     //  3. Senão → cria conta nova e liga a identidade.
     let user = await store.findByProviderIdentity(provider, profile.id);
 
+    // E-mail que o provider declara NÃO verificado não identifica ninguém: ligar
+    // por ele entregaria a conta de quem é dono do endereço a quem só o digitou
+    // no provider. `unsupported`/ausente (provider que não informa) segue valendo.
+    const emailUnverified = profile.emailVerificationState === 'unverified';
+
+    if (!user && email && emailUnverified) {
+      await cfg.audit?.record({
+        type: 'login.failure',
+        email,
+        ip: ctx.request.ip?.() ?? null,
+        metadata: { stage: 'social', provider, reason: 'provider_email_unverified' },
+      });
+      ctx.session.forget(UID_SESSION_KEY);
+      return ctx.response.redirect(backToLogin);
+    }
+
     if (!user && email) {
       // Busca pela MESMA forma normalizada que o login usa. Uma conta gravada
       // com outra grafia não é encontrada aqui e a pessoa ganharia uma SEGUNDA
@@ -120,7 +159,8 @@ export default class AuthSocialController {
         email,
         password: randomUUID(),
         fullName: profile.name ?? null,
-        emailVerified: true,
+        // Só o provider que confirma o e-mail o torna verificado aqui.
+        emailVerified: profile.emailVerificationState === 'verified',
       });
       await store.linkProviderIdentity({
         accountId: created.id,
@@ -185,6 +225,30 @@ export default class AuthSocialController {
     }
 
     ctx.session.forget(UID_SESSION_KEY);
+
+    // 2º fator: o provider provou a identidade, mas quem cadastrou TOTP/passkey
+    // aqui espera que o fator valha também neste caminho. O desafio mora no
+    // interaction controller (mesmo gate de senha/magic link/OTP), então este
+    // passo só registra o login pendente e manda o browser para lá.
+    const policy = await resolveSecondFactorPolicy(cfg, {
+      id: user.id,
+      email: user.email,
+      globalRoles: (user as { globalRoles?: string[] }).globalRoles,
+    });
+    const needsGate =
+      policy === 'required' ||
+      (policy === 'enrolled' && (!!cfg.mfa || (await hasEnrolledSecondFactor(store, user.id))));
+    if (needsGate) {
+      if (!uid) return ctx.response.redirect(backToLogin);
+      const pending: SocialPendingLogin = {
+        accountId: user.id,
+        uid,
+        required: policy === 'required',
+        at: Date.now(),
+      };
+      ctx.session.put(SOCIAL_PENDING_KEY, pending);
+      return ctx.response.redirect(`/auth/interaction/${uid}/social/continue`);
+    }
 
     // Conclui a interaction OIDC para este usuário (escreve o 303 de volta ao authorize).
     // O cookie de interaction (path '/') sobrevive ao round-trip do provider OAuth.

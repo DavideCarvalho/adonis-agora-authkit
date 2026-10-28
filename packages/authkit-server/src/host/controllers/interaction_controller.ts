@@ -49,6 +49,11 @@ import {
   resolveEffectiveSessionPolicy,
 } from '../runtime_toggles.js';
 import {
+  SOCIAL_PENDING_KEY,
+  SOCIAL_PENDING_TTL_MS,
+  type SocialPendingLogin,
+} from '../social_pending.js';
+import {
   buildTrustedDevicePayload,
   isTrustedDeviceValid,
   TRUSTED_DEVICE_COOKIE,
@@ -718,9 +723,11 @@ export default class AuthInteractionController {
     primaryFactorId: string,
     rememberRequested?: boolean,
     passwordless = primary !== 'pwd',
+    forceRequired = false,
   ): Promise<{ kind: 'none' } | { kind: 'trusted' } | { kind: 'challenge'; response: unknown }> {
     const requiredFactors = cfg.mfa?.requiredFactors ?? 2;
-    const mfaRequired = this.acrRequiresMfa(cfg, details) || cfg.mfa?.requiredFactors !== undefined;
+    const mfaRequired =
+      forceRequired || this.acrRequiresMfa(cfg, details) || cfg.mfa?.requiredFactors !== undefined;
     const mfa = (await cfg.accountStore.getMfaState?.(accountId)) ?? { enabled: false };
     const enrolledTotp = mfa.totp ?? mfa.enabled;
     const enrolledPasskey = await this.hasPasskeys(cfg, accountId);
@@ -1178,6 +1185,7 @@ export default class AuthInteractionController {
     primaryFactorId = primary,
     rememberRequested?: boolean,
     passwordless = primary !== 'pwd',
+    forceRequired = false,
   ): Promise<{ kind: 'none' } | { kind: 'trusted' } | { kind: 'challenge'; response: any }> {
     ctx.session.forget(MFA_CUSTOM_PRIMARY_KEY);
     clearMfaFlow(ctx);
@@ -1191,8 +1199,9 @@ export default class AuthInteractionController {
         primaryFactorId,
         rememberRequested,
         passwordless,
+        forceRequired,
       );
-    const mfaRequired = this.acrRequiresMfa(cfg, details);
+    const mfaRequired = forceRequired || this.acrRequiresMfa(cfg, details);
     const mfa = (await cfg.accountStore.getMfaState?.(accountId)) ?? { enabled: false };
     // Passkey disponível como alternativa ao TOTP se o store suporta E a conta
     // tem ao menos uma credencial registrada.
@@ -1471,6 +1480,44 @@ export default class AuthInteractionController {
    * Consome o magic link. Em sucesso finaliza o login (amr `['email']`). Token
    * inválido/expirado volta ao início do login.
    */
+  /**
+   * GET /auth/interaction/:uid/social/continue — segunda metade do login social
+   * quando a conta deve o 2º fator (ver `AuthSocialController#callback`). Lê o
+   * login pendente da sessão UMA vez, confere que é desta interaction e passa
+   * pelo mesmo `secondFactorGate` dos outros fluxos, com `fed` como fator
+   * primário no `amr`.
+   */
+  async socialContinue(ctx: HttpContext) {
+    const service = await ctx.containerResolver.make('authkit.server');
+    const cfg = service.config;
+    const uid = ctx.request.param('uid');
+    const pending = ctx.session.get(SOCIAL_PENDING_KEY) as SocialPendingLogin | undefined;
+    ctx.session.forget(SOCIAL_PENDING_KEY);
+    const details = await service.interactions.details(ctx);
+    if (
+      !pending ||
+      pending.uid !== uid ||
+      details.uid !== uid ||
+      details.prompt.name !== 'login' ||
+      Date.now() - pending.at > SOCIAL_PENDING_TTL_MS
+    ) {
+      return ctx.response.redirect(`/auth/interaction/${uid}`);
+    }
+    const gate = await this.secondFactorGate(
+      ctx,
+      cfg,
+      pending.accountId,
+      details,
+      'fed',
+      'fed',
+      undefined,
+      true,
+      pending.required,
+    );
+    if (gate.kind === 'challenge') return gate.response;
+    return service.interactions.completeLogin(ctx, pending.accountId, { amr: ['fed'] });
+  }
+
   async magicLinkConsume(ctx: HttpContext) {
     const service = await ctx.containerResolver.make('authkit.server');
     const cfg = service.config;

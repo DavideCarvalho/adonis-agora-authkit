@@ -811,6 +811,8 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
   if (social) {
     router.get('/auth/:provider/redirect/:uid', [C.social, 'redirect']);
     router.get('/auth/:provider/callback', [C.social, 'callback']);
+    // 2º fator da conta depois do provider (ver AuthSocialConfig.secondFactor).
+    router.get('/auth/interaction/:uid/social/continue', [C.interaction, 'socialContinue']);
   }
 
   // PAT introspection (server-to-server).
