@@ -21,7 +21,10 @@ export interface SettingFieldMeta {
   field: string;
   label: string;
   description: string;
-  type: 'boolean' | 'number' | 'string';
+  /** `select`: um valor de `options`. `list`: lista de strings, editada separada por vírgula. */
+  type: 'boolean' | 'number' | 'string' | 'select' | 'list';
+  /** Opções do `select` (valor gravado + rótulo mostrado). */
+  options?: Array<{ value: string; label: string }>;
   defaultValue?: unknown;
 }
 
@@ -310,6 +313,37 @@ export function SettingsSectionContainer({
                         <div className="toggle-track" />
                         <div className="toggle-thumb" />
                       </label>
+                    ) : f.type === 'select' ? (
+                      <select
+                        className="input"
+                        style={{ width: 220 }}
+                        value={String(val ?? f.defaultValue ?? '')}
+                        disabled={locked}
+                        onChange={(e) => setField(f, e.target.value)}
+                      >
+                        {(f.options ?? []).map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : f.type === 'list' ? (
+                      <input
+                        className="input input-mono"
+                        style={{ width: 220 }}
+                        placeholder="ADMIN, COORDINATOR"
+                        value={(Array.isArray(val) ? val : []).join(', ')}
+                        disabled={locked}
+                        onChange={(e) =>
+                          setField(
+                            f,
+                            e.target.value
+                              .split(',')
+                              .map((item) => item.trim())
+                              .filter(Boolean),
+                          )
+                        }
+                      />
                     ) : f.type === 'number' ? (
                       <input
                         className="input input-mono"

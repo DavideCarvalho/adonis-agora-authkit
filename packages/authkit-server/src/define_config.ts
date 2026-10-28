@@ -95,6 +95,9 @@ export interface AuthSocialConfig {
    * 2º fator no login social. Aceita uma política fixa ou uma função por conta
    * (ex.: `'required'` só para papéis administrativos). Default: `'enrolled'`.
    *
+   * Omitido, a política vem da setting `social_second_factor` do console admin
+   * (política + papéis que sempre exigem o fator). Declarado, TRAVA essa setting.
+   *
    * `roles` vem da MESMA fonte do claim de papéis: `resolveTokenRoles` quando o
    * host o configura (ex.: `@adonis-agora/authz`), senão `account.globalRoles`.
    * Só é resolvido quando a política é uma função.

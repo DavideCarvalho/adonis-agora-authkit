@@ -15,7 +15,10 @@ import { normalizeEmailIdentifier } from '../email_identifier.js';
 import { rememberLastLoginMethod } from '../last_login_method.js';
 import { assertLoginAllowed } from '../login_attempt.js';
 import { type RuntimeSettings, resolveRuntimeSettingsOrNoop } from '../runtime_settings.js';
-import { resolveEffectiveAuthMethods } from '../runtime_toggles.js';
+import {
+  resolveEffectiveAuthMethods,
+  resolveEffectiveSocialSecondFactor,
+} from '../runtime_toggles.js';
 import { SOCIAL_PENDING_KEY, type SocialPendingLogin } from '../social_pending.js';
 import {
   type ResolvedAuthMethodsLike,
@@ -52,21 +55,35 @@ async function resolveGlobalAuthMethodsForUser(
 }
 
 /**
- * Política de 2º fator do login social para esta conta (ver
- * `AuthSocialConfig.secondFactor`). Default `'enrolled'`. Os papéis passados à
- * função vêm de `resolveAccountRoles` (o `resolveTokenRoles` do host, ex.: authz).
+ * Política de 2º fator do login social para esta conta.
+ *
+ * `social.secondFactor` no config manda (e trava a setting no console). Sem ele,
+ * vale a setting `social_second_factor` do console: a `policy` e, para quem tem
+ * um dos `requiredRoles`, `'required'`. Default `'enrolled'`. Os papéis vêm de
+ * `resolveAccountRoles` (o `resolveTokenRoles` do host, ex.: authz) e só são
+ * resolvidos quando há algo que dependa deles.
  */
 async function resolveSecondFactorPolicy(
   cfg: any,
   account: AuthAccount,
+  settings: RuntimeSettings,
 ): Promise<SocialSecondFactorPolicy> {
-  const policy = cfg.social?.secondFactor ?? 'enrolled';
-  if (typeof policy !== 'function') return policy;
-  return await policy({
-    id: account.id,
-    email: account.email,
-    roles: await resolveAccountRoles(cfg, account),
-  });
+  const fromConfig = cfg.social?.secondFactor;
+  if (typeof fromConfig === 'function') {
+    return await fromConfig({
+      id: account.id,
+      email: account.email,
+      roles: await resolveAccountRoles(cfg, account),
+    });
+  }
+  if (fromConfig !== undefined) return fromConfig;
+
+  const setting = await resolveEffectiveSocialSecondFactor(settings);
+  if (setting.policy !== 'required' && setting.requiredRoles.length > 0) {
+    const roles = await resolveAccountRoles(cfg, account);
+    if (roles.some((role) => setting.requiredRoles.includes(role))) return 'required';
+  }
+  return setting.policy;
 }
 
 /** true se a conta tem TOTP confirmado ou ao menos uma passkey. */
@@ -240,7 +257,7 @@ export default class AuthSocialController {
     // aqui espera que o fator valha também neste caminho. O desafio mora no
     // interaction controller (mesmo gate de senha/magic link/OTP), então este
     // passo só registra o login pendente e manda o browser para lá.
-    const policy = await resolveSecondFactorPolicy(cfg, user);
+    const policy = await resolveSecondFactorPolicy(cfg, user, settings);
     const needsGate =
       policy === 'required' ||
       (policy === 'enrolled' && (!!cfg.mfa || (await hasEnrolledSecondFactor(store, user.id))));

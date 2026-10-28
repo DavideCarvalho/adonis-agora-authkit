@@ -14,8 +14,13 @@
  */
 
 import { test } from '@japa/runner';
+import { deriveLockedSettingKeys } from '../../src/host/config_locks.js';
 import InteractionController from '../../src/host/controllers/interaction_controller.js';
 import AuthSocialController from '../../src/host/controllers/social_controller.js';
+import {
+  resolveEffectiveSocialSecondFactor,
+  SETTING_KEYS,
+} from '../../src/host/runtime_toggles.js';
 import { SOCIAL_PENDING_KEY } from '../../src/host/social_pending.js';
 
 const PROVIDER = 'google';
@@ -96,6 +101,9 @@ function fakeCtx(
     containerResolver: {
       make: async (key: string) => {
         if (key === 'authkit.server') return service;
+        // `service.db`: tabela `auth_settings` fake (setting do console). Sem ela,
+        // o callback degrada para settings no-op, como num host sem a migração.
+        if (key === 'lucid.db' && service.db) return service.db;
         throw new Error(`unknown: ${key}`);
       },
     },
@@ -331,5 +339,125 @@ test.group('login social — continuação do 2º fator', () => {
       assert.deepEqual(ctx.__redirects, [`/auth/interaction/${UID}`]);
     }
     assert.lengthOf(completeLoginCalls, 0);
+  });
+});
+
+/** `lucid.db` mínimo servindo `auth_settings` (mesmo padrão de account_status_gate_social). */
+function settingsDb(rows: Record<string, unknown>) {
+  const store = new Map(Object.entries(rows).map(([k, v]) => [k, JSON.stringify(v)]));
+  function chain(filters: Array<{ col: string; val: string | null }>) {
+    return {
+      where: (col: string, val: string) => chain([...filters, { col, val }]),
+      whereNull: (col: string) => chain([...filters, { col, val: null }]),
+      async first() {
+        const key = filters.find((f) => f.col === 'key')?.val;
+        const value = key ? store.get(key) : undefined;
+        return value === undefined ? null : { key, value };
+      },
+    };
+  }
+  return {
+    from(...args: any[]) {
+      return (this as any).table(...args);
+    },
+    table() {
+      return {
+        select: () => ({ limit: () => Promise.resolve([]) }),
+        where: (col: string, val: string) => chain([{ col, val }]),
+        whereNull: (col: string) => chain([{ col, val: null }]),
+      };
+    },
+  };
+}
+
+test.group('login social — 2º fator pela setting do console', () => {
+  const withSetting = (value: unknown) => settingsDb({ social_second_factor: value });
+
+  test("setting 'never': conta com TOTP entra direto", async ({ assert }) => {
+    const { store } = makeStore({ totp: true });
+    const { service, completeLoginCalls } = buildService(store);
+    (service as any).db = withSetting({ policy: 'never' });
+
+    await callback(fakeCtx(service, { authkit_social_uid: UID }));
+
+    assert.lengthOf(completeLoginCalls, 1);
+  });
+
+  test('papel em requiredRoles (vindo do authz) exige o fator mesmo sem cadastro', async ({
+    assert,
+  }) => {
+    const { store } = makeStore({ totp: false, roles: ['USER'] });
+    const { service, completeLoginCalls } = buildService(store);
+    (service as any).db = withSetting({ policy: 'enrolled', requiredRoles: ['COORDINATOR'] });
+    service.config.resolveTokenRoles = async () => ['COORDINATOR'];
+    const session: Record<string, unknown> = { authkit_social_uid: UID };
+    const ctx = fakeCtx(service, session);
+
+    await callback(ctx);
+
+    assert.lengthOf(completeLoginCalls, 0);
+    assert.deepEqual(ctx.__redirects, [CONTINUE_URL]);
+    assert.isTrue((session[SOCIAL_PENDING_KEY] as { required: boolean }).required);
+  });
+
+  test("requiredRoles vale até com policy 'never'; quem não tem o papel entra direto", async ({
+    assert,
+  }) => {
+    const db = withSetting({ policy: 'never', requiredRoles: ['ADMIN'] });
+    const admin = makeStore({ totp: false, roles: ['ADMIN'] });
+    const user = makeStore({ totp: true, roles: ['USER'] });
+    const forAdmin = buildService(admin.store);
+    const forUser = buildService(user.store);
+    (forAdmin.service as any).db = db;
+    (forUser.service as any).db = db;
+
+    await callback(fakeCtx(forAdmin.service, { authkit_social_uid: UID }));
+    await callback(fakeCtx(forUser.service, { authkit_social_uid: UID }));
+
+    assert.lengthOf(forAdmin.completeLoginCalls, 0, 'admin vai para o desafio');
+    assert.lengthOf(forUser.completeLoginCalls, 1, "'never' vale para os outros");
+  });
+
+  test('config declarado manda: setting do console é ignorado', async ({ assert }) => {
+    const { store } = makeStore({ totp: true });
+    const { service, completeLoginCalls } = buildService(store, { secondFactor: 'enrolled' });
+    (service as any).db = withSetting({ policy: 'never' });
+
+    await callback(fakeCtx(service, { authkit_social_uid: UID }));
+
+    assert.lengthOf(completeLoginCalls, 0, "o arquivo diz 'enrolled': TOTP desafia");
+  });
+
+  test('declarar social.secondFactor trava a setting; sem ele, não', ({ assert }) => {
+    assert.include(
+      deriveLockedSettingKeys({ social: { providers: ['google'], secondFactor: 'required' } }),
+      SETTING_KEYS.SOCIAL_SECOND_FACTOR,
+    );
+    assert.include(
+      deriveLockedSettingKeys({ social: { providers: ['google'], secondFactor: () => 'never' } }),
+      SETTING_KEYS.SOCIAL_SECOND_FACTOR,
+    );
+    assert.notInclude(
+      deriveLockedSettingKeys({ social: { providers: ['google'] } }),
+      SETTING_KEYS.SOCIAL_SECOND_FACTOR,
+    );
+  });
+
+  test('setting ausente ou inválida cai no default enrolled, sem papéis', async ({ assert }) => {
+    const fake = (value: unknown) => ({ getSetting: async () => value }) as any;
+    const expected = { policy: 'enrolled', requiredRoles: [] };
+
+    assert.deepEqual(await resolveEffectiveSocialSecondFactor(fake(null)), expected);
+    assert.deepEqual(await resolveEffectiveSocialSecondFactor(fake('required')), expected);
+    assert.deepEqual(
+      await resolveEffectiveSocialSecondFactor(fake({ policy: 'sempre', requiredRoles: 'ADMIN' })),
+      expected,
+    );
+    assert.deepEqual(
+      await resolveEffectiveSocialSecondFactor(
+        fake({ policy: 'required', requiredRoles: [' ADMIN ', 3, ''] }),
+      ),
+      { policy: 'required', requiredRoles: ['ADMIN'] },
+    );
   });
 });
