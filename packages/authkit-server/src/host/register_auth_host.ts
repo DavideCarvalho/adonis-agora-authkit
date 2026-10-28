@@ -797,6 +797,8 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
   router.get('/auth/otp-unlock/:token', [C.interaction, 'otpUnlock']);
   router.get('/auth/interaction/:uid/signup', [C.registration, 'showSignup']);
   withLogin(router.post('/auth/interaction/:uid/signup', [C.registration, 'signup']));
+  // Confirmação do cadastro passwordless: a conta nasce aqui, não no POST.
+  router.get('/auth/interaction/:uid/signup/confirm', [C.registration, 'signupConfirm']);
 
   // Recuperação de senha (standalone).
   router.get('/auth/forgot-password', [C.registration, 'showForgot']);

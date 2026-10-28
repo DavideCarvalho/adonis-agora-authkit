@@ -1,6 +1,7 @@
 import '../augmentations.js';
 import { randomBytes } from 'node:crypto';
 import type { HttpContext } from '@adonisjs/core/http';
+import { supportsAccountDeletion, supportsMagicLink } from '../../accounts/account_store.js';
 import { PasswordPolicyError } from '../../password/password_manager.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
 import { guardBotProtection, resolveEffectiveBotProtection } from '../bot_protection.js';
@@ -19,6 +20,7 @@ import {
   resolveEffectiveRegistration,
 } from '../runtime_toggles.js';
 import { dispatchSecurityNotice } from '../security_notice_service.js';
+import { issueSignupToken, readSignupToken } from '../signup_token.js';
 import {
   forgotPasswordValidator,
   passwordlessSignupValidator,
@@ -214,6 +216,16 @@ export default class AuthRegistrationController {
       password: data.password,
     });
     if (!result.ok) {
+      // A conta acabou de nascer e o login dela falhou: sem desfazer, a pessoa
+      // ficaria com um e-mail "já cadastrado" numa conta em que nunca entrou.
+      if (created && supportsAccountDeletion(accountStore)) {
+        await accountStore.deleteAccount(created.id).catch((error: unknown) => {
+          ctx.logger.error(
+            { err: error, accountId: created.id },
+            'authkit: falha ao desfazer conta após signup sem login',
+          );
+        });
+      }
       return render(ctx, 'signup', {
         uid: ctx.request.param('uid'),
         csrfToken: ctx.request.csrfToken,
@@ -253,48 +265,44 @@ export default class AuthRegistrationController {
   }
 
   /**
-   * Cadastro passwordless: valida e-mail + nome, cria a conta (senha random
-   * inutilizável) se ainda não existe, emite um magic link e o envia. Sempre
-   * responde "link enviado" (anti-enumeração), exista a conta ou não. Consumir o
-   * link finaliza o login pelo fluxo de magic link já existente (GET /magic).
+   * Cadastro passwordless: valida e-mail + nome e envia um link. Conta existente
+   * recebe um magic link de login; e-mail novo recebe o link de confirmação do
+   * cadastro (`signupConfirm`), e só então a conta é criada. Sempre responde
+   * "link enviado" (anti-enumeração), exista a conta ou não.
    */
   async #passwordlessSignup(ctx: HttpContext, deps: { cfg: any; brand: any; details: any }) {
-    const { cfg, brand, details } = deps;
+    const { cfg, brand } = deps;
     const render = cfg.render!;
     const accountStore = cfg.accountStore;
     const uid = ctx.request.param('uid');
     const data = await ctx.request.validateUsing(passwordlessSignupValidator);
 
-    // Cria a conta se ainda não existe. Senha random inutilizável: o login é 100%
-    // passwordless (mesmo precedente das contas criadas por identidade social).
+    const origin = authkitOrigin(cfg);
     const existing = await accountStore.findByEmail(data.email);
-    if (!existing) {
-      const created = await accountStore.create({
-        email: data.email,
-        fullName: data.fullName,
-        password: randomBytes(24).toString('hex'),
-      });
-      await cfg.audit?.record({
-        type: 'signup',
-        accountId: created.id,
-        email: data.email,
-        ip: ctx.request.ip?.() ?? null,
-        clientId: (details.params.client_id as string | undefined) ?? null,
-      });
-    }
-
-    // Emite + envia o magic link (mesma construção do login por magic link).
-    // `data.email` já é a forma normalizada — a mesma sob a qual a conta foi
-    // encontrada acima ou acabou de ser criada.
-    const issued = await accountStore.issueMagicLinkToken(data.email);
-    if (issued) {
-      const origin = authkitOrigin(cfg);
-      const magicUrl = `${origin}/auth/interaction/${uid}/magic?token=${encodeURIComponent(issued.token)}`;
-      const to = issued.account.email;
+    if (existing) {
+      // Conta já existe: o "cadastro" vira um login por magic link.
+      // `data.email` já é a forma normalizada, a mesma do login.
+      const issued = await accountStore.issueMagicLinkToken(data.email);
+      if (issued) {
+        const magicUrl = `${origin}/auth/interaction/${uid}/magic?token=${encodeURIComponent(issued.token)}`;
+        const to = issued.account.email;
+        if (cfg.mail?.onMagicLink) {
+          await cfg.mail.onMagicLink({ email: to, magicUrl, token: issued.token });
+        } else {
+          await sendMagicLinkEmail(ctx, { email: to, magicUrl });
+        }
+      }
+    } else {
+      // Conta nova: NÃO cria aqui. O link de confirmação leva e-mail + nome num
+      // token cifrado; a conta só nasce quando o dono do e-mail o abre
+      // (`signupConfirm`). Um envio que falha não deixa conta órfã, e digitar o
+      // e-mail de outra pessoa não cria nada.
+      const token = await issueSignupToken({ email: data.email, fullName: data.fullName ?? null });
+      const magicUrl = `${origin}/auth/interaction/${uid}/signup/confirm?token=${encodeURIComponent(token)}`;
       if (cfg.mail?.onMagicLink) {
-        await cfg.mail.onMagicLink({ email: to, magicUrl, token: issued.token });
+        await cfg.mail.onMagicLink({ email: data.email, magicUrl, token, kind: 'signup' });
       } else {
-        await sendMagicLinkEmail(ctx, { email: to, magicUrl });
+        await sendMagicLinkEmail(ctx, { email: data.email, magicUrl });
       }
     }
 
@@ -305,6 +313,66 @@ export default class AuthRegistrationController {
       brand,
       magicLinkSent: true,
     });
+  }
+
+  /**
+   * GET /auth/interaction/:uid/signup/confirm?token= — o dono do e-mail abriu o
+   * link do cadastro passwordless. Cria a conta (e-mail já verificado: quem
+   * clicou provou a caixa de entrada) e conclui pelo fluxo de magic link, que
+   * aplica os mesmos gates do login (status, manutenção, 2º fator).
+   *
+   * Conta que já existe → o link é recusado e a pessoa volta ao login: é o que
+   * faz o link valer uma vez só, sem estado no banco.
+   */
+  async signupConfirm(ctx: HttpContext) {
+    const service = await ctx.containerResolver.make('authkit.server');
+    const cfg = service.config;
+    const accountStore = cfg.accountStore;
+    const uid = ctx.request.param('uid');
+    const backToLogin = `/auth/interaction/${uid}`;
+    const token = (ctx.request.qs().token as string | undefined) ?? '';
+
+    if (!cfg.passwordless?.signup || !supportsMagicLink(accountStore) || !token) {
+      return ctx.response.redirect(backToLogin);
+    }
+    const runtimeSettings = await getRuntimeSettings(ctx);
+    const registrationEnabled = await resolveEffectiveRegistration(
+      cfg.registration?.enabled ?? true,
+      runtimeSettings,
+    );
+    if (!registrationEnabled) return ctx.response.redirect(backToLogin);
+
+    const claim = await readSignupToken(token);
+    if (!claim) return ctx.response.redirect(backToLogin);
+    if (await accountStore.findByEmail(claim.email)) return ctx.response.redirect(backToLogin);
+
+    let created: Awaited<ReturnType<typeof accountStore.create>>;
+    try {
+      created = await accountStore.create({
+        email: claim.email,
+        fullName: claim.fullName,
+        password: randomBytes(24).toString('hex'),
+        emailVerified: true,
+      });
+    } catch (error) {
+      // Dois cliques simultâneos: o segundo perde na unicidade do e-mail.
+      if (await accountStore.findByEmail(claim.email)) return ctx.response.redirect(backToLogin);
+      throw error;
+    }
+    const details = await service.interactions.details(ctx);
+    await cfg.audit?.record({
+      type: 'signup',
+      accountId: created.id,
+      email: claim.email,
+      ip: ctx.request.ip?.() ?? null,
+      clientId: (details.params.client_id as string | undefined) ?? null,
+    });
+
+    const issued = await accountStore.issueMagicLinkToken(claim.email);
+    if (!issued) return ctx.response.redirect(backToLogin);
+    return ctx.response.redirect(
+      `/auth/interaction/${uid}/magic?token=${encodeURIComponent(issued.token)}`,
+    );
   }
 
   /** GET /auth/forgot-password — tela standalone. */

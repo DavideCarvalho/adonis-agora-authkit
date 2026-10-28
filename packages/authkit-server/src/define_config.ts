@@ -114,6 +114,12 @@ export interface MailHooks {
      * hosts existentes simplesmente ignoram este campo (back-compat).
      */
     channel?: 'code' | 'link';
+    /**
+     * `'signup'`: link de confirmação do cadastro passwordless (a conta é criada
+     * ao abri-lo). Ausente = login por magic link. O host pode trocar o texto do
+     * e-mail ("confirme seu cadastro"); ignorar o campo continua funcionando.
+     */
+    kind?: 'signup';
   }) => Promise<void>;
   /**
    * Envia o link de CONFIRMAÇÃO DE IDENTIDADE (sudo). Distinto de
@@ -668,10 +674,13 @@ export interface PasswordlessConfigInput {
   passkeyFirst?: boolean;
   /**
    * Liga o cadastro público passwordless: o signup pede só e-mail + nome (sem
-   * senha), cria a conta com uma senha aleatória inutilizável e envia um magic
-   * link que finaliza o login (o mesmo fluxo do login por magic link). Default:
-   * false. Exige que o accountStore implemente {@link MagicLinkCapability}; sem
-   * ela o cadastro passwordless fica indisponível e o fluxo de senha segue valendo.
+   * senha) e envia um link de confirmação (`onMagicLink` com `kind: 'signup'`).
+   * A conta só é criada quando o dono do e-mail abre o link: nasce com o e-mail
+   * verificado e uma senha aleatória inutilizável, e o login segue pelo magic
+   * link. E-mail que já tem conta recebe um magic link de login. Default: false.
+   * Exige que o accountStore implemente {@link MagicLinkCapability} e o serviço de
+   * encryption do app (APP_KEY), que assina o link; sem a capacidade o cadastro
+   * passwordless fica indisponível e o fluxo de senha segue valendo.
    */
   signup?: boolean;
 }
