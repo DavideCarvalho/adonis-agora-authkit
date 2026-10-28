@@ -78,8 +78,34 @@ export type AuthHostRenderer = (
   props: Record<string, unknown>,
 ) => unknown;
 
+/**
+ * Quando o login social pede o 2º fator da conta:
+ *  - `'enrolled'` (default): pede se a conta tem um fator cadastrado (TOTP,
+ *    passkey ou método custom de `mfa`). Quem ativou o fator espera que ele
+ *    valha em qualquer porta de entrada, inclusive "Continuar com Google".
+ *  - `'required'`: exige sempre; conta sem fator vê a tela de "configure o MFA"
+ *    (não há o que desafiar). Cuidado: tranca quem ainda não cadastrou fator.
+ *  - `'never'`: confia só no provider (o comportamento antigo).
+ */
+export type SocialSecondFactorPolicy = 'enrolled' | 'required' | 'never';
+
 export interface AuthSocialConfig {
   providers: string[];
+  /**
+   * 2º fator no login social. Aceita uma política fixa ou uma função por conta
+   * (ex.: `'required'` só para papéis administrativos). Default: `'enrolled'`.
+   *
+   * `roles` vem da MESMA fonte do claim de papéis: `resolveTokenRoles` quando o
+   * host o configura (ex.: `@adonis-agora/authz`), senão `account.globalRoles`.
+   * Só é resolvido quando a política é uma função.
+   */
+  secondFactor?:
+    | SocialSecondFactorPolicy
+    | ((account: {
+        id: string;
+        email: string;
+        roles: string[];
+      }) => SocialSecondFactorPolicy | Promise<SocialSecondFactorPolicy>);
 }
 
 /**

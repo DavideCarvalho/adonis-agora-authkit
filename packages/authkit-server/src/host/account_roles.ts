@@ -20,15 +20,17 @@ type RoleResolverConfig = {
  * account's stored `globalRoles`. Falls back to `account.globalRoles ?? []` when no hook is set, so
  * default behavior is unchanged.
  *
- * The console is not OIDC-client- or org-scoped for role purposes, so the hook is called with an
- * empty context (`clientId: undefined`, `activeOrg: null`).
+ * Gates that are not tied to an OIDC client (console, maintenance mode, PAT introspection) call the
+ * hook with an empty context; callers that know the client (opaque access-token introspection) pass
+ * its `clientId`, matching what the token was minted with. `activeOrg` is always `null` here.
  */
 export async function resolveAccountRoles(
   cfg: RoleResolverConfig,
   account: AuthAccount,
+  context: { clientId?: string } = {},
 ): Promise<string[]> {
   if (cfg.resolveTokenRoles) {
-    return cfg.resolveTokenRoles(account, { clientId: undefined, activeOrg: null });
+    return cfg.resolveTokenRoles(account, { clientId: context.clientId, activeOrg: null });
   }
   return account.globalRoles ?? [];
 }

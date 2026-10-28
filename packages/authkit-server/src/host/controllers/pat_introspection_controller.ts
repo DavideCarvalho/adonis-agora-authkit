@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { HttpContext } from '@adonisjs/core/http';
+import { resolveAccountRoles } from '../account_roles.js';
 
 function bearerMatches(header: string | undefined, expected: string): boolean {
   if (!header || !header.startsWith('Bearer ')) return false;
@@ -53,7 +54,7 @@ export default class PatIntrospectionController {
       sub: account.id,
       email: account.email,
       name: account.name ?? null,
-      roles: account.globalRoles ?? [],
+      roles: await resolveAccountRoles(cfg, account),
       scopes: meta.scopes,
       audience: meta.audience,
       exp: meta.exp,
