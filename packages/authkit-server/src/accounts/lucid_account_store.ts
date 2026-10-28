@@ -332,6 +332,35 @@ function resolveAccountTable(Model: AccountTableSource | null | undefined): stri
   return undefined;
 }
 
+/** Up to this many ids, filter with `WHERE IN`; above it, read every id instead. */
+const ADMIN_ORDER_IN_LIMIT = 500;
+
+/**
+ * Of `accountIds`, the ones that exist, in the order `listAccounts` pages them
+ * (`ORDER BY email ASC`, sorted by the database so collation matches). One query,
+ * plain rows (no model hydration), primary key only.
+ */
+async function listAccountIdsInAdminOrder(Model: any, accountIds: string[]): Promise<string[]> {
+  if (accountIds.length === 0) return [];
+  Model.boot?.();
+  const pk = Model.$columnsDefinitions?.get?.('id')?.columnName ?? 'id';
+  const readAll = async () =>
+    (await Model.query().select(pk).orderBy('email', 'asc').pojo()) as any[];
+  let rows: any[];
+  if (accountIds.length <= ADMIN_ORDER_IN_LIMIT) {
+    try {
+      rows = await Model.query().select(pk).whereIn(pk, accountIds).orderBy('email', 'asc').pojo();
+    } catch {
+      // e.g. a member row whose account id doesn't fit the key type: the full read
+      // never binds member ids, exactly like the `listAccounts` walk.
+      rows = await readAll();
+    }
+  } else {
+    rows = await readAll();
+  }
+  return rows.map((row) => String(row[pk]));
+}
+
 export function lucidAccountStore(
   Model: any,
   options: LucidAccountStoreOptions = {},
@@ -458,6 +487,8 @@ export function lucidAccountStore(
               const row = await Model.find(accountId);
               return row?.email ?? null;
             },
+            listAccountIdsInAdminOrder: (accountIds: string[]) =>
+              listAccountIdsInAdminOrder(Model, accountIds),
           }),
         }
       : {}),
