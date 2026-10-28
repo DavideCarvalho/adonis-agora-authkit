@@ -627,6 +627,15 @@ export interface OrganizationsCapability {
   findOrgById(orgId: string): Promise<OrgSummary | null>;
   findOrgBySlug(slug: string): Promise<OrgSummary | null>;
   listOrgsForAccount(accountId: string): Promise<Array<OrgSummary & { role: string }>>;
+  /**
+   * OPTIONAL: every org that has at least one member whose account exists, with
+   * its member count, in a bounded number of queries. Must return exactly what
+   * the admin fallback builds by walking `listAccounts` (admin order) and calling
+   * `listOrgsForAccount` per account: orgs in first-seen order, `role` being the
+   * role of the first member seen in that order, `memberCount` being
+   * `listOrgMembers(orgId).length`. Absent → the admin service uses that walk.
+   */
+  listAllOrgsWithMemberCount?(): Promise<Array<OrgSummary & { role: string; memberCount: number }>>;
   updateOrg(
     orgId: string,
     patch: { name?: string; logoUrl?: string | null; metadata?: Record<string, unknown> | null },

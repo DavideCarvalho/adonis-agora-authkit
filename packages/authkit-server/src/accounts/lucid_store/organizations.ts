@@ -17,6 +17,24 @@ export interface OrgStoreContext {
   InvitationModel: any;
   /** Mapa accountId → email, para validar aceitação de convite. */
   findAccountEmail: (accountId: string) => Promise<string | null>;
+  /**
+   * Of the given account ids, the ones whose account exists, in the admin
+   * listing order (`listAccounts`: email asc). When present, the store exposes
+   * `listAllOrgsWithMemberCount` (bounded queries for the admin org list).
+   */
+  listAccountIdsInAdminOrder?: (accountIds: string[]) => Promise<string[]>;
+}
+
+/** Max ids per `WHERE IN` (stays well below every dialect's bind-parameter limit). */
+const IN_CHUNK = 500;
+
+/** `Model.findMany` in chunks of {@link IN_CHUNK} ids. */
+async function findManyChunked(Model: any, ids: string[]): Promise<any[]> {
+  const rows: any[] = [];
+  for (let i = 0; i < ids.length; i += IN_CHUNK) {
+    rows.push(...(await Model.findMany(ids.slice(i, i + IN_CHUNK))));
+  }
+  return rows;
 }
 
 function toOrgSummary(row: any): OrgSummary {
@@ -68,9 +86,59 @@ async function countOwners(MemberModel: any, orgId: string): Promise<number> {
 }
 
 export function buildOrganizations(ctx: OrgStoreContext): OrganizationsCapability {
-  const { OrgModel, MemberModel, InvitationModel, findAccountEmail } = ctx;
+  const { OrgModel, MemberModel, InvitationModel, findAccountEmail, listAccountIdsInAdminOrder } =
+    ctx;
 
   return {
+    ...(listAccountIdsInAdminOrder
+      ? {
+          /**
+           * Admin org list in 3 queries (all memberships, the member accounts in
+           * admin order, the orgs) instead of walking every account. Mirrors the
+           * fallback in `AdminOrgsService.listOrgs` exactly: accounts in
+           * `listAccounts` order (email asc), each account's memberships in the
+           * same (natural) order `listOrgsForAccount` reads them, first sighting of
+           * an org wins (its `role`), and `memberCount` counts every member row
+           * (like `listOrgMembers(orgId).length`).
+           */
+          async listAllOrgsWithMemberCount() {
+            const memberships = await MemberModel.query();
+            if (memberships.length === 0) return [];
+            const byAccount = new Map<string, any[]>();
+            const memberCount = new Map<string, number>();
+            for (const m of memberships) {
+              const accountId = String(m.accountId);
+              const orgId = String(m.organizationId);
+              memberCount.set(orgId, (memberCount.get(orgId) ?? 0) + 1);
+              const list = byAccount.get(accountId);
+              if (list) list.push(m);
+              else byAccount.set(accountId, [m]);
+            }
+            const accountIds = await listAccountIdsInAdminOrder([...byAccount.keys()]);
+            const orgs = new Map<string, any>();
+            for (const org of await findManyChunked(OrgModel, [...memberCount.keys()])) {
+              orgs.set(String(org.id), org);
+            }
+            const result: Array<OrgSummary & { role: string; memberCount: number }> = [];
+            const seen = new Set<string>();
+            for (const accountId of accountIds) {
+              for (const m of byAccount.get(String(accountId)) ?? []) {
+                const orgId = String(m.organizationId);
+                if (seen.has(orgId)) continue;
+                const org = orgs.get(orgId);
+                if (!org) continue;
+                seen.add(orgId);
+                result.push({
+                  ...toOrgSummary(org),
+                  role: m.role,
+                  memberCount: memberCount.get(orgId) ?? 0,
+                });
+              }
+            }
+            return result;
+          },
+        }
+      : {}),
     async createOrg(input) {
       const { randomUUID } = await import('node:crypto');
       const org = await OrgModel.create({

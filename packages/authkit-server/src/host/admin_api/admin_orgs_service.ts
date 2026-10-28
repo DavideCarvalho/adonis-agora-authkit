@@ -113,6 +113,12 @@ export class AdminOrgsService {
     const store = this.cfg.accountStore;
     if (!supportsOrganizations(store)) return { ok: false, reason: 'not_supported' };
 
+    // Fast path: stores that can answer in a bounded number of queries (the Lucid
+    // store does). Same list, same order as the walk below.
+    if (typeof store.listAllOrgsWithMemberCount === 'function') {
+      return store.listAllOrgsWithMemberCount();
+    }
+
     // O store não tem listAllOrgs — acumulamos via memberships de todas as contas.
     // Para admin, fazemos um listAccounts full e coletamos todas as orgs únicas.
     // Mais eficiente: usa a tabela de organizations diretamente pelo listOrgMembers

@@ -386,6 +386,51 @@ test.group('OrganizationsCapability — CRUD de org', (group) => {
     assert.deepEqual(await store.listOrgsForAccount('nobody'), []);
   });
 
+  test('listAllOrgsWithMemberCount == admin listOrgs walk (same list, same order, bounded queries)', async ({
+    assert,
+  }) => {
+    const zed = await store.create({ email: 'zed@acme.test', password: 'pass12345678' });
+    const alice = await store.create({ email: 'alice@acme.test', password: 'pass12345678' });
+    const mike = await store.create({ email: 'mike@acme.test', password: 'pass12345678' });
+    const zOrg = await store.createOrg({ name: 'Z', slug: 'z-org', ownerAccountId: zed.id });
+    const oOrg = await store.createOrg({ name: 'O', slug: 'o-org', ownerAccountId: account.id });
+    const mOrg = await store.createOrg({ name: 'M', slug: 'm-org', ownerAccountId: mike.id });
+    const ghostOrg = await store.createOrg({ name: 'G', slug: 'g-org', ownerAccountId: 'ghost' });
+    await store.addOrgMember(zOrg.id, alice.id, 'admin');
+    await store.addOrgMember(oOrg.id, mike.id, 'member');
+    await store.addOrgMember(mOrg.id, alice.id, 'member');
+    await store.addOrgMember(zOrg.id, 'ghost', 'member');
+    await store.addOrgMember(mOrg.id, zed.id, 'admin');
+
+    const selects: string[] = [];
+    const clients = new Set([db.connection().getReadClient(), db.connection().getWriteClient()]);
+    for (const client of clients) {
+      client.on('query', (q: { sql: string }) => {
+        if (/^select/i.test(q.sql)) selects.push(q.sql);
+      });
+    }
+
+    const { AdminOrgsService } = await import('../../src/host/admin_api/admin_orgs_service.js');
+    const fallbackStore = { ...store, listAllOrgsWithMemberCount: undefined };
+    const walked = await new AdminOrgsService({ accountStore: fallbackStore } as any).listOrgs();
+    const walkQueries = selects.length;
+    selects.length = 0;
+    const fast = await new AdminOrgsService({ accountStore: store } as any).listOrgs();
+
+    assert.deepEqual(fast, walked);
+    assert.deepEqual(
+      (fast as any[]).map((o) => `${o.slug}:${o.role}:${o.memberCount}`),
+      ['z-org:admin:3', 'm-org:member:3', 'o-org:member:2'],
+    );
+    assert.notInclude(
+      (fast as any[]).map((o) => o.id),
+      ghostOrg.id,
+    );
+    assert.equal(selects.length, 3);
+    assert.isAbove(walkQueries, selects.length);
+    assert.deepEqual(await store.listAllOrgsWithMemberCount(), fast);
+  });
+
   test('updateOrg atualiza campos', async ({ assert }) => {
     const org = await store.createOrg({ name: 'Old', slug: 'old', ownerAccountId: account.id });
     const updated = await store.updateOrg(org.id, { name: 'New' });
