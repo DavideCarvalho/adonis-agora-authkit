@@ -61,6 +61,8 @@ export const DEFAULT_MESSAGES = {
   'signup.magic_link_sent':
     'Check your email — we sent you a link to finish creating your account.',
   'login.passkey_button': 'Sign in with a passkey',
+  // Selo do método com que este dispositivo entrou da última vez.
+  'login.last_used': 'Last used',
   // Login por OTP (código digitável).
   'login.otp_label': 'Enter the login code from the email',
   'login.otp_placeholder': '000000',
@@ -1114,6 +1116,7 @@ export const PT_BR_MESSAGES = {
   'login.magic_link_sent': 'Se a conta existir, enviamos um link de login.',
   'signup.magic_link_sent': 'Enviamos um link para o seu e-mail. Abra-o para concluir o cadastro.',
   'login.passkey_button': 'Entrar com passkey',
+  'login.last_used': 'Último usado',
   // Login por OTP (código digitável).
   'login.otp_label': 'Digite o código de login do e-mail',
   'login.otp_placeholder': '000000',

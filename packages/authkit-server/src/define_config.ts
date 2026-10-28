@@ -791,17 +791,26 @@ export interface LoginConfigInput {
    * idêntico ao de antes, e-mail idêntico). Ver `host/otp_login.ts`.
    */
   otp?: OtpLoginConfigInput;
+  /**
+   * Selo "último usado" na tela de login: o método com que este dispositivo
+   * entrou da última vez (senha, link, código, passkey, social) fica num cookie
+   * sem identidade e a tela o destaca. Por dispositivo, nunca por conta — não
+   * vaza como uma conta entra. Default: **ligado**. Ver `host/last_login_method.ts`.
+   */
+  lastUsedMethod?: boolean;
 }
 
 export interface ResolvedLoginConfig {
   requireVerifiedEmail: boolean;
   otp: ResolvedOtpLoginConfig;
+  lastUsedMethod: boolean;
 }
 
 export function resolveLogin(input?: LoginConfigInput): ResolvedLoginConfig {
   return {
     requireVerifiedEmail: input?.requireVerifiedEmail ?? false,
     otp: resolveOtpLoginConfig(input?.otp),
+    lastUsedMethod: input?.lastUsedMethod ?? true,
   };
 }
 

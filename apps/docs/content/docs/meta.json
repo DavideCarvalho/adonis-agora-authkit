@@ -12,6 +12,7 @@
     "mfa",
     "webauthn",
     "passwordless",
+    "last-used-method",
     "refresh-tokens",
     "back-channel-logout",
     "account-linking",

@@ -47,6 +47,18 @@
   border-color: var(--authkit-border);
 }
 
+.authkit-last-used {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  line-height: 1.4;
+  border-radius: 999px;
+  background: var(--authkit-border);
+  color: var(--authkit-muted);
+}
+
 .authkit-passkey {
   display: flex;
   flex-direction: column;

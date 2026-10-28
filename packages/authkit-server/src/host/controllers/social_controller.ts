@@ -12,6 +12,7 @@ import {
 import type { SocialSecondFactorPolicy } from '../../define_config.js';
 import { resolveAccountRoles } from '../account_roles.js';
 import { normalizeEmailIdentifier } from '../email_identifier.js';
+import { rememberLastLoginMethod } from '../last_login_method.js';
 import { assertLoginAllowed } from '../login_attempt.js';
 import { type RuntimeSettings, resolveRuntimeSettingsOrNoop } from '../runtime_settings.js';
 import { resolveEffectiveAuthMethods } from '../runtime_toggles.js';
@@ -233,6 +234,7 @@ export default class AuthSocialController {
     }
 
     ctx.session.forget(UID_SESSION_KEY);
+    rememberLastLoginMethod(ctx, cfg, `social:${provider}`);
 
     // 2º fator: o provider provou a identidade, mas quem cadastrou TOTP/passkey
     // aqui espera que o fator valha também neste caminho. O desafio mora no
