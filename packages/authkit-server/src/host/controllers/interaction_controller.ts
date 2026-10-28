@@ -1,12 +1,14 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import {
+  type AuthAccount,
   supportsLoginMethodsPreference,
   supportsMagicLink,
   supportsOtpLogin,
   supportsPasskeys,
 } from '../../accounts/account_store.js';
 import type { ResolvedServerConfig } from '../../define_config.js';
+import { resolveAccountRoles } from '../account_roles.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
 import { guardBotProtection, resolveEffectiveBotProtection } from '../bot_protection.js';
 import { brandFor, isFirstParty } from '../branding.js';
@@ -62,6 +64,17 @@ import {
   normalizeUserLoginMethods,
   resolveEffectiveUserLoginMethods,
 } from '../user_login_methods.js';
+
+/**
+ * Conta com papel administrativo (`cfg.admin.roles`, default `['ADMIN']`) — o
+ * bypass do modo manutenção. Os papéis vêm de `resolveAccountRoles`, a mesma
+ * fonte do claim (`resolveTokenRoles`, ex.: authz), não só do `globalRoles`.
+ */
+async function isAdminAccount(cfg: any, account: AuthAccount): Promise<boolean> {
+  const adminRoles: string[] = cfg.admin?.roles ?? ['ADMIN'];
+  const roles = await resolveAccountRoles(cfg, account);
+  return adminRoles.some((role) => roles.includes(role));
+}
 
 /**
  * Chave i18n do erro de status de conta (disabled/expired) compartilhada pelos
@@ -156,10 +169,7 @@ export default class AuthInteractionController {
     });
     if (!status.allowed) return fail(accountStatusErrorKey(status.reason));
     const maintenance = await resolveEffectiveMaintenanceMode(settings);
-    if (
-      maintenance.enabled &&
-      !(cfg.admin?.roles ?? ['ADMIN']).some((role) => (account.globalRoles ?? []).includes(role))
-    ) {
+    if (maintenance.enabled && !(await isAdminAccount(cfg, account))) {
       return render(ctx, 'maintenance', {
         uid: details.uid,
         csrfToken: ctx.request.csrfToken,
@@ -602,9 +612,7 @@ export default class AuthInteractionController {
     // Contas admin (role em cfg.admin.roles) CONTINUAM podendo logar.
     // Contas comuns são bloqueadas com a tela de manutenção.
     if (maintenance.enabled) {
-      const adminRoles: string[] = cfg.admin?.roles ?? ['ADMIN'];
-      const accountRoles: string[] = acc.globalRoles ?? [];
-      const isAdmin = adminRoles.some((r: string) => accountRoles.includes(r));
+      const isAdmin = await isAdminAccount(cfg, acc);
       if (!isAdmin) {
         return render(ctx, 'maintenance', {
           uid: details.uid,
@@ -924,10 +932,7 @@ export default class AuthInteractionController {
       });
     }
     const maintenance = await resolveEffectiveMaintenanceMode(settings);
-    if (
-      maintenance.enabled &&
-      !(cfg.admin?.roles ?? ['ADMIN']).some((role) => (account.globalRoles ?? []).includes(role))
-    ) {
+    if (maintenance.enabled && !(await isAdminAccount(cfg, account))) {
       return cfg.render!(ctx, 'maintenance', {
         uid: flow.uid,
         csrfToken: ctx.request.csrfToken,

@@ -1,4 +1,5 @@
 import type { ResolvedServerConfig } from '../../define_config.js';
+import { resolveAccountRoles } from '../account_roles.js';
 
 /** Resultado de introspecção genérica (PAT ou opaque access token). */
 export type VerifyResult =
@@ -50,7 +51,7 @@ export class TokenVerifyService {
       sub: account.id,
       email: account.email,
       name: account.name ?? null,
-      roles: account.globalRoles ?? [],
+      roles: await resolveAccountRoles(this.cfg, account),
       scopes: meta.scopes,
       audience: meta.audience,
       exp: meta.exp,
@@ -77,7 +78,11 @@ export class TokenVerifyService {
       sub,
       email: account?.email ?? null,
       name: account?.name ?? null,
-      roles: account?.globalRoles ?? [],
+      roles: account
+        ? await resolveAccountRoles(this.cfg, account, {
+            clientId: (at.clientId as string | undefined) ?? undefined,
+          })
+        : [],
       scopes,
       audience: (at.aud as string | string[] | undefined) ?? null,
       clientId: (at.clientId as string | undefined) ?? null,
