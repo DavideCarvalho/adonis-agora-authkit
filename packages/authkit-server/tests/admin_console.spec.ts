@@ -500,6 +500,26 @@ test.group('Console JSON API — controller unit tests', (group) => {
     assert.deepEqual(result.globalRoles, ['ADMIN']);
   });
 
+  // O "Salvar papéis" do console chama client.admin.users.update → PATCH
+  // /api/users/:id com { globalRoles }. A rota não existia: 404.
+  test('PATCH /api/users/:id { globalRoles } → atualiza (botão Salvar papéis)', async ({
+    assert,
+  }) => {
+    const c = fakeCtx({ service, inputs: { email: 'save@x.com', password: 'pw123' } });
+    const created: any = await new ConsoleUsersController().store(c.ctx);
+
+    const { ctx } = fakeCtx({
+      service,
+      params: { id: created.id },
+      inputs: { globalRoles: ['ADMIN'] },
+    });
+    const result: any = await new ConsoleUsersController().update(ctx);
+
+    assert.deepEqual(result.globalRoles, ['ADMIN']);
+    const after = await service.config.accountStore.findById(created.id);
+    assert.deepEqual(after.globalRoles, ['ADMIN']);
+  });
+
   test('PATCH /api/users/:id/roles inexistente → 404', async ({ assert }) => {
     const ctrl = new ConsoleUsersController();
     const { ctx, captured } = fakeCtx({ service, params: { id: 'ghost' }, inputs: { roles: [] } });
