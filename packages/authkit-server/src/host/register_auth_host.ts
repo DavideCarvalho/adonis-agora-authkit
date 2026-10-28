@@ -225,6 +225,37 @@ export const adminGuard = async (ctx: any, next: () => Promise<void>) => {
  * (o `adminGuard` 404a quando `config.admin.enabled` é false). Mantenha-os em
  * sincronia; os guards garantem que a divergência não vire um bypass.
  */
+/**
+ * Rotas do fluxo de login que o host pode querer reforçar por conta própria
+ * (throttle mais apertado, WAF, log de auditoria, feature flag…).
+ *
+ * A lib continua aplicando o throttle padrão (`rateLimit`), mas estas são as
+ * rotas em que o host tem contexto para ir além — ex.: limitar `/identifier`
+ * por e-mail em vez de só por IP.
+ */
+export type AuthHostRouteKey =
+  | 'interaction'
+  | 'identifier'
+  | 'login'
+  | 'mfa'
+  | 'mfaCustomBegin'
+  | 'mfaCustomVerify'
+  | 'passwordExpired'
+  | 'passkeyOptions'
+  | 'passkeyVerify'
+  | 'magic'
+  | 'magicConsume'
+  | 'otpVerify'
+  | 'consent'
+  | 'switchIdentifier';
+
+/**
+ * Middleware do AdonisJS aceito por `route.use` — função, import lazy, o nome de um
+ * middleware do router, ou a tupla `[middleware, options]`. Tipado frouxo de propósito:
+ * a lib não conhece os middlewares do host e não deve inferir a forma deles.
+ */
+export type AuthHostMiddleware = unknown;
+
 export interface AuthHostOptions {
   /**
    * Onde o provider OIDC é montado. Deve casar com o final do issuer. OPCIONAL:
@@ -254,6 +285,26 @@ export interface AuthHostOptions {
    * NÃO espelhe o config aqui — omitir a chave já herda dele.
    */
   rateLimit?: RateLimitConfigInput;
+  /**
+   * Middleware EXTRA por rota do fluxo de login, aplicado DEPOIS do throttle da lib.
+   *
+   * É o escape hatch para quem quer política própria sem fork: a rota continua sendo
+   * da lib (handler, validação, OIDC), mas o host pendura o que quiser nela —
+   * `throttle` do AdonisJS, verificação de origem, auditoria:
+   *
+   * ```ts
+   * registerAuthHost(router, {
+   *   extraMiddleware: {
+   *     identifier: [throttle({ limit: 5, window: '1 minute' })],
+   *   },
+   * })
+   * ```
+   *
+   * Não é opção de POLÍTICA (não é travada pelo `defineConfig`): é encanamento.
+   * Rodeu antes do throttle da lib? Não: a ordem é lib → host, então o seu middleware
+   * vê a requisição depois da barreira padrão.
+   */
+  extraMiddleware?: Partial<Record<AuthHostRouteKey, readonly AuthHostMiddleware[]>>;
   /**
    * Console admin opt-in (B6).
    *
@@ -462,6 +513,24 @@ export interface AuthHostRouteMap {
   adminApi: { prefix: string } | null;
   /** Nomes das rotas nomeadas (as demais herdam o auto-naming do AdonisJS). */
   names: Record<string, string>;
+  /**
+   * Handles das rotas do fluxo de login (os `Route` do AdonisJS), por chave estável.
+   *
+   * Serve para o host pendurar middleware DEPOIS do registro (`route.use([...])`) ou
+   * inspecionar o que já está aplicado. Para o mesmo efeito de forma declarativa, use
+   * a opção `extraMiddleware` ao chamar `registerAuthHost`.
+   */
+  routes: Partial<Record<AuthHostRouteKey, ReturnType<Router['post']>>>;
+  /** Pattern de cada rota do fluxo (para montar href sem hardcodar). `:uid` incluído. */
+  urls: Record<AuthHostRouteKey, string>;
+  /**
+   * URL concreta de uma rota do fluxo, com o `:uid` já preenchido.
+   *
+   * ```ts
+   * map.interactionUrl('magic', uid) // '/auth/interaction/<uid>/magic'
+   * ```
+   */
+  interactionUrl: (key: AuthHostRouteKey, uid: string) => string;
   /** Ids dos métodos de sudo cujas rotas foram montadas, na ordem de montagem. */
   sudoMethods: string[];
   /**
@@ -693,8 +762,9 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
       : (hostCfg?.rateLimit ?? resolveRateLimit(undefined));
   const throttles = createAuthThrottles(resolvedRateLimit);
   // Helpers: aplicam o middleware de throttle quando presente; senão no-op.
-  const withLogin = (route: any): void => {
+  const withLogin = (route: any): any => {
     if (throttles) route.use([throttles.login]);
+    return route;
   };
   const withIntrospection = (route: ReturnType<Router['post']>): void => {
     if (throttles) route.use([throttles.introspection]);
@@ -707,8 +777,42 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
     if (throttles) route.use([throttles.sudo]);
   };
   // Bucket PRÓPRIO da verificação de código OTP: mais apertado que o login, por IP.
-  const withOtpLogin = (route: any): void => {
+  const withOtpLogin = (route: any): any => {
     if (throttles) route.use([throttles.otpLogin]);
+    return route;
+  };
+
+  // ─── Rotas do fluxo de login expostas ao host ──────────────────────────────
+  // `AuthHostRouteMap.routes` entrega o Route do AdonisJS (dá para pendurar
+  // middleware depois do registro) e `urls` entrega o pattern, para o front não
+  // hardcodar href. `extraMiddleware[key]` é aplicado aqui, DEPOIS do throttle da
+  // lib, para o host poder endurecer sem substituir o padrão.
+  type HostRoute = ReturnType<Router['post']>;
+  const hostRoutes: Partial<Record<AuthHostRouteKey, HostRoute>> = {};
+  const interactionUrls: Record<AuthHostRouteKey, string> = {
+    interaction: '/auth/interaction/:uid',
+    identifier: '/auth/interaction/:uid/identifier',
+    login: '/auth/interaction/:uid/login',
+    mfa: '/auth/interaction/:uid/mfa',
+    mfaCustomBegin: '/auth/interaction/:uid/mfa/custom/:method/begin',
+    mfaCustomVerify: '/auth/interaction/:uid/mfa/custom/:method/verify',
+    passwordExpired: '/auth/interaction/:uid/password-expired',
+    passkeyOptions: '/auth/interaction/:uid/passkey/options',
+    passkeyVerify: '/auth/interaction/:uid/passkey/verify',
+    magic: '/auth/interaction/:uid/magic',
+    magicConsume: '/auth/interaction/:uid/magic',
+    otpVerify: '/auth/interaction/:uid/otp-verify',
+    consent: '/auth/interaction/:uid/consent',
+    switchIdentifier: '/auth/interaction/:uid/switch',
+  };
+  const keep = <T extends HostRoute>(key: AuthHostRouteKey, route: T): T => {
+    hostRoutes[key] = route;
+    const extraForRoute = opts.extraMiddleware?.[key];
+    if (extraForRoute && extraForRoute.length > 0) {
+      // `use` espera o MiddlewareList do AdonisJS; aqui é lista opaca do host.
+      (route.use as (middleware: unknown[]) => unknown)([...extraForRoute]);
+    }
+    return route;
   };
 
   // ─── Assets estáticos do host-kit (públicos, sem autenticação) ─────────────
@@ -759,40 +863,77 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
   router.any(mount, [C.oidc]).as('authkit.oidc.root');
 
   // Interaction (login multi-step + consent + signup).
-  router.get('/auth/interaction/:uid', [C.interaction, 'show']);
-  router.post('/auth/interaction/:uid/identifier', [C.interaction, 'identifier']);
-  withLogin(router.post('/auth/interaction/:uid/login', [C.interaction, 'login']));
-  withLogin(router.post('/auth/interaction/:uid/mfa', [C.interaction, 'mfaVerify']));
-  const customMfaBeginRoute = router.post('/auth/interaction/:uid/mfa/custom/:method/begin', [
-    C.interaction,
-    'customMfaBegin',
-  ]);
+  // Cada rota passa por `keep(key, …)`: entra em `AuthHostRouteMap.routes`/`urls` e
+  // recebe o `extraMiddleware` do host (depois do throttle da lib).
+  keep('interaction', router.get('/auth/interaction/:uid', [C.interaction, 'show']));
+  // `/identifier` é a ENTRADA do fluxo: recebe só o e-mail e abre/avança a interaction.
+  // Sem throttle, um anônimo cria estado de interaction sem limite (Redis) e o passo
+  // fica de fora do orçamento que o resto do login respeita. Bucket `login` (por IP),
+  // o mesmo do `/magic`: um login normal gasta 2 dos 10 pontos por minuto.
+  keep(
+    'identifier',
+    withLogin(router.post('/auth/interaction/:uid/identifier', [C.interaction, 'identifier'])),
+  );
+  withLogin(keep('login', router.post('/auth/interaction/:uid/login', [C.interaction, 'login'])));
+  withLogin(keep('mfa', router.post('/auth/interaction/:uid/mfa', [C.interaction, 'mfaVerify'])));
+  const customMfaBeginRoute = keep(
+    'mfaCustomBegin',
+    router.post('/auth/interaction/:uid/mfa/custom/:method/begin', [
+      C.interaction,
+      'customMfaBegin',
+    ]),
+  );
   withLogin(customMfaBeginRoute);
   customMfaBeginRoute.as('authkit.mfa.custom.begin');
-  const customMfaVerifyRoute = router.post('/auth/interaction/:uid/mfa/custom/:method/verify', [
-    C.interaction,
-    'customMfaVerify',
-  ]);
+  const customMfaVerifyRoute = keep(
+    'mfaCustomVerify',
+    router.post('/auth/interaction/:uid/mfa/custom/:method/verify', [
+      C.interaction,
+      'customMfaVerify',
+    ]),
+  );
   withLogin(customMfaVerifyRoute);
   customMfaVerifyRoute.as('authkit.mfa.custom.verify');
   // Troca de senha obrigatória quando a senha expirou (password expiration gate).
   withLogin(
-    router.post('/auth/interaction/:uid/password-expired', [
-      C.interaction,
-      'changeExpiredPassword',
-    ]),
+    keep(
+      'passwordExpired',
+      router.post('/auth/interaction/:uid/password-expired', [
+        C.interaction,
+        'changeExpiredPassword',
+      ]),
+    ),
   );
   // Passkey como 2º fator alternativo no login (begin/finish; challenge na sessão).
-  router.post('/auth/interaction/:uid/passkey/options', [C.interaction, 'passkeyOptions']);
-  withLogin(router.post('/auth/interaction/:uid/passkey/verify', [C.interaction, 'passkeyVerify']));
+  keep(
+    'passkeyOptions',
+    router.post('/auth/interaction/:uid/passkey/options', [C.interaction, 'passkeyOptions']),
+  );
+  withLogin(
+    keep(
+      'passkeyVerify',
+      router.post('/auth/interaction/:uid/passkey/verify', [C.interaction, 'passkeyVerify']),
+    ),
+  );
   // Magic link (passwordless): POST emite (throttled), GET consome o token do link.
-  withLogin(router.post('/auth/interaction/:uid/magic', [C.interaction, 'magicLinkRequest']));
-  router.get('/auth/interaction/:uid/magic', [C.interaction, 'magicLinkConsume']);
+  withLogin(
+    keep('magic', router.post('/auth/interaction/:uid/magic', [C.interaction, 'magicLinkRequest'])),
+  );
+  keep(
+    'magicConsume',
+    router.get('/auth/interaction/:uid/magic', [C.interaction, 'magicLinkConsume']),
+  );
   // Login por OTP (código digitável): verifica o código no bucket dedicado
   // `authkit_otp_login` (por IP, mais apertado que o login).
-  withOtpLogin(router.post('/auth/interaction/:uid/otp-verify', [C.interaction, 'otpVerify']));
-  router.post('/auth/interaction/:uid/consent', [C.interaction, 'consent']);
-  router.get('/auth/interaction/:uid/switch', [C.interaction, 'switchIdentifier']);
+  keep(
+    'otpVerify',
+    withOtpLogin(router.post('/auth/interaction/:uid/otp-verify', [C.interaction, 'otpVerify'])),
+  );
+  keep('consent', router.post('/auth/interaction/:uid/consent', [C.interaction, 'consent']));
+  keep(
+    'switchIdentifier',
+    router.get('/auth/interaction/:uid/switch', [C.interaction, 'switchIdentifier']),
+  );
   // OTP unlock: link enviado por e-mail quando o fator TOTP/recovery é travado.
   router.get('/auth/otp-unlock/:token', [C.interaction, 'otpUnlock']);
   router.get('/auth/interaction/:uid/signup', [C.registration, 'showSignup']);
@@ -1385,6 +1526,10 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
   // inteiro, e não só metade (certo no servidor, errado na UI).
   return {
     mountPath: mount,
+    routes: hostRoutes,
+    urls: interactionUrls,
+    interactionUrl: (key: AuthHostRouteKey, uid: string) =>
+      interactionUrls[key].replace(':uid', encodeURIComponent(uid)),
     account: {
       prefix: accountPrefix(),
       api: apiBase,
