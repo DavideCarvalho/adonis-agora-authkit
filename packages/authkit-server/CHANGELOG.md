@@ -1,5 +1,40 @@
 # @adonis-agora/authkit-server
 
+## 0.83.0
+
+### Minor Changes
+
+- [#368](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/368) [`b7870c2`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/b7870c2bbd0fbdc347b91eb585f70e76a7c27143) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - feat(admin): roles are read-only in the console and the Admin API when they come from outside authkit.
+  
+  With `resolveTokenRoles` configured (roles kept in `@adonis-agora/authz` or the host's own table), `globalRoles` decides nothing, but the console and `PATCH /users/:id` still wrote to it and answered "saved". Now:
+  
+  - User DTOs (console and Admin API) carry `roles`: the effective roles from `resolveAccountRoles`, the same source as the `roles` claim. Without the hook it equals `globalRoles`. `globalRoles` keeps meaning the stored column.
+  - Editing roles answers `409 roles_managed_externally` (console `PATCH /api/users/:id/roles`, Admin API `PATCH /users/:id` with `globalRoles`). Other fields stay editable.
+  - The console shows the effective roles as read-only, with a note that the application manages them (`features.rolesManagedExternally` in the injected config).
+  - `AdminUser.roles?: string[]` in `@adonis-agora/authkit-react`.
+  
+  Hosts without `resolveTokenRoles` keep editing `globalRoles` as before.
+
+- [#367](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/367) [`7903c64`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/7903c64b500377cfaf772c40674675d97d8419c4) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - fix(signup): passwordless signup no longer creates the account before the e-mail is confirmed.
+  
+  The signup POST used to create the account, then send the magic link. A failed send left an account behind, and anyone could create an account (and fire `account.created`) for someone else's e-mail. Now, for an e-mail without an account, the POST only sends a confirmation link carrying e-mail + name in a token encrypted with the app's APP_KEY (15 min, its own purpose). The account is created by the new `GET /auth/interaction/:uid/signup/confirm` when the owner opens the link, with `emailVerified: true`, and the login continues through the existing magic link flow (status, maintenance and second-factor gates). If the account already exists when the link is opened, the link is refused, which makes it single-use without database state. E-mails that already have an account still get a login magic link, and the response stays the same either way.
+  
+  `mail.onMagicLink` receives `kind: 'signup'` for the confirmation link; hosts that ignore it keep working. The `signup` audit event and `account.created` now fire on confirmation.
+  
+  Password signup: when the login right after creating the account fails, the new account is deleted (stores with `deleteAccount`), instead of leaving an "e-mail already registered" account nobody logged into.
+
+- [#366](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/366) [`e235133`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/e235133c00cc28a671b882e8fe21c33dec8ad03e) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - fix(social): social login now honors the account's second factor, and no longer links or creates accounts from an e-mail the provider reports as unverified.
+  
+  - The social callback used to call `completeLogin` right after the provider, so an account with TOTP or a passkey skipped it on "Continue with Google" while password, magic link and OTP went through `secondFactorGate`. When the account owes a factor, the callback now stores a one-shot pending login and redirects to the new `GET /auth/interaction/:uid/social/continue`, which runs the same gate (`amr: ['fed', ...]`).
+  - New `social.secondFactor` option: `'enrolled'` (default: challenge when a factor is enrolled), `'required'` (always; accounts without a factor see the "set up MFA" screen) or `'never'` (previous behavior), or a function per account that receives `{ id, email, roles }`, where `roles` comes from `resolveTokenRoles` when configured (e.g. `@adonis-agora/authz`), else `account.globalRoles`.
+  - When the provider reports `emailVerificationState: 'unverified'`, the callback no longer links the identity to an existing account by e-mail nor creates a new one. New accounts are created with `emailVerified` only when the provider confirmed the address (previously always `true`).
+  
+  Accounts without an enrolled factor log in exactly as before.
+
+### Patch Changes
+
+- [#366](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/366) [`e235133`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/e235133c00cc28a671b882e8fe21c33dec8ad03e) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - fix(roles): every role gate reads the host's role authority. When `resolveTokenRoles` is configured (e.g. roles kept in `@adonis-agora/authz`), the `roles` claim and the admin console already used it, but other gates read `account.globalRoles` directly: the maintenance-mode admin bypass (an admin whose role lives in authz was locked out during maintenance), PAT introspection (`/authkit/pat/introspect`) and the Admin API `POST /tokens/verify` returned the stored column. They now go through `resolveAccountRoles`; opaque access-token introspection passes the token's `clientId` to the hook, as at mint time. Without the hook nothing changes.
+
 ## 0.82.3
 
 ### Patch Changes
