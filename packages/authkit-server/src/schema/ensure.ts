@@ -354,22 +354,23 @@ const TABLES: TableDef[] = [
     },
   },
   /*
-   * Personal Agent Protocol (Poppy). Os Account Tokens são grants de
+   * Personal Agent Protocol (Poppy). Os refresh tokens são grants de
    * `auth_agent_grants` (prefixo `pgrant_`) com o hash em
-   * `auth_agent_refresh_tokens`; aqui ficam Sessions, Session Tokens, pedidos de
+   * `auth_agent_refresh_tokens`; aqui ficam Sessions, access tokens, pedidos de
    * sign-in e os `jti` vistos. Mesmas regras de data das tabelas acima.
    */
   {
     name: 'auth_poppy_sessions',
     /**
-     * Uma Session: um usuário do agente (`user_id`, opaco) num agente
-     * (`client_id`). `account_id` é a conta a que ficou PRESA ao logar (não troca);
-     * `grant_id` o Account Token com que está logada agora (`null` = deslogada).
+     * Uma Session: um usuário do agente (`user_id`, opaco) num agente (`client_id`), com o
+     * `agent_id` opcional. `account_id` é a conta que já usou. `grant_id` e `scope` ficaram da
+     * Draft 0.1, sem uso (o schema só é aditivo).
      */
     create: (t) => {
       t.string('id').primary();
       t.string('client_id', 2048).notNullable();
       t.string('user_id').notNullable();
+      t.string('agent_id').nullable();
       t.string('account_id').nullable().index();
       t.string('grant_id').nullable().index();
       t.text('scope').notNullable();
@@ -381,6 +382,7 @@ const TABLES: TableDef[] = [
     columns: {
       client_id: (t) => t.string('client_id', 2048),
       user_id: (t) => t.string('user_id'),
+      agent_id: (t) => t.string('agent_id').nullable(),
       account_id: (t) => t.string('account_id').nullable().index(),
       grant_id: (t) => t.string('grant_id').nullable().index(),
       scope: (t) => t.text('scope'),
@@ -392,7 +394,10 @@ const TABLES: TableDef[] = [
   },
   {
     name: 'auth_poppy_tokens',
-    /** Session Tokens — só o hash. `jkt` = chave DPoP; `null` = Bearer (MCP). */
+    /**
+     * Access tokens — só o hash. `jkt` = chave DPoP; `null` = Bearer. `session_id` e `user_id`
+     * ficaram da Draft 0.1 e saem vazios: o sign-in não conhece a Session.
+     */
     create: (t) => {
       t.string('token_hash', 64).primary();
       t.string('session_id').notNullable().index();
@@ -422,8 +427,8 @@ const TABLES: TableDef[] = [
   {
     name: 'auth_poppy_requests',
     /**
-     * Pedidos de sign-in: `authorize` (Direct — vira código após o consentimento),
-     * `device` (RFC 8628) e `mediated` (§4.7, aguardando o código de uso único).
+     * Pedidos: `authorize` (Direct — vira código após o consentimento), `device` (RFC 8628),
+     * `mediated` (aguardando o código de uso único) e `browser` (entrada de um navegador, §6).
      * Códigos só como hash. Linhas expiradas são apagadas no próximo pedido.
      */
     create: (t) => {
@@ -468,7 +473,7 @@ const TABLES: TableDef[] = [
   },
   {
     name: 'auth_poppy_jtis',
-    /** `jti` já aceitos (asserções, provas DPoP), até expirarem — anti-replay entre instâncias. */
+    /** `jti` já aceitos (client assertions, Session JWTs, provas DPoP), até expirarem — anti-replay entre instâncias. */
     create: (t) => {
       t.string('key', 100).primary();
       t.dateTime('expires_at', { useTz: true, precision: 3 }).notNullable().index();

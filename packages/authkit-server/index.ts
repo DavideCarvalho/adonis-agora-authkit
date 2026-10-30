@@ -106,9 +106,9 @@ export type {
   PoppyMediatedVerifyInput,
   PoppyPrincipalBase,
   PoppyReplayStore,
+  PoppyScopeHint,
   ResolvedPoppyConfig,
 } from './src/agents/poppy/config.js';
-export { POPPY_READ, POPPY_WRITE } from './src/agents/poppy/config.js';
 export {
   accessTokenHash,
   type DpopNonceSource,

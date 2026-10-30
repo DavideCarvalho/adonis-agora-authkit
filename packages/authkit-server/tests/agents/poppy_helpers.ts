@@ -1,10 +1,10 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { configProvider } from '@adonisjs/core';
 import RedisMock from 'ioredis-mock';
-import { exportJWK, generateKeyPair, type JWK, SignJWT } from 'jose';
+import { calculateJwkThumbprint, exportJWK, generateKeyPair, type JWK, SignJWT } from 'jose';
 import type { PoppyConfigInput } from '../../src/agents/poppy/config.js';
 import type { FetchedJson } from '../../src/agents/poppy/safe_fetch.js';
-import { CLIENT_ASSERTION_TYPE, JWT_BEARER_GRANT } from '../../src/agents/poppy/service.js';
+import { CLIENT_ASSERTION_TYPE, DEVICE_CODE_GRANT } from '../../src/agents/poppy/service.js';
 import { buildPersonalAgentsRuntime } from '../../src/agents/runtime.js';
 import { adapters, defineConfig, type ResolvedServerConfig } from '../../src/define_config.js';
 import { OidcService } from '../../src/provider/oidc_service.js';
@@ -80,10 +80,41 @@ export function clientMetadata(overrides: Record<string, unknown> = {}) {
     jwks_uri: JWKS_URI,
     redirect_uris: [REDIRECT_URI],
     token_endpoint_auth_method: 'private_key_jwt',
-    extensions: { operations: { version: '1' } },
+    extensions: { operations: { version: '2' } },
     ...overrides,
   };
 }
+
+export interface SessionJwtOptions {
+  sid?: string;
+  sub?: string;
+  agentId?: string;
+  htm?: string;
+  htu?: string;
+  aud?: string | string[];
+  iss?: string;
+  iat?: number;
+  jti?: string;
+  typ?: string;
+  /** Access token coberto por `ath`. */
+  accessToken?: string;
+  /** Valor literal de `ath`. */
+  ath?: string;
+  /** Assina direto com a chave do `jwks_uri`, sem delegação. */
+  noDelegation?: boolean;
+  kid?: string;
+  delegation?: { typ?: string; iat?: number; exp?: number; iss?: string; cnf?: unknown };
+}
+
+export interface RequestOptions extends SessionJwtOptions {
+  method?: string;
+  url?: string;
+  token?: string;
+  dkey?: DpopKey;
+  scheme?: string;
+}
+
+export const DEFAULT_SID = 'Yx2b7Qd_Kp8mR3vT1nWc4A';
 
 export interface Env {
   service: OidcService;
@@ -102,23 +133,22 @@ export interface Env {
     exp?: number;
     typ?: string;
   }): Promise<string>;
-  sessionAssertion(opts?: {
-    sub?: string;
-    aud?: string | string[];
-    jti?: string;
-    exp?: number;
-    iat?: number;
-    typ?: string;
-    key?: CryptoKey;
-  }): Promise<string>;
-  browserAssertion(
-    claims: Record<string, unknown>,
-    opts?: { typ?: string; exp?: number; iat?: number },
-  ): Promise<string>;
+  /** O JWT do header `Poppy-Session`, assinado com uma chave delegada nova. */
+  sessionJwt(opts?: SessionJwtOptions): Promise<string>;
+  /** Uma request com o header da Session e, se dado, o access token (+ prova com `dkey`). */
+  request(opts?: RequestOptions): Promise<{
+    method: string;
+    url: string;
+    headers: Record<string, string>;
+  }>;
   /** Form de token com a client assertion já preenchida. */
-  form(extra: Record<string, unknown>, aud?: string): Promise<Record<string, unknown>>;
-  /** Começa uma Session deslogada (DPoP). */
-  startSession(dkey: DpopKey, sub?: string): Promise<{ access_token: string; session_id: string }>;
+  form(extra: Record<string, unknown>): Promise<Record<string, unknown>>;
+  /** Device Sign-In completo. */
+  signIn(opts?: {
+    accountId?: string;
+    scope?: string;
+    dkey?: DpopKey;
+  }): Promise<{ access_token: string; refresh_token: string; token_type: string; scope: string }>;
   close(): Promise<void>;
 }
 
@@ -157,7 +187,11 @@ export async function setupPoppy(
       personalAgents: {
         poppy: {
           organization: { name: 'Shop', domain: 'shop.example', aliases: ['shop.example.co.uk'] },
-          scopes: { addresses: 'Manage saved shipping addresses' },
+          scopes: {
+            'orders:read': 'See your orders',
+            'orders:write': 'Exchange or return items',
+            addresses: 'Manage saved shipping addresses',
+          },
           apis: [
             {
               type: 'openapi',
@@ -205,7 +239,7 @@ export async function setupPoppy(
       return new SignJWT({
         iss: opts.iss ?? CLIENT_ID,
         sub: opts.sub ?? CLIENT_ID,
-        aud: opts.aud ?? TOKEN_URL,
+        aud: opts.aud ?? POPPY_ISSUER,
         iat,
         exp: opts.exp ?? iat + 60,
         jti: opts.jti ?? b64(),
@@ -213,73 +247,105 @@ export async function setupPoppy(
         .setProtectedHeader({ alg: 'ES256', kid: 'k1', ...(opts.typ ? { typ: opts.typ } : {}) })
         .sign(keys.sign);
     },
-    async sessionAssertion(opts = {}) {
+    async sessionJwt(opts = {}) {
       const iat = opts.iat ?? nowS();
-      return new SignJWT({
-        iss: CLIENT_ID,
+      const claims: Record<string, unknown> = {
+        iss: opts.iss ?? CLIENT_ID,
+        aud: opts.aud ?? POPPY_ISSUER,
+        sid: opts.sid ?? DEFAULT_SID,
         sub: opts.sub ?? 'usr_Q7c1vK',
-        aud: opts.aud ?? TOKEN_URL,
+        htm: opts.htm ?? 'GET',
+        htu: opts.htu ?? `${ORDERS_API}/ord_1`,
         iat,
-        exp: opts.exp ?? iat + 60,
         jti: opts.jti ?? b64(),
-      })
-        .setProtectedHeader({ alg: 'ES256', kid: 'k1', ...(opts.typ ? { typ: opts.typ } : {}) })
-        .sign(opts.key ?? keys.sign);
-    },
-    async browserAssertion(claims, opts = {}) {
-      const iat = opts.iat ?? nowS();
-      return new SignJWT({
-        iss: CLIENT_ID,
-        sub: 'usr_Q7c1vK',
-        aud: `${POPPY_ISSUER}/browser-session`,
-        iat,
-        exp: opts.exp ?? iat + 60,
+      };
+      if (opts.agentId) claims.agent_id = opts.agentId;
+      if (opts.ath) claims.ath = opts.ath;
+      else if (opts.accessToken) {
+        claims.ath = createHash('sha256').update(opts.accessToken).digest('base64url');
+      }
+      const typ = opts.typ ?? 'poppy-session+jwt';
+      if (opts.noDelegation) {
+        return new SignJWT(claims)
+          .setProtectedHeader({ alg: 'ES256', typ, kid: 'k1' })
+          .sign(keys.sign);
+      }
+      const { privateKey, publicKey } = await generateKeyPair('ES256', { extractable: true });
+      const delegated = await exportJWK(publicKey);
+      const dlgIat = opts.delegation?.iat ?? nowS() - 60;
+      const delegation = await new SignJWT({
+        iss: opts.delegation?.iss ?? CLIENT_ID,
+        cnf: opts.delegation?.cnf ?? { jwk: delegated },
+        iat: dlgIat,
+        exp: opts.delegation?.exp ?? dlgIat + 3600,
         jti: b64(),
-        ...claims,
       })
-        .setProtectedHeader({ alg: 'ES256', kid: 'k1', typ: opts.typ ?? 'poppy-browser+jwt' })
+        .setProtectedHeader({
+          alg: 'ES256',
+          typ: opts.delegation?.typ ?? 'pap-delegation+jwt',
+          kid: 'k1',
+        })
         .sign(keys.sign);
+      return new SignJWT(claims)
+        .setProtectedHeader({
+          alg: 'ES256',
+          typ,
+          kid: opts.kid ?? (await calculateJwkThumbprint(delegated, 'sha256')),
+          pap_dlg: delegation,
+        })
+        .sign(privateKey);
     },
-    async form(extraFields, aud = TOKEN_URL) {
+    async request(opts = {}) {
+      const method = opts.method ?? 'GET';
+      const url = opts.url ?? `${ORDERS_API}/ord_1`;
+      const headers: Record<string, string> = {
+        'poppy-session': await env.sessionJwt({
+          htm: method,
+          htu: url,
+          accessToken: opts.token,
+          ...opts,
+        }),
+      };
+      if (opts.token) {
+        headers.authorization = `${opts.scheme ?? (opts.dkey ? 'DPoP' : 'Bearer')} ${opts.token}`;
+        if (opts.dkey) {
+          headers.dpop = await dpopProof(opts.dkey, {
+            htm: method,
+            htu: url,
+            accessToken: opts.token,
+          });
+        }
+      }
+      return { method, url, headers };
+    },
+    async form(extraFields) {
       return {
         client_id: CLIENT_ID,
         client_assertion_type: CLIENT_ASSERTION_TYPE,
-        client_assertion: await env.clientAssertion({ aud }),
+        client_assertion: await env.clientAssertion(),
         ...extraFields,
       };
     },
-    async startSession(dkey, sub) {
+    async signIn(opts = {}) {
+      const scope = opts.scope ?? 'orders:read orders:write';
+      const device = (await env.poppy.deviceAuthorization(await env.form({ scope }))) as any;
+      await env.poppy.decideDevice({
+        userCode: device.user_code,
+        accountId: opts.accountId ?? ACCOUNT_ID,
+        allow: true,
+        scopes: scope.split(' '),
+      });
       const res = await env.poppy.token(
-        await env.form({
-          grant_type: JWT_BEARER_GRANT,
-          assertion: await env.sessionAssertion({ sub }),
-        }),
-        await dpopProof(dkey),
+        await env.form({ grant_type: DEVICE_CODE_GRANT, device_code: device.device_code }),
+        opts.dkey ? await dpopProof(opts.dkey) : undefined,
       );
-      return { access_token: res.access_token, session_id: res.session_id };
+      return res as any;
     },
     async close() {
       await db.manager.closeAll();
     },
   };
   return env;
-}
-
-/** Request a uma API com o token + prova DPoP. */
-export async function apiRequest(
-  key: DpopKey | null,
-  token: string,
-  opts: { method?: string; url?: string; scheme?: string; proof?: string } = {},
-) {
-  const method = opts.method ?? 'GET';
-  const url = opts.url ?? `${ORDERS_API}/ord_1`;
-  const headers: Record<string, string> = {
-    authorization: `${opts.scheme ?? (key ? 'DPoP' : 'Bearer')} ${token}`,
-  };
-  if (key)
-    headers.dpop =
-      opts.proof ?? (await dpopProof(key, { htm: method, htu: url, accessToken: token }));
-  return { method, url, headers };
 }
 
 export function pkce() {

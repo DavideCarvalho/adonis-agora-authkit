@@ -998,6 +998,9 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
     // (RFC 8414 na raiz e debaixo do issuer) usam o mesmo — "poppy.metadata already exists" no boot.
     router.get('/.well-known/poppy.json', [C.poppy, 'discovery']).as('authkit.poppy.discovery');
     router
+      .get('/.well-known/oauth-protected-resource', [C.poppy, 'protectedResource'])
+      .as('authkit.poppy.protected_resource');
+    router
       .get(`/.well-known/oauth-authorization-server${poppyPrefix}`, [C.poppy, 'metadata'])
       .as('authkit.poppy.metadata');
     router
@@ -1008,18 +1011,18 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
     router
       .post(`${poppyPrefix}/oauth/device`, [C.poppy, 'deviceAuthorization'])
       .as('authkit.poppy.device_authorization');
-    // Credenciais e códigos de uso único: throttle por IP (§4.7 exige rate limit).
+    // A página grava um pedido sem autenticação: throttle por IP.
     withLogin(
-      router.post(`${poppyPrefix}/sign-in`, [C.poppy, 'mediatedStart']).as('authkit.poppy.sign_in'),
-    );
-    withOtpLogin(
       router
-        .post(`${poppyPrefix}/sign-in/:id`, [C.poppy, 'mediatedCode'])
-        .as('authkit.poppy.sign_in_code'),
+        .get(`${poppyPrefix}/browser-session`, [C.poppy, 'browserSessionPage'])
+        .as('authkit.poppy.browser_session_page'),
     );
     router
       .post(`${poppyPrefix}/browser-session`, [C.poppy, 'browserSession'])
       .as('authkit.poppy.browser_session');
+    router
+      .post(`${poppyPrefix}/browser-session/authorize`, [C.poppy, 'browserSessionAuthorize'])
+      .as('authkit.poppy.browser_session_authorize');
     router
       .group(() => {
         router

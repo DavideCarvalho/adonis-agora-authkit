@@ -7,6 +7,7 @@ import { PoppyError } from '../../src/agents/poppy/errors.js';
 import { agentKeys } from './poppy_helpers.js';
 
 const org = { name: 'Shop', domain: 'shop.example' };
+const scopes = { 'orders:read': 'See your orders' };
 
 async function rejects(fn: () => Promise<unknown>): Promise<PoppyError> {
   try {
@@ -54,7 +55,7 @@ test.group('poppy — allowInsecureClientIds (só dev/teste)', (group) => {
 
   test('default: client_id http em loopback → invalid_client', async ({ assert }) => {
     const agent = await localAgent();
-    const cfg = resolvePersonalAgentsConfig({ poppy: { organization: org } })!.poppy!;
+    const cfg = resolvePersonalAgentsConfig({ poppy: { organization: org, scopes } })!.poppy!;
     assert.isFalse(cfg.allowInsecureClientIds);
     const err = await rejects(() => new PoppyClientRegistry(cfg).resolve(agent.clientId));
     assert.equal(err.code, 'invalid_client');
@@ -67,7 +68,7 @@ test.group('poppy — allowInsecureClientIds (só dev/teste)', (group) => {
     process.env.NODE_ENV = 'development';
     const agent = await localAgent();
     const cfg = resolvePersonalAgentsConfig({
-      poppy: { organization: org, allowInsecureClientIds: true },
+      poppy: { organization: org, scopes, allowInsecureClientIds: true },
     })!.poppy!;
     const client = await new PoppyClientRegistry(cfg).resolve(agent.clientId);
     assert.equal(client.clientId, agent.clientId);
@@ -81,7 +82,7 @@ test.group('poppy — allowInsecureClientIds (só dev/teste)', (group) => {
     assert.throws(
       () =>
         resolvePersonalAgentsConfig({
-          poppy: { organization: org, allowInsecureClientIds: true },
+          poppy: { organization: org, scopes, allowInsecureClientIds: true },
         }),
       /allowInsecureClientIds/,
     );

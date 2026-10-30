@@ -102,6 +102,12 @@ export function isBlockedAddress(ip: string): boolean {
   if (!g) return true;
   if (g.every((x) => x === 0)) return true; // ::
   if (g.slice(0, 7).every((x) => x === 0) && g[7] === 1) return true; // ::1
+  // IPv4-translated (::ffff:0:a.b.c.d) e NAT64 (64:ff9b::a.b.c.d) também chegam a um IPv4.
+  const translated = g.slice(0, 4).every((x) => x === 0) && g[4] === 0xffff && g[5] === 0;
+  const nat64 = g[0] === 0x64 && g[1] === 0xff9b && g.slice(2, 6).every((x) => x === 0);
+  if (translated || nat64) {
+    return isBlockedAddress(`${g[6] >> 8}.${g[6] & 255}.${g[7] >> 8}.${g[7] & 255}`);
+  }
   // IPv4-mapped (::ffff:a.b.c.d) e IPv4-compatible: decide pelo IPv4.
   if (g.slice(0, 5).every((x) => x === 0) && (g[5] === 0xffff || g[5] === 0)) {
     const v4 = `${g[6] >> 8}.${g[6] & 255}.${g[7] >> 8}.${g[7] & 255}`;
@@ -182,7 +188,7 @@ export function safeFetchJson(url: string, options: SafeFetchOptions = {}): Prom
       parsed,
       {
         method: 'GET',
-        headers: { accept: 'application/json', 'user-agent': 'authkit-poppy/0.1' },
+        headers: { accept: 'application/json', 'user-agent': 'authkit-poppy/0.3' },
         lookup: guardedLookup as any,
         // IP literal: o `lookup` não roda — já conferido acima.
       },
@@ -257,7 +263,7 @@ export async function insecureDevFetchJson(
   try {
     res = await fetch(parsed, {
       redirect: 'manual',
-      headers: { accept: 'application/json', 'user-agent': 'authkit-poppy/0.1 (insecure-dev)' },
+      headers: { accept: 'application/json', 'user-agent': 'authkit-poppy/0.3 (insecure-dev)' },
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {

@@ -551,7 +551,7 @@ questions without a deploy: **who is connected** and **which agents may connect*
   by agent and paginated. **Revoke** cuts that agent off that account right away.
 - **Allow / Block.** Adds to the config; it never replaces it:
   - **Block** wins over everything. It also revokes every connection the agent has and ends its
-    Poppy sessions, so its tokens stop working on the next request.
+    Poppy sessions, so its tokens and Sessions stop working on the next request.
   - **Allow** lets an agent in outside the config list: a PACT agent (issuer + JWKS URI) or a Poppy
     `client_id` when `clients.requireRegistration` is on.
   - What the config **blocks** stays blocked. The console shows it as "locked by config".

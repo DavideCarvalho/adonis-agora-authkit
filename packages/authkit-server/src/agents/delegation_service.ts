@@ -121,7 +121,7 @@ function newUserCode(): string {
 }
 
 /**
- * A tabela de grants é compartilhada com o Poppy (Account Tokens, `pgrant_`):
+ * A tabela de grants é compartilhada com o Poppy (refresh tokens, `pgrant_`):
  * o PACT só enxerga os dele.
  */
 function isPactGrant(id: string): boolean {

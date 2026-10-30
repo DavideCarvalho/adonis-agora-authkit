@@ -32,10 +32,8 @@ export interface AuthkitCsrfOptions {
    */
   personalAgentsPrefix?: string | false;
   /**
-   * Prefixo do Poppy: isenta token/revoke/device authorization, o Mediated
-   * Sign-In e a sessão de navegador (POST cross-site autenticado pela asserção).
-   * Default: o do config. As telas `{prefix}/oauth/authorize` e `{prefix}/device`
-   * continuam protegidas. `false` desliga.
+   * Prefixo do Poppy: isenta token/revoke/device authorization e a entrada do navegador
+   * (o código com o cookie `SameSite=Strict` é o que protege, §6).
    */
   poppyPrefix?: string | false;
 }
@@ -71,9 +69,8 @@ export function authkitCsrfExceptions(url: string, options: AuthkitCsrfOptions =
     (path === `${poppyPrefix}/oauth/token` ||
       path === `${poppyPrefix}/oauth/revoke` ||
       path === `${poppyPrefix}/oauth/device` ||
-      path === `${poppyPrefix}/sign-in` ||
-      path.startsWith(`${poppyPrefix}/sign-in/`) ||
-      path === `${poppyPrefix}/browser-session`);
+      path === `${poppyPrefix}/browser-session` ||
+      path === `${poppyPrefix}/browser-session/authorize`);
 
   return (
     url.includes(mountPath) ||

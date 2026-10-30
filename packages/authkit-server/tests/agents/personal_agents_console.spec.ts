@@ -1,8 +1,6 @@
 import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
 import RedisMock from 'ioredis-mock';
-import { PoppyError } from '../../src/agents/poppy/errors.js';
-import { DEVICE_CODE_GRANT } from '../../src/agents/poppy/service.js';
 import { buildPersonalAgentsRuntime } from '../../src/agents/runtime.js';
 import { adapters, defineConfig, type ResolvedServerConfig } from '../../src/define_config.js';
 import ConsolePersonalAgentsController from '../../src/host/admin_console/console_personal_agents_controller.js';
@@ -13,28 +11,14 @@ import { ensureAuthkitSchema } from '../../src/schema/ensure.js';
 import { createTestDatabase } from '../bootstrap.js';
 import {
   ACCOUNT_ID,
-  apiRequest,
+  b64,
   CLIENT_ID,
-  type DpopKey,
-  dpopKey,
-  dpopProof,
   type Env,
   OTHER_ACCOUNT_ID,
-  POPPY_ISSUER,
   setupPoppy,
 } from './poppy_helpers.js';
 
 const ADMIN_ID = 'admin-1';
-
-async function rejects(fn: () => Promise<unknown>): Promise<PoppyError> {
-  try {
-    await fn();
-  } catch (error) {
-    if (error instanceof PoppyError) return error;
-    throw error;
-  }
-  throw new Error('expected a PoppyError');
-}
 
 /** Ctx falso do console: `authkit.server` e `lucid.db` do ambiente; sudo opcional. */
 function consoleCtx(
@@ -91,24 +75,15 @@ function consoleCtx(
   return { ctx, status: () => status, body: () => body, audit };
 }
 
-/** Uma Session logada por Device Sign-In (cria o Account Token `pgrant_`). */
+/** Um sign-in por Device Sign-In (cria o refresh token `pgrant_`). */
 async function signIn(env: Env, accountId: string) {
-  const dkey: DpopKey = await dpopKey();
-  const { session_id } = await env.startSession(dkey);
-  const auth = (await env.poppy.deviceAuthorization(
-    await env.form({ scope: 'poppy:read' }, `${POPPY_ISSUER}/oauth/device`),
-  )) as any;
-  await env.poppy.decideDevice({
-    userCode: auth.user_code,
-    accountId,
-    allow: true,
-    scopes: ['poppy:read'],
-  });
-  const res = await env.poppy.token(
-    await env.form({ grant_type: DEVICE_CODE_GRANT, device_code: auth.device_code, session_id }),
-    await dpopProof(dkey),
-  );
-  return { dkey, accessToken: res.access_token as string };
+  const res = await env.signIn({ accountId, scope: 'orders:read' });
+  return { sid: b64(), accessToken: res.access_token };
+}
+
+/** O agente consegue começar uma Session? */
+async function sessionAccepted(env: Env): Promise<boolean> {
+  return (await env.poppy.verifyAccess(await env.request({ sid: b64() }))).ok;
 }
 
 const controller = new ConsolePersonalAgentsController();
@@ -146,7 +121,7 @@ test.group('console admin — personal agents (Poppy)', () => {
       agentName: 'Example Agent',
     });
     assert.include(['jane@example.com', 'john@example.com'], page.data[0].accountEmail);
-    assert.deepEqual(page.data[0].scopes, ['poppy:read']);
+    assert.deepEqual(page.data[0].scopes, ['orders:read']);
     await env.close();
   });
 
@@ -166,9 +141,13 @@ test.group('console admin — personal agents (Poppy)', () => {
     assert.equal(ok.audit[0].type, 'agent.grant_revoked_by_admin');
     assert.equal(ok.audit[0].accountId, ACCOUNT_ID);
 
-    const janeCheck = await env.poppy.verifyAccess(await apiRequest(jane.dkey, jane.accessToken));
-    assert.isTrue(janeCheck.ok && !janeCheck.principal.signedIn);
-    const johnCheck = await env.poppy.verifyAccess(await apiRequest(john.dkey, john.accessToken));
+    const janeCheck = await env.poppy.verifyAccess(
+      await env.request({ sid: jane.sid, token: jane.accessToken }),
+    );
+    assert.isTrue(!janeCheck.ok && janeCheck.error === 'invalid_token');
+    const johnCheck = await env.poppy.verifyAccess(
+      await env.request({ sid: john.sid, token: john.accessToken }),
+    );
     assert.isTrue(johnCheck.ok && johnCheck.principal.signedIn);
 
     const again = consoleCtx(env.service, env.db, {
@@ -208,11 +187,13 @@ test.group('console admin — personal agents (Poppy)', () => {
     assert.equal(block.audit[0].type, 'agent.blocked');
 
     // O token da Session acaba na hora, e o agente não começa outra.
-    const check = await env.poppy.verifyAccess(await apiRequest(jane.dkey, jane.accessToken));
+    const check = await env.poppy.verifyAccess(
+      await env.request({ sid: jane.sid, token: jane.accessToken }),
+    );
     assert.isFalse(check.ok);
     assert.lengthOf(await env.poppy.listGrants(ACCOUNT_ID), 0);
     assert.lengthOf(await env.poppy.listGrants(OTHER_ACCOUNT_ID), 0);
-    assert.equal((await rejects(() => env.startSession(jane.dkey))).code, 'invalid_client');
+    assert.isFalse(await sessionAccepted(env));
 
     const overview: any = await controller.index(consoleCtx(env.service, env.db).ctx);
     assert.include(overview.agents[0], { effective: 'blocked', connections: 0 });
@@ -222,14 +203,13 @@ test.group('console admin — personal agents (Poppy)', () => {
       sudo: true,
     });
     assert.deepEqual(await controller.destroy(remove.ctx), { removed: true });
-    await env.startSession(await dpopKey());
+    assert.isTrue(await sessionAccepted(env));
     await env.close();
   });
 
   test('requireRegistration: liberar pelo console deixa o agente entrar', async ({ assert }) => {
     const env = await setupPoppy({ clients: { requireRegistration: true } });
-    const dkey = await dpopKey();
-    assert.equal((await rejects(() => env.startSession(dkey))).code, 'invalid_client');
+    assert.isFalse(await sessionAccepted(env));
 
     const allow = consoleCtx(env.service, env.db, {
       body: { protocol: 'poppy', identifier: CLIENT_ID, status: 'allowed', name: 'Assistente' },
@@ -237,7 +217,7 @@ test.group('console admin — personal agents (Poppy)', () => {
     });
     const res: any = await controller.upsert(allow.ctx);
     assert.equal(res.disconnected, 0);
-    await env.startSession(dkey);
+    assert.isTrue(await sessionAccepted(env));
 
     const overview: any = await controller.index(consoleCtx(env.service, env.db).ctx);
     assert.include(overview.agents[0], { name: 'Assistente', effective: 'allowed' });
@@ -251,10 +231,7 @@ test.group('console admin — personal agents (Poppy)', () => {
       sudo: true,
     });
     await controller.upsert(allow.ctx);
-    assert.equal(
-      (await rejects(async () => env.startSession(await dpopKey()))).code,
-      'invalid_client',
-    );
+    assert.isFalse(await sessionAccepted(env));
     const overview: any = await controller.index(consoleCtx(env.service, env.db).ctx);
     assert.include(overview.agents[0], { config: 'blocked', effective: 'blocked' });
     await env.close();

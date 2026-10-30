@@ -1,12 +1,13 @@
 ---
 icon: Bot
 title: Personal agents — Poppy
-description: Serve the Personal Agent Protocol ("Poppy", Draft 0.1) — discovery, agent sessions, sign-in, DPoP tokens, MCP and browser sessions.
+description: Serve the Personal Agent Protocol ("Poppy", Draft 0.3) — discovery, the Poppy-Session header, OAuth sign-in, MCP and browser join.
 ---
 
 <Callout type="warn" title="Experimental — tracks a draft spec">
 The [Personal Agent Protocol ("Poppy")](https://personalagentprotocol.org/docs/spec) is a
-**Draft 0.1 still in development**. This implementation targets **Draft 0.1** and tracks the
+**Draft 0.3 still in development**. This implementation targets **Draft 0.3**, with no
+compatibility with earlier drafts (the spec allows that before 1.0), and tracks the
 spec as it evolves: the config (`personalAgents.poppy`), the exports (`verifyPoppyRequest`,
 `poppyAuth`, the global slots…) and the wire behaviour **will change, possibly in breaking ways
 and outside semver majors**, while the spec is a draft. Pin your AuthKit version if you depend
@@ -18,27 +19,28 @@ it, start a session for its user, have the user sign in and approve what the age
 your APIs and your company agent, and browse your website — all in one session. It runs **next to
 [PACT](/docs/authkit/personal-agents)**: an app can serve both.
 
-How it differs from PACT: instead of an agent JWT plus a delegation token on every call, your app
-runs an **OAuth authorization server with sessions**. The agent identifies itself by its
-`client_id` — an HTTPS URL serving its metadata document — starts a signed-out **Session** with a
-signed assertion, and gets short-lived, **DPoP-bound** Session Tokens. When the user signs in, the
-agent also gets a long-lived **Account Token** (an OAuth refresh token) that only works at your
-token endpoint.
+How it differs from PACT: **Sessions and account access are separate**. The agent identifies itself
+by its `client_id` — an HTTPS URL serving its metadata document — and declares its Session on every
+request with a `Poppy-Session` header: a JWT it signs for that one request with a short-lived
+delegated key. A request with only that header is **signed out**. Account access is plain OAuth, so
+your app runs an authorization server: a request that also carries an **access token** is signed in.
+Sign-in, refresh and revocation don't know the Session, and one sign-in can serve several Sessions.
 
 ## How the user signs in
 
-A Session starts signed out: the agent can only reach what you expose to anyone. To act on the
-user's account, the user signs in to **your** app and approves scopes. The spec offers three ways;
-the agent picks one of those you enable:
+To act on the user's account, the user signs in to **your** app and approves scopes. The protocol
+defines no scopes of its own: you declare yours. The agent reads the sign-in types from
+`grant_types_supported` in your OAuth metadata:
 
 | | What the user does | Who sees the credentials | Default |
 | --- | --- | --- | --- |
-| **Direct** ([Poppy §4.5](https://personalagentprotocol.org/docs/spec#direct-sign-in)) | The agent opens your login page (OAuth code + PKCE); the user signs in there as usual and approves the scopes. | Only your app. | on |
-| **Device** ([Poppy §4.6](https://personalagentprotocol.org/docs/spec#device-sign-in)) | The agent shows a short code and a link; the user opens the link on any device, signs in and approves. For agents with no browser (voice, chat). | Only your app. | on |
-| **Mediated** ([Poppy §4.7](https://personalagentprotocol.org/docs/spec#mediated-sign-in)) | The user never leaves the conversation: the agent asks for what your app declares (an email, say), your app sends a one-time code to the user, and the user tells the code to the agent. | The agent relays what the user types — so ask for an identifier and a one-time code, never a password. | off |
+| **Direct** ([Poppy §4.2](https://personalagentprotocol.org/docs/spec#direct-sign-in)) | The agent opens your login page (OAuth code + PKCE); the user signs in there as usual and approves the scopes. | Only your app. | on |
+| **Device** ([Poppy §4.3](https://personalagentprotocol.org/docs/spec#device-sign-in)) | The agent shows a short code and a link; the user opens the link on any device, signs in and approves. For agents with no browser (voice, chat). | Only your app. | on |
+| **Mediated** ([extension](https://personalagentprotocol.org/docs/extensions/mediated-sign-in)) | An OAuth extension grant. The agent asks for what your app declares (an email, say), your app sends a one-time code to the user, and the user tells the code to the agent. | The agent relays what the user types — so ask for an identifier and a one-time code, never a password. | off |
 
-Direct and Device need nothing beyond your normal login: AuthKit's pages do it. Mediated needs a
-`verify` that checks what the agent sends — or the ready-made
+Direct and Device need nothing beyond your normal login: AuthKit's pages do it. Mediated is
+**transitional**: the protocol plans to retire it, so offer it only until Direct or Device cover the
+same scopes. It needs a `verify` that checks what the agent sends — or the ready-made
 [`poppyEmailCodeSignIn()`](#ready-made-mediated-sign-in-email--code), which does it with your
 accounts and email.
 
@@ -52,18 +54,26 @@ defineConfig({
     // PACT stays optional: omit `audience` for a Poppy-only app.
     poppy: {
       organization: { name: 'Acme', domain: 'acme.com', aliases: ['acme.co.uk'] },
-      // Your own scopes (`custom_scopes`). Default: `personalAgents.delegation.scopes`.
-      scopes: { addresses: 'Manage saved shipping addresses' },
+      // `auth.scopes`. Default: `personalAgents.delegation.scopes`.
+      scopes: {
+        'orders:read': 'See your orders',
+        'orders:write': 'Exchange or return items',
+      },
+      // Optional `auth.scope_hints`: the most consequential action each scope allows.
+      scopeHints: {
+        'orders:read': { changes: 'none', personal_data: true },
+        'orders:write': { changes: 'irreversible', personal_data: true },
+      },
       signIn: {
         direct: true, // OAuth code + PKCE on your own page (default on)
-        device: { scopes: ['poppy:read', 'poppy:write'] }, // RFC 8628 (default on)
+        device: { scopes: ['orders:read'] }, // RFC 8628 (default on)
         mediated: {
           // Off unless you configure it: you verify the credentials.
           fields: [
             { name: 'email', label: 'Email', secret: false },
             { name: 'password', label: 'Password', secret: true },
           ],
-          scopes: ['poppy:read'],
+          scopes: ['orders:read'],
           async verify({ credentials }) {
             const account = await accounts.verifyCredentials(credentials.email, credentials.password)
             if (!account) return { status: 'failed' }
@@ -81,6 +91,9 @@ defineConfig({
         { type: 'openapi', url: 'https://api.acme.com/openapi.json', description: 'Orders, returns' },
         { type: 'mcp', url: 'https://acme.com/mcp', description: 'Product search' },
       ],
+      // Optional: endpoints and documents you implement (§9).
+      feedback: { endpoint: 'https://acme.com/poppy/feedback' },
+      excludedTasks: { url: 'https://acme.com/poppy/excluded-tasks.json' },
     },
   },
 })
@@ -88,23 +101,25 @@ defineConfig({
 
 | Field | Default | Notes |
 | --- | --- | --- |
-| `organization` | — | `name` + `domain` (host only). `poppy.json` is served only on these hosts (a leading `www.` is ignored); every domain goes to `poppy_domains`. |
+| `organization` | — | `name` + `domain` (host only). `poppy.json` and the protected resource metadata are served only on these exact hosts; `www.{domain}` redirects to the domain. Every domain goes to `protected_resources`. |
 | `prefix` | `/poppy` | Route prefix and issuer path (`https://acme.com/poppy`). Can't sit under the OIDC `mountPath` or the PACT prefix. |
-| `scopes` / `broadScopes` | PACT scopes / `true` | Custom scopes (no `poppy:` prefix) and whether `poppy:read`/`poppy:write` are offered. |
-| `signIn.direct` / `.device` | on, all scopes | `false` disables; `{ scopes }` restricts. |
-| `signIn.mediated` | off | `fields`, `scopes` (default `poppy:read`), `verify`, optional `verifyCode`, `codeTtl` (600 s), `maxCodeAttempts` (5). |
-| `agent`, `apis`, `extensions` | — | Published as-is in `poppy.json`. An entry with `resource` requires tokens issued for it (RFC 8707). |
-| `web` | browser session on | `false` disables; `login(ctx, { accountId, … })` replaces the default login (see below). |
-| `clients` | open | `requireRegistration`, `registered`, `blocked` (lists or functions). Unregistered agents get `invalid_client`. The [admin console](/docs/admin-console#personal-agents) can allow and block on top of these without a deploy. |
-| `allowInsecureClientIds` | `false` | **Development/test only, not spec-compliant.** Accepts `http://` `client_id`s (and their `jwks_uri`/`redirect_uris`) and fetches them without the SSRF guard, so a local agent (the `poppy-agent` CLI of `@adonis-agora/agent`, with `--insecure-dev`, at `http://localhost:7777/agent.json`) can start Sessions. Boot fails with `NODE_ENV=production`. |
-| `sessionTokenTtl` / `accountTokenTtl` / `sessionTtl` | 1 h / 30 d / 30 d | Session Token lifetime, Account Token lifetime (`refresh_token_expires_in`), idle Session lifetime. |
-| `dpop` | ES256, 60 s | `requireNonce`, `maxAge`, `algorithms`. |
-| `replay` | `'database'` | Where seen `jti`s live: `'database'`, `'memory'`, `{ redis: 'main' }`, or your own `{ claim }`. |
-| `rateLimit` | 120 sessions/min per agent, 10 mediated attempts/h per user | In-memory per process; `false` or your own limiter. |
+| `scopes` / `scopeHints` | PACT scopes / — | `auth.scopes` and `auth.scope_hints`. Required unless Direct and Device are both off. |
+| `signIn.direct` / `.device` | on, all scopes | `false` disables; `{ scopes }` restricts what that grant can give. |
+| `signIn.mediated` | off | `fields` (reserved OAuth names are refused), `scopes` (required), `verify`, optional `verifyCode`, `codeTtl` (600 s), `maxCodeAttempts` (5). |
+| `agent`, `apis`, `extensions` | — | Published in `poppy.json`. A protocol entry can set `access: 'signed_in'`. An entry with `resource` only accepts tokens issued for it (RFC 8707): `resource` isn't published, so serve that service's protected resource metadata (RFC 9728) yourself. |
+| `feedback`, `excludedTasks` | — | Published as `feedback.endpoint` and `excluded_tasks.url`. You implement both. |
+| `web` | browser join on | `false` disables; `login(ctx, { accountId, … })` replaces the default login; `redirectTo` (default `/`) is where the browser lands after joining. |
+| `clients` | open | `requireRegistration`, `registered`, `blocked` (lists or functions). A refused agent gets `invalid_client` at the authorization server and `invalid_session` at a resource. The [admin console](/docs/admin-console#personal-agents) can allow and block on top of these without a deploy. |
+| `allowInsecureClientIds` | `false` | **Development/test only, not spec-compliant.** Accepts `http://` `client_id`s (and their `jwks_uri`/`redirect_uris`) and fetches them without the SSRF guard, so a local agent (the `poppy-agent` CLI of `@adonis-agora/agent`, with `--insecure-dev`, at `http://localhost:7777/agent.json`) can work. Boot fails with `NODE_ENV=production`. |
+| `accessTokenTtl` / `refreshTokenTtl` / `sessionTtl` | 1 h / 30 d / 30 d | Access token lifetime, refresh token lifetime, idle Session lifetime. |
+| `sessionJwt.maxAge` | 60 s | Acceptance window for a Session JWT's `iat`. |
+| `dpop` | optional, ES256, 60 s | Binding tokens is your choice: a token request with a proof gets a DPoP-bound token, one without gets Bearer. `required` refuses requests without a proof. Also `requireNonce`, `maxAge`, `algorithms`. |
+| `replay` | `'database'` | Where seen `jti`s live: `'database'`, `'memory'`, `{ redis: 'main' }`, or your own `{ claim }`. Session JWTs are claimed too, so every verified request writes one entry. |
+| `rateLimit` | 120 sessions/min per agent, 10 mediated attempts/h per identifier | In-memory per process; `false` or your own limiter. Over the limit: HTTP 429 with `Retry-After`. |
 | `toActor` | — | Maps a verified principal to your actor (returned as `principal.actor`). |
 
 Four lib-owned tables back it — `auth_poppy_sessions`, `auth_poppy_tokens`,
-`auth_poppy_requests`, `auth_poppy_jtis` — created by `ensureAuthkitSchema()`. Account Tokens are
+`auth_poppy_requests`, `auth_poppy_jtis` — created by `ensureAuthkitSchema()`. Refresh tokens are
 grants in `auth_agent_grants` (ids `pgrant_…`), so they show up — and are revoked — in the same
 **Personal agents** list of the account console as PACT delegations.
 
@@ -145,7 +160,7 @@ personalAgents: {
     // …
     signIn: {
       mediated: poppyEmailCodeSignIn({
-        scopes: ['orders:read'], // default: ['poppy:read']
+        scopes: ['orders:read'],
         eligible: (account) => account.kind === 'customer', // default: every active account
       }),
     },
@@ -155,9 +170,9 @@ personalAgents: {
 
 | Option | Default | |
 | --- | --- | --- |
-| `scopes` | `['poppy:read']` | Scopes this sign-in can grant. |
+| `scopes` | required | Scopes this sign-in can grant. |
 | `codeTtl` | `600` | Code lifetime, in seconds. |
-| `maxCodeAttempts` | `5` | Wrong codes before `failed`. |
+| `maxCodeAttempts` | `5` | Wrong codes before `invalid_grant`. |
 | `eligible` | every active account | `(account) => boolean` — who may sign in this way. |
 | `maxPerHour` | `5` | Codes per email per hour, per instance, so an agent can't flood someone's inbox. |
 | `label` / `sentTo` | `'Email address'` / `` `Email to a***@example.com` `` | Text the agent shows the person. |
@@ -184,9 +199,8 @@ async verify({ credentials }) {
 }
 ```
 
-With `accountId: null` AuthKit answers the same `code_required` shape, and every code submitted for
-that sign-in is treated as a wrong code — same attempt counting, same `failed` at the end. The
-Session's account is only compared at the code step, so `account_mismatch` cannot leak it either.
+With `accountId: null` AuthKit answers the same `code_required` error, and every code submitted for
+that sign-in is treated as a wrong code — same attempt counting, same `invalid_grant` at the end.
 Rate limits (`rateLimit.mediatedPerHour`, the OTP throttle) still apply.
 
 ## Routes
@@ -194,14 +208,16 @@ Rate limits (`rateLimit.mediatedPerHour`, the OTP throttle) still apply.
 | Route | Spec | Who calls it |
 | --- | --- | --- |
 | `GET /.well-known/poppy.json` | [§3](https://personalagentprotocol.org/docs/spec#discovery) | Agent — discovery (only on your domains) |
-| `GET /.well-known/oauth-authorization-server/poppy` (+ `/poppy/.well-known/…`) | [§3.2](https://personalagentprotocol.org/docs/spec#oauth-server) | Agent — RFC 8414 metadata with `poppy_domains`, `device_authorization_endpoint`, `revocation_endpoint` |
-| `POST /poppy/oauth/token` | [§4.2–4.8](https://personalagentprotocol.org/docs/spec#starting-sessions) | Agent — `jwt-bearer` sessions, `refresh_token`, `authorization_code`, `device_code` |
-| `POST /poppy/oauth/revoke` | [§4.9](https://personalagentprotocol.org/docs/spec#sign-out) | Agent — RFC 7009 sign-out |
-| `POST /poppy/oauth/device` | [§4.6](https://personalagentprotocol.org/docs/spec#device-sign-in) | Agent — device authorization |
-| `GET/POST /poppy/oauth/authorize` | [§4.5](https://personalagentprotocol.org/docs/spec#direct-sign-in) | User — Direct Sign-In consent (behind the account session) |
-| `GET/POST /poppy/device` | [§4.6](https://personalagentprotocol.org/docs/spec#device-sign-in) | User — device code approval (behind the account session) |
-| `POST /poppy/sign-in`, `/poppy/sign-in/:id` | [§4.7](https://personalagentprotocol.org/docs/spec#mediated-sign-in) | Agent — Mediated Sign-In (Session Token + DPoP) |
-| `POST /poppy/browser-session` | [§5](https://personalagentprotocol.org/docs/spec#web-browsing) | Agent's browser — joins the website session |
+| `GET /.well-known/oauth-protected-resource` | [§3.2](https://personalagentprotocol.org/docs/spec#oauth-server) | Agent — names your issuer for that domain (RFC 9728) |
+| `GET /.well-known/oauth-authorization-server/poppy` (+ `/poppy/.well-known/…`) | [§3.2](https://personalagentprotocol.org/docs/spec#oauth-server) | Agent — RFC 8414 metadata with `protected_resources` and `grant_types_supported` |
+| `POST /poppy/oauth/token` | [§4](https://personalagentprotocol.org/docs/spec#oauth) | Agent — `authorization_code`, `device_code`, `refresh_token`, the Mediated Sign-In grant |
+| `POST /poppy/oauth/revoke` | [§4.6](https://personalagentprotocol.org/docs/spec#revocation) | Agent — RFC 7009 sign-out |
+| `POST /poppy/oauth/device` | [§4.3](https://personalagentprotocol.org/docs/spec#device-sign-in) | Agent — device authorization |
+| `GET/POST /poppy/oauth/authorize` | [§4.2](https://personalagentprotocol.org/docs/spec#direct-sign-in) | User — Direct Sign-In consent (behind the account session) |
+| `GET/POST /poppy/device` | [§4.3](https://personalagentprotocol.org/docs/spec#device-sign-in) | User — device code approval (behind the account session) |
+| `GET /poppy/browser-session` | [§6](https://personalagentprotocol.org/docs/spec#web-browsing) | Agent's browser — the page with the one-time code |
+| `POST /poppy/browser-session/authorize` | [§6](https://personalagentprotocol.org/docs/spec#web-browsing) | Agent — authorizes the code |
+| `POST /poppy/browser-session` | [§6](https://personalagentprotocol.org/docs/spec#web-browsing) | Agent's browser — submits the code and gets the Session's cookie |
 
 `authkitCsrfExceptions` exempts the agent endpoints automatically; the two consent screens keep
 CSRF, deny framing, refuse impersonation and never approve on open.
@@ -213,35 +229,46 @@ import { poppyAuth, poppyOf } from '@adonis-agora/authkit-server'
 
 router
   .post('/orders/:id/exchanges', async (ctx) => {
-    const p = poppyOf(ctx)! // { userId, accountId, clientId, scopes, sessionId, signedIn, … }
+    const p = poppyOf(ctx)! // { userId, agentId, accountId, clientId, scopes, sessionId, signedIn, … }
     // …act on p.accountId
   })
-  .use(poppyAuth({ scopes: ['poppy:write'] }))
+  .use(poppyAuth({ scopes: ['orders:write'] }))
 ```
 
-`poppyAuth()` / `verifyPoppyRequest(ctx | { method, url, headers }, options)` check the
-`Authorization: DPoP` token **and** its DPoP proof (signature, `htm`, `htu`, `iat` window, `ath`,
-key binding, replay, nonce), the session, and whether the session is **still** signed in (a
-sign-out takes effect on the next request). Failures answer with the spec's `WWW-Authenticate`:
-`invalid_token` (401), `sign_in_required` (403), `insufficient_scope` (403, with `scope`),
-`invalid_dpop_proof` / `use_dpop_nonce` (401, with `DPoP-Nonce`). Tokens are never read from the
-URL. Bearer tokens are accepted **only** at the MCP server they were issued for.
+`poppyAuth()` / `verifyPoppyRequest(ctx | { method, url, headers }, options)` verify the
+`Poppy-Session` JWT and its delegation (`pap-delegation+jwt`, `ES256` or `PS384`, at most 24 hours):
+`typ`, `aud` (your issuer), `htm`, `htu`, the `iat` window, `ath`, the `jti`. An unknown `sid` starts
+a signed-out Session, and a known one must have the same User ID and Agent ID. If the request has an
+access token, they also check it was issued to the same `client_id`, its DPoP proof when bound, its
+`resource`, whether its refresh token is still alive, and its scopes.
+
+| Failure | Status | Where |
+| --- | --- | --- |
+| `invalid_session` | 400 | JSON body. A Session check failed, the agent was refused, the Session ended, or it already used a different account. |
+| No error code | 401 | `WWW-Authenticate` with the `scope` needed: the request needs the account and has no access token. |
+| `invalid_token` | 401 | `WWW-Authenticate`. Expired, revoked or not issued for this resource. |
+| `insufficient_scope` | 403 | `WWW-Authenticate`, with `scope`. |
+| `invalid_dpop_proof` / `use_dpop_nonce` | 401 | `WWW-Authenticate`, with `DPoP-Nonce`. |
+| Rate limit | 429 | `Retry-After`, no body. |
+
+Tokens are never read from the URL. These helpers always verify the Session; a route that uses no
+Session claims can validate its OAuth token some other way, as the spec allows.
 
 `verifyDpopProof()` is exported on its own for other resource servers.
 
 ## MCP
 
-A Poppy agent asks for a Bearer token without a DPoP proof and with `resource` set to an MCP URL —
-one of your `apis` of type `mcp`, or one registered in the `@adonis-agora/oauth:resources` slot
-(what `@adonis-agora/agent`'s MCP provider does). For a **signed-in** session the token is minted as
-an oidc-provider access token (`aud` = the MCP URL, scopes = the granted Poppy scopes), so the
-existing `authKitAuth()` MCP integration accepts it with no extra code, and a sign-out revokes it.
-Signed-out Bearer tokens live only in the Poppy store — verify them with `verifyPoppyRequest` or the
-global slot below.
+A Poppy agent asks for a token with `resource` set to an MCP URL — one of your `apis` of type `mcp`,
+or one registered in the `@adonis-agora/oauth:resources` slot (what `@adonis-agora/agent`'s MCP
+provider does). It's always a Bearer token, even if the request has a DPoP proof, since these servers
+don't advertise DPoP. It is minted as an oidc-provider access token (`aud` = the MCP URL, scopes = the
+granted scopes), so the existing `authKitAuth()` MCP integration accepts it with no extra code, and a
+sign-out revokes it. It works only at that server. MCP clients that don't implement Poppy sign in with
+MCP's own flow, and their requests belong to no Session.
 
 ## The company agent (`@adonis-agora/agent`)
 
-Conversations ([Poppy §7](https://personalagentprotocol.org/docs/spec#conversations)) are implemented by `@adonis-agora/agent`. Neither package imports the other;
+Conversations ([Poppy §8](https://personalagentprotocol.org/docs/spec#conversations)) are implemented by `@adonis-agora/agent`. Neither package imports the other;
 they meet through two global slots:
 
 ```ts
@@ -249,11 +276,13 @@ they meet through two global slots:
 const authenticate = globalThis[Symbol.for('@adonis-agora/poppy:authenticate')]
 const result = await authenticate(
   { method: 'POST', url: 'https://acme.com/poppy/conversations', headers },
-  { scopes: ['poppy:read'], signedIn: true }, // optional
+  { scopes: ['orders:read'], signedIn: true }, // optional
 )
-// { ok: true, principal: { userId, accountId, clientId, scopes, sessionId, signedIn,
+// { ok: true, principal: { userId, agentId, accountId, clientId, scopes, sessionId, signedIn,
 //                          resource, tokenType, actor? } }
-// | { ok: false, status: 401 | 403, error, scope?, wwwAuthenticate, description, headers }
+// | { ok: false, status: 400 | 401 | 403 | 429, error, scope?, wwwAuthenticate, description, headers }
+// `error` is null for the 401 without a code and for the 429; `wwwAuthenticate` is null for
+// `invalid_session` and the 429.
 
 // agent → authkit: where the conversations live (used when `agent.protocols` is not configured)
 globalThis[Symbol.for('@adonis-agora/poppy:endpoints')] = {
@@ -261,39 +290,54 @@ globalThis[Symbol.for('@adonis-agora/poppy:endpoints')] = {
 }
 ```
 
-`userId` is the Poppy **User ID** (opaque, per agent user); `accountId` is the account in your app
-when signed in. `actor` is whatever your `toActor` returns. `Symbol.for('@adonis-agora/poppy:issuer')`
+`userId` is the Poppy **User ID** (opaque, per agent user); `sessionId` is unique per `client_id` +
+`sid`; `accountId` is the account in your app when signed in. `actor` is whatever your `toActor` returns. `Symbol.for('@adonis-agora/poppy:issuer')`
 holds the Poppy issuer (for the MCP protected-resource metadata).
 
 ## Web browsing
 
-`POST /poppy/browser-session` takes a form-posted `assertion` (`typ: poppy-browser+jwt`, `aud` =
-the endpoint, `exp` ≤ 60 s after `iat`, `session_id`, `return_to` on your domain or a subdomain,
-signed by the agent's key, single-use). On success it regenerates the app session, marks it as the
-agent's, logs the user in with AuthKit's account session (+ `adonisAuth.guard`) when the session is
-signed in, and answers `303` to `return_to`; otherwise `400` with no cookie. Your session cookie
-must be `Secure`, `HttpOnly` and `SameSite=Lax` (Adonis' defaults in production). Use
-`web.login` if your app logs users in some other way.
+A browser joins a Session in three steps, so that only the right browser and the right agent can
+complete a join, and the access token never reaches the browser:
 
-Add `poppyWebSession()` to your router middleware so the browser follows the session's current
-state (signed in/out, ended) on every request; `poppyWebSessionOf(ctx)` gives you its scopes. An
-agent's browser is refused by the account console, the admin console and the consent screens.
+1. The agent's browser loads `GET /poppy/browser-session`: a form with a one-time code (60 s), and a
+   `__Host-poppy_join` cookie (`SameSite=Strict`) that ties the code to that browser.
+2. The agent sends the code to `POST /poppy/browser-session/authorize` as `{ "code": "…" }`, with its
+   Session header and, if signed in, its access token. `204`, or `400 invalid_request`.
+3. The browser submits the form. The first submission uses up the code, whatever the result. On
+   success AuthKit regenerates the app session, marks it as the agent's and answers `303` to
+   `web.redirectTo`; otherwise an error page with no cookie.
+
+A join **with** an access token logs the browser in to that account with AuthKit's account session
+(+ `adonisAuth.guard`), replacing any other login, and an earlier login doesn't come back. A join
+**without** one leaves the browser's own login alone. Use `web.login` if your app logs users in some
+other way.
+
+Add `poppyWebSession()` to your router middleware so the cookie stops acting for the account when the
+sign-in ends (sign-out, disconnection) and doesn't outlive the Session; `poppyWebSessionOf(ctx)` gives
+you its scopes. The cookie keeps the account and scopes authorized at step 2: the agent joins again to
+change them. An agent's browser is refused by the account console, the admin console and the consent
+screens.
 
 ## Signing out and disconnecting
 
-The agent revokes its Account Token at `/poppy/oauth/revoke`; sessions signed in with it continue
-signed out. The user can disconnect the agent from **Account → Apps → Personal agents** (or
-`DELETE /account/api/agents/:id`), and "sign out everywhere", password resets, account deletion
-and admin actions revoke every Account Token too. Admins can revoke any connection, or block an
-agent outright, from the [admin console](/docs/admin-console#personal-agents).
+The agent revokes its refresh token at `/poppy/oauth/revoke`: its access tokens die with it, and its
+Sessions continue signed out. The user can disconnect the agent from **Account → Apps → Personal
+agents** (or `DELETE /account/api/agents/:id`), and "sign out everywhere", password resets, account
+deletion and admin actions revoke every refresh token too. Admins can revoke any connection, or block
+an agent outright, from the [admin console](/docs/admin-console#personal-agents).
 
 ## Spec notes
 
-Where Draft 0.1 is ambiguous, AuthKit takes the most literal reading:
+Where the spec leaves a choice, AuthKit makes these:
 
-- `jwks_uri` and `redirect_uris` must be on the **same host** as `client_id`.
-- The session assertion's `jti` must have at least 22 characters (128 bits in base64url).
-- `session_id` is required when exchanging a code or a device code (it carries the User ID).
-- A token issued for a `resource` is accepted only there; a token without one is refused where a
-  `resource` is required.
-- Revoking another agent's Account Token is a silent no-op (RFC 7009).
+- A Session that used one account refuses another with `invalid_session` (§5.4 allows it).
+- Reused `jti`s are refused for client assertions and Session JWTs (§4.1 and §5.3 allow it).
+- `jwks_uri` and `redirect_uris` must be on the **same host** as `client_id`, except loopback redirect
+  URIs, which only match the `127.0.0.1` and `[::1]` literals, with any port.
+- AuthKit always runs an issuer, so its Companies are never issuerless: Session JWTs use the issuer
+  as `aud`, even when both sign-in types are off.
+- Revoking another agent's refresh token is a silent no-op (RFC 7009).
+
+AuthKit publishes `feedback` and `excluded_tasks` but doesn't implement them, and it publishes
+extensions such as Operations but doesn't enforce them. Operator signatures (Web Bot Auth) are your
+edge's concern, and PS384 delegations are accepted for blind signing.
