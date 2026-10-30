@@ -1,8 +1,7 @@
 /**
- * Persistência do Poppy — tabelas LIB-OWNED (ver `schema/ensure.ts`): Sessions,
- * Session Tokens (só o hash), pedidos de sign-in (autorização Direct, códigos,
- * device codes, Mediated) e `jti` vistos. Os Account Tokens reaproveitam
- * `auth_agent_grants` + `auth_agent_refresh_tokens` (ver `DelegationStore`).
+ * Persistência do Poppy — tabelas LIB-OWNED (ver `schema/ensure.ts`): Sessions, access tokens (só o
+ * hash), pedidos de sign-in e de entrada de navegador, e `jti` vistos. Os refresh tokens
+ * reaproveitam `auth_agent_grants` + `auth_agent_refresh_tokens` (ver `DelegationStore`).
  *
  * Mesmas regras do `DelegationStore`: query builder puro, datas comparadas em JS
  * depois de buscar a linha pela chave, transições de estado atômicas por
@@ -14,12 +13,14 @@ export const TOKEN_TABLE = 'auth_poppy_tokens';
 export const REQUEST_TABLE = 'auth_poppy_requests';
 
 export interface SessionRow {
+  /** Derivado de `client_id` + `sid` (§5.3). */
   id: string;
   clientId: string;
   userId: string;
-  /** Conta a que a Session está PRESA (uma vez logada, não troca — §4.4). */
+  agentId: string | null;
+  /** Conta que a Session já usou: recusamos outra com `invalid_session` (§5.4). */
   accountId: string | null;
-  /** Grant (Account Token) com que está logada agora; `null` = deslogada. */
+  /** Colunas da Draft 0.1, sem uso: o acesso à conta não passa pela Session. */
   grantId: string | null;
   scope: string;
   expiresAt: Date;
@@ -28,22 +29,21 @@ export interface SessionRow {
   updatedAt: Date;
 }
 
+/** Access token (§4.5). */
 export interface TokenRow {
   tokenHash: string;
-  sessionId: string;
   clientId: string;
-  userId: string;
   accountId: string | null;
   grantId: string | null;
   scope: string;
   resource: string | null;
-  /** Thumbprint da chave DPoP; `null` = Bearer (só MCP). */
+  /** Thumbprint da chave DPoP; `null` = Bearer. */
   jkt: string | null;
   expiresAt: Date;
   createdAt: Date;
 }
 
-export type RequestKind = 'authorize' | 'device' | 'mediated';
+export type RequestKind = 'authorize' | 'device' | 'mediated' | 'browser';
 export type RequestStatus = 'pending' | 'approved' | 'denied' | 'consumed' | 'failed';
 
 export interface RequestRow {
@@ -90,6 +90,7 @@ function toSession(row: any): SessionRow {
     id: row.id,
     clientId: row.client_id,
     userId: row.user_id,
+    agentId: row.agent_id ?? null,
     accountId: row.account_id ?? null,
     grantId: row.grant_id ?? null,
     scope: row.scope ?? '',
@@ -103,9 +104,7 @@ function toSession(row: any): SessionRow {
 function toToken(row: any): TokenRow {
   return {
     tokenHash: row.token_hash,
-    sessionId: row.session_id,
     clientId: row.client_id,
-    userId: row.user_id,
     accountId: row.account_id ?? null,
     grantId: row.grant_id ?? null,
     scope: row.scope ?? '',
@@ -160,6 +159,7 @@ export class PoppyStore {
       id: row.id,
       client_id: row.clientId,
       user_id: row.userId,
+      agent_id: row.agentId,
       account_id: row.accountId,
       grant_id: row.grantId,
       scope: row.scope,
@@ -185,38 +185,19 @@ export class PoppyStore {
   }
 
   /**
-   * Loga a Session numa conta. Atômico: só se ainda estiver deslogada ou presa
-   * à MESMA conta. `false` = presa a outra conta (ou terminou) nesse meio-tempo.
+   * Registra a conta que a Session usa (§5.4). Atômico: só se nenhuma foi registrada ou é a MESMA.
+   * `false` = outra conta chegou nesse meio-tempo.
    */
-  async signInSession(
-    id: string,
-    patch: { accountId: string; grantId: string; scope: string; expiresAt: Date; at: Date },
-  ): Promise<boolean> {
+  async bindSessionAccount(id: string, accountId: string, at: Date): Promise<boolean> {
     const result = await this.conn()
       .from(SESSION_TABLE)
       .where('id', id)
-      .whereNull('ended_at')
-      .where((q: any) => q.whereNull('account_id').orWhere('account_id', patch.accountId))
-      .update({
-        account_id: patch.accountId,
-        grant_id: patch.grantId,
-        scope: patch.scope,
-        expires_at: patch.expiresAt,
-        updated_at: patch.at,
-      });
+      .where((q: any) => q.whereNull('account_id').orWhere('account_id', accountId))
+      .update({ account_id: accountId, updated_at: at });
     return affected(result) > 0;
   }
 
-  /** Sign-out (§4.9): as Sessions logadas com o grant continuam, deslogadas. */
-  async signOutSessionsOfGrant(grantId: string, at: Date): Promise<number> {
-    const result = await this.conn()
-      .from(SESSION_TABLE)
-      .where('grant_id', grantId)
-      .update({ grant_id: null, scope: '', updated_at: at });
-    return affected(result);
-  }
-
-  /** Encerra todas as Sessions de um agente (bloqueio no console): os tokens param na hora. */
+  /** Encerra todas as Sessions de um agente (bloqueio no console): param na hora. */
   async endSessionsOfClient(clientId: string, at: Date): Promise<number> {
     const result = await this.conn()
       .from(SESSION_TABLE)
@@ -226,14 +207,16 @@ export class PoppyStore {
     return affected(result);
   }
 
-  // ─── session tokens ───────────────────────────────────────────────────────
+  // ─── access tokens ────────────────────────────────────────────────────────
 
   async insertToken(row: TokenRow): Promise<void> {
     await this.conn().table(TOKEN_TABLE).insert({
       token_hash: row.tokenHash,
-      session_id: row.sessionId,
+      // `session_id`/`user_id` são NOT NULL desde a Draft 0.1 e o schema só é aditivo; o sign-in
+      // não conhece a Session nem o User ID (§4.4).
+      session_id: '',
       client_id: row.clientId,
-      user_id: row.userId,
+      user_id: '',
       account_id: row.accountId,
       grant_id: row.grantId,
       scope: row.scope,
@@ -314,6 +297,9 @@ export class PoppyStore {
       codeHash?: string;
       attempts?: number;
       expiresAt?: Date;
+      clientId?: string;
+      sessionId?: string;
+      data?: Record<string, unknown>;
     },
   ): Promise<boolean> {
     const update: Record<string, unknown> = { status: patch.status };
@@ -322,6 +308,9 @@ export class PoppyStore {
     if (patch.codeHash !== undefined) update.code_hash = patch.codeHash;
     if (patch.attempts !== undefined) update.attempts = patch.attempts;
     if (patch.expiresAt !== undefined) update.expires_at = patch.expiresAt;
+    if (patch.clientId !== undefined) update.client_id = patch.clientId;
+    if (patch.sessionId !== undefined) update.session_id = patch.sessionId;
+    if (patch.data !== undefined) update.data = JSON.stringify(patch.data);
     const result = await this.conn()
       .from(REQUEST_TABLE)
       .where('id', id)

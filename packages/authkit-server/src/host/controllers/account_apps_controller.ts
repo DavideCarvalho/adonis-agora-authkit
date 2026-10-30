@@ -53,7 +53,7 @@ export default class AccountAppsController {
           })),
         )
       : null;
-    // Account Tokens do Poppy: o agente é desconectado pela mesma lista (§4.9).
+    // Refresh tokens do Poppy: o agente é desconectado pela mesma lista (§5.5).
     const poppy = agentsRuntime?.poppy;
     const poppyAgents = poppy
       ? await Promise.all(

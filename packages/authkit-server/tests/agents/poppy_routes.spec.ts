@@ -33,7 +33,10 @@ test.group('poppy — rotas no Router real', (group) => {
       'authkit.poppy.metadata_under_issuer',
       'authkit.poppy.token',
       'authkit.poppy.authorize',
+      'authkit.poppy.protected_resource',
+      'authkit.poppy.browser_session_page',
       'authkit.poppy.browser_session',
+      'authkit.poppy.browser_session_authorize',
     ]);
   });
 });

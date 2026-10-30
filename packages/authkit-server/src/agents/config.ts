@@ -98,7 +98,7 @@ export interface PersonalAgentsConfigInput {
    * segundo protocolo, ao lado do PACT. Um app pode servir os dois. Ver
    * `poppy/config.ts`.
    *
-   * @experimental Poppy (Personal Agent Protocol) Draft 0.1 — acompanha a spec em desenvolvimento e PODE MUDAR
+   * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — acompanha a spec em desenvolvimento e PODE MUDAR
    *   de forma incompatível fora de majors enquanto ela for draft.
    */
   poppy?: PoppyConfigInput;

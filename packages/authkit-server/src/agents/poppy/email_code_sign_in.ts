@@ -1,14 +1,14 @@
 /**
- * @experimental Poppy (Personal Agent Protocol) Draft 0.1 — pode mudar de forma incompatível enquanto a spec for draft.
+ * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — pode mudar de forma incompatível enquanto a spec for draft.
  *
- * Mediated Sign-In pronto (§4.7): o agente pede o e-mail da conta, o authkit manda
+ * Mediated Sign-In pronto (extensão `mediated-sign-in`): o agente pede o e-mail da conta, o authkit manda
  * um código de 6 dígitos para ele e o agente devolve o código. Usa as contas
  * (`accountStore`) e o e-mail (hook `mail.onPoppySignInCode` ou o mailer default)
  * do próprio authkit — o app só liga:
  *
  * ```ts
  * personalAgents: {
- *   poppy: { signIn: { mediated: poppyEmailCodeSignIn() } },
+ *   poppy: { signIn: { mediated: poppyEmailCodeSignIn({ scopes: ['orders:read'] }) } },
  * }
  * ```
  *
@@ -25,11 +25,11 @@ import { personalAgentsFor } from '../runtime.js';
 import type { PoppyMediatedConfigInput, PoppyMediatedResult } from './config.js';
 
 export interface PoppyEmailCodeSignInOptions {
-  /** Scopes que este sign-in pode conceder. Default: `['poppy:read']` (o default do Mediated). */
-  scopes?: string[];
+  /** Scopes que este sign-in pode conceder. */
+  scopes: string[];
   /** Validade do código, em segundos. Default: 600. */
   codeTtl?: number;
-  /** Tentativas de código antes de `failed`. Default: 5. */
+  /** Tentativas de código antes de `invalid_grant`. Default: 5. */
   maxCodeAttempts?: number;
   /**
    * Quem pode entrar por aqui (ex.: só pacientes, não profissionais). `false` = recebe a
@@ -61,7 +61,7 @@ const HOUR_MS = 3600 * 1000;
 const MAX_TRACKED = 10_000;
 
 export function poppyEmailCodeSignIn(
-  options: PoppyEmailCodeSignInOptions = {},
+  options: PoppyEmailCodeSignInOptions,
 ): PoppyMediatedConfigInput {
   const positive = (value: number | undefined, fallback: number, what: string) => {
     if (value === undefined) return fallback;
@@ -111,7 +111,7 @@ export function poppyEmailCodeSignIn(
 
   return {
     fields: [{ name: 'email', label: options.label ?? 'Email address', secret: false }],
-    ...(options.scopes ? { scopes: options.scopes } : {}),
+    scopes: options.scopes,
     codeTtl,
     maxCodeAttempts,
     async verify({ credentials, clientId, ctx }): Promise<PoppyMediatedResult> {

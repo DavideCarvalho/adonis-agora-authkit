@@ -53,6 +53,40 @@ function isHttpsUrl(value: unknown, allowHttp = false): value is string {
   }
 }
 
+/** Loopback redirect URI (RFC 8252 §7.3): `http`, IP de loopback literal, sem fragmento. */
+function isLoopbackRedirect(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === 'http:' &&
+      (url.hostname === '127.0.0.1' || url.hostname === '[::1]') &&
+      !url.username &&
+      !url.password &&
+      !url.hash
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `redirect_uri` igual a uma entrada de `redirect_uris`; numa loopback redirect URI a porta não
+ * conta (§4.2, RFC 8252 §7.3).
+ */
+export function redirectUriAllowed(registered: string[], redirectUri: string): boolean {
+  if (registered.includes(redirectUri)) return true;
+  if (!isLoopbackRedirect(redirectUri)) return false;
+  const withoutPort = (value: string) => {
+    const url = new URL(value);
+    url.port = '';
+    return url.toString();
+  };
+  return registered.some(
+    (r) => isLoopbackRedirect(r) && withoutPort(r) === withoutPort(redirectUri),
+  );
+}
+
 function ttlFrom(maxAge: number | null): number {
   if (maxAge === null) return DEFAULT_TTL_MS;
   return Math.min(MAX_TTL_MS, Math.max(MIN_TTL_MS, maxAge * 1000));
@@ -82,8 +116,11 @@ export function validateClientMetadata(
   const redirects = d.redirect_uris ?? [];
   if (!Array.isArray(redirects)) throw bad('redirect_uris must be an array');
   for (const uri of redirects) {
+    if (isLoopbackRedirect(uri)) continue;
     if (!isHttpsUrl(uri, allowHttp) || hostOf(uri) !== host) {
-      throw bad('every redirect_uri must be an HTTPS URL on the same domain as client_id');
+      throw bad(
+        'every redirect_uri must be an HTTPS URL on the same domain as client_id, or a loopback URI',
+      );
     }
   }
   if (d.token_endpoint_auth_method !== 'private_key_jwt') {

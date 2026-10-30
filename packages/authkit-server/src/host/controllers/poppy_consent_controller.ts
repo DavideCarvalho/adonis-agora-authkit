@@ -18,8 +18,8 @@ function chosenScopes(ctx: HttpContext): string[] {
 
 /**
  * Telas do usuário no Poppy: o consentimento do Direct Sign-In (o
- * `authorization_endpoint`, §4.5) e a do Device Sign-In (o `verification_uri`,
- * §4.6). Montadas atrás do `accountGuard`: sem sessão, o usuário passa pelo login
+ * `authorization_endpoint`, §4.2) e a do Device Sign-In (o `verification_uri`,
+ * §4.3). Montadas atrás do `accountGuard`: sem sessão, o usuário passa pelo login
  * DESTE app e volta. Abrir o link nunca aprova sozinho — a aprovação é um POST
  * com CSRF. Recusadas durante impersonation.
  */

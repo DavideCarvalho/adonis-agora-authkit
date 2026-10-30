@@ -1,6 +1,6 @@
 /**
  * Verificação de provas DPoP (RFC 9449) — utilitário genérico para o token
- * endpoint e para resource servers (§4.3 do Poppy).
+ * endpoint e para resource servers (§4.5 do Poppy).
  *
  * Confere: um único header `DPoP`; `typ` `dpop+jwt`; algoritmo permitido; `jwk`
  * público no header e a assinatura com ele; `jti`, `htm`, `htu` (sem query nem
@@ -38,7 +38,7 @@ export interface DpopNonceSource {
  * Nonces sem estado: `base64url(ts).base64url(hmac(ts))`, válidos por
  * `ttlSeconds` (default 300). Qualquer instância com o mesmo segredo valida.
  *
- * @experimental Poppy (Personal Agent Protocol) Draft 0.1 — acompanha a spec em desenvolvimento e PODE MUDAR
+ * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — acompanha a spec em desenvolvimento e PODE MUDAR
  *   de forma incompatível fora de majors enquanto ela for draft.
  */
 export function hmacNonceSource(
@@ -113,7 +113,7 @@ function failure(error: DpopFailure['error'], description: string): DpopFailure 
 }
 
 /**
- * @experimental Poppy (Personal Agent Protocol) Draft 0.1 — pode mudar de forma incompatível enquanto a spec for draft.
+ * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — pode mudar de forma incompatível enquanto a spec for draft.
  */
 export async function verifyDpopProof(input: VerifyDpopInput): Promise<DpopResult> {
   const raw = input.proof;

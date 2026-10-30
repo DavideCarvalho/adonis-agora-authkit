@@ -1,17 +1,19 @@
 /**
- * Authorization server do Poppy (Draft 0.1, §4–§6): Sessions, Session Tokens
- * opacos presos por DPoP, Account Tokens (refresh tokens), Direct/Device/Mediated
- * Sign-In, revogação, verificação nos resource servers e a asserção de navegador.
+ * Lado da empresa no Poppy (Draft 0.3): o authorization server OAuth (§4 — Direct, Device, refresh,
+ * revogação, extensão Mediated Sign-In), a verificação do header `Poppy-Session` e das Sessions
+ * (§5), os access tokens nos resource servers (§4.5, §7) e a entrada do navegador na Session (§6).
  *
- * Os Account Tokens são grants de personal agents (`auth_agent_grants`, prefixo
- * `pgrant_`) — a mesma lista/revogação do console de conta do PACT.
+ * Sessions e acesso à conta são independentes: o sign-in não conhece a Session. Os refresh tokens
+ * são grants de personal agents (`auth_agent_grants`, prefixo `pgrant_`) — a mesma
+ * lista/revogação do console de conta do PACT.
  */
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import type { HttpContext } from '@adonisjs/core/http';
-import { decodeJwt, decodeProtectedHeader, type JWTPayload, jwtVerify } from 'jose';
+import { type JWTPayload, jwtVerify } from 'jose';
 import { formatScope, parseScope } from '../config.js';
 import type { DelegationStore, GrantRow } from '../delegation_store.js';
 import type { PoppyClient, PoppyClientRegistry } from './client_registry.js';
+import { redirectUriAllowed } from './client_registry.js';
 import type {
   PoppyLimiter,
   PoppyPrincipalBase,
@@ -22,20 +24,26 @@ import type {
 import { type DpopNonceSource, normalizeHtu, verifyDpopProof } from './dpop.js';
 import { PoppyError } from './errors.js';
 import { replayKey } from './replay.js';
+import { SessionJwtError, type VerifiedSessionJwt, verifySessionJwt } from './session_jwt.js';
 import type { PoppyStore, RequestRow, SessionRow } from './store.js';
 
-export const JWT_BEARER_GRANT = 'urn:ietf:params:oauth:grant-type:jwt-bearer';
 export const DEVICE_CODE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
+export const MEDIATED_SIGN_IN_GRANT = 'https://personalagentprotocol.org/grant/mediated-sign-in';
+export const MEDIATED_SIGN_IN_EXTENSION = 'mediated-sign-in';
 export const CLIENT_ASSERTION_TYPE = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer';
-export const BROWSER_ASSERTION_TYP = 'poppy-browser+jwt';
+export const POPPY_PROTOCOL_VERSION = '0.3';
 
-/** Algoritmos aceitos nas asserções do agente (client assertion, sessão, navegador). */
-const ASSERTION_ALGS = ['ES256', 'ES384', 'ES512', 'RS256', 'PS256', 'EdDSA'];
+/** Algoritmos das client assertions: `ES256` obrigatório, `PS384` para assinatura cega (§4.1). */
+const ASSERTION_ALGS = ['ES256', 'PS384', 'ES384', 'ES512', 'RS256', 'PS256', 'EdDSA'];
 const CLOCK_SKEW_S = 30;
 /** Sem vogais: o código não forma palavras (RFC 8628 §6.1). */
 const USER_CODE_ALPHABET = 'BCDFGHJKLMNPQRSTVWXZ';
 /** Pedido de autorização (Direct) aguardando o consentimento. */
 const AUTHORIZE_REQUEST_TTL_S = 600;
+/** Código de entrada do navegador: 128 bits, 60 s (guia `company-browsing`). */
+const BROWSER_CODE_TTL_S = 60;
+/** Só regrava a validade da Session quando o último uso já passou disso. */
+const SESSION_TOUCH_INTERVAL_MS = 60_000;
 
 /** URLs públicas do authorization server Poppy. */
 export interface PoppyUrls {
@@ -49,7 +57,6 @@ export interface PoppyUrls {
   deviceAuthorization: string;
   /** Tela do device flow (`verification_uri`). */
   device: string;
-  mediated: string;
   browserSession: string;
   discovery: string;
 }
@@ -67,30 +74,26 @@ export function poppyUrls(oidcIssuer: string, prefix: string): PoppyUrls {
     authorization: `${issuer}/oauth/authorize`,
     deviceAuthorization: `${issuer}/oauth/device`,
     device: `${issuer}/device`,
-    mediated: `${issuer}/sign-in`,
     browserSession: `${issuer}/browser-session`,
     discovery: `${origin}/.well-known/poppy.json`,
   };
 }
 
-/** Resposta do token endpoint (§4.2, §4.4). */
+/** Resposta do token endpoint (§4.7, RFC 6749 §5.1). */
 export interface PoppyTokenResponse {
   access_token: string;
   token_type: 'DPoP' | 'Bearer';
   expires_in: number;
   scope: string;
-  session_id: string;
-  signed_in: boolean;
   refresh_token?: string;
-  refresh_token_expires_in?: number;
 }
 
-/** Ponte com o oidc-provider para os tokens Bearer de MCP (§4.3, §6). */
+/** Ponte com o oidc-provider para os tokens Bearer de MCP (§7). */
 export interface PoppyMcpBridge {
   /** `url` é um servidor MCP deste app (de `apis` ou do registro de resources)? */
   isMcpResource(url: string): boolean;
   /**
-   * Emite o Bearer de uma Session LOGADA como access token do oidc-provider,
+   * Emite o Bearer de um sign-in como access token do oidc-provider,
    * para que a integração MCP existente (`AccessToken.find`) o aceite. `null` =
    * sem ponte (o token fica só no store do Poppy).
    */
@@ -130,9 +133,9 @@ export interface PoppyRequestInput {
 }
 
 export interface PoppyVerifyOptions {
-  /** Scopes exigidos (todos). Faltando: `sign_in_required` (deslogado) ou `insufficient_scope`. */
+  /** Scopes exigidos (todos). Sem access token: challenge 401; sem o scope: `insufficient_scope`. */
   scopes?: string[];
-  /** Exige Session logada. */
+  /** Exige acesso à conta (um access token). */
   signedIn?: boolean;
   /**
    * `resource` exigido por este endpoint. Default: derivado da URL contra
@@ -142,22 +145,29 @@ export interface PoppyVerifyOptions {
 }
 
 export type PoppyAuthError =
+  | 'invalid_session'
   | 'invalid_token'
-  | 'sign_in_required'
   | 'insufficient_scope'
   | 'invalid_dpop_proof'
   | 'use_dpop_nonce';
 
 export type PoppyVerifyResult =
-  | { ok: true; principal: PoppyPrincipalBase; jkt: string | null }
+  | {
+      ok: true;
+      principal: PoppyPrincipalBase;
+      /** Grant (refresh token) do access token — `null` deslogado. */
+      grantId: string | null;
+    }
   | {
       ok: false;
-      status: 401 | 403;
-      error: PoppyAuthError;
+      status: 400 | 401 | 403 | 429;
+      /** `null`: challenge sem código (§7, falta o access token) ou limite de taxa (§5.6). */
+      error: PoppyAuthError | null;
       description: string;
       scope?: string;
-      wwwAuthenticate: string;
-      /** Headers extras (`DPoP-Nonce`). */
+      /** `null` nos erros que vão no corpo (`invalid_session`) e no 429. */
+      wwwAuthenticate: string | null;
+      /** Headers extras (`DPoP-Nonce`, `Retry-After`). */
       headers: Record<string, string>;
     };
 
@@ -186,27 +196,18 @@ export interface PoppyGrantSummary {
   expiresAt: Date;
 }
 
-export type PoppyMediatedResponse =
-  | ({ status: 'complete' } & PoppyTokenResponse)
-  | {
-      status: 'code_required';
-      sign_in_id: string;
-      code: { sent_to: string };
-      expires_at: string;
-    }
-  | { status: 'failed' }
-  | { status: 'expired' };
-
-export interface PoppyBrowserSessionResult {
+/** O que a entrada de um navegador autorizou (§6, passo 3). */
+export interface PoppyBrowserJoin {
   sessionId: string;
   clientId: string;
   userId: string;
+  /** Conta autorizada no passo 2; `null` = entrada sem access token. */
   accountId: string | null;
+  grantId: string | null;
   scopes: string[];
-  returnTo: string;
 }
 
-/** Estado atual de uma Session (para o cookie do site acompanhar — §5). */
+/** Estado atual de um navegador que entrou numa Session (§6, "The cookie"). */
 export interface PoppySessionState {
   active: boolean;
   sessionId: string;
@@ -278,9 +279,11 @@ function quote(value: string): string {
   return value.replace(/["\\]/g, '');
 }
 
-function hostMatches(host: string, domains: string[]): boolean {
-  const h = host.toLowerCase().replace(/\.$/, '');
-  return domains.some((d) => h === d || h.endsWith(`.${d}`));
+/** A URL da protected resource metadata de um resource (RFC 9728 §3.1). */
+function resourceMetadataUrl(resource: string): string {
+  const url = new URL(resource);
+  const path = url.pathname === '/' ? '' : url.pathname;
+  return `${url.origin}/.well-known/oauth-protected-resource${path}`;
 }
 
 /** Slot global onde o `@adonis-agora/agent` registra o endpoint de conversas Poppy. */
@@ -294,7 +297,7 @@ export const POPPY_ENDPOINTS_SLOT = Symbol.for('@adonis-agora/poppy:endpoints');
 export function registeredConversationProtocols(): {
   type: string;
   endpoint: string;
-  resource?: string;
+  access?: 'session' | 'signed_in';
 }[] {
   const slot = (globalThis as Record<symbol, unknown>)[POPPY_ENDPOINTS_SLOT] as
     | { conversations?: unknown }
@@ -311,7 +314,7 @@ export function registeredConversationProtocols(): {
 }
 
 /**
- * @experimental Poppy (Personal Agent Protocol) Draft 0.1 — pode mudar de forma incompatível enquanto a spec for draft.
+ * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — pode mudar de forma incompatível enquanto a spec for draft.
  */
 export class PoppyService {
   readonly cfg: ResolvedPoppyConfig;
@@ -358,31 +361,45 @@ export class PoppyService {
 
   // ─── descoberta ───────────────────────────────────────────────────────────
 
-  /** `/.well-known/poppy.json` (§3) para o domínio pedido; `null` = domínio que não é nosso. */
-  discoveryDocument(requestHost: string): Record<string, unknown> | null {
+  /** A URL `https://{domain}` de um domínio (no host do issuer, a origem dele — dev com porta). */
+  #domainUrl(domain: string): string {
+    const issuer = new URL(this.urls.origin);
+    return domain === issuer.hostname.toLowerCase()
+      ? this.urls.origin
+      : `${issuer.protocol}//${domain}`;
+  }
+
+  /** O domínio da empresa que o host serve, sem normalizar nada além de caixa e porta (§3.1). */
+  #domainOf(requestHost: string): { domain: string; hostWithPort: string } | null {
     const hostWithPort = requestHost
       .toLowerCase()
       .replace(/\.$/, '')
       .replace(/\.(:\d+)$/, '$1');
     const host = hostWithPort.replace(/:\d+$/, '');
-    const bare = host.startsWith('www.') ? host.slice(4) : host;
-    const domain = this.domains.find((d) => d === bare);
-    if (!domain) return null;
-    const { signIn } = this.cfg;
+    const domain = this.domains.find((d) => d === host);
+    return domain ? { domain, hostWithPort } : null;
+  }
+
+  /** `www.{domínio}` não é a empresa (§3.1): a descoberta redireciona para o domínio (§3). */
+  discoveryRedirect(requestHost: string): string | null {
+    const host = requestHost.toLowerCase().replace(/\.$/, '').replace(/:\d+$/, '');
+    if (!host.startsWith('www.') || this.domains.includes(host)) return null;
+    const bare = host.slice(4);
+    if (!this.domains.includes(bare)) return null;
+    return `${this.#domainUrl(bare)}/.well-known/poppy.json`;
+  }
+
+  /** `/.well-known/poppy.json` (§3) para o domínio pedido; `null` = domínio que não é nosso. */
+  discoveryDocument(requestHost: string): Record<string, unknown> | null {
+    const match = this.#domainOf(requestHost);
+    if (!match) return null;
+    const { domain, hostWithPort } = match;
     const auth: Record<string, unknown> = { issuer: this.urls.issuer };
-    if (signIn.direct) auth.direct = { scopes: signIn.direct.scopes };
-    if (signIn.device) auth.device = { scopes: signIn.device.scopes };
-    if (signIn.mediated) {
-      auth.mediated = {
-        endpoint: this.urls.mediated,
-        fields: signIn.mediated.fields,
-        scopes: signIn.mediated.scopes,
-      };
-    }
-    if (Object.keys(this.cfg.customScopes).length > 0) auth.custom_scopes = this.cfg.customScopes;
+    if (Object.keys(this.cfg.scopes).length > 0) auth.scopes = this.cfg.scopes;
+    if (Object.keys(this.cfg.scopeHints).length > 0) auth.scope_hints = this.cfg.scopeHints;
 
     const doc: Record<string, unknown> = {
-      protocol_version: '0.1',
+      protocol_version: POPPY_PROTOCOL_VERSION,
       organization: { name: this.cfg.organization.name, domain },
       auth,
     };
@@ -392,7 +409,7 @@ export class PoppyService {
         protocols: protocols.map((p) => ({
           type: p.type,
           endpoint: p.endpoint,
-          ...(p.resource ? { resource: p.resource } : {}),
+          ...(p.access ? { access: p.access } : {}),
         })),
       };
     }
@@ -401,31 +418,55 @@ export class PoppyService {
         ? { browser_session_endpoint: this.#browserSessionEndpointFor(hostWithPort) }
         : {};
     }
+    if (this.cfg.feedback) doc.feedback = { endpoint: this.cfg.feedback.endpoint };
+    if (this.cfg.excludedTasks) doc.excluded_tasks = { url: this.cfg.excludedTasks.url };
     if (this.cfg.apis.length > 0) {
       doc.apis = this.cfg.apis.map((a) => ({
         type: a.type,
         url: a.url,
         description: a.description,
-        ...(a.resource ? { resource: a.resource } : {}),
       }));
     }
-    if (Object.keys(this.cfg.extensions).length > 0) doc.extensions = this.cfg.extensions;
+    const extensions: Record<string, unknown> = { ...this.cfg.extensions };
+    const mediated = this.cfg.signIn.mediated;
+    if (mediated) {
+      extensions[MEDIATED_SIGN_IN_EXTENSION] = {
+        version: '1',
+        fields: mediated.fields,
+        scopes: mediated.scopes,
+      };
+    }
+    if (Object.keys(extensions).length > 0) doc.extensions = extensions;
     return doc;
   }
 
-  /** RFC 8414 com `poppy_domains` (§3.2). */
+  /** `/.well-known/oauth-protected-resource` do domínio (§3.2, RFC 9728): aponta o issuer. */
+  protectedResourceMetadata(requestHost: string): Record<string, unknown> | null {
+    const match = this.#domainOf(requestHost);
+    if (!match) return null;
+    return {
+      resource: this.#domainUrl(match.domain),
+      authorization_servers: [this.urls.issuer],
+    };
+  }
+
+  /** RFC 8414 com `protected_resources` (§3.2). */
   authorizationServerMetadata(): Record<string, unknown> {
     const { signIn } = this.cfg;
-    const grants = [JWT_BEARER_GRANT, 'refresh_token'];
+    const grants = ['refresh_token'];
     if (signIn.direct) grants.push('authorization_code');
     if (signIn.device) grants.push(DEVICE_CODE_GRANT);
+    if (signIn.mediated) grants.push(MEDIATED_SIGN_IN_GRANT);
     return {
       issuer: this.urls.issuer,
       token_endpoint: this.urls.token,
       revocation_endpoint: this.urls.revocation,
       ...(signIn.direct ? { authorization_endpoint: this.urls.authorization } : {}),
       ...(signIn.device ? { device_authorization_endpoint: this.urls.deviceAuthorization } : {}),
-      poppy_domains: this.domains,
+      protected_resources: [
+        ...this.domains.map((d) => this.#domainUrl(d)),
+        ...this.cfg.apis.filter((a) => a.type === 'mcp').map((a) => a.url),
+      ],
       scopes_supported: Object.keys(this.cfg.scopes),
       response_types_supported: signIn.direct ? ['code'] : [],
       response_modes_supported: signIn.direct ? ['query'] : [],
@@ -439,18 +480,6 @@ export class PoppyService {
       authorization_response_iss_parameter_supported: true,
       client_id_metadata_document_supported: true,
     };
-  }
-
-  /** Endpoints de sessão de navegador aceitos (um por domínio, com e sem `www.`). */
-  #browserSessionEndpoints(): string[] {
-    const path = new URL(this.urls.browserSession).pathname;
-    const protocol = new URL(this.urls.origin).protocol;
-    const list = new Set([this.urls.browserSession]);
-    for (const d of this.domains) {
-      list.add(`${protocol}//${d}${path}`);
-      list.add(`${protocol}//www.${d}${path}`);
-    }
-    return [...list];
   }
 
   /**
@@ -474,105 +503,64 @@ export class PoppyService {
   // ─── autenticação do agente ───────────────────────────────────────────────
 
   /**
-   * `private_key_jwt` (RFC 7523 §2.2, §3): `client_assertion` assinada por uma
-   * chave do `jwks_uri`, `iss` = `sub` = `client_id`, `aud` = o endpoint
-   * chamado (ou o token endpoint/issuer), `exp` curto, `jti` único.
+   * `private_key_jwt` (§4.1, RFC 7523): `client_assertion` assinada por uma chave do `jwks_uri`,
+   * `iss` = `sub` = `client_id`, `aud` = o issuer como UMA string, curta, com `iat` e `jti` únicos.
    */
-  async authenticateClient(form: Record<string, unknown>, endpoint: string): Promise<PoppyClient> {
+  async authenticateClient(form: Record<string, unknown>): Promise<PoppyClient> {
     const clientId = str(form.client_id);
     const type = str(form.client_assertion_type);
     const assertion = str(form.client_assertion);
+    const bad = (why: string) => new PoppyError('invalid_client', why);
     if (!clientId || type !== CLIENT_ASSERTION_TYPE || !assertion) {
-      throw new PoppyError('invalid_client', 'private_key_jwt client authentication is required');
+      throw bad('private_key_jwt client authentication is required');
     }
     const client = await this.registry.resolve(clientId);
-    const payload = await this.#verifyAgentJwt(client, assertion, {
-      audience: [endpoint, this.urls.token, this.urls.issuer],
-      error: 'invalid_client',
-      forbidTyp: [BROWSER_ASSERTION_TYP, 'dpop+jwt'],
-    });
-    if (payload.sub !== clientId) {
-      throw new PoppyError('invalid_client', 'client assertion sub must be the client_id');
-    }
-    await this.#claimJti('client', clientId, payload, 'invalid_client');
-    return client;
-  }
-
-  async #verifyAgentJwt(
-    client: PoppyClient,
-    token: string,
-    options: {
-      audience: string | string[];
-      error: 'invalid_client' | 'invalid_grant' | 'invalid_request';
-      typ?: string;
-      forbidTyp?: string[];
-      maxLifetime?: number;
-    },
-  ): Promise<JWTPayload> {
-    const fail = (why: string) => new PoppyError(options.error, why);
-    let typ: unknown;
-    try {
-      typ = decodeProtectedHeader(token).typ;
-    } catch {
-      throw fail('malformed JWT');
-    }
-    if (options.typ !== undefined && typ !== options.typ) throw fail(`typ must be ${options.typ}`);
-    if (typeof typ === 'string' && options.forbidTyp?.includes(typ.toLowerCase())) {
-      throw fail(`a ${typ} is not accepted here`);
-    }
     const now = this.#now();
     let payload: JWTPayload;
     try {
-      ({ payload } = await jwtVerify(token, client.keys, {
+      ({ payload } = await jwtVerify(assertion, client.keys, {
         algorithms: ASSERTION_ALGS,
         issuer: client.clientId,
-        audience: options.audience,
+        subject: clientId,
         currentDate: now,
         clockTolerance: CLOCK_SKEW_S,
-        requiredClaims: ['exp', 'jti'],
+        requiredClaims: ['exp', 'iat', 'jti'],
       }));
-    } catch (error) {
-      if (error instanceof PoppyError) throw error;
-      throw fail('JWT verification failed');
+    } catch {
+      throw bad('client assertion verification failed');
+    }
+    if (typeof payload.aud !== 'string' || payload.aud !== this.urls.issuer) {
+      throw bad('aud must be the issuer, as a single string');
     }
     const nowS = Math.floor(now.getTime() / 1000);
-    const max = options.maxLifetime ?? this.cfg.assertionMaxLifetime;
-    const start = typeof payload.iat === 'number' ? payload.iat : nowS;
-    if (typeof payload.iat === 'number' && payload.iat > nowS + CLOCK_SKEW_S) {
-      throw fail('iat is in the future');
+    if (payload.iat! > nowS + CLOCK_SKEW_S) throw bad('iat is in the future');
+    if (payload.exp! - payload.iat! > this.cfg.assertionMaxLifetime) {
+      throw bad('the client assertion lifetime is too long');
     }
-    if (payload.exp! - start > max) throw fail('JWT lifetime is too long');
-    if (typeof payload.jti !== 'string' || payload.jti.length < 16) throw fail('jti is required');
-    return payload;
-  }
-
-  async #claimJti(
-    kind: string,
-    clientId: string,
-    payload: JWTPayload,
-    error: 'invalid_client' | 'invalid_grant' | 'invalid_request',
-  ): Promise<void> {
+    if (typeof payload.jti !== 'string' || !payload.jti) throw bad('jti is required');
     const expiresAt = new Date((payload.exp! + CLOCK_SKEW_S) * 1000);
-    if (!(await this.#replay.claim(replayKey(kind, clientId, String(payload.jti)), expiresAt))) {
-      throw new PoppyError(error, 'jti was already used');
+    if (!(await this.#replay.claim(replayKey('client', clientId, payload.jti), expiresAt))) {
+      throw bad('jti was already used');
     }
+    return client;
   }
 
   // ─── token endpoint ───────────────────────────────────────────────────────
 
-  /** `POST token_endpoint` (§4.2, §4.3, §4.5, §4.6, §4.8). */
+  /** `POST token_endpoint` (§4.2–§4.4, §4.7, extensão Mediated Sign-In). */
   async token(
     form: Record<string, unknown>,
     dpopHeader: string | string[] | undefined,
+    ctx?: HttpContext,
   ): Promise<PoppyTokenResponse> {
     await this.#housekeeping();
-    const client = await this.authenticateClient(form, this.urls.token);
+    const client = await this.authenticateClient(form);
     const grantType = str(form.grant_type);
     if (
-      grantType !== JWT_BEARER_GRANT &&
       grantType !== 'refresh_token' &&
       !(grantType === 'authorization_code' && this.cfg.signIn.direct) &&
-      !(grantType === DEVICE_CODE_GRANT && this.cfg.signIn.device)
+      !(grantType === DEVICE_CODE_GRANT && this.cfg.signIn.device) &&
+      !(grantType === MEDIATED_SIGN_IN_GRANT && this.cfg.signIn.mediated)
     ) {
       throw new PoppyError('unsupported_grant_type', 'Unsupported grant_type');
     }
@@ -581,20 +569,21 @@ export class PoppyService {
     const requestedScope = scopeParam === undefined ? null : parseScope(str(scopeParam) ?? '');
 
     switch (grantType) {
-      case JWT_BEARER_GRANT:
-        return this.#jwtBearer(client, form, binding, requestedScope);
       case 'refresh_token':
         return this.#refresh(client, form, binding, requestedScope);
       case 'authorization_code':
         return this.#authorizationCode(client, form, binding, requestedScope);
+      case MEDIATED_SIGN_IN_GRANT:
+        return this.#mediated(client, form, binding, ctx);
       default:
         return this.#deviceCode(client, form, binding, requestedScope);
     }
   }
 
   /**
-   * DPoP da request de token (sem `ath`), ou Bearer — que só existe para MCP e
-   * exige `resource` = a URL de um servidor MCP (§4.3).
+   * O `resource` (RFC 8707, §4.5) e a chave DPoP do token. DPoP é escolha da empresa: uma prova
+   * prende o token (RFC 9449 §5), sem prova ele sai Bearer, a não ser com `dpop.required`. Servidor
+   * MCP recebe Bearer: é o baseline do MCP, e os daqui não anunciam DPoP (§7).
    */
   async #tokenBinding(
     form: Record<string, unknown>,
@@ -605,13 +594,15 @@ export class PoppyService {
       throw new PoppyError('invalid_target', 'Request a token for one resource at a time');
     }
     const resource = str(rawResource) ?? null;
-
+    if (resource && this.#isMcp(resource)) return { jkt: null, resource: this.#mcpUrl(resource) };
+    if (resource && !this.#isConfiguredResource(resource)) {
+      throw new PoppyError('invalid_target', 'Unknown resource');
+    }
     if (dpopHeader === undefined || dpopHeader === '') {
-      if (resource && this.#isMcp(resource)) return { jkt: null, resource: this.#mcpUrl(resource) };
-      throw new PoppyError(
-        'invalid_dpop_proof',
-        'A DPoP proof is required (Bearer tokens are issued only for an MCP resource)',
-      );
+      if (this.cfg.dpop.required) {
+        throw new PoppyError('invalid_dpop_proof', 'A DPoP proof is required');
+      }
+      return { jkt: null, resource };
     }
     const result = await verifyDpopProof({
       proof: dpopHeader,
@@ -628,16 +619,10 @@ export class PoppyService {
         headers: result.error === 'use_dpop_nonce' ? { 'DPoP-Nonce': this.#nonces.issue() } : {},
       });
     }
-    if (resource) {
-      if (!this.#isConfiguredResource(resource)) {
-        throw new PoppyError('invalid_target', 'Unknown resource');
-      }
-      return { jkt: result.jkt, resource };
-    }
-    return { jkt: result.jkt, resource: null };
+    return { jkt: result.jkt, resource };
   }
 
-  /** `resource`s que exigem tokens próprios (§4.3): os `resource` de `apis` e `agent.protocols`. */
+  /** `resource`s que exigem tokens próprios (§4.5): os declarados em `apis` e `agent.protocols`. */
   #isConfiguredResource(resource: string): boolean {
     const entries = [
       ...this.cfg.apis.filter((a) => a.type !== 'mcp').map((a) => a.resource),
@@ -657,49 +642,7 @@ export class PoppyService {
     return listed ? listed.url : url;
   }
 
-  async #jwtBearer(
-    client: PoppyClient,
-    form: Record<string, unknown>,
-    binding: { jkt: string | null; resource: string | null },
-    requestedScope: string[] | null,
-  ): Promise<PoppyTokenResponse> {
-    const assertion = str(form.assertion);
-    if (!assertion) throw new PoppyError('invalid_grant', 'assertion is required');
-    const payload = await this.#verifyAgentJwt(client, assertion, {
-      audience: this.urls.token,
-      error: 'invalid_grant',
-      forbidTyp: [BROWSER_ASSERTION_TYP, 'dpop+jwt'],
-    });
-    // `aud` é UMA string (§4.2): uma asserção com lista não serve.
-    if (typeof payload.aud !== 'string' || payload.aud !== this.urls.token) {
-      throw new PoppyError('invalid_grant', 'aud must be the token endpoint, as a single string');
-    }
-    if (typeof payload.iat !== 'number') throw new PoppyError('invalid_grant', 'iat is required');
-    if (typeof payload.jti !== 'string' || payload.jti.length < 22) {
-      throw new PoppyError('invalid_grant', 'jti needs at least 128 random bits');
-    }
-    const userId = payload.sub;
-    if (typeof userId !== 'string' || !userId || userId.length > 255) {
-      throw new PoppyError('invalid_grant', 'sub (the User ID) is required');
-    }
-    await this.#claimJti('session', client.clientId, payload, 'invalid_grant');
-    if (requestedScope && requestedScope.length > 0) {
-      throw new PoppyError('invalid_scope', 'A signed-out Session Token has no scopes');
-    }
-
-    const sessionId = str(form.session_id);
-    const now = this.#now();
-    let session: SessionRow;
-    if (sessionId) {
-      session = await this.#sessionFor(sessionId, client.clientId, userId);
-    } else {
-      await this.#limit('session', client.clientId);
-      session = await this.#newSession(client.clientId, userId, now);
-    }
-    await this.#store.touchSession(session.id, this.#sessionExpiry(now), now);
-    return this.#issue(session, { ...binding, signedIn: null, scopes: [] });
-  }
-
+  /** Refresh (§4.4): access token novo; o refresh token continua o mesmo (RFC 6749 §6). */
   async #refresh(
     client: PoppyClient,
     form: Record<string, unknown>,
@@ -709,40 +652,13 @@ export class PoppyService {
     const token = str(form.refresh_token);
     if (!token) throw new PoppyError('invalid_grant', 'refresh_token is required');
     const now = this.#now();
-    const invalid = new PoppyError('invalid_grant', 'Unknown, expired or revoked Account Token');
+    const invalid = new PoppyError('invalid_grant', 'Unknown, expired or revoked refresh token');
     const row = await this.#grants.findRefreshToken(sha256(token));
     if (!row || row.expiresAt <= now) throw invalid;
     const grant = await this.#grants.findGrant(row.grantId);
-    // Só o `client_id` a que foi emitido (§4.8).
     if (!grant || !(await this.#grantUsable(grant, client.clientId, now))) throw invalid;
-
-    const granted = parseScope(grant.scope);
-    const scopes = this.#narrow(granted, requestedScope);
-
-    const sessionId = str(form.session_id);
-    let session: SessionRow;
-    if (sessionId) {
-      session = await this.#sessionFor(sessionId, client.clientId, grant.agentSub);
-      if (session.accountId && session.accountId !== grant.accountId) {
-        throw new PoppyError('account_mismatch', 'The Session is signed in to a different account');
-      }
-    } else {
-      await this.#limit('session', client.clientId);
-      session = await this.#newSession(client.clientId, grant.agentSub, now);
-    }
-    if (
-      !(await this.#store.signInSession(session.id, {
-        accountId: grant.accountId,
-        grantId: grant.id,
-        scope: grant.scope,
-        expiresAt: this.#sessionExpiry(now),
-        at: now,
-      }))
-    ) {
-      throw new PoppyError('account_mismatch', 'The Session is signed in to a different account');
-    }
-    const fresh = { ...session, accountId: grant.accountId, grantId: grant.id, scope: grant.scope };
-    return this.#issue(fresh, { ...binding, signedIn: grant, scopes });
+    const scopes = this.#narrow(parseScope(grant.scope), requestedScope);
+    return this.#issue(grant, scopes, binding);
   }
 
   async #authorizationCode(
@@ -778,17 +694,17 @@ export class PoppyService {
     ) {
       throw new PoppyError('invalid_grant', 'PKCE verification failed');
     }
-    const sessionId = str(form.session_id);
-    if (!sessionId) throw new PoppyError('invalid_request', 'session_id is required');
-    const session = await this.#sessionFor(sessionId, client.clientId, null);
-    if (session.accountId && session.accountId !== row.accountId) {
-      throw new PoppyError('account_mismatch', 'The Session is signed in to a different account');
-    }
     if (!(await this.#store.transitionRequest(row.id, 'approved', { status: 'consumed' }))) {
       throw invalid;
     }
     const granted = parseScope(row.grantedScope);
-    const response = await this.#signIn(session, row.accountId, granted, binding, requestedScope);
+    const response = await this.#signIn(
+      client.clientId,
+      row.accountId,
+      granted,
+      binding,
+      requestedScope,
+    );
     await this.#store.setRequestData(row.id, { ...(row.data ?? {}), grantId: response.grantId });
     return response.body;
   }
@@ -821,17 +737,11 @@ export class PoppyService {
     if (row.status !== 'approved' || !row.accountId) {
       throw new PoppyError('invalid_grant', 'Unknown device_code');
     }
-    const sessionId = str(form.session_id);
-    if (!sessionId) throw new PoppyError('invalid_request', 'session_id is required');
-    const session = await this.#sessionFor(sessionId, client.clientId, null);
-    if (session.accountId && session.accountId !== row.accountId) {
-      throw new PoppyError('account_mismatch', 'The Session is signed in to a different account');
-    }
     if (!(await this.#store.transitionRequest(row.id, 'approved', { status: 'consumed' }))) {
       throw new PoppyError('invalid_grant', 'device_code was used');
     }
     const result = await this.#signIn(
-      session,
+      client.clientId,
       row.accountId,
       parseScope(row.grantedScope),
       binding,
@@ -845,7 +755,7 @@ export class PoppyService {
     const device = this.cfg.signIn.device;
     if (!device) throw new PoppyError('unauthorized_client', 'Device Sign-In is not offered');
     await this.#housekeeping();
-    const client = await this.authenticateClient(form, this.urls.deviceAuthorization);
+    const client = await this.authenticateClient(form);
     const scopes = this.#signInScopes(form.scope, 'device');
     const now = this.#now();
     const deviceCode = randomId('pdc_', 32);
@@ -888,9 +798,9 @@ export class PoppyService {
     };
   }
 
-  /** `POST revocation_endpoint` (§4.9, RFC 7009). */
+  /** `POST revocation_endpoint` (§4.6, RFC 7009). */
   async revoke(form: Record<string, unknown>): Promise<void> {
-    const client = await this.authenticateClient(form, this.urls.revocation);
+    const client = await this.authenticateClient(form);
     const token = str(form.token);
     if (!token) throw new PoppyError('invalid_request', 'token is required');
     const hint = str(form.token_type_hint);
@@ -914,17 +824,15 @@ export class PoppyService {
   }
 
   /**
-   * Revoga um Account Token (grant): as Sessions logadas com ele continuam
-   * deslogadas (§4.9) e os Bearer de MCP no oidc-provider morrem junto.
+   * Revoga um refresh token (grant): os access tokens dele morrem junto (RFC 7009 §2.1), as
+   * Sessions continuam deslogadas (§5.5) e os Bearer de MCP no oidc-provider também caem.
    */
   async revokeGrant(grantId: string): Promise<void> {
-    const now = this.#now();
-    await this.#grants.revokeGrantById(grantId, now);
-    await this.#store.signOutSessionsOfGrant(grantId, now);
+    await this.#grants.revokeGrantById(grantId, this.#now());
     await this.#mcp?.revoke?.(grantId);
   }
 
-  // ─── Direct Sign-In (§4.5) ────────────────────────────────────────────────
+  // ─── Direct Sign-In (§4.2) ────────────────────────────────────────────────
 
   /**
    * `GET authorization_endpoint` com o usuário já logado neste app. Erros no
@@ -947,7 +855,7 @@ export class PoppyService {
       };
     }
     const redirectUri = str(params.redirect_uri);
-    if (!redirectUri || !client.redirectUris.includes(redirectUri)) {
+    if (!redirectUri || !redirectUriAllowed(client.redirectUris, redirectUri)) {
       return { kind: 'error', description: 'redirect_uri is not registered for this client' };
     }
     const state = str(params.state);
@@ -1068,7 +976,7 @@ export class PoppyService {
     return url.toString();
   }
 
-  // ─── Device Sign-In: tela (§4.6) ──────────────────────────────────────────
+  // ─── Device Sign-In: tela (§4.3) ──────────────────────────────────────────
 
   async pendingDevice(userCodeInput: unknown): Promise<PoppyConsentRequest | null> {
     const userCode = normalizePoppyUserCode(userCodeInput);
@@ -1119,63 +1027,50 @@ export class PoppyService {
     return ok ? { approved: granted, clientId: row.clientId } : null;
   }
 
-  // ─── Mediated Sign-In (§4.7) ──────────────────────────────────────────────
+  // ─── extensão Mediated Sign-In ────────────────────────────────────────────
 
-  /** `POST auth.mediated.endpoint` — já autenticado pelo Session Token (DPoP). */
-  async mediatedStart(
-    principal: PoppyPrincipalBase,
-    jkt: string | null,
-    body: unknown,
-    ctx: HttpContext,
-  ): Promise<PoppyMediatedResponse> {
-    const mediated = this.cfg.signIn.mediated;
-    if (!mediated) throw new PoppyError('invalid_request', 'Mediated Sign-In is not offered');
-    const b = (body ?? {}) as Record<string, unknown>;
-    const scopes = this.#signInScopes(b.scope, 'mediated');
-    const raw = b.credentials;
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-      throw new PoppyError('invalid_request', 'credentials is required');
-    }
+  /** O grant de extensão no token endpoint: credenciais ou `sign_in_id` + `one_time_code`. */
+  async #mediated(
+    client: PoppyClient,
+    form: Record<string, unknown>,
+    binding: { jkt: string | null; resource: string | null },
+    ctx: HttpContext | undefined,
+  ): Promise<PoppyTokenResponse> {
+    if (form.sign_in_id !== undefined) return this.#mediatedCode(client, form, binding);
+    const mediated = this.cfg.signIn.mediated!;
+    if (!ctx) throw new Error('authkit: Mediated Sign-In precisa do HttpContext.');
+    const scopes = this.#signInScopes(form.scope, 'mediated');
     const credentials: Record<string, string> = {};
     for (const field of mediated.fields) {
-      const value = (raw as Record<string, unknown>)[field.name];
-      if (typeof value !== 'string' || value === '') {
-        throw new PoppyError('invalid_request', `credentials.${field.name} is required`);
-      }
+      const value = str(form[field.name]);
+      if (!value) throw new PoppyError('invalid_request', `${field.name} is required`);
       credentials[field.name] = value;
     }
-    await this.#limit('mediated', `${principal.clientId}\u0000${principal.userId}`);
+    // Por agente e pelo que identifica a conta — nunca pelos valores secretos em claro.
+    const identifier = mediated.fields
+      .filter((f) => !f.secret)
+      .map((f) => credentials[f.name])
+      .join('\u0000');
+    await this.#limit('mediated', `${client.clientId}\u0000${sha256(identifier)}`);
 
     const result = await mediated.verify({
       credentials,
       scopes,
-      clientId: principal.clientId,
-      userId: principal.userId,
-      sessionId: principal.sessionId,
+      clientId: client.clientId,
       ctx,
     });
-    if (!result || result.status === 'failed') return { status: 'failed' };
-    const session = await this.#sessionFor(
-      principal.sessionId,
-      principal.clientId,
-      principal.userId,
-    );
-    if (result.status === 'complete') {
-      if (session.accountId && session.accountId !== result.accountId) {
-        throw new PoppyError('account_mismatch', 'The Session is signed in to a different account');
-      }
-      const done = await this.#signIn(
-        session,
-        result.accountId,
-        scopes,
-        { jkt, resource: null },
-        null,
-      );
-      return { status: 'complete', ...done.body };
+    if (result?.status === 'denied') {
+      throw new PoppyError('access_denied', 'The Company refused this sign-in');
     }
-    if (result.status !== 'code_required') return { status: 'failed' };
+    if (result?.status === 'complete') {
+      const done = await this.#signIn(client.clientId, result.accountId, scopes, binding, null);
+      return done.body;
+    }
+    if (result?.status !== 'code_required') {
+      throw new PoppyError('invalid_grant', 'Sign-in did not succeed');
+    }
     // `accountId: null` = sem conta elegível (anti-enumeração): a resposta é a mesma de uma conta
-    // real e nenhum código vale. A conta da Session só é conferida no código (sem vazar aqui).
+    // real e nenhum código vale.
     const decoy = result.accountId === null;
     if (!decoy && result.code === undefined && !mediated.verifyCode) {
       throw new Error(
@@ -1190,8 +1085,8 @@ export class PoppyService {
       kind: 'mediated',
       codeHash: null,
       userCode: null,
-      clientId: principal.clientId,
-      sessionId: principal.sessionId,
+      clientId: client.clientId,
+      sessionId: null,
       accountId: result.accountId,
       requestedScope: formatScope(scopes),
       redirectUri: null,
@@ -1208,34 +1103,30 @@ export class PoppyService {
       expiresAt,
       createdAt: now,
     });
-    return {
-      status: 'code_required',
-      sign_in_id: id,
-      code: { sent_to: result.sentTo },
-      expires_at: expiresAt.toISOString(),
-    };
+    throw this.#codeRequired(id, result.sentTo, mediated.codeTtl);
   }
 
-  /** `POST {mediated}/{sign_in_id}` com o código de uso único. */
-  async mediatedCode(
-    principal: PoppyPrincipalBase,
-    jkt: string | null,
-    signInId: string,
-    body: unknown,
-  ): Promise<PoppyMediatedResponse | null> {
-    const mediated = this.cfg.signIn.mediated;
-    if (!mediated) throw new PoppyError('invalid_request', 'Mediated Sign-In is not offered');
-    const row = await this.#store.findRequest(signInId);
-    // Só a Session que começou o sign-in termina (§4.7). De outra = não existe.
-    if (row?.kind !== 'mediated' || row.sessionId !== principal.sessionId) return null;
+  #codeRequired(signInId: string, sentTo: string, expiresIn: number): PoppyError {
+    return new PoppyError('code_required', 'A one-time code was sent to the user', {
+      extra: { sign_in_id: signInId, sent_to: sentTo, expires_in: expiresIn },
+    });
+  }
+
+  async #mediatedCode(
+    client: PoppyClient,
+    form: Record<string, unknown>,
+    binding: { jkt: string | null; resource: string | null },
+  ): Promise<PoppyTokenResponse> {
+    const mediated = this.cfg.signIn.mediated!;
+    const invalid = new PoppyError('invalid_grant', 'Sign-in did not succeed');
+    const row = await this.#store.findRequest(str(form.sign_in_id) ?? '');
+    // Só o `client_id` que começou o sign-in termina. De outro = não existe.
+    if (row?.kind !== 'mediated' || row.clientId !== client.clientId) throw invalid;
+    if (row.status !== 'pending') throw invalid;
     const now = this.#now();
-    if (row.status === 'failed' || row.status === 'denied') return { status: 'failed' };
-    if (row.status === 'consumed') return { status: 'failed' };
-    if (row.expiresAt <= now) return { status: 'expired' };
-    const code = (body as Record<string, unknown> | null)?.code;
-    if (typeof code !== 'string' || code === '') {
-      throw new PoppyError('invalid_request', 'code is required');
-    }
+    if (row.expiresAt <= now) throw new PoppyError('expired_token', 'The sign-in expired');
+    const code = str(form.one_time_code);
+    if (!code) throw new PoppyError('invalid_request', 'one_time_code is required');
     const data = row.data ?? {};
     let correct: boolean;
     if (row.accountId === null) {
@@ -1247,192 +1138,260 @@ export class PoppyService {
       correct =
         (await mediated.verifyCode?.({
           code,
-          accountId: row.accountId!,
+          accountId: row.accountId,
           state: data.state,
           clientId: row.clientId,
-          userId: principal.userId,
         })) === true;
     }
     if (!correct) {
       const attempts = row.attempts + 1;
       if (attempts >= mediated.maxCodeAttempts) {
         await this.#store.transitionRequest(row.id, 'pending', { status: 'failed', attempts });
-        return { status: 'failed' };
+        throw invalid;
       }
-      if (!(await this.#store.bumpAttempts(row.id, row.attempts))) return { status: 'failed' };
-      return {
-        status: 'code_required',
-        sign_in_id: row.id,
-        code: { sent_to: String(data.sentTo ?? '') },
-        expires_at: row.expiresAt.toISOString(),
-      };
+      if (!(await this.#store.bumpAttempts(row.id, row.attempts))) throw invalid;
+      const left = Math.max(1, Math.ceil((row.expiresAt.getTime() - now.getTime()) / 1000));
+      throw this.#codeRequired(row.id, String(data.sentTo ?? ''), left);
     }
     if (!(await this.#store.transitionRequest(row.id, 'pending', { status: 'consumed' }))) {
-      return { status: 'failed' };
-    }
-    const session = await this.#sessionFor(
-      principal.sessionId,
-      principal.clientId,
-      principal.userId,
-    );
-    if (session.accountId && session.accountId !== row.accountId) {
-      throw new PoppyError('account_mismatch', 'The Session is signed in to a different account');
+      throw invalid;
     }
     const done = await this.#signIn(
-      session,
+      client.clientId,
       row.accountId!,
       parseScope(row.requestedScope),
-      { jkt, resource: null },
+      binding,
       null,
     );
-    return { status: 'complete', ...done.body };
+    return done.body;
   }
 
-  // ─── resource server (§4.3, §6) ───────────────────────────────────────────
+  // ─── Sessions e resource server (§4.5, §5.2–§5.4, §7) ─────────────────────
 
   /**
-   * Verifica `Authorization: DPoP|Bearer` (+ prova DPoP) de uma request a uma API
-   * ou conversa do app. Nunca lê token da URL (§4.3).
+   * Verifica uma request às APIs/conversas do app: o header `Poppy-Session` (§5.3) e, se houver, o
+   * access token (`Authorization: Bearer|DPoP`, com a prova DPoP). Um `sid` novo começa uma Session
+   * deslogada; a request é logada só quando traz access token. Nunca lê token da URL (§5.6).
    */
   async verifyAccess(
     input: PoppyRequestInput,
     options: PoppyVerifyOptions = {},
   ): Promise<PoppyVerifyResult> {
     const target = this.#endpointFor(input.url, options.resource);
-    const scheme = target.mcp ? 'Bearer' : 'DPoP';
-    const deny = (
+    const resourceMetadata = target.mcp ? resourceMetadataUrl(target.mcp) : undefined;
+    const challenge = (
       status: 401 | 403,
-      error: PoppyAuthError,
+      error: PoppyAuthError | null,
       description: string,
-      extra: { scope?: string; scheme?: string; headers?: Record<string, string> } = {},
+      extra: {
+        scope?: string;
+        schemes?: string[];
+        resourceMetadata?: string;
+        headers?: Record<string, string>;
+      } = {},
     ): PoppyVerifyResult => {
-      const s = extra.scheme ?? scheme;
-      const parts = [`error="${error}"`, `error_description="${quote(description)}"`];
-      if (extra.scope) parts.push(`scope="${quote(extra.scope)}"`);
-      if (s === 'DPoP') parts.unshift(`algs="${this.cfg.dpop.algorithms.join(' ')}"`);
+      const metadata = extra.resourceMetadata ?? resourceMetadata;
+      const params = [
+        ...(error ? [`error="${error}"`, `error_description="${quote(description)}"`] : []),
+        ...(extra.scope ? [`scope="${quote(extra.scope)}"`] : []),
+        ...(metadata ? [`resource_metadata="${quote(metadata)}"`] : []),
+      ];
+      const schemes = extra.schemes ?? this.#acceptedSchemes(target.mcp !== null);
+      const wwwAuthenticate = schemes
+        .map((scheme) => {
+          const all =
+            scheme === 'DPoP'
+              ? [`algs="${this.cfg.dpop.algorithms.join(' ')}"`, ...params]
+              : params;
+          return all.length > 0 ? `${scheme} ${all.join(', ')}` : scheme;
+        })
+        .join(', ');
       return {
         ok: false,
         status,
         error,
         description,
         ...(extra.scope ? { scope: extra.scope } : {}),
-        wwwAuthenticate: `${s} ${parts.join(', ')}`,
+        wwwAuthenticate,
         headers: extra.headers ?? {},
       };
     };
+    const invalidSession = (description: string): PoppyVerifyResult => ({
+      ok: false,
+      status: 400,
+      error: 'invalid_session',
+      description,
+      wwwAuthenticate: null,
+      headers: {},
+    });
 
     const auth = header(input.headers, 'authorization');
     const authValue = Array.isArray(auth) ? undefined : auth;
     const match = authValue
       ? /^(DPoP|Bearer)\s+([A-Za-z0-9\-._~+/]+=*)\s*$/i.exec(authValue)
       : null;
-    if (!match)
-      return deny(401, 'invalid_token', 'A Session Token is required in the Authorization header');
-    const usedScheme = match[1].toLowerCase() === 'dpop' ? 'DPoP' : 'Bearer';
-    const token = match[2];
+    if (auth !== undefined && !match) {
+      return challenge(401, 'invalid_token', 'Malformed Authorization header');
+    }
+    const usedScheme = match?.[1].toLowerCase() === 'dpop' ? 'DPoP' : 'Bearer';
+    const token = match?.[2] ?? null;
 
     const now = this.#now();
-    const row = await this.#store.findToken(sha256(token));
-    if (!row || row.expiresAt <= now)
-      return deny(401, 'invalid_token', 'The token is unknown or expired');
-
-    let jkt: string | null = null;
-    if (row.jkt && target.mcp) {
-      // O MCP aceita só o Bearer emitido para a URL dele (§6).
-      return deny(401, 'invalid_token', 'The MCP server accepts only Bearer tokens issued for it', {
-        scheme: 'Bearer',
-      });
-    }
-    if (row.jkt) {
-      if (usedScheme !== 'DPoP') {
-        return deny(401, 'invalid_token', 'This token is DPoP-bound', { scheme: 'DPoP' });
-      }
-      const proof = await verifyDpopProof({
-        proof: header(input.headers, 'dpop'),
+    let jwt: VerifiedSessionJwt;
+    try {
+      jwt = await verifySessionJwt({
+        header: header(input.headers, 'poppy-session'),
         method: input.method,
         url: input.url,
         accessToken: token,
-        expectedJkt: row.jkt,
-        algorithms: this.cfg.dpop.algorithms,
-        maxAge: this.cfg.dpop.maxAge,
-        replay: this.#replay,
-        nonce: { required: this.cfg.dpop.requireNonce, source: this.#nonces },
-        now: () => now.getTime(),
+        audience: this.urls.issuer,
+        maxAge: this.cfg.sessionJwt.maxAge,
+        resolveClient: (clientId) => this.registry.resolve(clientId),
+        now,
       });
-      if (!proof.ok) {
-        return deny(401, proof.error, proof.description, {
-          scheme: 'DPoP',
-          headers: proof.error === 'use_dpop_nonce' ? { 'DPoP-Nonce': this.#nonces.issue() } : {},
+    } catch (error) {
+      if (error instanceof SessionJwtError) return invalidSession(error.message);
+      throw error;
+    }
+    const replayUntil = new Date((jwt.iat + this.cfg.sessionJwt.maxAge + CLOCK_SKEW_S) * 1000);
+    if (!(await this.#replay.claim(replayKey('session', jwt.clientId, jwt.jti), replayUntil))) {
+      return invalidSession('jti was already used');
+    }
+
+    // Acesso à conta (§4.5).
+    let signedIn: {
+      accountId: string;
+      grantId: string;
+      scopes: string[];
+      jkt: string | null;
+    } | null = null;
+    let resource: string | null = null;
+    if (token !== null) {
+      const row = await this.#store.findToken(sha256(token));
+      if (!row || row.expiresAt <= now) {
+        return challenge(401, 'invalid_token', 'The access token is unknown or expired', {
+          schemes: [usedScheme],
         });
       }
-      jkt = proof.jkt;
-      // Um token de um `resource` só vale nele (§4.3); um sem `resource`, onde não se exige.
-      if ((row.resource ?? null) !== null || target.resource !== null) {
-        if (!row.resource || !target.resource || !sameUrl(row.resource, target.resource)) {
-          return deny(401, 'invalid_token', 'The token was not issued for this resource');
+      if (row.clientId !== jwt.clientId) {
+        return invalidSession('The access token was issued to another client_id');
+      }
+      const tokenScheme = row.jkt ? 'DPoP' : 'Bearer';
+      if (usedScheme !== tokenScheme) {
+        return challenge(401, 'invalid_token', `This token uses the ${tokenScheme} scheme`, {
+          schemes: [tokenScheme],
+        });
+      }
+      if (row.jkt) {
+        const proof = await verifyDpopProof({
+          proof: header(input.headers, 'dpop'),
+          method: input.method,
+          url: input.url,
+          accessToken: token,
+          expectedJkt: row.jkt,
+          algorithms: this.cfg.dpop.algorithms,
+          maxAge: this.cfg.dpop.maxAge,
+          replay: this.#replay,
+          nonce: { required: this.cfg.dpop.requireNonce, source: this.#nonces },
+          now: () => now.getTime(),
+        });
+        if (!proof.ok) {
+          return challenge(401, proof.error, proof.description, {
+            schemes: ['DPoP'],
+            headers: proof.error === 'use_dpop_nonce' ? { 'DPoP-Nonce': this.#nonces.issue() } : {},
+          });
         }
       }
-    } else {
-      // Bearer: só no servidor MCP para o qual foi emitido (§4.3, §6).
+      // Um token de um `resource` só vale nele; o default, onde não se exige um (§4.5).
+      const required = target.mcp ?? target.resource;
+      if ((row.resource ?? null) !== null || required !== null) {
+        if (!row.resource || !required || !sameUrl(row.resource, required)) {
+          return challenge(401, 'invalid_token', 'The token was not issued for this resource', {
+            schemes: [tokenScheme],
+            ...(required ? { resourceMetadata: resourceMetadataUrl(required) } : {}),
+          });
+        }
+      }
+      const grant = row.grantId ? await this.#grants.findGrant(row.grantId) : null;
       if (
-        usedScheme !== 'Bearer' ||
-        !target.mcp ||
-        !row.resource ||
-        !sameUrl(row.resource, target.mcp)
+        !row.grantId ||
+        !row.accountId ||
+        !grant ||
+        !(await this.#grantUsable(grant, row.clientId, now))
       ) {
-        return deny(
-          401,
-          'invalid_token',
-          'Bearer Session Tokens are accepted only at their MCP server',
-          {
-            scheme: 'Bearer',
-          },
-        );
+        return challenge(401, 'invalid_token', 'The access token was revoked', {
+          schemes: [tokenScheme],
+        });
+      }
+      signedIn = {
+        accountId: row.accountId,
+        grantId: row.grantId,
+        scopes: parseScope(row.scope),
+        jkt: row.jkt,
+      };
+      resource = row.resource;
+    }
+
+    // A Session (§5.3, passo 4) e a conta dela (§5.4).
+    let session: SessionRow;
+    try {
+      session = await this.#sessionFor(jwt, now);
+    } catch (error) {
+      if (error instanceof PoppyError && error.status === 429) {
+        return {
+          ok: false,
+          status: 429,
+          error: null,
+          description: error.description,
+          wwwAuthenticate: null,
+          headers: error.headers,
+        };
+      }
+      if (error instanceof PoppyError) return invalidSession(error.description);
+      throw error;
+    }
+    if (signedIn) {
+      if (session.accountId && session.accountId !== signedIn.accountId) {
+        return invalidSession('The Session used a different account');
+      }
+      if (
+        !session.accountId &&
+        !(await this.#store.bindSessionAccount(session.id, signedIn.accountId, now))
+      ) {
+        return invalidSession('The Session used a different account');
       }
     }
 
-    const session = await this.#store.findSession(row.sessionId);
-    if (
-      !session ||
-      session.endedAt ||
-      session.expiresAt <= now ||
-      session.clientId !== row.clientId
-    ) {
-      return deny(401, 'invalid_token', 'The Session has ended');
-    }
-
-    // Logada só se o token foi emitido logado E a Session ainda está logada com
-    // o mesmo Account Token, vivo (§4.4, §4.9 — sign-out vale na hora).
-    let signedIn = false;
-    if (row.grantId && session.grantId === row.grantId) {
-      const grant = await this.#grants.findGrant(row.grantId);
-      signedIn = !!grant && (await this.#grantUsable(grant, row.clientId, now));
-    }
-    const scopes = signedIn ? parseScope(row.scope) : [];
     const principal: PoppyPrincipalBase = {
-      userId: row.userId,
-      accountId: signedIn ? row.accountId : null,
-      clientId: row.clientId,
-      scopes,
-      sessionId: row.sessionId,
-      signedIn,
-      resource: row.resource,
-      tokenType: row.jkt ? 'DPoP' : 'Bearer',
+      userId: session.userId,
+      agentId: session.agentId,
+      accountId: signedIn?.accountId ?? null,
+      clientId: session.clientId,
+      scopes: signedIn?.scopes ?? [],
+      sessionId: session.id,
+      signedIn: signedIn !== null,
+      resource,
+      tokenType: signedIn ? (signedIn.jkt ? 'DPoP' : 'Bearer') : null,
     };
-
-    if ((options.signedIn || (options.scopes?.length ?? 0) > 0) && !signedIn) {
-      return deny(403, 'sign_in_required', 'This request needs a signed-in Session', {
-        scheme: principal.tokenType,
-      });
-    }
     const required = options.scopes ?? [];
-    if (required.some((s) => !scopes.includes(s))) {
-      return deny(403, 'insufficient_scope', 'The token lacks required account scopes', {
-        scope: formatScope(required),
-        scheme: principal.tokenType,
+    if (!signedIn && (options.signedIn || required.length > 0)) {
+      return challenge(401, null, 'This request needs the account of the user', {
+        ...(required.length > 0 ? { scope: formatScope(required) } : {}),
       });
     }
-    return { ok: true, principal, jkt };
+    if (required.some((s) => !principal.scopes.includes(s))) {
+      return challenge(403, 'insufficient_scope', 'The token lacks required scopes', {
+        scope: formatScope(required),
+        schemes: [principal.tokenType!],
+      });
+    }
+    return { ok: true, principal, grantId: signedIn?.grantId ?? null };
+  }
+
+  /** Um challenge para cada esquema que o resource aceita (§7). */
+  #acceptedSchemes(mcp: boolean): string[] {
+    if (mcp) return ['Bearer'];
+    return this.cfg.dpop.required ? ['DPoP'] : ['Bearer', 'DPoP'];
   }
 
   /** O endpoint pedido: MCP? exige `resource`? */
@@ -1459,98 +1418,113 @@ export class PoppyService {
     return { mcp: null, resource: null };
   }
 
-  // ─── navegação (§5) ───────────────────────────────────────────────────────
+  // ─── navegação (§6) ───────────────────────────────────────────────────────
+
+  /** Passo 1: gera o código de uso único e o valor do cookie que o prende a este navegador. */
+  async startBrowserJoin(): Promise<{ code: string; cookie: string; maxAge: number }> {
+    await this.#housekeeping();
+    const now = this.#now();
+    const code = randomId('bc_');
+    const cookie = randomBytes(32).toString('base64url');
+    await this.#store.insertRequest({
+      id: randomId('brw_'),
+      kind: 'browser',
+      codeHash: sha256(code),
+      userCode: null,
+      clientId: '',
+      sessionId: null,
+      accountId: null,
+      requestedScope: '',
+      redirectUri: null,
+      codeChallenge: null,
+      status: 'pending',
+      intervalSeconds: null,
+      data: { cookieHash: sha256(cookie) },
+      expiresAt: new Date(now.getTime() + BROWSER_CODE_TTL_S * 1000),
+      createdAt: now,
+    });
+    return { code, cookie, maxAge: BROWSER_CODE_TTL_S };
+  }
 
   /**
-   * Confere a asserção de navegador (`typ` `poppy-browser+jwt`). `requestOrigin`
-   * é a origem em que o POST chegou — o cookie precisa nascer nela.
+   * Passo 2: o agente autoriza o código, com o header da Session e, se logado, o access token.
+   * `{ ok: true }` = 204; um código inválido lança `invalid_request`.
    */
-  async verifyBrowserAssertion(
-    assertion: unknown,
-    requestOrigin: string,
-  ): Promise<PoppyBrowserSessionResult> {
-    const fail = (why: string) => new PoppyError('invalid_request', why);
-    if (typeof assertion !== 'string' || !assertion) throw fail('assertion is required');
-    let iss: unknown;
-    try {
-      if (decodeProtectedHeader(assertion).typ !== BROWSER_ASSERTION_TYP) {
-        throw fail(`typ must be ${BROWSER_ASSERTION_TYP}`);
-      }
-      iss = decodeJwt(assertion).iss;
-    } catch (error) {
-      if (error instanceof PoppyError) throw error;
-      throw fail('malformed assertion');
+  async authorizeBrowserJoin(
+    input: PoppyRequestInput,
+    code: unknown,
+  ): Promise<Extract<PoppyVerifyResult, { ok: false }> | { ok: true }> {
+    const auth = await this.verifyAccess(input);
+    if (!auth.ok) return auth;
+    const invalid = new PoppyError('invalid_request', 'Unknown, expired or used code');
+    if (typeof code !== 'string' || !code) throw invalid;
+    const row = await this.#store.findRequestByCodeHash(sha256(code));
+    if (row?.kind !== 'browser' || row.status !== 'pending' || row.expiresAt <= this.#now()) {
+      throw invalid;
     }
-    const client = await this.registry.resolve(iss);
-    const accepted = this.#browserSessionEndpoints().filter(
-      (e) => new URL(e).origin === new URL(requestOrigin).origin,
-    );
-    if (accepted.length === 0) throw fail('this host has no browser session endpoint');
-    const payload = await this.#verifyAgentJwt(client, assertion, {
-      audience: accepted,
-      error: 'invalid_request',
-      typ: BROWSER_ASSERTION_TYP,
-      maxLifetime: 60,
+    const { principal, grantId } = auth;
+    const moved = await this.#store.transitionRequest(row.id, 'pending', {
+      status: 'approved',
+      clientId: principal.clientId,
+      sessionId: principal.sessionId,
+      ...(principal.accountId ? { accountId: principal.accountId } : {}),
+      grantedScope: formatScope(principal.scopes),
+      data: { ...(row.data ?? {}), userId: principal.userId, grantId },
     });
-    if (typeof payload.aud !== 'string') throw fail('aud must be a single string');
-    if (typeof payload.iat !== 'number' || payload.exp! - payload.iat > 60) {
-      throw fail('exp must be at most 60 seconds after iat');
+    if (!moved) throw invalid;
+    return { ok: true };
+  }
+
+  /**
+   * Passo 3: o navegador submete o código. O primeiro envio o consome, qualquer que seja o
+   * resultado; `null` = sem cookie para a Session (página de erro).
+   */
+  async completeBrowserJoin(code: unknown, cookie: unknown): Promise<PoppyBrowserJoin | null> {
+    if (typeof code !== 'string' || !code) return null;
+    const row = await this.#store.findRequestByCodeHash(sha256(code));
+    if (row?.kind !== 'browser' || (row.status !== 'pending' && row.status !== 'approved')) {
+      return null;
     }
-    const sessionId = payload.session_id;
-    const userId = payload.sub;
-    if (typeof sessionId !== 'string' || typeof userId !== 'string') {
-      throw fail('session_id and sub are required');
-    }
-    const returnTo = payload.return_to;
-    if (typeof returnTo !== 'string' || !this.#onCompanyDomain(returnTo)) {
-      throw fail('return_to must be an HTTPS URL on the company domain');
-    }
-    const session = await this.#store.findSession(sessionId);
+    const moved = await this.#store.transitionRequest(row.id, row.status, { status: 'consumed' });
+    if (!moved || row.status !== 'approved') return null;
     const now = this.#now();
+    const data = row.data ?? {};
     if (
-      !session ||
-      session.endedAt ||
-      session.expiresAt <= now ||
-      session.clientId !== client.clientId ||
-      session.userId !== userId
+      row.expiresAt <= now ||
+      typeof cookie !== 'string' ||
+      !cookie ||
+      sha256(cookie) !== data.cookieHash ||
+      !row.sessionId
     ) {
-      throw fail('the Session is not active for this agent and user');
+      return null;
     }
-    await this.#claimJti('browser', client.clientId, payload, 'invalid_request');
-    const state = await this.sessionState(session.id);
+    const session = await this.#store.findSession(row.sessionId);
+    if (!session || session.endedAt || session.expiresAt <= now) return null;
+    const grantId = typeof data.grantId === 'string' ? data.grantId : null;
     return {
       sessionId: session.id,
-      clientId: client.clientId,
-      userId,
-      accountId: state?.signedIn ? state.accountId : null,
-      scopes: state?.scopes ?? [],
-      returnTo,
+      clientId: session.clientId,
+      userId: session.userId,
+      accountId: grantId ? row.accountId : null,
+      grantId,
+      scopes: grantId ? parseScope(row.grantedScope) : [],
     };
   }
 
-  #onCompanyDomain(value: string): boolean {
-    let url: URL;
-    try {
-      url = new URL(value);
-    } catch {
-      return false;
-    }
-    // HTTPS (§5). Em dev, com o próprio issuer em http, aceita http.
-    const insecureOk = new URL(this.urls.origin).protocol === 'http:';
-    if (url.protocol !== 'https:' && !(insecureOk && url.protocol === 'http:')) return false;
-    if (url.username || url.password) return false;
-    return hostMatches(url.hostname, this.domains);
-  }
-
-  /** Estado atual da Session (ativa? logada? scopes) — o cookie do site segue isto. */
-  async sessionState(sessionId: string): Promise<PoppySessionState | null> {
-    const session = await this.#store.findSession(sessionId);
+  /** O cookie age pela conta e pelos scopes do passo 2, enquanto o refresh token viver (§6). */
+  async browserState(marker: {
+    sessionId: string;
+    accountId?: string | null;
+    grantId?: string | null;
+    scopes?: string[];
+  }): Promise<PoppySessionState | null> {
+    const session = await this.#store.findSession(marker.sessionId);
     if (!session) return null;
     const now = this.#now();
     const active = !session.endedAt && session.expiresAt > now;
     let signedIn = false;
-    if (active && session.grantId) {
-      const grant = await this.#grants.findGrant(session.grantId);
+    if (active && marker.grantId) {
+      const grant = await this.#grants.findGrant(marker.grantId);
       signedIn = !!grant && (await this.#grantUsable(grant, session.clientId, now));
     }
     return {
@@ -1558,9 +1532,9 @@ export class PoppyService {
       sessionId: session.id,
       clientId: session.clientId,
       userId: session.userId,
-      accountId: signedIn ? session.accountId : null,
+      accountId: signedIn ? (marker.accountId ?? null) : null,
       signedIn,
-      scopes: signedIn ? parseScope(session.scope) : [],
+      scopes: signedIn ? (marker.scopes ?? []) : [],
     };
   }
 
@@ -1580,7 +1554,7 @@ export class PoppyService {
       }));
   }
 
-  /** Desconectar o agente pela conta (§4.9): revoga um Account Token DA CONTA. */
+  /** Desconectar o agente pela conta (§5.5): revoga um refresh token DA CONTA. */
   async revokeAccountGrant(accountId: string, grantId: string): Promise<boolean> {
     if (!grantId.startsWith('pgrant_')) return false;
     const grant = await this.#grants.findGrant(grantId);
@@ -1589,7 +1563,7 @@ export class PoppyService {
     return true;
   }
 
-  /** Revoga todos os Account Tokens da conta (sair de tudo, conta suspensa…). */
+  /** Revoga todos os refresh tokens da conta (sair de tudo, conta suspensa…). */
   async revokeAllAccountGrants(accountId: string): Promise<number> {
     const live = (await this.#grants.listGrants(accountId)).filter((g) =>
       g.id.startsWith('pgrant_'),
@@ -1599,9 +1573,8 @@ export class PoppyService {
   }
 
   /**
-   * Bloqueio pelo console admin: revoga todos os Account Tokens do agente (todas as
-   * contas) e encerra as Sessions dele — os Session Tokens param na próxima request.
-   * Devolve quantos Account Tokens estavam vivos.
+   * Bloqueio pelo console admin: revoga todos os refresh tokens do agente (todas as contas) e
+   * encerra as Sessions dele — param na próxima request. Devolve quantos estavam vivos.
    */
   async disconnectClient(clientId: string): Promise<number> {
     const ids = (await this.#grants.unrevokedGrantIdsOfClient(clientId)).filter((id) =>
@@ -1614,7 +1587,7 @@ export class PoppyService {
 
   // ─── internos ─────────────────────────────────────────────────────────────
 
-  /** Scopes de um pedido de sign-in: obrigatórios, conhecidos e do tipo (§4.4). */
+  /** Scopes de um pedido de sign-in: obrigatórios, conhecidos e do tipo (§4.7). */
   #signInScopes(raw: unknown, type: PoppySignInType): string[] {
     const allowed =
       type === 'mediated' ? this.cfg.signIn.mediated?.scopes : this.cfg.signIn[type]?.scopes;
@@ -1634,43 +1607,49 @@ export class PoppyService {
     return requested;
   }
 
-  /** A Session existe, está viva e é deste agente (e deste User ID, quando dado). */
-  async #sessionFor(
-    sessionId: string,
-    clientId: string,
-    userId: string | null,
-  ): Promise<SessionRow> {
-    const session = await this.#store.findSession(sessionId);
-    const now = this.#now();
-    if (
-      !session ||
-      session.endedAt ||
-      session.expiresAt <= now ||
-      session.clientId !== clientId ||
-      (userId !== null && session.userId !== userId)
-    ) {
-      throw new PoppyError(
-        'invalid_session',
-        'The Session has ended or belongs to another agent or user',
-      );
+  /**
+   * §5.3, passo 4: busca a Session por `client_id` + `sid`. `sid` novo começa uma Session deslogada;
+   * o conhecido precisa ter o mesmo User ID e Agent ID, e não pode ter terminado (§5.5).
+   */
+  async #sessionFor(jwt: VerifiedSessionJwt, now: Date): Promise<SessionRow> {
+    // O `sid` é escolhido pelo agente: a chave inclui o `client_id`, para um não esbarrar no outro.
+    const id = `ses_${createHash('sha256')
+      .update(`${jwt.clientId}\u0000${jwt.sid}`)
+      .digest('base64url')}`;
+    let session = await this.#store.findSession(id);
+    if (!session) {
+      await this.#limit('session', jwt.clientId);
+      const row = {
+        id,
+        clientId: jwt.clientId,
+        userId: jwt.userId,
+        agentId: jwt.agentId,
+        accountId: null,
+        grantId: null,
+        scope: '',
+        expiresAt: this.#sessionExpiry(now),
+        createdAt: now,
+        updatedAt: now,
+      };
+      try {
+        await this.#store.insertSession(row);
+        return { ...row, endedAt: null };
+      } catch (error) {
+        // Duas requests simultâneas com o mesmo `sid` novo: a outra ganhou.
+        session = await this.#store.findSession(id);
+        if (!session) throw error;
+      }
+    }
+    if (session.endedAt || session.expiresAt <= now) {
+      throw new PoppyError('invalid_session', 'The Session has ended');
+    }
+    if (session.userId !== jwt.userId || session.agentId !== jwt.agentId) {
+      throw new PoppyError('invalid_session', 'The Session has another User ID or Agent ID');
+    }
+    if (now.getTime() - session.updatedAt.getTime() >= SESSION_TOUCH_INTERVAL_MS) {
+      await this.#store.touchSession(session.id, this.#sessionExpiry(now), now);
     }
     return session;
-  }
-
-  async #newSession(clientId: string, userId: string, now: Date): Promise<SessionRow> {
-    const row = {
-      id: randomId('ses_'),
-      clientId,
-      userId,
-      accountId: null,
-      grantId: null,
-      scope: '',
-      expiresAt: this.#sessionExpiry(now),
-      createdAt: now,
-      updatedAt: now,
-    };
-    await this.#store.insertSession(row);
-    return { ...row, endedAt: null };
   }
 
   #sessionExpiry(now: Date): Date {
@@ -1687,13 +1666,9 @@ export class PoppyService {
     );
   }
 
-  /**
-   * Fim comum dos três sign-ins (§4.4): Account Token novo (grant + refresh
-   * token) e a Session logada com ele. A Session presa a outra conta →
-   * `account_mismatch`.
-   */
+  /** Fim comum dos sign-ins (§4.7): refresh token novo (grant + hash) e o access token. */
   async #signIn(
-    session: SessionRow,
+    clientId: string,
     accountId: string,
     granted: string[],
     binding: { jkt: string | null; resource: string | null },
@@ -1705,98 +1680,72 @@ export class PoppyService {
     const scopes = this.#narrow(granted, requestedScope);
     const now = this.#now();
     const grantId = `pgrant_${randomUUID()}`;
-    const scope = formatScope(granted);
-    if (
-      !(await this.#store.signInSession(session.id, {
-        accountId,
-        grantId,
-        scope,
-        expiresAt: this.#sessionExpiry(now),
-        at: now,
-      }))
-    ) {
-      throw new PoppyError('account_mismatch', 'The Session is signed in to a different account');
-    }
-    const expiresAt = new Date(now.getTime() + this.cfg.accountTokenTtl * 1000);
+    const expiresAt = new Date(now.getTime() + this.cfg.refreshTokenTtl * 1000);
     const grant: GrantRow = {
       id: grantId,
       accountId,
-      clientId: session.clientId,
-      agentSub: session.userId,
-      scope,
+      clientId,
+      // O authorization server não vê User IDs (§5.3).
+      agentSub: '',
+      scope: formatScope(granted),
       expiresAt,
       revokedAt: null,
       createdAt: now,
       updatedAt: now,
     };
     await this.#grants.insertGrant(grant);
-    const accountToken = randomId('poa_', 32);
+    const refreshToken = randomId('poa_', 32);
     await this.#grants.insertRefreshToken({
-      tokenHash: sha256(accountToken),
+      tokenHash: sha256(refreshToken),
       grantId,
       expiresAt,
       createdAt: now,
     });
-    const fresh = { ...session, accountId, grantId, scope };
-    const body = await this.#issue(fresh, { ...binding, signedIn: grant, scopes });
-    return {
-      body: {
-        ...body,
-        refresh_token: accountToken,
-        refresh_token_expires_in: this.cfg.accountTokenTtl,
-      },
-      grantId,
-    };
+    const body = await this.#issue(grant, scopes, binding);
+    return { body: { ...body, refresh_token: refreshToken }, grantId };
   }
 
-  /** Emite um Session Token para o estado da Session (logado com `signedIn`, ou deslogado). */
+  /** Emite um access token do grant (§4.5). */
   async #issue(
-    session: SessionRow,
-    input: {
-      jkt: string | null;
-      resource: string | null;
-      signedIn: GrantRow | null;
-      scopes: string[];
-    },
+    grant: GrantRow,
+    scopes: string[],
+    binding: { jkt: string | null; resource: string | null },
   ): Promise<PoppyTokenResponse> {
     const now = this.#now();
-    const ttl = this.cfg.sessionTokenTtl;
-    const scope = input.signedIn ? formatScope(input.scopes) : '';
+    const ttl = this.cfg.accessTokenTtl;
+    const scope = formatScope(scopes);
     let token: string | null = null;
-    // Bearer de MCP de Session logada: vira access token do oidc-provider, para
-    // a integração MCP existente aceitá-lo sem código no app (§6).
-    if (input.jkt === null && input.resource && input.signedIn && this.#mcp?.mint) {
-      token = await this.#mcp.mint({
-        grantId: input.signedIn.id,
-        accountId: input.signedIn.accountId,
-        clientId: session.clientId,
-        scope,
-        resource: input.resource,
-        expiresIn: ttl,
-        grantExpiresAt: input.signedIn.expiresAt,
-      });
+    // Bearer de MCP: vira access token do oidc-provider, para a integração MCP existente
+    // aceitá-lo sem código no app (§7).
+    if (binding.jkt === null && binding.resource && this.#isMcp(binding.resource)) {
+      token =
+        (await this.#mcp?.mint?.({
+          grantId: grant.id,
+          accountId: grant.accountId,
+          clientId: grant.clientId,
+          scope,
+          resource: binding.resource,
+          expiresIn: ttl,
+          grantExpiresAt: grant.expiresAt,
+        })) ?? null;
     }
-    token ??= randomId('pst_', 32);
+    token ??= randomId('pat_', 32);
     await this.#store.insertToken({
       tokenHash: sha256(token),
-      sessionId: session.id,
-      clientId: session.clientId,
-      userId: session.userId,
-      accountId: input.signedIn ? input.signedIn.accountId : null,
-      grantId: input.signedIn ? input.signedIn.id : null,
+      clientId: grant.clientId,
+      accountId: grant.accountId,
+      grantId: grant.id,
       scope,
-      resource: input.resource,
-      jkt: input.jkt,
+      resource: binding.resource,
+      jkt: binding.jkt,
       expiresAt: new Date(now.getTime() + ttl * 1000),
       createdAt: now,
     });
     return {
       access_token: token,
-      token_type: input.jkt ? 'DPoP' : 'Bearer',
+      token_type: binding.jkt ? 'DPoP' : 'Bearer',
       expires_in: ttl,
       scope,
-      session_id: session.id,
-      signed_in: input.signedIn !== null,
     };
   }
 
@@ -1804,7 +1753,7 @@ export class PoppyService {
     if (!this.#limiter) return;
     const retryAfter = await this.#limiter({ action, key });
     if (retryAfter !== null) {
-      throw new PoppyError('rate_limited', 'Too many requests for this client_id', {
+      throw new PoppyError('too_many_requests', 'Too many requests for this client_id', {
         headers: { 'Retry-After': String(Math.max(1, retryAfter)) },
       });
     }

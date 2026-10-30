@@ -8,7 +8,7 @@ import {
   poppyOf,
 } from '../../src/agents/poppy/resource.js';
 import { isBlockedAddress, safeFetchJson } from '../../src/agents/poppy/safe_fetch.js';
-import { JWT_BEARER_GRANT } from '../../src/agents/poppy/service.js';
+import { MEDIATED_SIGN_IN_GRANT } from '../../src/agents/poppy/service.js';
 import { poppyWebSession } from '../../src/agents/poppy/web_session.js';
 import { ACCOUNT_SESSION_KEY } from '../../src/host/account_session_key.js';
 import AccountAppsController from '../../src/host/controllers/account_apps_controller.js';
@@ -17,18 +17,18 @@ import { authkitCsrfExceptions } from '../../src/host/csrf.js';
 import { POPPY_WEB_SESSION_KEY } from '../../src/host/poppy_session_key.js';
 import {
   ACCOUNT_ID,
-  apiRequest,
   CLIENT_ID,
   dpopKey,
   dpopProof,
   type Env,
   ORDERS_API,
+  OTHER_ACCOUNT_ID,
   POPPY_ISSUER,
-  pkce,
-  REDIRECT_URI,
   setupPoppy,
   TOKEN_URL,
 } from './poppy_helpers.js';
+
+const JOIN_URL = `${POPPY_ISSUER}/browser-session`;
 
 function makeCtx(
   env: Env,
@@ -47,6 +47,11 @@ function makeCtx(
   const response: any = {
     header(k: string, v: string) {
       res.headers[k.toLowerCase()] = v;
+      return response;
+    },
+    append(k: string, v: string) {
+      const key = k.toLowerCase();
+      res.headers[key] = res.headers[key] ? `${res.headers[key]}\n${v}` : v;
       return response;
     },
     status(n: number) {
@@ -114,139 +119,208 @@ function makeCtx(
   return { ctx, res, session, regenerated: () => regenerated };
 }
 
+/** Passos 1 e 2 da entrada do navegador: `{ code, cookie }` autorizados. */
+async function authorizedJoin(env: Env, c: PoppyController, opts: { token?: string; sid: string }) {
+  const page = makeCtx(env, { method: 'GET', url: JOIN_URL });
+  await c.browserSessionPage(page.ctx);
+  const code = /name="code" value="([^"]+)"/.exec(String(page.res.body))![1];
+  const cookie = /__Host-poppy_join=([^;]+)/.exec(page.res.headers['set-cookie'])![1];
+  const req = await env.request({
+    method: 'POST',
+    url: `${JOIN_URL}/authorize`,
+    sid: opts.sid,
+    token: opts.token,
+  });
+  const auth = makeCtx(env, { url: req.url, headers: req.headers, body: { code } });
+  await c.browserSessionAuthorize(auth.ctx);
+  return { page, auth, code, cookie };
+}
+
 test.group('poppy — HTTP', () => {
-  test('GET /.well-known/poppy.json: 404 fora do domínio; metadata RFC 8414', async ({
+  test('poppy.json: 404 fora do domínio, www. redireciona; protected resource; RFC 8414', async ({
     assert,
   }) => {
     const env = await setupPoppy();
     const c = new PoppyController();
-    const ok = makeCtx(env, { url: 'https://www.shop.example/.well-known/poppy.json' });
+    const ok = makeCtx(env, { url: 'https://shop.example/.well-known/poppy.json' });
     await c.discovery(ok.ctx);
     assert.equal(ok.res.status, 200);
+    assert.equal((ok.res.body as any).protocol_version, '0.3');
     assert.equal((ok.res.body as any).organization.domain, 'shop.example');
+
+    const www = makeCtx(env, { url: 'https://www.shop.example/.well-known/poppy.json' });
+    await c.discovery(www.ctx);
+    assert.equal(www.res.status, 308);
+    assert.equal(www.res.headers.location, 'https://shop.example/.well-known/poppy.json');
+
     const evil = makeCtx(env, { url: 'https://evil.example/.well-known/poppy.json' });
     await c.discovery(evil.ctx);
     assert.equal(evil.res.status, 404);
+
+    const prm = makeCtx(env, {
+      url: 'https://shop.example.co.uk/.well-known/oauth-protected-resource',
+    });
+    await c.protectedResource(prm.ctx);
+    assert.deepEqual(prm.res.body, {
+      resource: 'https://shop.example.co.uk',
+      authorization_servers: [POPPY_ISSUER],
+    });
+    const prmEvil = makeCtx(env, {
+      url: 'https://evil.example/.well-known/oauth-protected-resource',
+    });
+    await c.protectedResource(prmEvil.ctx);
+    assert.equal(prmEvil.res.status, 404);
+
     const meta = makeCtx(env);
     await c.metadata(meta.ctx);
-    assert.deepEqual((meta.res.body as any).poppy_domains, ['shop.example', 'shop.example.co.uk']);
+    assert.includeMembers((meta.res.body as any).protected_resources, [
+      'https://shop.example',
+      'https://shop.example.co.uk',
+    ]);
     await env.close();
   });
 
-  test('token endpoint: status e headers dos erros; sucesso no-store', async ({ assert }) => {
-    const env = await setupPoppy({ dpop: { requireNonce: true } });
-    const c = new PoppyController();
-    const dkey = await dpopKey();
-    const form = await env.form({
-      grant_type: JWT_BEARER_GRANT,
-      assertion: await env.sessionAssertion(),
+  test('token endpoint: status dos erros, code_required com campos no corpo, 429 sem corpo', async ({
+    assert,
+  }) => {
+    const env = await setupPoppy({
+      rateLimit: async ({ key }) => (key.includes('blocked') ? 30 : null),
+      signIn: {
+        mediated: {
+          fields: [{ name: 'email', label: 'Email', secret: false }],
+          scopes: ['orders:read'],
+          verify: async () => ({
+            status: 'code_required',
+            accountId: ACCOUNT_ID,
+            sentTo: 'x',
+            code: '1',
+          }),
+        },
+      },
+      dpop: { requireNonce: true },
     });
+    const c = new PoppyController();
 
-    const noClient = makeCtx(env, { url: TOKEN_URL, body: { grant_type: JWT_BEARER_GRANT } });
+    const noClient = makeCtx(env, { url: TOKEN_URL, body: { grant_type: 'refresh_token' } });
     await c.token(noClient.ctx);
     assert.equal(noClient.res.status, 401);
     assert.equal((noClient.res.body as any).error, 'invalid_client');
 
+    const dkey = await dpopKey();
     const nonce = makeCtx(env, {
       url: TOKEN_URL,
-      body: form,
+      body: await env.form({ grant_type: 'refresh_token', refresh_token: 'x' }),
       headers: { dpop: await dpopProof(dkey) },
     });
     await c.token(nonce.ctx);
     assert.equal(nonce.res.status, 400);
     assert.equal((nonce.res.body as any).error, 'use_dpop_nonce');
     assert.isOk(nonce.res.headers['dpop-nonce']);
-    assert.match(nonce.res.headers['www-authenticate'], /use_dpop_nonce/);
 
-    const good = makeCtx(env, {
+    const code = makeCtx(env, {
       url: TOKEN_URL,
       body: await env.form({
-        grant_type: JWT_BEARER_GRANT,
-        assertion: await env.sessionAssertion(),
+        grant_type: MEDIATED_SIGN_IN_GRANT,
+        scope: 'orders:read',
+        email: 'a@b.c',
       }),
-      headers: { dpop: await dpopProof(dkey, { nonce: nonce.res.headers['dpop-nonce'] }) },
+      headers: {
+        dpop: await dpopProof(dkey, { nonce: nonce.res.headers['dpop-nonce'] }),
+      },
     });
-    await c.token(good.ctx);
-    assert.equal(good.res.status, 200);
-    assert.equal(good.res.headers['cache-control'], 'no-store');
-    assert.equal((good.res.body as any).token_type, 'DPoP');
+    await c.token(code.ctx);
+    assert.equal(code.res.status, 400);
+    const body = code.res.body as any;
+    assert.equal(body.error, 'code_required');
+    assert.equal(body.sent_to, 'x');
+    assert.isNumber(body.expires_in);
+    assert.isOk(body.sign_in_id);
+    assert.equal(code.res.headers['cache-control'], 'no-store');
     await env.close();
+
+    const limited = await setupPoppy({
+      rateLimit: async () => 30,
+      signIn: {
+        mediated: {
+          fields: [{ name: 'email', label: 'Email', secret: false }],
+          scopes: ['orders:read'],
+          verify: async () => ({ status: 'failed' }),
+        },
+      },
+    });
+    const over = makeCtx(limited, {
+      url: TOKEN_URL,
+      body: await limited.form({
+        grant_type: MEDIATED_SIGN_IN_GRANT,
+        scope: 'orders:read',
+        email: 'a@b.c',
+      }),
+    });
+    await c.token(over.ctx);
+    assert.equal(over.res.status, 429);
+    assert.equal(over.res.headers['retry-after'], '30');
+    assert.equal(over.res.body, '');
+    await limited.close();
   });
 
-  test('browser-session: 303 + login na sessão do app; 400 sem cookie; asserção na URL recusada', async ({
+  test('entrada do navegador: página, autorização, envio → cookie da Session e 303', async ({
     assert,
   }) => {
-    const env = await setupPoppy();
+    const env = await setupPoppy({ web: { redirectTo: '/orders' } });
     const c = new PoppyController();
-    const dkey = await dpopKey();
-    const { session_id } = await env.startSession(dkey);
-    // Logada via Direct Sign-In.
-    const { verifier, challenge } = pkce();
-    const start = await env.poppy.startAuthorization(
-      {
-        response_type: 'code',
-        client_id: CLIENT_ID,
-        redirect_uri: REDIRECT_URI,
-        scope: 'poppy:read',
-        code_challenge: challenge,
-        code_challenge_method: 'S256',
-      },
-      ACCOUNT_ID,
-    );
-    if (start.kind !== 'consent') throw new Error('consent');
-    const d = await env.poppy.decideAuthorization({
-      requestId: start.request.id,
-      accountId: ACCOUNT_ID,
-      allow: true,
-      scopes: ['poppy:read'],
+    const signed = await env.signIn();
+    const { page, auth, code, cookie } = await authorizedJoin(env, c, {
+      sid: 'join1',
+      token: signed.access_token,
     });
-    await env.poppy.token(
-      await env.form({
-        grant_type: 'authorization_code',
-        code: new URL(d!.url).searchParams.get('code'),
-        redirect_uri: REDIRECT_URI,
-        code_verifier: verifier,
-        session_id,
-      }),
-      await dpopProof(dkey),
-    );
 
-    const assertion = await env.browserAssertion({
-      session_id,
-      return_to: 'https://shop.example/orders',
-    });
+    assert.equal(page.res.status, 200);
+    assert.equal(page.res.headers['cache-control'], 'no-store');
+    assert.equal(page.res.headers['content-security-policy'], "frame-ancestors 'none'");
+    assert.equal(page.res.headers['cross-origin-opener-policy'], 'same-origin');
+    assert.match(
+      page.res.headers['set-cookie'],
+      /Path=\/; Max-Age=60; Secure; HttpOnly; SameSite=Strict/,
+    );
+    assert.isUndefined(page.session.get(POPPY_WEB_SESSION_KEY));
+    assert.equal(auth.res.status, 204);
+
+    // O mesmo código não é autorizado de novo.
+    const req = await env.request({ method: 'POST', url: `${JOIN_URL}/authorize`, sid: 'join1' });
+    const again = makeCtx(env, { url: req.url, headers: req.headers, body: { code } });
+    await c.browserSessionAuthorize(again.ctx);
+    assert.equal(again.res.status, 400);
+    assert.deepEqual(again.res.body, { error: 'invalid_request' });
+
     const ok = makeCtx(env, {
-      url: `${POPPY_ISSUER}/browser-session`,
-      body: { assertion },
+      url: JOIN_URL,
+      body: { code },
+      headers: { cookie: `other=1; __Host-poppy_join=${cookie}` },
       session: { [ACCOUNT_SESSION_KEY]: 'someone-else' },
     });
     await c.browserSession(ok.ctx);
     assert.equal(ok.res.status, 303);
-    assert.equal(ok.res.headers.location, 'https://shop.example/orders');
+    assert.equal(ok.res.headers.location, '/orders');
+    assert.match(ok.res.headers['set-cookie'], /__Host-poppy_join=; Path=\/; Max-Age=0/);
     assert.equal(ok.session.get(ACCOUNT_SESSION_KEY), ACCOUNT_ID);
     assert.deepInclude(ok.session.get(POPPY_WEB_SESSION_KEY) as any, {
-      sessionId: session_id,
       clientId: CLIENT_ID,
+      accountId: ACCOUNT_ID,
     });
     assert.equal(ok.regenerated(), 1);
 
-    const bad = makeCtx(env, { url: `${POPPY_ISSUER}/browser-session`, body: { assertion } });
-    await c.browserSession(bad.ctx);
-    assert.equal(bad.res.status, 400);
-    assert.isUndefined(bad.session.get(POPPY_WEB_SESSION_KEY));
-
-    const inUrl = makeCtx(env, {
-      url: `${POPPY_ISSUER}/browser-session`,
-      qs: {
-        assertion: await env.browserAssertion({ session_id, return_to: 'https://shop.example/' }),
-      },
+    // Uso único.
+    const replay = makeCtx(env, {
+      url: JOIN_URL,
+      body: { code },
+      headers: { cookie: `__Host-poppy_join=${cookie}` },
     });
-    await c.browserSession(inUrl.ctx);
-    assert.equal(inUrl.res.status, 400);
+    await c.browserSession(replay.ctx);
+    assert.equal(replay.res.status, 400);
 
-    // O cookie acompanha a Session: sign-out → o site desloga no próximo request.
-    const grants = await env.poppy.listGrants(ACCOUNT_ID);
-    await env.poppy.revokeGrant(grants[0].id);
+    // Sign-out: o site sai no próximo request, e a Session continua.
+    const [grant] = await env.poppy.listGrants(ACCOUNT_ID);
+    await env.poppy.revokeGrant(grant.id);
     const next = makeCtx(env, {
       method: 'GET',
       url: 'https://shop.example/orders',
@@ -258,59 +332,133 @@ test.group('poppy — HTTP', () => {
     });
     assert.isTrue(called);
     assert.isUndefined(next.session.get(ACCOUNT_SESSION_KEY));
-    assert.isOk(next.session.get(POPPY_WEB_SESSION_KEY));
+    assert.isNull((next.session.get(POPPY_WEB_SESSION_KEY) as any).accountId);
     await env.close();
   });
 
-  test('mediated endpoint exige Session Token; poppyAuth anexa o principal', async ({ assert }) => {
-    const env = await setupPoppy({
-      signIn: {
-        mediated: {
-          fields: [{ name: 'pin', label: 'PIN', secret: true }],
-          verify: async () => ({ status: 'complete', accountId: ACCOUNT_ID }),
-        },
-      },
-    });
+  test('entrada do navegador: sem cookie, código não autorizado e o primeiro envio consome', async ({
+    assert,
+  }) => {
+    const env = await setupPoppy();
     const c = new PoppyController();
-    const noToken = makeCtx(env, {
-      url: `${POPPY_ISSUER}/sign-in`,
-      body: { scope: 'poppy:read', credentials: { pin: '1' } },
-    });
-    await c.mediatedStart(noToken.ctx);
-    assert.equal(noToken.res.status, 401);
-    assert.match(noToken.res.headers['www-authenticate'], /^DPoP .*invalid_token/);
 
-    const dkey = await dpopKey();
-    const s = await env.startSession(dkey);
-    const req = await apiRequest(dkey, s.access_token, {
-      method: 'POST',
-      url: `${POPPY_ISSUER}/sign-in`,
+    // Cookie de outro navegador: falha, e o código não serve mais.
+    const a = await authorizedJoin(env, c, { sid: 'join2' });
+    const other = makeCtx(env, {
+      url: JOIN_URL,
+      body: { code: a.code },
+      headers: { cookie: '__Host-poppy_join=outro' },
     });
-    const ok = makeCtx(env, {
-      url: req.url,
-      headers: req.headers,
-      body: { scope: 'poppy:read', credentials: { pin: '1' } },
+    await c.browserSession(other.ctx);
+    assert.equal(other.res.status, 400);
+    assert.isUndefined(other.session.get(POPPY_WEB_SESSION_KEY));
+    const late = makeCtx(env, {
+      url: JOIN_URL,
+      body: { code: a.code },
+      headers: { cookie: `__Host-poppy_join=${a.cookie}` },
     });
-    await c.mediatedStart(ok.ctx);
-    assert.equal(ok.res.status, 200);
-    const body = ok.res.body as any;
-    assert.equal(body.status, 'complete');
+    await c.browserSession(late.ctx);
+    assert.equal(late.res.status, 400);
 
-    const api = await apiRequest(dkey, body.access_token, { url: `${ORDERS_API}/1` });
-    const apiCtx = makeCtx(env, { method: 'GET', url: api.url, headers: api.headers });
+    // Código que o agente não autorizou.
+    const page = makeCtx(env, { method: 'GET', url: JOIN_URL });
+    await c.browserSessionPage(page.ctx);
+    const code = /name="code" value="([^"]+)"/.exec(String(page.res.body))![1];
+    const cookie = /__Host-poppy_join=([^;]+)/.exec(page.res.headers['set-cookie'])![1];
+    const unauthorized = makeCtx(env, {
+      url: JOIN_URL,
+      body: { code },
+      headers: { cookie: `__Host-poppy_join=${cookie}` },
+    });
+    await c.browserSession(unauthorized.ctx);
+    assert.equal(unauthorized.res.status, 400);
+
+    // Código expirado.
+    const old = await authorizedJoin(env, c, { sid: 'join3' });
+    env.setNow(Date.now() + 61_000);
+    const expired = makeCtx(env, {
+      url: JOIN_URL,
+      body: { code: old.code },
+      headers: { cookie: `__Host-poppy_join=${old.cookie}` },
+    });
+    await c.browserSession(expired.ctx);
+    assert.equal(expired.res.status, 400);
+    env.setNow(null);
+
+    // Sem o header da Session: invalid_session, no corpo.
+    const noHeader = makeCtx(env, { url: `${JOIN_URL}/authorize`, body: { code: 'x' } });
+    await c.browserSessionAuthorize(noHeader.ctx);
+    assert.equal(noHeader.res.status, 400);
+    assert.equal((noHeader.res.body as any).error, 'invalid_session');
+    await env.close();
+  });
+
+  test('entrada sem access token não mexe no login do navegador; com outra conta, troca', async ({
+    assert,
+  }) => {
+    const env = await setupPoppy();
+    const c = new PoppyController();
+    const out = await authorizedJoin(env, c, { sid: 'join4' });
+    const keep = makeCtx(env, {
+      url: JOIN_URL,
+      body: { code: out.code },
+      headers: { cookie: `__Host-poppy_join=${out.cookie}` },
+      session: { [ACCOUNT_SESSION_KEY]: OTHER_ACCOUNT_ID },
+    });
+    await c.browserSession(keep.ctx);
+    assert.equal(keep.res.status, 303);
+    assert.equal(keep.session.get(ACCOUNT_SESSION_KEY), OTHER_ACCOUNT_ID);
+    assert.isNull((keep.session.get(POPPY_WEB_SESSION_KEY) as any).accountId);
+
+    const next = makeCtx(env, {
+      method: 'GET',
+      url: 'https://shop.example/',
+      session: Object.fromEntries(keep.session),
+    });
+    await poppyWebSession()(next.ctx, async () => {});
+    assert.equal(next.session.get(ACCOUNT_SESSION_KEY), OTHER_ACCOUNT_ID);
+    await env.close();
+  });
+
+  test('poppyAuth: anexa o principal; erros de token só no header, invalid_session no corpo', async ({
+    assert,
+  }) => {
+    const env = await setupPoppy();
+    const signed = await env.signIn({ scope: 'orders:read' });
+    const url = `${ORDERS_API}/1`;
+
+    const req = await env.request({ url, token: signed.access_token });
+    const ok = makeCtx(env, { method: 'GET', url, headers: req.headers });
     let principal: any = null;
-    await poppyAuth({ scopes: ['poppy:read'] })(apiCtx.ctx, async () => {
-      principal = poppyOf(apiCtx.ctx);
+    await poppyAuth({ scopes: ['orders:read'] })(ok.ctx, async () => {
+      principal = poppyOf(ok.ctx);
     });
     assert.equal(principal.accountId, ACCOUNT_ID);
+
     const denied = makeCtx(env, {
       method: 'GET',
-      url: api.url,
-      headers: (await apiRequest(dkey, body.access_token, { url: api.url })).headers,
+      url,
+      headers: (await env.request({ url, token: signed.access_token })).headers,
     });
     await poppyAuth({ scopes: ['addresses'] })(denied.ctx, async () => {});
     assert.equal(denied.res.status, 403);
-    assert.match(denied.res.headers['www-authenticate'], /insufficient_scope.*scope="addresses"/);
+    assert.match(
+      denied.res.headers['www-authenticate'],
+      /^Bearer .*insufficient_scope.*scope="addresses"/,
+    );
+    assert.equal(denied.res.body, '');
+
+    const out = makeCtx(env, { method: 'GET', url, headers: (await env.request({ url })).headers });
+    await poppyAuth({ scopes: ['orders:read'] })(out.ctx, async () => {});
+    assert.equal(out.res.status, 401);
+    assert.notMatch(out.res.headers['www-authenticate'], /error=/);
+    assert.match(out.res.headers['www-authenticate'], /scope="orders:read"/);
+
+    const none = makeCtx(env, { method: 'GET', url });
+    await poppyAuth()(none.ctx, async () => {});
+    assert.equal(none.res.status, 400);
+    assert.equal((none.res.body as any).error, 'invalid_session');
+    assert.isUndefined(none.res.headers['www-authenticate']);
     await env.close();
   });
 
@@ -324,56 +472,36 @@ test.group('poppy — HTTP', () => {
     installPoppySlots(POPPY_ISSUER);
     const authenticate = (globalThis as any)[POPPY_AUTHENTICATE_SLOT] as PoppyAuthenticate;
     assert.equal((globalThis as any)[Symbol.for('@adonis-agora/poppy:issuer')], POPPY_ISSUER);
-    const dkey = await dpopKey();
-    const s = await env.startSession(dkey);
     const url = 'https://shop.example/poppy/conversations';
-    const req = await apiRequest(dkey, s.access_token, { method: 'POST', url });
-    const ok = await authenticate(req);
+    const ok = await authenticate(await env.request({ method: 'POST', url, agentId: 'agt_1' }));
     assert.isTrue(ok.ok);
     if (ok.ok) {
       assert.equal(ok.principal.userId, 'usr_Q7c1vK');
+      assert.equal(ok.principal.agentId, 'agt_1');
       assert.equal(ok.principal.clientId, CLIENT_ID);
       assert.isFalse(ok.principal.signedIn);
+      assert.isNull(ok.principal.tokenType);
       assert.deepEqual(ok.principal.scopes, []);
       assert.match(ok.principal.sessionId, /^ses_/);
       assert.deepEqual(ok.principal.actor, { id: null, tenant: 'acme' });
     }
-    const needs = await authenticate(
-      await apiRequest(dkey, s.access_token, { method: 'POST', url }),
-      { signedIn: true },
-    );
+    const needs = await authenticate(await env.request({ method: 'POST', url, agentId: 'agt_1' }), {
+      signedIn: true,
+    });
     assert.isFalse(needs.ok);
     if (!needs.ok) {
-      assert.equal(needs.status, 403);
-      assert.equal(needs.error, 'sign_in_required');
-      assert.match(needs.wwwAuthenticate, /sign_in_required/);
+      assert.equal(needs.status, 401);
+      assert.isNull(needs.error);
+      assert.match(needs.wwwAuthenticate!, /^Bearer/);
     }
     const none = await authenticate({ method: 'POST', url, headers: {} });
-    assert.isTrue(!none.ok && none.status === 401 && none.error === 'invalid_token');
+    assert.isTrue(!none.ok && none.status === 400 && none.error === 'invalid_session');
     await env.close();
   });
 
   test('console de conta lista e desconecta o agente Poppy', async ({ assert }) => {
     const env = await setupPoppy();
-    const dkey = await dpopKey();
-    const { session_id } = await env.startSession(dkey);
-    const dev = (await env.poppy.deviceAuthorization(
-      await env.form({ scope: 'poppy:read' }, `${POPPY_ISSUER}/oauth/device`),
-    )) as any;
-    await env.poppy.decideDevice({
-      userCode: dev.user_code,
-      accountId: ACCOUNT_ID,
-      allow: true,
-      scopes: ['poppy:read'],
-    });
-    await env.poppy.token(
-      await env.form({
-        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-        device_code: dev.device_code,
-        session_id,
-      }),
-      await dpopProof(dkey),
-    );
+    const signed = await env.signIn({ scope: 'orders:read' });
     const rendered: any[] = [];
     (env.service.config as any).render = async (_c: any, view: string, props: any) =>
       rendered.push({ view, props });
@@ -389,7 +517,8 @@ test.group('poppy — HTTP', () => {
     });
     await apps.revokeAgent(revoke.ctx);
     assert.lengthOf(await env.poppy.listGrants(ACCOUNT_ID), 0);
-    assert.isFalse((await env.poppy.sessionState(session_id))!.signedIn);
+    const check = await env.poppy.verifyAccess(await env.request({ token: signed.access_token }));
+    assert.isTrue(!check.ok && check.error === 'invalid_token');
     await env.close();
   });
 
@@ -399,12 +528,12 @@ test.group('poppy — HTTP', () => {
       '/poppy/oauth/token',
       '/poppy/oauth/revoke',
       '/poppy/oauth/device',
-      '/poppy/sign-in',
-      '/poppy/sign-in/sgn_1',
       '/poppy/browser-session',
+      '/poppy/browser-session/authorize',
     ]) {
       assert.isTrue(authkitCsrfExceptions(p, o), p);
     }
+    assert.isFalse(authkitCsrfExceptions('/poppy/sign-in', o));
     assert.isFalse(authkitCsrfExceptions('/poppy/oauth/authorize', o));
     assert.isFalse(authkitCsrfExceptions('/poppy/device', o));
     assert.isFalse(
@@ -475,14 +604,13 @@ test.group('poppy — SSRF guard', () => {
           client_id: 'http://agent.example/agent.json',
           client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
           client_assertion: 'x',
-          grant_type: JWT_BEARER_GRANT,
+          grant_type: 'refresh_token',
         },
         await dpopProof(dkey),
       )
       .catch((e) => e);
     assert.equal(r.code, 'invalid_client');
     assert.notInclude(env.fetched, 'http://agent.example/agent.json');
-    assert.isOk(TOKEN_URL);
     await env.close();
   });
 });

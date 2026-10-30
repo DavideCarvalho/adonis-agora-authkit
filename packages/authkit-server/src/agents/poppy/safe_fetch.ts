@@ -182,7 +182,7 @@ export function safeFetchJson(url: string, options: SafeFetchOptions = {}): Prom
       parsed,
       {
         method: 'GET',
-        headers: { accept: 'application/json', 'user-agent': 'authkit-poppy/0.1' },
+        headers: { accept: 'application/json', 'user-agent': 'authkit-poppy/0.3' },
         lookup: guardedLookup as any,
         // IP literal: o `lookup` não roda — já conferido acima.
       },
@@ -257,7 +257,7 @@ export async function insecureDevFetchJson(
   try {
     res = await fetch(parsed, {
       redirect: 'manual',
-      headers: { accept: 'application/json', 'user-agent': 'authkit-poppy/0.1 (insecure-dev)' },
+      headers: { accept: 'application/json', 'user-agent': 'authkit-poppy/0.3 (insecure-dev)' },
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {

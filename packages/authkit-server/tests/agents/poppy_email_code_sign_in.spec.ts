@@ -2,6 +2,7 @@ import { test } from '@japa/runner';
 import { maskEmail, poppyEmailCodeSignIn } from '../../src/agents/poppy/email_code_sign_in.js';
 
 const CLIENT_ID = 'https://agent.example/agent.json';
+const SCOPES = ['orders:read'];
 
 /** Ctx falso: `authkit.server` com contas em memória e o hook de e-mail capturando. */
 function setup(
@@ -40,10 +41,8 @@ function setup(
   const verify = (cfg: ReturnType<typeof poppyEmailCodeSignIn>, email: string) =>
     cfg.verify({
       credentials: { email },
-      scopes: ['poppy:read'],
+      scopes: SCOPES,
       clientId: CLIENT_ID,
-      userId: 'usr_1',
-      sessionId: 'ses_1',
       ctx,
     });
   const flush = () => new Promise((r) => setImmediate(r));
@@ -54,7 +53,7 @@ test.group('poppyEmailCodeSignIn', () => {
   test('conta ativa: código de 6 dígitos, e-mail com o código e o nome do agente', async ({
     assert,
   }) => {
-    const cfg = poppyEmailCodeSignIn({ codeTtl: 300 });
+    const cfg = poppyEmailCodeSignIn({ scopes: SCOPES, codeTtl: 300 });
     assert.deepEqual(cfg.fields, [{ name: 'email', label: 'Email address', secret: false }]);
     assert.equal(cfg.codeTtl, 300);
 
@@ -79,7 +78,7 @@ test.group('poppyEmailCodeSignIn', () => {
   test('sem conta, desativada ou recusada por eligible: mesma resposta, sem código nem e-mail', async ({
     assert,
   }) => {
-    const cfg = poppyEmailCodeSignIn({ eligible: (a: any) => a.kind !== 'pro' });
+    const cfg = poppyEmailCodeSignIn({ scopes: SCOPES, eligible: (a: any) => a.kind !== 'pro' });
     const { verify, mails, flush } = setup({
       accounts: {
         'off@example.com': { id: 'acct-2', disabled: true },
@@ -87,6 +86,7 @@ test.group('poppyEmailCodeSignIn', () => {
       },
     });
     const throwing = poppyEmailCodeSignIn({
+      scopes: SCOPES,
       eligible: () => {
         throw new Error('boom');
       },
@@ -108,14 +108,16 @@ test.group('poppyEmailCodeSignIn', () => {
   test('e-mail malformado → failed', async ({ assert }) => {
     const { verify } = setup();
     for (const email of ['', 'jane', 'jane@', '@example.com', 'a b@example.com']) {
-      assert.deepEqual(await verify(poppyEmailCodeSignIn(), email), { status: 'failed' });
+      assert.deepEqual(await verify(poppyEmailCodeSignIn({ scopes: SCOPES }), email), {
+        status: 'failed',
+      });
     }
   });
 
   test('limite por e-mail: acima dele a resposta é a de conta inexistente, sem e-mail', async ({
     assert,
   }) => {
-    const cfg = poppyEmailCodeSignIn({ maxPerHour: 2 });
+    const cfg = poppyEmailCodeSignIn({ scopes: SCOPES, maxPerHour: 2 });
     const { verify, mails, flush } = setup();
     assert.equal(((await verify(cfg, 'jane@example.com')) as any).accountId, 'acct-1');
     assert.equal(((await verify(cfg, 'jane@example.com')) as any).accountId, 'acct-1');
@@ -132,7 +134,7 @@ test.group('poppyEmailCodeSignIn', () => {
 
   test('sem hook nem @adonisjs/mail: o código sai no log (dev)', async ({ assert }) => {
     const { verify, logs, flush } = setup({ hook: false });
-    const res: any = await verify(poppyEmailCodeSignIn(), 'jane@example.com');
+    const res: any = await verify(poppyEmailCodeSignIn({ scopes: SCOPES }), 'jane@example.com');
     for (let i = 0; i < 5 && logs.length === 0; i++) await flush();
     await new Promise((r) => setTimeout(r, 50));
     const entry = logs.find((l) => l[0]?.code === res.code);
@@ -149,11 +151,14 @@ test.group('poppyEmailCodeSignIn', () => {
     assert.deepEqual(cfg.scopes, ['saude:leitura']);
     assert.equal(cfg.fields[0].label, 'E-mail');
     assert.equal(cfg.maxCodeAttempts, 3);
-    assert.equal(poppyEmailCodeSignIn().maxCodeAttempts, 5);
+    assert.equal(poppyEmailCodeSignIn({ scopes: SCOPES }).maxCodeAttempts, 5);
     for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
-      assert.throws(() => poppyEmailCodeSignIn({ maxPerHour: bad }), /maxPerHour/);
-      assert.throws(() => poppyEmailCodeSignIn({ maxCodeAttempts: bad }), /maxCodeAttempts/);
-      assert.throws(() => poppyEmailCodeSignIn({ codeTtl: bad }), /codeTtl/);
+      assert.throws(() => poppyEmailCodeSignIn({ scopes: SCOPES, maxPerHour: bad }), /maxPerHour/);
+      assert.throws(
+        () => poppyEmailCodeSignIn({ scopes: SCOPES, maxCodeAttempts: bad }),
+        /maxCodeAttempts/,
+      );
+      assert.throws(() => poppyEmailCodeSignIn({ scopes: SCOPES, codeTtl: bad }), /codeTtl/);
     }
     assert.equal(maskEmail('a@b@example.com'), 'a***@example.com');
     assert.equal(maskEmail('nope'), '***');
@@ -169,10 +174,11 @@ test.group('poppyEmailCodeSignIn — fluxo Mediated completo', () => {
   test('o código do e-mail entra na conta; o nome do agente vem da metadata', async ({
     assert,
   }) => {
-    const { setupPoppy, dpopKey, apiRequest, POPPY_ISSUER, ACCOUNT_ID } = await import(
-      './poppy_helpers.js'
-    );
-    const env = await setupPoppy({ signIn: { mediated: poppyEmailCodeSignIn() } });
+    const { setupPoppy, ACCOUNT_ID } = await import('./poppy_helpers.js');
+    const { MEDIATED_SIGN_IN_GRANT } = await import('../../src/agents/poppy/service.js');
+    const env = await setupPoppy({
+      signIn: { mediated: poppyEmailCodeSignIn({ scopes: SCOPES }) },
+    });
     const mails: any[] = [];
     const config: any = env.service.config;
     config.accountStore.findByEmail = async (email: string) =>
@@ -189,42 +195,40 @@ test.group('poppyEmailCodeSignIn — fluxo Mediated completo', () => {
       logger: { error() {}, info() {} },
     } as any;
 
-    const dkey = await dpopKey();
-    const s = await env.startSession(dkey);
-    const auth = async (url: string) => {
-      const r = await env.poppy.verifyAccess(
-        await apiRequest(dkey, s.access_token, { method: 'POST', url }),
-      );
-      if (!r.ok) throw new Error(r.error);
-      return r;
-    };
     const doc = env.poppy.discoveryDocument('shop.example') as any;
-    assert.deepEqual(doc.auth.mediated.fields, [
+    assert.deepEqual(doc.extensions['mediated-sign-in'].fields, [
       { name: 'email', label: 'Email address', secret: false },
     ]);
 
-    const a = await auth(`${POPPY_ISSUER}/sign-in`);
-    const started = (await env.poppy.mediatedStart(
-      a.principal,
-      a.jkt,
-      { scope: 'poppy:read', credentials: { email: 'jane@example.com' } },
-      ctx,
-    )) as any;
-    assert.equal(started.status, 'code_required');
-    assert.equal(started.code.sent_to, 'Email to j***@example.com');
-    assert.notProperty(started, 'code_value');
+    const started: any = await env.poppy
+      .token(
+        await env.form({
+          grant_type: MEDIATED_SIGN_IN_GRANT,
+          scope: 'orders:read',
+          email: 'jane@example.com',
+        }),
+        undefined,
+        ctx,
+      )
+      .catch((e) => e);
+    assert.equal(started.code, 'code_required');
+    assert.equal(started.extra.sent_to, 'Email to j***@example.com');
 
     for (let i = 0; i < 20 && mails.length === 0; i++) await new Promise((r) => setTimeout(r, 10));
     assert.lengthOf(mails, 1);
     assert.equal(mails[0].agentName, 'Example Agent');
 
-    const url = `${POPPY_ISSUER}/sign-in/${started.sign_in_id}`;
-    const b = await auth(url);
-    const done = (await env.poppy.mediatedCode(b.principal, b.jkt, started.sign_in_id, {
-      code: mails[0].code,
-    })) as any;
-    assert.equal(done.status, 'complete');
-    assert.isTrue(done.signed_in);
+    const done = await env.poppy.token(
+      await env.form({
+        grant_type: MEDIATED_SIGN_IN_GRANT,
+        sign_in_id: started.extra.sign_in_id,
+        one_time_code: mails[0].code,
+      }),
+      undefined,
+      ctx,
+    );
+    assert.isOk(done.refresh_token);
+    assert.equal(done.scope, 'orders:read');
     assert.lengthOf(await env.poppy.listGrants(ACCOUNT_ID), 1);
     await env.close();
   });
