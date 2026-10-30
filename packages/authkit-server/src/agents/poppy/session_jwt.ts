@@ -120,6 +120,7 @@ export async function verifySessionJwt(input: VerifySessionJwtInput): Promise<Ve
     ({ payload: claims } = await jwtVerify(token, key, {
       algorithms: ['ES256'],
       typ: SESSION_JWT_TYP,
+      issuer: client.clientId,
       currentDate: input.now,
     }));
   } catch {
