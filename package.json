@@ -24,7 +24,7 @@
   "devDependencies": {
     "@adonisjs/assembler": "8.6.0",
     "@adonisjs/tsconfig": "2.0.0",
-    "@biomejs/biome": "2.5.15",
+    "@biomejs/biome": "2.6.3",
     "@changesets/changelog-github": "1.0.1",
     "@changesets/cli": "3.0.3",
     "typescript": "7.0.2",
