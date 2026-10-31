@@ -131,8 +131,8 @@ export interface MailHooks {
     magicUrl: string;
     token: string;
     /**
-     * Código OTP de login, presente APENAS quando `login.otp.enabled` está
-     * ligado. O host pode montar o próprio e-mail com link E código. Ausente no
+     * Código OTP, de login ou de cadastro (`kind: 'signup'`), presente APENAS quando
+     * `login.otp.enabled` está ligado. O host pode montar o próprio e-mail com link E código. Ausente no
      * fluxo só-magic-link (back-compat).
      */
     code?: string;
@@ -145,7 +145,7 @@ export interface MailHooks {
     channel?: 'code' | 'link';
     /**
      * `'signup'`: link de confirmação do cadastro passwordless (a conta é criada
-     * ao abri-lo). Ausente = login por magic link. O host pode trocar o texto do
+     * ao abri-lo, ou ao confirmar o `code`). Ausente = login por magic link. O host pode trocar o texto do
      * e-mail ("confirme seu cadastro"); ignorar o campo continua funcionando.
      */
     kind?: 'signup';
