@@ -139,6 +139,34 @@ test.group('cadastro passwordless — a conta só nasce ao abrir o link', (group
     assert.include(mails[0].magicUrl, `/auth/interaction/${UID}/signup/confirm?token=`);
   });
 
+  test('com OTP ligado: conta nova e conta existente recebem código, na mesma resposta', async ({
+    assert,
+  }) => {
+    const otp = { login: { otp: { enabled: true, digits: 6, ttlMinutes: 10, maxAttempts: 5 } } };
+    const otpMethods = {
+      issueMagicLinkWithCode: async (email: string) => ({
+        token: `magic-${email}`,
+        code: '123456',
+        account: { id: 'acc-old', email },
+      }),
+      verifyLoginCode: async () => ({ status: 'invalid' }),
+    };
+
+    const fresh = makeStore();
+    const novo = buildService({ ...fresh.store, ...otpMethods }, otp);
+    const a: any = await signup(novo.service);
+    assert.lengthOf(fresh.calls.created, 0);
+    assert.match(novo.mails[0].code, /^\d{6}$/);
+    assert.equal(novo.mails[0].kind, 'signup');
+
+    const old = makeStore({ existing: true });
+    const velho = buildService({ ...old.store, ...otpMethods }, otp);
+    const b: any = await signup(velho.service);
+    assert.equal(velho.mails[0].code, '123456');
+    assert.deepEqual(a.data, b.data, 'resposta igual: não revela se a conta existe');
+    assert.isTrue(a.data.otpEnabled);
+  });
+
   test('envio que falha não deixa conta para trás', async ({ assert }) => {
     const { store, calls } = makeStore();
     const { service } = buildService(store, {

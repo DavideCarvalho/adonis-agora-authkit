@@ -51,6 +51,7 @@ import {
   resolveEffectiveRegistration,
   resolveEffectiveSessionPolicy,
 } from '../runtime_toggles.js';
+import { LOGIN_EMAIL_SESSION_KEY, pendingSignupCode, verifySignupCode } from '../signup_code.js';
 import {
   SOCIAL_PENDING_KEY,
   SOCIAL_PENDING_TTL_MS,
@@ -105,7 +106,7 @@ function accountStatusErrorKey(reason: AccountStatusReason): string {
  * `toLowerCase`). É o que a tela SEMPRE mostra — nunca o endereço gravado —,
  * para que a canonicalização não vire um oráculo de "esta conta existe".
  */
-const SESSION_KEY = 'authkit_login_email';
+const SESSION_KEY = LOGIN_EMAIL_SESSION_KEY;
 /** accountId aguardando o 2º fator depois da senha verificada. */
 const MFA_PENDING_KEY = 'authkit_mfa_pending';
 /**
@@ -1692,14 +1693,11 @@ export default class AuthInteractionController {
     }
 
     const code = String(ctx.request.input('code', '') ?? '').trim();
+    const pendingSignup = pendingSignupCode(ctx, uid, email);
     const brand = brandFor(cfg.branding, clientId ?? undefined, undefined);
     // Mantém a sub-view do seletor no re-render de erro (o form de código pode
     // POSTar `channel=code`). Ausente = both (histórico).
     const channel = normalizeLoginChannel(ctx.request.input('channel'));
-
-    const result = await cfg.accountStore.verifyLoginCode(email, uid, code, {
-      maxAttempts: cfg.login.otp.maxAttempts,
-    });
 
     // Re-render da tela "link enviado" com o campo de código + erro localizado.
     // `otpEnabled` vem do spread (scoped — OTP é extensão do magic link, e a
@@ -1717,6 +1715,38 @@ export default class AuthInteractionController {
         magicChannel: magicChannelProp(channel),
         otpError: translate(cfg.messages, messageKey),
       });
+
+    // Cadastro sem conta ainda: o código certo leva ao mesmo link de confirmação do e-mail.
+    if (pendingSignup) {
+      const signupResult = verifySignupCode(ctx, pendingSignup, code, cfg.login.otp.maxAttempts);
+      if (signupResult === 'ok') {
+        forgetLoginEmail(ctx);
+        const confirmUrl = `/auth/interaction/${uid}/signup/confirm?token=${encodeURIComponent(pendingSignup.token)}`;
+        return ctx.response.redirect().status(303).toPath(confirmUrl);
+      }
+      const signupAudit = {
+        email,
+        ip,
+        clientId,
+        metadata: { stage: 'signup', reason: signupResult },
+      };
+      if (signupResult === 'locked') {
+        await cfg.audit?.record({ type: 'login.otp_invalidated', ...signupAudit });
+      } else {
+        await cfg.audit?.record({ type: 'login.otp_failed', ...signupAudit });
+      }
+      return renderOtpError(
+        signupResult === 'locked'
+          ? 'login.otp_locked'
+          : signupResult === 'expired'
+            ? 'login.otp_expired'
+            : 'login.otp_invalid',
+      );
+    }
+
+    const result = await cfg.accountStore.verifyLoginCode(email, uid, code, {
+      maxAttempts: cfg.login.otp.maxAttempts,
+    });
 
     if (result.status === 'ok') {
       // E-mail não verificado (LGPD): mesmo com código válido, não materializa a
