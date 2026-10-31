@@ -706,7 +706,9 @@ export interface PasswordlessConfigInput {
    * senha) e envia um link de confirmação (`onMagicLink` com `kind: 'signup'`).
    * A conta só é criada quando o dono do e-mail abre o link: nasce com o e-mail
    * verificado e uma senha aleatória inutilizável, e o login segue pelo magic
-   * link. E-mail que já tem conta recebe um magic link de login. Default: false.
+   * link. E-mail que já tem conta recebe um magic link de login. Com `login.otp`
+   * ligado, os dois casos também levam um código para concluir no mesmo navegador.
+   * Default: false.
    * Exige que o accountStore implemente {@link MagicLinkCapability} e o serviço de
    * encryption do app (APP_KEY), que assina o link; sem a capacidade o cadastro
    * passwordless fica indisponível e o fluxo de senha segue valendo.

@@ -1,7 +1,11 @@
 import '../augmentations.js';
 import { randomBytes } from 'node:crypto';
 import type { HttpContext } from '@adonisjs/core/http';
-import { supportsAccountDeletion, supportsMagicLink } from '../../accounts/account_store.js';
+import {
+  supportsAccountDeletion,
+  supportsMagicLink,
+  supportsOtpLogin,
+} from '../../accounts/account_store.js';
 import { PasswordPolicyError } from '../../password/password_manager.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
 import { guardBotProtection, resolveEffectiveBotProtection } from '../bot_protection.js';
@@ -21,6 +25,11 @@ import {
   resolveEffectiveRegistration,
 } from '../runtime_toggles.js';
 import { dispatchSecurityNotice } from '../security_notice_service.js';
+import {
+  LOGIN_EMAIL_SESSION_KEY,
+  SIGNUP_CODE_SESSION_KEY,
+  startSignupCode,
+} from '../signup_code.js';
 import { issueSignupToken, readSignupToken } from '../signup_token.js';
 import {
   forgotPasswordValidator,
@@ -271,7 +280,8 @@ export default class AuthRegistrationController {
    * Cadastro passwordless: valida e-mail + nome e envia um link. Conta existente
    * recebe um magic link de login; e-mail novo recebe o link de confirmação do
    * cadastro (`signupConfirm`), e só então a conta é criada. Sempre responde
-   * "link enviado" (anti-enumeração), exista a conta ou não.
+   * "link enviado" (anti-enumeração), exista a conta ou não. Com `login.otp` ligado,
+   * os dois casos também levam um código de digitar (`otpVerify`).
    */
   async #passwordlessSignup(ctx: HttpContext, deps: { cfg: any; brand: any; details: any }) {
     const { cfg, brand } = deps;
@@ -281,18 +291,28 @@ export default class AuthRegistrationController {
     const data = await ctx.request.validateUsing(passwordlessSignupValidator);
 
     const origin = authkitOrigin(cfg);
+    // Com OTP ligado, o e-mail leva também um código, para concluir neste navegador.
+    const otpEnabled = cfg.login?.otp?.enabled === true && supportsOtpLogin(accountStore);
     const existing = await accountStore.findByEmail(data.email);
+    ctx.session.forget(SIGNUP_CODE_SESSION_KEY);
+    if (otpEnabled) ctx.session.put(LOGIN_EMAIL_SESSION_KEY, data.email);
     if (existing) {
       // Conta já existe: o "cadastro" vira um login por magic link.
       // `data.email` já é a forma normalizada, a mesma do login.
-      const issued = await accountStore.issueMagicLinkToken(data.email);
+      const issued = otpEnabled
+        ? await accountStore.issueMagicLinkWithCode(data.email, uid, {
+            digits: cfg.login.otp.digits,
+            ttlMinutes: cfg.login.otp.ttlMinutes,
+          })
+        : await accountStore.issueMagicLinkToken(data.email);
       if (issued) {
+        const code = 'code' in issued ? (issued.code as string) : undefined;
         const magicUrl = `${origin}/auth/interaction/${uid}/magic?token=${encodeURIComponent(issued.token)}`;
         const to = issued.account.email;
         if (cfg.mail?.onMagicLink) {
-          await cfg.mail.onMagicLink({ email: to, magicUrl, token: issued.token });
+          await cfg.mail.onMagicLink({ email: to, magicUrl, token: issued.token, code });
         } else {
-          await sendMagicLinkEmail(ctx, { email: to, magicUrl });
+          await sendMagicLinkEmail(ctx, { email: to, magicUrl, code });
         }
       }
     } else {
@@ -302,10 +322,19 @@ export default class AuthRegistrationController {
       // e-mail de outra pessoa não cria nada.
       const token = await issueSignupToken({ email: data.email, fullName: data.fullName ?? null });
       const magicUrl = `${origin}/auth/interaction/${uid}/signup/confirm?token=${encodeURIComponent(token)}`;
+      const code = otpEnabled
+        ? startSignupCode(ctx, {
+            uid,
+            email: data.email,
+            token,
+            digits: cfg.login.otp.digits,
+            ttlMinutes: cfg.login.otp.ttlMinutes,
+          })
+        : undefined;
       if (cfg.mail?.onMagicLink) {
-        await cfg.mail.onMagicLink({ email: data.email, magicUrl, token, kind: 'signup' });
+        await cfg.mail.onMagicLink({ email: data.email, magicUrl, token, code, kind: 'signup' });
       } else {
-        await sendMagicLinkEmail(ctx, { email: data.email, magicUrl });
+        await sendMagicLinkEmail(ctx, { email: data.email, magicUrl, code });
       }
     }
 
@@ -315,6 +344,7 @@ export default class AuthRegistrationController {
       csrfToken: ctx.request.csrfToken,
       brand,
       magicLinkSent: true,
+      otpEnabled,
     });
   }
 
