@@ -24,7 +24,6 @@ import {
   resolveCustomMfaMethods,
   verifyCustomMfa,
 } from '../custom_mfa.js';
-import { LOGIN_EMAIL_SESSION_KEY, pendingSignupCode, verifySignupCode } from '../signup_code.js';
 import { sendMagicLinkEmail, sendOtpUnlockEmail } from '../default_mailer.js';
 import { normalizeEmailIdentifier } from '../email_identifier.js';
 import { translate } from '../i18n.js';
@@ -52,6 +51,7 @@ import {
   resolveEffectiveRegistration,
   resolveEffectiveSessionPolicy,
 } from '../runtime_toggles.js';
+import { LOGIN_EMAIL_SESSION_KEY, pendingSignupCode, verifySignupCode } from '../signup_code.js';
 import {
   SOCIAL_PENDING_KEY,
   SOCIAL_PENDING_TTL_MS,
