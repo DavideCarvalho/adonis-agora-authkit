@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-testing
 
+## 0.6.3
+
+### Patch Changes
+
+- fix(deps): update dependency jose to v6.2.14 ([#388](https://github.com/DavideCarvalho/adonis-agora-authkit/issues/388))
+
 ## 0.6.2
 
 ### Patch Changes

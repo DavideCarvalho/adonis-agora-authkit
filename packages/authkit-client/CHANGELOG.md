@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-client
 
+## 0.20.4
+
+### Patch Changes
+
+- fix(deps): update dependency jose to v6.2.14 ([#388](https://github.com/DavideCarvalho/adonis-agora-authkit/issues/388))
+
 ## 0.20.3
 
 ### Patch Changes
