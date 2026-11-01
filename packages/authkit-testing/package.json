@@ -45,7 +45,7 @@
   },
   "dependencies": {
     "@adonis-agora/authkit-core": "workspace:*",
-    "jose": "6.2.13"
+    "jose": "6.2.14"
   },
   "devDependencies": {
     "@adonis-agora/authkit-client": "workspace:*",
