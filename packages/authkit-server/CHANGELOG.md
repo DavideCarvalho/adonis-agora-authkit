@@ -1,5 +1,13 @@
 # @adonis-agora/authkit-server
 
+## 0.89.0
+
+### Minor Changes
+
+- [#403](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/403) [`d1d375b`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/d1d375bf23732861dc836b73120c31e7ebab8065) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - New `mail.onNewLogin` hook for the new-IP login alert, so a host can send that email in its own template the same way `onNewDeviceLogin` already allows for the new-device alert.
+  
+  It receives `{ account, ip, userAgent, timestamp }` and fires only when the IP was never seen for the account and `notifications.newLoginEmail` is on. Without the hook the bundled email goes out as before. `login.new_ip_notified` is audited either way, and an error thrown by the hook is logged without skipping the new-device alert that follows.
+
 ## 0.88.1
 
 ### Patch Changes
