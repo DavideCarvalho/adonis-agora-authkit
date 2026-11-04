@@ -197,6 +197,8 @@ test.group('notifyLoginSuccess (alerta de novo acesso)', (group) => {
     await flush(() => deviceCalls.length > 0);
 
     assert.lengthOf(deviceCalls, 1);
+    // O audit do alerta de IP continua mesmo com o hook falhando.
+    assert.isOk(sink.events.find((e) => e.type === 'login.new_ip_notified'));
   });
 
   test('login repetido do MESMO IP não dispara novo e-mail', async ({ assert }) => {
