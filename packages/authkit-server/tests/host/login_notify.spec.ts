@@ -138,6 +138,67 @@ test.group('notifyLoginSuccess (alerta de novo acesso)', (group) => {
     assert.isOk(sink.events.find((e) => e.type === 'login.new_ip_notified'));
   });
 
+  test('hook custom mail.onNewLogin tem prioridade sobre o mailer default', async ({ assert }) => {
+    const sent = stubMailer();
+    const sink = memorySink();
+    const calls: any[] = [];
+    const cfg = cfgWith(sink, true, false, {
+      mail: { onNewLogin: async (data: any) => calls.push(data) },
+    } as any);
+
+    await notifyLoginSuccess(fakeCtx({ userAgent: 'CustomUA' }), cfg, {
+      accountId: 'h1',
+      email: 'h1@x.com',
+      ip: '9.9.9.9',
+    });
+    await flush(() => calls.length > 0);
+
+    assert.lengthOf(calls, 1);
+    assert.deepEqual(calls[0].account, { id: 'h1', email: 'h1@x.com' });
+    assert.equal(calls[0].ip, '9.9.9.9');
+    assert.equal(calls[0].userAgent, 'CustomUA');
+    assert.isString(calls[0].timestamp);
+    // Mailer default NÃO foi usado; o audit do alerta continua.
+    assert.lengthOf(sent, 0);
+    await flush(() => !!sink.events.find((e) => e.type === 'login.new_ip_notified'));
+    assert.isOk(sink.events.find((e) => e.type === 'login.new_ip_notified'));
+  });
+
+  test('mail.onNewLogin NÃO é chamado num IP já visto', async ({ assert }) => {
+    stubMailer();
+    const sink = memorySink();
+    const calls: any[] = [];
+    const cfg = cfgWith(sink, true, false, {
+      mail: { onNewLogin: async (data: any) => calls.push(data) },
+    } as any);
+
+    await notifyLoginSuccess(fakeCtx(), cfg, { accountId: 'h2', email: 'h2@x.com', ip: '7.7.7.7' });
+    await flush(() => calls.length > 0);
+    await notifyLoginSuccess(fakeCtx(), cfg, { accountId: 'h2', email: 'h2@x.com', ip: '7.7.7.7' });
+    await flush(() => false, 10);
+
+    assert.lengthOf(calls, 1);
+  });
+
+  test('mail.onNewLogin que lança não impede o alerta de novo dispositivo', async ({ assert }) => {
+    stubMailer();
+    const sink = memorySink();
+    const deviceCalls: any[] = [];
+    const cfg = cfgWith(sink, true, true, {
+      mail: {
+        onNewLogin: async () => {
+          throw new Error('smtp down');
+        },
+        onNewDeviceLogin: async (data: any) => deviceCalls.push(data),
+      },
+    } as any);
+
+    await notifyLoginSuccess(fakeCtx(), cfg, { accountId: 'h3', email: 'h3@x.com', ip: '5.5.5.5' });
+    await flush(() => deviceCalls.length > 0);
+
+    assert.lengthOf(deviceCalls, 1);
+  });
+
   test('login repetido do MESMO IP não dispara novo e-mail', async ({ assert }) => {
     const sent = stubMailer();
     const sink = memorySink();

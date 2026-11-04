@@ -80,7 +80,12 @@ export async function notifyLoginSuccess(
       resolvedEmail = (await cfg.accountStore.findById(accountId))?.email ?? null;
     }
     if (cfg.notifications.newLoginEmail) {
-      await maybeNotifyNewLogin(ctx, cfg, { accountId, email: resolvedEmail, ip: ip ?? null });
+      await maybeNotifyNewLogin(ctx, cfg, {
+        accountId,
+        email: resolvedEmail,
+        ip: ip ?? null,
+        userAgent,
+      });
     }
     if (onNewDevice && cfg.notifications.newDeviceEmail && resolvedEmail) {
       await notifyNewDevice(ctx, cfg, {
@@ -143,16 +148,16 @@ async function notifyNewDevice(
 
 /**
  * Verifica se o IP é novo para a conta (consultando o audit sink por
- * `login.success` do subject) e, se for, envia o e-mail de alerta + audita
- * `login.new_ip_notified`. Degrada para no-op quando: sem IP, sem e-mail, sem
+ * `login.success` do subject) e, se for, envia o alerta (hook `mail.onNewLogin`,
+ * override do host, ou o mailer default) + audita `login.new_ip_notified`. Degrada para no-op quando: sem IP, sem e-mail, sem
  * sink consultável (`list`), ou já houve um login.success deste IP antes.
  */
 async function maybeNotifyNewLogin(
   ctx: HttpContext,
   cfg: ResolvedServerConfig,
-  data: { accountId: string; email: string | null; ip: string | null },
+  data: { accountId: string; email: string | null; ip: string | null; userAgent: string | null },
 ): Promise<void> {
-  const { accountId, email, ip } = data;
+  const { accountId, email, ip, userAgent } = data;
   if (!ip || !email) return;
   // Sem consulta do histórico não dá pra decidir se o IP é novo → no-op.
   if (typeof cfg.audit?.list !== 'function') return;
@@ -171,7 +176,23 @@ async function maybeNotifyNewLogin(
   if (sameIpCount > 1) return;
 
   const when = new Date().toISOString();
-  await sendNewLoginEmail(ctx, cfg, { email, ip, when });
+  if (cfg.mail?.onNewLogin) {
+    // Isolado: o mailer default engole os próprios erros, o hook do host não. Sem
+    // este try, um hook que lança cortaria o audit abaixo e o alerta de novo
+    // dispositivo, que roda depois deste na mesma tarefa.
+    try {
+      await cfg.mail.onNewLogin({
+        account: { id: accountId, email },
+        ip,
+        userAgent,
+        timestamp: when,
+      });
+    } catch (error) {
+      ctx.logger?.error?.({ err: error, accountId }, 'authkit: falha no hook mail.onNewLogin');
+    }
+  } else {
+    await sendNewLoginEmail(ctx, cfg, { email, ip, when });
+  }
   await cfg.audit?.record({
     type: 'login.new_ip_notified',
     accountId,

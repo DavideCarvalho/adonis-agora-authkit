@@ -175,6 +175,19 @@ export interface MailHooks {
     expiresInMinutes: number;
   }) => Promise<void>;
   /**
+   * Disparado num login bem-sucedido a partir de um IP NOVO para a conta (nenhum
+   * `login.success` anterior desse IP no audit sink), quando `notifications.newLoginEmail`
+   * está ligado. Best-effort, fire-and-forget: uma falha aqui NUNCA quebra o login.
+   * Quando ausente mas o mail estiver configurado, o host-kit envia o e-mail default de
+   * "novo login". O `login.new_ip_notified` é auditado nos dois casos.
+   */
+  onNewLogin?: (data: {
+    account: { id: string; email: string };
+    ip: string;
+    userAgent?: string | null;
+    timestamp: string;
+  }) => Promise<void>;
+  /**
    * Disparado num login bem-sucedido a partir de um dispositivo NOVO (sem cookie
    * de dispositivo confiável válido para a conta). Best-effort, fire-and-forget:
    * uma falha aqui NUNCA quebra o login. Quando ausente mas o mail estiver
