@@ -68,6 +68,11 @@ export type {
   LucidStoresResult,
 } from './src/accounts/lucid_stores.js';
 export { lucidStores } from './src/accounts/lucid_stores.js';
+export {
+  type LinkProviderIdentityResult,
+  ProviderIdentities,
+  ProviderIdentitiesUnsupportedError,
+} from './src/accounts/provider_identities.js';
 export type { PersonalAgentIdentity } from './src/agents/agent_identity.js';
 export { PersonalAgentVerifier } from './src/agents/agent_identity.js';
 export type {

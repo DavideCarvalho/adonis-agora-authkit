@@ -3,6 +3,7 @@ import { type ClientConfig, type MetricsRecorder, NoopRecorder } from '@adonis-a
 import Koa from 'koa';
 import mount from 'koa-mount';
 import type { ActiveOrgInfo } from '../accounts/account_store.js';
+import { ProviderIdentities } from '../accounts/provider_identities.js';
 import type { ResolvedServerConfig } from '../define_config.js';
 import {
   normalizeActiveOrg,
@@ -89,6 +90,17 @@ export class OidcService {
 
   get config(): ResolvedServerConfig {
     return this.#config;
+  }
+
+  #identities?: ProviderIdentities;
+  /**
+   * Identidades de provider das contas — a ligação que o "Entrar com <provider>" usa.
+   * Para o host ligar uma conta a um provider fora do login social sem tocar no
+   * account store cru. Ver {@link ProviderIdentities}.
+   */
+  get identities(): ProviderIdentities {
+    this.#identities ??= new ProviderIdentities(() => this.#config.accountStore);
+    return this.#identities;
   }
 
   /** @internal Loader de JWKS do cofre (usado por reloadKeys). */
