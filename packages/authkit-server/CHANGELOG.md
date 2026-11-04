@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 0.90.0
+
+### Minor Changes
+
+- [#404](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/404) [`1208413`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/120841300b97182e1b287e744e8c84c2a7860e0d) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `authkit.identities`: API pública para o host ligar uma conta a um provider (Google, GitHub, …) fora do login social, sem tocar no account store cru nem na tabela. `link()` faz o upsert na chave `(provider, providerUserId)`, mudando a identidade de conta se preciso, e devolve `previousAccountId`; `find`/`list`/`unlinkAll` completam. Store sem account linking: `supported === false` e os métodos lançam `ProviderIdentitiesUnsupportedError`.
+
 ## 0.89.0
 
 ### Minor Changes
