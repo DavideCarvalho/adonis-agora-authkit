@@ -47,7 +47,7 @@ catalog:
   "adonis-lucid-filter": "5.2.0"
   "concurrently": "10.0.6"
   "dotenv": "17.4.2"
-  "dotenv-cli": "11.0.0"
+  "dotenv-cli": "11.1.0"
   "edge.js": "6.5.1"
   "elysia": "1.4.30"
   "eslint": "10.13.0"
