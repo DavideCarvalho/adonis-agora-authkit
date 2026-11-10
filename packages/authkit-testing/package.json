@@ -29,7 +29,8 @@
   "main": "./build/index.js",
   "types": "./build/index.d.ts",
   "files": [
-    "build"
+    "build",
+    "CHANGELOG.md"
   ],
   "exports": {
     ".": "./build/index.js",

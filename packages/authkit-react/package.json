@@ -32,7 +32,8 @@
   "files": [
     "build",
     "styles.css",
-    "skills"
+    "skills",
+    "CHANGELOG.md"
   ],
   "exports": {
     ".": "./build/index.js",

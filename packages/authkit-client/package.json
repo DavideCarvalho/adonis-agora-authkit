@@ -33,7 +33,8 @@
   "files": [
     "build",
     "stubs",
-    "skills"
+    "skills",
+    "CHANGELOG.md"
   ],
   "exports": {
     ".": "./build/index.js",
