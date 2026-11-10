@@ -1,3 +1,4 @@
+import type { ScreenRenderProps } from '../screen_props.js';
 import '../augmentations.js';
 import { randomBytes } from 'node:crypto';
 import type { HttpContext } from '@adonisjs/core/http';
@@ -74,7 +75,7 @@ export default class AuthRegistrationController {
         csrfToken: ctx.request.csrfToken,
         message: maintenance.message ?? translate(cfg.messages, 'maintenance.default_message'),
         brand,
-      });
+      } satisfies ScreenRenderProps<'maintenance'>);
     }
 
     // Registration disabled: mostra mensagem clara na tela de signup.
@@ -89,7 +90,7 @@ export default class AuthRegistrationController {
         brand,
         registrationDisabled: true,
         registrationDisabledMessage: translate(cfg.messages, 'errors.registration_disabled'),
-      });
+      } satisfies ScreenRenderProps<'signup'>);
     }
 
     const effectiveBot = await resolveEffectiveBotProtection(cfg.botProtection, runtimeSettings);
@@ -99,7 +100,7 @@ export default class AuthRegistrationController {
       brand,
       passwordlessSignup: cfg.passwordless?.signup ?? false,
       botProtection: effectiveBot?.on.includes('signup') ? effectiveBot.widget : undefined,
-    });
+    } satisfies ScreenRenderProps<'signup'>);
   }
 
   /** POST /auth/interaction/:uid/signup — cria o usuário e finaliza o login. */
@@ -118,7 +119,7 @@ export default class AuthRegistrationController {
         csrfToken: ctx.request.csrfToken,
         message: maintenance.message ?? translate(cfg.messages, 'maintenance.default_message'),
         brand,
-      });
+      } satisfies ScreenRenderProps<'maintenance'>);
     }
 
     // Registration disabled: rejeita o POST — mesmo que alguém bata diretamente.
@@ -133,7 +134,7 @@ export default class AuthRegistrationController {
         brand,
         registrationDisabled: true,
         registrationDisabledMessage: translate(cfg.messages, 'errors.registration_disabled'),
-      });
+      } satisfies ScreenRenderProps<'signup'>);
     }
 
     // Effective bot protection: may be overridden at runtime via auth_settings.
@@ -158,7 +159,7 @@ export default class AuthRegistrationController {
         error: translate(cfg.messages, 'errors.bot_protection_failed'),
         brand,
         botProtection: effectiveBotSignup?.widget,
-      });
+      } satisfies ScreenRenderProps<'signup'>);
     }
 
     // Cadastro passwordless (config): só e-mail + nome. Cria conta com senha random
@@ -185,7 +186,7 @@ export default class AuthRegistrationController {
         botProtection: effectiveBotSignup?.on.includes('signup')
           ? effectiveBotSignup.widget
           : undefined,
-      });
+      } satisfies ScreenRenderProps<'signup'>);
     }
 
     let created: Awaited<ReturnType<typeof accountStore.create>>;
@@ -207,7 +208,7 @@ export default class AuthRegistrationController {
           botProtection: effectiveBotSignup?.on.includes('signup')
             ? effectiveBotSignup.widget
             : undefined,
-        });
+        } satisfies ScreenRenderProps<'signup'>);
       }
       throw error;
     }
@@ -246,7 +247,7 @@ export default class AuthRegistrationController {
         botProtection: effectiveBotSignup?.on.includes('signup')
           ? effectiveBotSignup.widget
           : undefined,
-      });
+      } satisfies ScreenRenderProps<'signup'>);
     }
 
     // Verificação de e-mail (best-effort — não bloqueia nem reverte o login).
@@ -345,7 +346,7 @@ export default class AuthRegistrationController {
       brand,
       magicLinkSent: true,
       otpEnabled,
-    });
+    } satisfies ScreenRenderProps<'signup'>);
   }
 
   /**
@@ -421,7 +422,7 @@ export default class AuthRegistrationController {
       return render(ctx, 'maintenance', {
         csrfToken: ctx.request.csrfToken,
         message: maintenance.message ?? translate(cfg.messages, 'maintenance.default_message'),
-      });
+      } satisfies ScreenRenderProps<'maintenance'>);
     }
 
     // auth_methods: se forgotPassword efetivo for false → 404 (endpoint desligado).
@@ -440,7 +441,7 @@ export default class AuthRegistrationController {
     return render(ctx, 'forgot', {
       csrfToken: ctx.request.csrfToken,
       botProtection: effectiveBot?.on.includes('reset') ? effectiveBot.widget : undefined,
-    });
+    } satisfies ScreenRenderProps<'forgot'>);
   }
 
   /** POST /auth/forgot-password — gera token e (dev) loga o link. Sempre responde sucesso (não vaza emails). */
@@ -456,7 +457,7 @@ export default class AuthRegistrationController {
       return render(ctx, 'maintenance', {
         csrfToken: ctx.request.csrfToken,
         message: maintenance.message ?? translate(cfg.messages, 'maintenance.default_message'),
-      });
+      } satisfies ScreenRenderProps<'maintenance'>);
     }
 
     // auth_methods: se forgotPassword efetivo for false → 404 (endpoint desligado).
@@ -488,7 +489,7 @@ export default class AuthRegistrationController {
         csrfToken: ctx.request.csrfToken,
         error: translate(cfg.messages, 'errors.bot_protection_failed'),
         botProtection: effectiveBotForgot?.widget,
-      });
+      } satisfies ScreenRenderProps<'forgot'>);
     }
 
     const { email } = await ctx.request.validateUsing(forgotPasswordValidator);
@@ -517,7 +518,7 @@ export default class AuthRegistrationController {
     return render(ctx, 'forgot', {
       csrfToken: ctx.request.csrfToken,
       sent: true,
-    });
+    } satisfies ScreenRenderProps<'forgot'>);
   }
 
   /** GET /auth/reset-password?token=... — tela standalone. */
@@ -526,7 +527,10 @@ export default class AuthRegistrationController {
     const cfg = service.config;
     const render = cfg.render!;
     const token = ctx.request.qs().token ?? '';
-    return render(ctx, 'reset', { token, csrfToken: ctx.request.csrfToken });
+    return render(ctx, 'reset', {
+      token,
+      csrfToken: ctx.request.csrfToken,
+    } satisfies ScreenRenderProps<'reset'>);
   }
 
   /** POST /auth/reset-password — redefine a senha. */
@@ -563,7 +567,7 @@ export default class AuthRegistrationController {
           token,
           csrfToken: ctx.request.csrfToken,
           error: translate(cfg.messages, error.key, error.params),
-        });
+        } satisfies ScreenRenderProps<'reset'>);
       }
       throw error;
     }
@@ -619,7 +623,7 @@ export default class AuthRegistrationController {
       token: '',
       csrfToken: ctx.request.csrfToken,
       done: true,
-    });
+    } satisfies ScreenRenderProps<'reset'>);
   }
 
   /** GET /auth/verify-email?token=... — consome o token e mostra sucesso/falha. */
@@ -635,6 +639,8 @@ export default class AuthRegistrationController {
         ip: ctx.request.ip?.() ?? null,
       });
     }
-    return render(ctx, 'verify-email', { verified: ok });
+    return render(ctx, 'verify-email', {
+      verified: ok,
+    } satisfies ScreenRenderProps<'verify-email'>);
   }
 }

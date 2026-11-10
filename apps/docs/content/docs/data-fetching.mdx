@@ -261,6 +261,8 @@ side is `{ page, size }`, matching `@adonis-agora/filter`.
 | `useSettingsQueryOptions(orgId?)` | `authkitKeys.admin.settings(orgId)` | `orgId` scopes to one org; omitted/`null` = global |
 | `useImpersonationQueryOptions(userId)` | `authkitKeys.admin.impersonation(userId)` | — |
 | `useKeysQueryOptions()` | `authkitKeys.admin.keys()` | Signing-key status |
+| `usePersonalAgentsQueryOptions()` | `authkitKeys.admin.personalAgents()` | Personal agents overview |
+| `usePersonalAgentConnectionsQueryOptions(params?)` | `authkitKeys.admin.personalAgentConnections(params)` | Agent connections (grants) |
 
 ### Account query hooks
 
@@ -319,6 +321,9 @@ full control.
 | `useSetSettingMutationOptions(orgId?)` | `{ key: string; value: unknown }` | `orgId` writes in the org scope |
 | `useRemoveSettingMutationOptions(orgId?)` | `string` (key) | Resets to lib default |
 | `useRotateKeysMutationOptions()` | `KeysRotateInput?` | `{ retire?, keep? }` |
+| `useRevokePersonalAgentConnectionMutationOptions()` | `string` (grant id) | — |
+| `useSetPersonalAgentStatusMutationOptions()` | `PersonalAgentRegistryInput` | Registers or blocks an agent |
+| `useRemovePersonalAgentEntryMutationOptions()` | `string` (entry id) | Removes a registry entry |
 
 ### Account mutation hooks
 

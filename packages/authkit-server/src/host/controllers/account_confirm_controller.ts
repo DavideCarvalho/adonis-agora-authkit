@@ -8,6 +8,7 @@
  * A tela está atrás do `accountGuard` (requer sessão de conta ativa).
  */
 
+import type { ScreenRenderProps } from '../screen_props.js';
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import type { AccountConfirmProps } from '../account_screen_props.js';
@@ -64,6 +65,10 @@ export default class AccountConfirmController {
       preferredId: ctx.session.get(LAST_METHOD_SESSION_KEY) ?? null,
     } satisfies Omit<AccountConfirmProps, 'messages'>;
 
-    return c.cfg.render!(ctx, 'account/confirm', props);
+    return c.cfg.render!(
+      ctx,
+      'account/confirm',
+      props satisfies ScreenRenderProps<'account/confirm'>,
+    );
   }
 }

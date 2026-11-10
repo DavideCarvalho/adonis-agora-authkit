@@ -51,6 +51,7 @@ import {
   resolveEffectiveRegistration,
   resolveEffectiveSessionPolicy,
 } from '../runtime_toggles.js';
+import type { ScreenRenderProps } from '../screen_props.js';
 import { LOGIN_EMAIL_SESSION_KEY, pendingSignupCode, verifySignupCode } from '../signup_code.js';
 import {
   SOCIAL_PENDING_KEY,
@@ -159,7 +160,7 @@ export default class AuthInteractionController {
         csrfToken: ctx.request.csrfToken,
         brand,
         error: translate(cfg.messages, key),
-      });
+      } satisfies ScreenRenderProps<'login'>);
     if (await isEmailUnverifiedBlock(cfg, account.id, settings))
       return fail('errors.email_unverified');
     const status = await assertLoginAllowed(cfg, account.id, {
@@ -177,7 +178,7 @@ export default class AuthInteractionController {
         csrfToken: ctx.request.csrfToken,
         brand,
         message: maintenance.message ?? translate(cfg.messages, 'maintenance.default_message'),
-      });
+      } satisfies ScreenRenderProps<'maintenance'>);
     }
     rememberLastLoginMethod(ctx, cfg, `custom:${input.method}`);
     const gate = await this.secondFactorGate(
@@ -332,7 +333,7 @@ export default class AuthInteractionController {
           brand,
           adminLoginAllowed: true,
           adminLoginNote: translate(cfg.messages, 'maintenance.admin_login_note'),
-        });
+        } satisfies ScreenRenderProps<'maintenance'>);
       }
     }
 
@@ -355,7 +356,7 @@ export default class AuthInteractionController {
         csrfToken: ctx.request.csrfToken,
         brand,
         ...(await consentSubject(service, details, cfg.messages)),
-      });
+      } satisfies ScreenRenderProps<'consent'>);
     }
 
     const email = ctx.session.get(SESSION_KEY) as string | undefined;
@@ -387,7 +388,7 @@ export default class AuthInteractionController {
         step: 'identifier',
         registrationEnabled,
         brand,
-      });
+      } satisfies ScreenRenderProps<'login'>);
     }
 
     // Step 2: password — look up user for personalisation (enumeration-safe: always show step 2)
@@ -424,7 +425,7 @@ export default class AuthInteractionController {
       botProtection: effectiveBot?.on.includes('login') ? effectiveBot.widget : undefined,
       rememberEnabled: sessionPolicyForShow.rememberEnabled,
       rememberDays: sessionPolicyForShow.rememberDays,
-    });
+    } satisfies ScreenRenderProps<'login'>);
   }
 
   /**
@@ -513,7 +514,7 @@ export default class AuthInteractionController {
         error: translate(cfg.messages, 'errors.bot_protection_failed'),
         brand,
         botProtection: effectiveBotLogin?.widget,
-      });
+      } satisfies ScreenRenderProps<'login'>);
     }
 
     // Preferência por usuário: senha desligada para ESTA conta → recusa ANTES de
@@ -548,7 +549,7 @@ export default class AuthInteractionController {
         botProtection: effectiveBotLogin?.on.includes('login')
           ? effectiveBotLogin.widget
           : undefined,
-      });
+      } satisfies ScreenRenderProps<'login'>);
     }
 
     // Verificamos as credenciais ANTES de finalizar a interaction, porque com MFA
@@ -579,7 +580,7 @@ export default class AuthInteractionController {
           error: null,
           brand,
           botProtection: undefined,
-        });
+        } satisfies ScreenRenderProps<'login'>);
       }
 
       const found = await cfg.accountStore.findByEmail(email);
@@ -608,7 +609,7 @@ export default class AuthInteractionController {
         botProtection: effectiveBotLogin?.on.includes('login')
           ? effectiveBotLogin.widget
           : undefined,
-      });
+      } satisfies ScreenRenderProps<'login'>);
     }
 
     const acc = result.account;
@@ -626,7 +627,7 @@ export default class AuthInteractionController {
           brand,
           adminLoginAllowed: true,
           adminLoginNote: translate(cfg.messages, 'maintenance.admin_login_note'),
-        });
+        } satisfies ScreenRenderProps<'maintenance'>);
       }
       // Admin: prossegue normalmente (sem bloqueio).
     }
@@ -713,7 +714,10 @@ export default class AuthInteractionController {
   private async renderMfaChallenge(
     ctx: HttpContext,
     cfg: ResolvedServerConfig,
-    props: Record<string, unknown>,
+    props: Omit<
+      ScreenRenderProps<'mfa-challenge'>,
+      'customMfaMethods' | 'completedMfaMethods' | 'requiredMfaFactors'
+    >,
   ) {
     const flow = getMfaFlow(ctx);
     const custom = flow ? await customMfaViewProps(ctx) : {};
@@ -725,7 +729,7 @@ export default class AuthInteractionController {
       ...custom,
       ...(used.has('totp') ? { totpAvailable: false } : {}),
       ...(used.has('webauthn') ? { passkeyAvailable: false } : {}),
-    });
+    } satisfies ScreenRenderProps<'mfa-challenge'>);
   }
 
   private async configuredMfaGate(
@@ -935,7 +939,7 @@ export default class AuthInteractionController {
           !status.allowed ? accountStatusErrorKey(status.reason) : 'errors.email_unverified',
         ),
         brand: brandFor(cfg.branding, undefined),
-      });
+      } satisfies ScreenRenderProps<'login'>);
     }
     const maintenance = await resolveEffectiveMaintenanceMode(settings);
     if (maintenance.enabled && !(await isAdminAccount(cfg, account))) {
@@ -945,7 +949,7 @@ export default class AuthInteractionController {
         message: maintenance.message ?? translate(cfg.messages, 'maintenance.default_message'),
         brand: brandFor(cfg.branding, undefined),
         adminLoginAllowed: true,
-      });
+      } satisfies ScreenRenderProps<'maintenance'>);
     }
     forgetLoginEmail(ctx);
     await notifyLoginSuccess(ctx, cfg, {
@@ -1422,7 +1426,7 @@ export default class AuthInteractionController {
         brand,
         magicLinkSent: true,
         magicChannel: 'none',
-      });
+      } satisfies ScreenRenderProps<'login'>);
     }
 
     if (cfg.passwordless.magicLink && supportsMagicLink(cfg.accountStore) && email) {
@@ -1483,7 +1487,7 @@ export default class AuthInteractionController {
       // 'code' (só o campo de código), 'link' (só o aviso de link) ou 'both'
       // (ambos, quando o host não escolheu canal). Back-compat: ausente = 'both'.
       magicChannel: magicChannelProp(channel),
-    });
+    } satisfies ScreenRenderProps<'login'>);
   }
 
   /**
@@ -1576,7 +1580,7 @@ export default class AuthInteractionController {
         account: null,
         brand: brandFor(cfg.branding, clientId ?? undefined, undefined),
         error: translate(cfg.messages, 'errors.invalid_credentials'),
-      });
+      } satisfies ScreenRenderProps<'login'>);
     }
 
     // E-mail não verificado (LGPD/compliance): mesmo com o link válido, não
@@ -1601,7 +1605,7 @@ export default class AuthInteractionController {
         account: null,
         brand: brandFor(cfg.branding, clientId ?? undefined, undefined),
         error: translate(cfg.messages, 'errors.email_unverified'),
-      });
+      } satisfies ScreenRenderProps<'login'>);
     }
 
     // Status da conta (disabled/expired): mesmo gate de `attemptPasswordLogin`,
@@ -1635,7 +1639,7 @@ export default class AuthInteractionController {
         account: null,
         brand: brandFor(cfg.branding, clientId ?? undefined, undefined),
         error: translate(cfg.messages, accountStatusErrorKey(magicLinkStatusGate.reason)),
-      });
+      } satisfies ScreenRenderProps<'login'>);
     }
 
     // Conta com segundo fator não termina o login só com o e-mail.
@@ -1714,7 +1718,7 @@ export default class AuthInteractionController {
         magicLinkSent: true,
         magicChannel: magicChannelProp(channel),
         otpError: translate(cfg.messages, messageKey),
-      });
+      } satisfies ScreenRenderProps<'login'>);
 
     // Cadastro sem conta ainda: o código certo leva ao mesmo link de confirmação do e-mail.
     if (pendingSignup) {
@@ -1770,7 +1774,7 @@ export default class AuthInteractionController {
           account: null,
           brand,
           error: translate(cfg.messages, 'errors.email_unverified'),
-        });
+        } satisfies ScreenRenderProps<'login'>);
       }
 
       // Status da conta (disabled/expired): mesmo gate de `attemptPasswordLogin`,
@@ -1797,7 +1801,7 @@ export default class AuthInteractionController {
           account: null,
           brand,
           error: translate(cfg.messages, accountStatusErrorKey(otpStatusGate.reason)),
-        });
+        } satisfies ScreenRenderProps<'login'>);
       }
 
       await cfg.audit?.record({
@@ -2185,7 +2189,7 @@ export default class AuthInteractionController {
         error: translate(cfg.messages, 'errors.invalid_credentials'),
         brand,
         botProtection: undefined,
-      });
+      } satisfies ScreenRenderProps<'login'>);
     }
 
     const { PasswordPolicyError } = await import('../../password/password_manager.js');
@@ -2208,7 +2212,7 @@ export default class AuthInteractionController {
           error: translate(cfg.messages, error.key, error.params),
           brand,
           botProtection: undefined,
-        });
+        } satisfies ScreenRenderProps<'login'>);
       }
       throw error;
     }
@@ -2257,7 +2261,7 @@ export default class AuthInteractionController {
 
     const raw = ctx.request.param('token') as string;
     if (!raw) {
-      return render(ctx, 'otp-unlock', { ok: false });
+      return render(ctx, 'otp-unlock', { ok: false } satisfies ScreenRenderProps<'otp-unlock'>);
     }
 
     const dbValue = rawToDbOtpUnlockToken(raw);
@@ -2283,7 +2287,7 @@ export default class AuthInteractionController {
           ip,
           metadata: { reason: 'token_not_found' },
         });
-        return render(ctx, 'otp-unlock', { ok: false });
+        return render(ctx, 'otp-unlock', { ok: false } satisfies ScreenRenderProps<'otp-unlock'>);
       }
 
       // Verifica TTL.
@@ -2296,7 +2300,10 @@ export default class AuthInteractionController {
           ip,
           metadata: { reason: 'token_expired' },
         });
-        return render(ctx, 'otp-unlock', { ok: false, expired: true });
+        return render(ctx, 'otp-unlock', {
+          ok: false,
+          expired: true,
+        } satisfies ScreenRenderProps<'otp-unlock'>);
       }
 
       // Token válido: zera o lock OTP + limpa o token do DB.
@@ -2311,9 +2318,9 @@ export default class AuthInteractionController {
 
       await cfg.audit?.record({ type: 'otp.unlocked', accountId: row.id, ip });
 
-      return render(ctx, 'otp-unlock', { ok: true });
+      return render(ctx, 'otp-unlock', { ok: true } satisfies ScreenRenderProps<'otp-unlock'>);
     } catch {
-      return render(ctx, 'otp-unlock', { ok: false });
+      return render(ctx, 'otp-unlock', { ok: false } satisfies ScreenRenderProps<'otp-unlock'>);
     }
   }
 }

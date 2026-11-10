@@ -1,5 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http';
 import { type AuthMessages, DEFAULT_MESSAGES } from '../i18n.js';
+import type { AuthkitScreen } from '../screen_props.js';
 import { renderEdgeView } from './edge_renderer.js';
 
 /**
@@ -53,31 +54,7 @@ export interface InertiaRendererOptions {
   views: readonly AuthkitScreen[];
 }
 
-/**
- * Nomes das telas conhecidas da lib — dá autocomplete no array `views`.
- * O `(string & {})` mantém o tipo aberto: telas custom (ou de versões mais
- * novas da lib) continuam aceitas sem erro de compilação.
- */
-export type AuthkitScreen =
-  | 'login'
-  | 'signup'
-  | 'consent'
-  | 'forgot'
-  | 'reset'
-  | 'verify-email'
-  | 'mfa-challenge'
-  | 'otp-unlock'
-  | 'maintenance'
-  | 'session-expired'
-  | 'account/login'
-  | 'account/tokens'
-  | 'account/mfa'
-  | 'account/security'
-  | 'account/apps'
-  | 'account/orgs'
-  | 'account/confirm'
-  | 'account/email-confirmed'
-  | (string & {});
+export type { AuthkitScreen } from '../screen_props.js';
 
 /**
  * Renderer do seam para hosts Inertia/React.

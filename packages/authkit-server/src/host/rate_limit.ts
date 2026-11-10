@@ -1,6 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http';
 import type { ResolvedRateLimitConfig } from '../define_config.js';
 import { brandFor } from './branding.js';
+import type { ScreenRenderProps } from './screen_props.js';
 
 /**
  * Assinatura mínima de um middleware do AdonisJS. Evita acoplar o tipo concreto
@@ -202,9 +203,7 @@ export function withFriendly429(throttle: ThrottleMiddleware): ThrottleMiddlewar
       if (!isThrottleExceeded(err)) throw err;
       const service = await (ctx as any).containerResolver.make('authkit.server');
       const cfg = service.config;
-      const render = cfg.render as
-        | ((ctx: HttpContext, view: string, props: Record<string, unknown>) => unknown)
-        | undefined;
+      const render = cfg.render;
       if (!render) throw err; // Sem renderer configurado — mantém o 429 cru.
 
       const retryAfter = retryAfterSeconds(err);
@@ -214,7 +213,11 @@ export function withFriendly429(throttle: ThrottleMiddleware): ThrottleMiddlewar
 
       ctx.response.status(429);
       if (retryAfter) ctx.response.header('Retry-After', String(retryAfter));
-      const body = await render(ctx, 'throttled', { brand, retryAfter, retryUrl });
+      const body = await render(ctx, 'throttled', {
+        brand,
+        retryAfter,
+        retryUrl,
+      } satisfies ScreenRenderProps<'throttled'>);
       const res = ctx.response as any;
       if (body !== undefined && !res.hasLazyBody && body !== ctx.response) {
         res.send(body);

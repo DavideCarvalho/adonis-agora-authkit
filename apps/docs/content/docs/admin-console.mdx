@@ -182,9 +182,117 @@ What that buys you, and what you can rely on:
   JSON API are all live regardless, so backend work does not need the front end built.
 </Callout>
 
+## Building your own admin UI
+
+The built-in console is a neutral operator console: it takes no theme, brand or locale from
+your product, and that is deliberate. When a product needs an admin area in its own design,
+build it on the same JSON API the console uses, with the admin query options of
+`@adonis-agora/authkit-react`.
+
+**The data.** The console's API lives under `{prefix}/api/*` (`/admin/api` by default) and is
+what your page calls. It needs `admin.enabled: true`: with the console disabled, the API
+answers 404 too. Keep the built-in console for operators, or move it with the
+[admin prefix](#configurable-admin-prefix).
+
+**Auth and CSRF.** The calls are same-origin `fetch`es from a page of the IdP app, so they
+carry the account-console session cookie, and the admin guard checks it and `admin.roles` on
+every request. Mutations need the CSRF token as `X-CSRF-TOKEN`: pass the request's token to
+`createAuthkitClient`. A page on another origin cannot use this API; use the
+[Admin API](/docs/admin-api) from your server instead.
+
+**The page.** Gate the route with the account session and the admin roles, then render an
+Inertia page. The middleware below reads the account's stored global roles; if your roles come
+from `resolveTokenRoles`, check them the same way you mint them. The API enforces the real
+check either way.
+
+```ts title="app/middleware/authkit_admin_middleware.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import type { NextFn } from '@adonisjs/core/types/http'
+import { consoleLoginUrl, realAccountId } from '@adonis-agora/authkit-server'
+
+export default class AuthkitAdminMiddleware {
+  async handle(ctx: HttpContext, next: NextFn) {
+    const accountId = realAccountId(ctx) // the human, even while impersonating
+    if (!accountId) return ctx.response.redirect(consoleLoginUrl(ctx.request.url()))
+
+    const { config } = await ctx.containerResolver.make('authkit.server')
+    const account = await config.accountStore.findById(accountId)
+    const isAdmin = account?.globalRoles.some((role) => config.admin.roles.includes(role))
+    if (!isAdmin) return ctx.response.forbidden()
+
+    return next()
+  }
+}
+```
+
+```ts title="start/routes.ts"
+router
+  .get('/backoffice/users', ({ inertia, request }) =>
+    inertia.render('backoffice/users', { csrfToken: request.csrfToken })
+  )
+  .use(middleware.authkitAdmin())
+```
+
+```tsx title="inertia/pages/backoffice/users.tsx"
+import { QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  AuthkitClientProvider,
+  authkitKeys,
+  createAuthkitClient,
+  createAuthkitQueryClient,
+  useDisableUserMutationOptions,
+  useUsersQueryOptions,
+} from '@adonis-agora/authkit-react'
+import { useState } from 'react'
+
+function DisableButton({ id }: { id: string }) {
+  const queryClient = useQueryClient()
+  const disable = useMutation({
+    ...useDisableUserMutationOptions(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: authkitKeys.admin.users() }),
+  })
+  return (
+    <button disabled={disable.isPending} onClick={() => disable.mutate()}>
+      Disable
+    </button>
+  )
+}
+
+function Users() {
+  const { data } = useQuery(useUsersQueryOptions({ page: 1 }))
+  return (
+    <ul>
+      {data?.data.map((user) => (
+        <li key={user.id}>
+          {user.email} <DisableButton id={user.id} />
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+export default function UsersPage({ csrfToken }: { csrfToken: string }) {
+  const [queryClient] = useState(() => createAuthkitQueryClient())
+  const [client] = useState(() => createAuthkitClient({ baseUrl: '/admin/api', csrfToken }))
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthkitClientProvider client={client}>
+        <Users />
+      </AuthkitClientProvider>
+    </QueryClientProvider>
+  )
+}
+```
+
+The options cover users, sessions, clients, roles, organizations (members and invitations),
+the audit log, runtime settings, impersonation, signing keys and personal agents: see the
+catalog in [Typed Client & TanStack Query](/docs/data-fetching#admin-query-hooks). The HTTP
+contract is in [Admin API](/docs/admin-api). For end-user surfaces (profile, sessions,
+organizations, authorized apps) use the [components](/docs/components) instead.
+
 ## The guard
 
-The `adminGuard` (exported, if you want to reuse it on routes of your own) protects the
+The admin guard protects the
 whole group — the shell **and** every `{prefix}/api/*` endpoint. In order, it requires:
 
 1. `admin.enabled: true` — when the console is **disabled**, the guard responds with **404

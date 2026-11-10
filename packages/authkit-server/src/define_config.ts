@@ -41,6 +41,7 @@ import {
 } from './host/otp_login.js';
 import type { AuthHostOptions } from './host/register_auth_host.js';
 import { edgeRenderer } from './host/renderers/edge_renderer.js';
+import type { AuthkitScreenRenderer } from './host/screen_props.js';
 import { warnUnsatisfiableSudoConfig } from './host/sudo/satisfiability.js';
 import type { SudoMethod } from './host/sudo/types.js';
 import {
@@ -1578,7 +1579,8 @@ export interface ResolvedServerConfig {
   mountPath: string;
   /** Destino default pós-confirmação do console (sudo mode) e demais fallbacks de conta. Default: '/account/security'. */
   accountHome?: string;
-  render?: AuthHostRenderer;
+  /** O renderer das telas, tipado por view (ver `AuthkitScreenProps`). */
+  render?: AuthkitScreenRenderer;
   /** Recuperação de sessão de interaction perdida resolvida (default `{ mode: 'screen' }`). */
   interactionRecovery: ResolvedInteractionRecoveryConfig;
   /** Branding resolvido: sempre presente (default neutro quando o host não declara `branding`). */
@@ -1870,7 +1872,9 @@ export function defineConfig(config: AuthServerConfigInput) {
       // importa `edge.js` eagerly, então é seguro construir mesmo em hosts
       // sem o peer opcional instalado (só quebraria se a request realmente
       // chegasse sem Edge configurado, exatamente como hoje).
-      render: config.render ?? edgeRenderer(),
+      // O renderer do host recebe `(ctx, view, props)`; aqui ele é tipado por view para que
+      // os controllers não possam divergir de `AuthkitScreenProps`.
+      render: (config.render ?? edgeRenderer()) as AuthkitScreenRenderer,
       // Recuperação de sessão de interaction perdida: default gracioso 'screen'
       // (tela themeável `session-expired`); 'redirect' opt-in para 302 ao login.
       interactionRecovery: {

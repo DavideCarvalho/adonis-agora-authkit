@@ -1,3 +1,4 @@
+import type { ScreenRenderProps } from '../screen_props.js';
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import { supportsOrganizations } from '../../accounts/account_store.js';
@@ -33,15 +34,13 @@ export default class AccountOrgsController {
     const service = await ctx.containerResolver.make('authkit.server');
     const cfg = service.config;
     const store = cfg.accountStore;
-    const messages = cfg.messages;
 
     if (!supportsOrganizations(store)) {
       return cfg.render
         ? cfg.render(ctx, 'account/orgs', {
             supported: false,
-            messages,
             csrfToken: ctx.request.csrfToken,
-          })
+          } satisfies ScreenRenderProps<'account/orgs'>)
         : response.notFound();
     }
 
@@ -80,11 +79,12 @@ export default class AccountOrgsController {
       pendingInvitations: invitationsWithOrg,
       allowSelfCreate: policy.allowSelfCreate,
       availableRoles: policy.roles,
-      messages,
       csrfToken: ctx.request.csrfToken,
     };
 
-    return cfg.render ? cfg.render(ctx, 'account/orgs', props) : response.notFound();
+    return cfg.render
+      ? cfg.render(ctx, 'account/orgs', props satisfies ScreenRenderProps<'account/orgs'>)
+      : response.notFound();
   }
 
   /** POST /account/orgs — criar nova org (requer allowSelfCreate). */
@@ -304,12 +304,14 @@ export default class AccountOrgsController {
     const props = {
       invitation,
       token: params.token,
-      messages: cfg.messages,
       csrfToken: ctx.request.csrfToken,
     };
 
     return cfg.render
-      ? cfg.render(ctx, 'account/orgs', { ...props, subview: 'accept-invitation' })
+      ? cfg.render(ctx, 'account/orgs', {
+          ...props,
+          subview: 'accept-invitation',
+        } satisfies ScreenRenderProps<'account/orgs'>)
       : response.notFound();
   }
 

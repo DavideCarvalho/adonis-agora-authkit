@@ -1,3 +1,4 @@
+import type { ScreenRenderProps } from '../screen_props.js';
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import type { PatRecord } from '../../pat/pat_store.js';
@@ -31,7 +32,7 @@ export default class AccountTokensController {
         lastUsedAt: t.lastUsedAt,
         createdAt: t.createdAt,
       })),
-    });
+    } satisfies ScreenRenderProps<'account/tokens'>);
   }
 
   async store(ctx: HttpContext) {

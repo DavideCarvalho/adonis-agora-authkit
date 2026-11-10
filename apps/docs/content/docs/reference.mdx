@@ -23,7 +23,7 @@ description: The full defineConfig option tables for server and client.
 | `mountPath` | `string` | `'/oidc'` | Where the host kit mounts the OIDC routes. |
 | `routes` | `boolean \| AuthHostOptions` | absent (no auto-mount) | Mount the host kit from the config instead of calling `registerAuthHost` in `start/routes.ts`. `true` mounts with config defaults, an object supplies **structural** defaults (`accountRoutes`, `account`, `accountLoginUrl`, `mountPath`). Calling `registerAuthHost` afterwards throws — see [Host Kit](/docs/host-kit#mounting-the-host). |
 | `accountHome` | `string` | `'/account/security'` | Default destination for the account area: post-login at `/account/login` (without `return_to`), e-mail confirmations, and non-admin redirects away from the console. Point it at your app's home to land users straight in the product. |
-| `render` | `AuthHostRenderer` | `edgeRenderer` | `inertiaRenderer` to render the screens as Inertia pages, or `edgeRenderer` for the bundled Edge templates. |
+| `render` | `AuthHostRenderer` | `edgeRenderer` | `inertiaRenderer` to render the screens as Inertia pages, or `edgeRenderer` for the bundled Edge templates. See [Themed Screens](/docs/themed-screens). |
 | `interactionRecovery` | `{ mode?: 'screen' \| 'redirect'; redirectTo?: string }` | `{ mode: 'screen' }` | What happens when the OIDC interaction session is lost or expired: render the themeable `session-expired` screen, or 302 to the login. See [Host Kit](/docs/host-kit#recovering-a-lost-interaction-session). |
 | `branding` | `BrandingConfig` | — | Per-client theming. Its `firstParty` list is also read as a fallback allowlist for the authorization claims, but prefer `firstPartyClients` for that — an authorization decision should not live in a theming block. |
 | `firstPartyClients` | `string[]` | — (no allowlist) | Which clients receive the authorization claims (`<globalRolesClaim>`, `org_id`, `org_slug`, `org_role`). Omit it and **every registered client is first-party** — the claims are still gated by client registration and by the client asking for `scope=roles`. Declare it to restrict them to your own apps; an explicitly empty list means nobody. See [Customizing auth](/docs/customizing-auth#the-roles-claim). |
@@ -390,6 +390,16 @@ or HTTP interface.
 
 Helpers for use inside AdonisJS controllers, middleware, and route callbacks.
 
+### Screens and their props
+
+| Export | Purpose |
+| --- | --- |
+| `inertiaRenderer({ prefix, views })` / `edgeRenderer()` | The `render` functions. `views` lists the screens you have React pages for. |
+| `AuthkitScreen` | Union of every screen name. |
+| `AuthkitScreenProps` | Props of each screen, by name: `AuthkitScreenProps['session-expired']`. |
+| `LoginProps`, `SignupProps`, `ConsentProps`, `ForgotProps`, `ResetProps`, `VerifyEmailProps`, `MfaChallengeProps`, `OtpUnlockProps`, `MaintenanceProps`, `SessionExpiredProps`, `ThrottledProps`, `AgentsConsentProps`, `AgentsDoneProps`, `AccountLoginProps`, `AccountSecurityProps`, `AccountMfaProps`, `AccountConfirmProps`, `AccountEmailConfirmedProps`, `AccountTokensProps`, `AccountAppsProps`, `AccountOrgsProps` | The per-screen types (the same as the map's entries). |
+| `ScreenRenderProps<View>` | A screen's props without `messages`, as a custom renderer receives them. |
+
 ### Console session
 
 | Export | Purpose |
@@ -630,7 +640,7 @@ and the function when your screen owns its state machine. See
 `useUserSessionsQueryOptions`, `useSessionsQueryOptions`, `useClientsQueryOptions`,
 `useClientQueryOptions`, `useRolesQueryOptions`, `useOrgsQueryOptions`, `useOrgQueryOptions`,
 `useAuditQueryOptions`, `useSettingsQueryOptions`, `useImpersonationQueryOptions`,
-`useKeysQueryOptions`.
+`useKeysQueryOptions`, `usePersonalAgentsQueryOptions`, `usePersonalAgentConnectionsQueryOptions`.
 
 ### Admin mutation hooks
 
@@ -644,7 +654,8 @@ and the function when your screen owns its state machine. See
 `useAddOrgMemberMutationOptions`, `useRemoveOrgMemberMutationOptions`, `useUpdateOrgMemberRoleMutationOptions`,
 `useCreateOrgInvitationMutationOptions`, `useRevokeOrgInvitationMutationOptions`,
 `useSetSettingMutationOptions`, `useRemoveSettingMutationOptions`,
-`useRotateKeysMutationOptions`.
+`useRotateKeysMutationOptions`, `useRevokePersonalAgentConnectionMutationOptions`,
+`useSetPersonalAgentStatusMutationOptions`, `useRemovePersonalAgentEntryMutationOptions`.
 
 ### Account query hooks
 

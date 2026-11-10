@@ -164,6 +164,10 @@ defineConfig({
 })
 ```
 
+`views` (and `AuthkitScreen`) accept only the screens AuthKit renders; a name that is not a
+screen fails `tsc`. Type each page with `AuthkitScreenProps['<view>']` instead of copying the
+shape from the Edge templates; see [Themed Screens](/docs/themed-screens).
+
 ## Send `grantTypes` to the Admin API
 
 `POST` and `PATCH` on `/api/authkit/v1/clients` (and the admin console form) read the grants from `grantTypes` only.

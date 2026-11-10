@@ -1,3 +1,4 @@
+import type { ScreenRenderProps } from '../screen_props.js';
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import { displayNameFor } from '../../agents/agent_identity.js';
@@ -80,7 +81,7 @@ export default class AccountAppsController {
           accessTokens: g.accessTokens,
           refreshTokens: g.refreshTokens,
         })),
-    });
+    } satisfies ScreenRenderProps<'account/apps'>);
   }
 
   /** POST /account/apps/:clientId/revoke — revoga o acesso de um client. */

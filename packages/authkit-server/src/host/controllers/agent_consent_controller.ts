@@ -1,3 +1,4 @@
+import type { ScreenRenderProps } from '../screen_props.js';
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import { displayNameFor } from '../../agents/agent_identity.js';
@@ -56,15 +57,22 @@ export default class AgentConsentController {
     };
 
     if (impersonationState(ctx).active) {
-      return render(ctx, 'agents/consent', { ...base, error: 'agents.consent.impersonating' });
+      return render(ctx, 'agents/consent', {
+        ...base,
+        error: 'agents.consent.impersonating',
+      } satisfies ScreenRenderProps<'agents/consent'>);
     }
 
     const input: unknown = ctx.request.input('user_code');
-    if (!input) return render(ctx, 'agents/consent', base);
+    if (!input)
+      return render(ctx, 'agents/consent', base satisfies ScreenRenderProps<'agents/consent'>);
 
     const pending = await runtime.delegation.pendingRequest(input);
     if (!pending) {
-      return render(ctx, 'agents/consent', { ...base, error: 'agents.consent.invalid_code' });
+      return render(ctx, 'agents/consent', {
+        ...base,
+        error: 'agents.consent.invalid_code',
+      } satisfies ScreenRenderProps<'agents/consent'>);
     }
 
     const accountId = ctx.session.get(ACCOUNT_SESSION_KEY) as string;
@@ -78,7 +86,7 @@ export default class AgentConsentController {
         scopes: pending.scopes,
       },
       account: { email: account?.email ?? null },
-    });
+    } satisfies ScreenRenderProps<'agents/consent'>);
   }
 
   /** POST {prefix}/consent — `decision=allow|deny`, `scope[]` marcados. */
@@ -97,7 +105,7 @@ export default class AgentConsentController {
         request: null,
         account: null,
         error: 'agents.consent.impersonating',
-      });
+      } satisfies ScreenRenderProps<'agents/consent'>);
     }
 
     const accountId = ctx.session.get(ACCOUNT_SESSION_KEY) as string;
@@ -105,7 +113,11 @@ export default class AgentConsentController {
     const userCode = typeof rawCode === 'string' ? rawCode : '';
     const pending = await runtime.delegation.pendingRequest(userCode);
     if (!pending) {
-      return render(ctx, 'agents/done', { status: 'expired', agentName: null, scopes: [] });
+      return render(ctx, 'agents/done', {
+        status: 'expired',
+        agentName: null,
+        scopes: [],
+      } satisfies ScreenRenderProps<'agents/done'>);
     }
     const name = await agentName(runtime, pending.clientId);
     const raw = ctx.request.input('scope');
@@ -120,7 +132,11 @@ export default class AgentConsentController {
       // Negou ou desmarcou tudo. Se nem negar deu, o pedido mudou de estado no
       // meio do caminho (aprovado em outra aba, expirou).
       if (!(await runtime.delegation.deny({ userCode, accountId }))) {
-        return render(ctx, 'agents/done', { status: 'expired', agentName: name, scopes: [] });
+        return render(ctx, 'agents/done', {
+          status: 'expired',
+          agentName: name,
+          scopes: [],
+        } satisfies ScreenRenderProps<'agents/done'>);
       }
       await cfg.audit?.record({
         type: 'agent.delegation_denied',
@@ -129,7 +145,11 @@ export default class AgentConsentController {
         ip: ctx.request.ip?.() ?? null,
         metadata: { requested: pending.scopes.map((s) => s.id) },
       });
-      return render(ctx, 'agents/done', { status: 'denied', agentName: name, scopes: [] });
+      return render(ctx, 'agents/done', {
+        status: 'denied',
+        agentName: name,
+        scopes: [],
+      } satisfies ScreenRenderProps<'agents/done'>);
     }
 
     await cfg.audit?.record({
@@ -146,6 +166,6 @@ export default class AgentConsentController {
         id,
         description: runtime.delegation!.scopes[id] ?? id,
       })),
-    });
+    } satisfies ScreenRenderProps<'agents/done'>);
   }
 }

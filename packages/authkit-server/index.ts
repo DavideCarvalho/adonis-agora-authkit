@@ -479,10 +479,7 @@ export type {
 } from './src/host/register_auth_host.js';
 export { registerAuthHost } from './src/host/register_auth_host.js';
 export { edgeRenderer } from './src/host/renderers/edge_renderer.js';
-export type {
-  AuthkitScreen,
-  InertiaRendererOptions,
-} from './src/host/renderers/inertia_renderer.js';
+export type { InertiaRendererOptions } from './src/host/renderers/inertia_renderer.js';
 export { inertiaRenderer } from './src/host/renderers/inertia_renderer.js';
 export type {
   RuntimeSettingsOptions,
@@ -511,6 +508,34 @@ export {
   resolveEffectiveRequireVerifiedEmail,
   SETTING_KEYS,
 } from './src/host/runtime_toggles.js';
+// Props of every screen (`AuthkitScreenProps['<view>']`) — what each page receives.
+export type {
+  AccountAppsProps,
+  AccountOrg,
+  AccountOrgsProps,
+  AccountTokensProps,
+  AgentConsentRequest,
+  AgentsConsentProps,
+  AgentsDoneProps,
+  AuthkitScreen,
+  AuthkitScreenProps,
+  AuthkitScreenRenderer,
+  ConsentProps,
+  ConsentScope,
+  ForgotProps,
+  LoginAccount,
+  LoginProps,
+  MaintenanceProps,
+  MfaChallengeCustomMethod,
+  MfaChallengeProps,
+  OtpUnlockProps,
+  ResetProps,
+  ScreenRenderProps,
+  SessionExpiredProps,
+  SignupProps,
+  ThrottledProps,
+  VerifyEmailProps,
+} from './src/host/screen_props.js';
 // Contexto de sessão (user-agent/geo) + métricas do dashboard.
 export { enrichSessionsWithContext } from './src/host/session_context.js';
 // SPI de métodos de confirmação de identidade (sudo mode).
