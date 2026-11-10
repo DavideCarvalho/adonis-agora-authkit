@@ -43,7 +43,7 @@
     "test": "node --import=@poppinss/ts-exec bin/test.ts"
   },
   "peerDependencies": {
-    "@adonis-agora/authkit-server": ">=0.10.0 <2.0.0",
+    "@adonis-agora/authkit-server": ">=0.10.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0",
     "@adonisjs/core": "catalog:adonisPeers"
   },
   "peerDependenciesMeta": {
