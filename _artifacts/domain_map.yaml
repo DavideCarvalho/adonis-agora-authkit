@@ -31,7 +31,8 @@ primary_packages:
   - name: "@adonis-agora/authkit-server"
     dir: packages/authkit-server
     version: "0.60.0"
-    role: AdonisJS OIDC/OAuth2 Authorization Server (IdP): defineConfig +
+    role: >-
+      AdonisJS OIDC/OAuth2 Authorization Server (IdP): defineConfig +
       adapters.redis/database, registerOidcRoutes, registerAuthHost (account +
       admin consoles), interaction presets (edge/react/headless),
       lucidAccountStore, managed JWKS + keystore vaults, MFA, lockout, audit,
@@ -39,7 +40,8 @@ primary_packages:
   - name: "@adonis-agora/authkit-react"
     dir: packages/authkit-react
     version: "0.20.0"
-    role: Frontend ergonomics for AdonisJS + Inertia + React: useAuth() over the
+    role: >-
+      Frontend ergonomics for AdonisJS + Inertia + React: useAuth() over the
       shared-prop `authkit`, role helpers, gating components, AuthkitProvider +
       headless hooks (useSignIn/useSignOut/useProfile/useSessions/...), ready
       components (UserButton/UserProfile/AuthorizedApps).
@@ -69,7 +71,8 @@ domains:
       - registerAuthHost(router, AuthHostOptions)
       - "config.routes: true|false|AuthHostOptions (auto-mount)"
     key_facts:
-      - `node ace add @adonis-agora/authkit-server` publishes config/authkit.ts,
+      - >-
+        `node ace add @adonis-agora/authkit-server` publishes config/authkit.ts,
         app/models/auth_user.ts, the interactions controller and registers the provider.
       - AUTHKIT_ISSUER must END WITH the mount path (default /oidc); the provider
         routes internally under the issuer.
@@ -112,7 +115,8 @@ domains:
       - authkit_middleware (+ @adonisjs/session ordering)
       - registerOidcClient(router, { prefix, redirects, afterLogin, loginMiddleware })
       - ctx.auth.getIdentity()/getUser()/hasGlobalRole()
-      - backchannelLogout: { store } / BackchannelRevocationMiddleware
+      - >-
+        backchannelLogout: { store } / BackchannelRevocationMiddleware
     key_facts:
       - ctx.auth is populated by authkit_middleware; the @adonisjs/session middleware
         MUST run BEFORE it when tokenSource:'session'.
