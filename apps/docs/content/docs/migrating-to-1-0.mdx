@@ -359,6 +359,26 @@ export default class CoursesController {
 }
 ```
 
+### `ctx.auth.user` outside `middleware.auth()`
+
+Code that runs on every request and reads `ctx.auth.user` — a Bouncer middleware, Inertia shared
+props on public pages, a console mounted by another library — sees `undefined` unless something
+called `auth.check()` first. Run the starter's silent-auth middleware globally, in `router.use`,
+instead of only as a named middleware:
+
+```ts title="start/kernel.ts"
+router.use([
+  () => import('@adonisjs/session/session_middleware'),
+  () => import('@adonisjs/auth/initialize_auth_middleware'),
+  () => import('@adonis-agora/authkit-client/authkit_context_middleware'),
+  () => import('#middleware/silent_auth_middleware'),
+])
+```
+
+It costs one `check()` per request (resolving the session and the user); later calls in the
+same request reuse the result. `@adonis-agora/authz`'s `authorizeByRoles` and `requireRole` call
+`ctx.auth.check()` themselves, so consoles gated through authz work without it.
+
 The Inertia shared prop for `@adonis-agora/authkit-react` reads `ctx.authkit.toSharedProps()`.
 Type `ctx.authkit.getUser()` once instead of augmenting `HttpContext.auth`:
 

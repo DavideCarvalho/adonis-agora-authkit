@@ -298,6 +298,10 @@ The redirect goes to `/auth/login`, which is what
 bearer token, DPoP or a PAT use their own guard — see
 [AdonisJS auth](/docs/adonis-auth#api-routes).
 
+When code that runs on every request reads `ctx.auth.user` (a Bouncer middleware, Inertia
+shared props on public pages), add `() => import('#middleware/silent_auth_middleware')` to
+`router.use` instead, after `authkit_context_middleware`. That costs one `check()` per request.
+
 Neither middleware does authorization. Role checks belong on the route, in a policy, or in
 `@adonis-agora/authz`.
 
