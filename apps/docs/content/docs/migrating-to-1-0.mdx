@@ -241,7 +241,18 @@ npm i @adonisjs/auth
 node ace configure @adonis-agora/authkit-client --model=#models/app_user
 ```
 
-Then remove `authkit_middleware` from `start/kernel.ts`.
+Then remove `authkit_middleware` from `start/kernel.ts`. authkit-client's own `auth` and
+`silentAuth` middleware are removed too; point the named middleware at the files the configure
+command publishes:
+
+| Removed | Replacement |
+| --- | --- |
+| `@adonis-agora/authkit-client/auth_middleware` | `#middleware/auth_middleware` (`middleware.auth()`, which calls `ctx.auth.authenticateUsing()`) |
+| `@adonis-agora/authkit-client/silent_auth_middleware` | `#middleware/silent_auth_middleware` (the AdonisJS starter's, which calls `ctx.auth.check()`) |
+
+`middleware.auth()` takes `{ guards: [...] }`, not `{ redirectTo }`: the redirect target is the
+`redirectTo` property of `app/middleware/auth_middleware.ts` (`/auth/login` by default).
+`requireOrg` stays in authkit-client.
 
 Before:
 

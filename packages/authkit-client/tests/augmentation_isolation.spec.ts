@@ -108,7 +108,7 @@ test.group('module augmentation isolation', () => {
 
   test('the context middleware carries the container bindings', ({ assert }) => {
     // Without it `containerResolver.make('authkit.client')` goes untyped for consumers.
-    const middleware = declarationFileFor('./build/src/middleware/authkit_context_middleware.js');
+    const middleware = declarationFileFor('./build/authkit_context_middleware.js');
     const reachable = [...reachableFrom(middleware)];
     const declaresBinding = reachable.some((file) =>
       /declare module '@adonisjs\/core\/types'[\s\S]{0,400}?'authkit\.client'/.test(

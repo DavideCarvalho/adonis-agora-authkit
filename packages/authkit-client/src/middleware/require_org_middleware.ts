@@ -31,11 +31,12 @@ export interface RequireOrgMiddlewareOptions {
  * pior lugar para se cair por acidente. Fail-closed: sem sessão ou sem org, não
  * passa.
  *
- * Registre como named middleware e encadeie DEPOIS do de auth:
+ * Registre como named middleware e encadeie DEPOIS do `auth` (o
+ * `#middleware/auth_middleware` que o `node ace configure` publica):
  *
  * ```ts title="start/kernel.ts"
  * export const middleware = router.named({
- *   auth: () => import('@adonis-agora/authkit-client/auth_middleware'),
+ *   auth: () => import('#middleware/auth_middleware'),
  *   requireOrg: () => import('@adonis-agora/authkit-client/require_org_middleware'),
  * })
  * ```

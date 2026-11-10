@@ -41,13 +41,11 @@
     "./container_bindings": "./build/container_bindings.js",
     "./services/main": "./build/services/main.js",
     "./authkit_client_provider": "./build/providers/authkit_client_provider.js",
-    "./auth": "./build/src/host/authkit_client_guard.js",
+    "./auth": "./build/auth.js",
     "./dashboard_guard": "./build/src/host/dashboard_guard.js",
-    "./authkit_context_middleware": "./build/src/middleware/authkit_context_middleware.js",
+    "./authkit_context_middleware": "./build/authkit_context_middleware.js",
     "./backchannel_revocation_middleware": "./build/src/middleware/backchannel_revocation_middleware.js",
-    "./auth_middleware": "./build/src/middleware/auth_middleware.js",
     "./require_org_middleware": "./build/src/middleware/require_org_middleware.js",
-    "./silent_auth_middleware": "./build/src/middleware/silent_auth_middleware.js",
     "./commands": "./build/commands/configure.js"
   },
   "adonisjs": {
