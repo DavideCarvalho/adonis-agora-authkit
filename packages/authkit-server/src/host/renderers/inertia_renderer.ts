@@ -31,18 +31,10 @@ export interface InertiaRendererOptions {
   /**
    * Lista de nomes de view que o host criou como páginas React (allowlist).
    *
-   * Quando fornecida, **somente** as views listadas passam pelo Inertia; qualquer
-   * outra view (não listada, ou prefixada com `admin/`) recai silenciosamente no
-   * renderer Edge built-in da lib — sem erro 500.
-   *
-   * ### ⚠️ Atenção: sem `views`, qualquer tela nova da lib quebra hosts SSR
-   *
-   * Se `views` for omitido, o comportamento legado é preservado (todas as views
-   * são enviadas ao Inertia) para compatibilidade retroativa. Nesse modo, qualquer
-   * tela nova adicionada pela lib gerará um erro SSR no host ("Cannot read
-   * properties of undefined (reading 'default')") porque o host não terá criado a
-   * página React correspondente. **Recomenda-se sempre fornecer `views`** com
-   * exatamente as páginas que o scaffold (`node ace configure`) gerou.
+   * **Somente** as views listadas passam pelo Inertia; qualquer outra view (não
+   * listada, ou prefixada com `admin/`) é renderizada pelo renderer Edge built-in
+   * da lib. Liste exatamente as páginas que o scaffold (`node ace configure`)
+   * gerou, mais as que você criar.
    *
    * A ordem do array é irrelevante — `views` é tratado como um *conjunto*
    * (allowlist). Os nomes têm autocomplete via {@link AuthkitScreen}.
@@ -58,7 +50,7 @@ export interface InertiaRendererOptions {
    *   ],
    * })
    */
-  views?: AuthkitScreen[];
+  views: readonly AuthkitScreen[];
 }
 
 /**
@@ -94,8 +86,8 @@ export type AuthkitScreen =
  * (O console admin não passa por aqui: é a SPA self-contained da lib,
  * servida pelo shell controller.)
  *
- * Quando `views` é fornecido (allowlist), apenas as views listadas vão ao Inertia;
- * qualquer outra view recai no Edge renderer built-in sem erro.
+ * Apenas as views listadas em `views` (allowlist) vão ao Inertia; qualquer outra
+ * view é renderizada pelo Edge renderer built-in.
  *
  * ---
  *
@@ -129,12 +121,11 @@ export type AuthkitScreen =
  * ```
  */
 export function inertiaRenderer(opts: InertiaRendererOptions) {
-  const allowed = opts.views ? new Set(opts.views) : null;
+  const allowed = new Set<string>(opts.views);
 
   return async (ctx: HttpContext, view: string, props: Record<string, unknown>) => {
-    // Allowlist: se `views` foi fornecido e a view não está na lista,
-    // usa o fallback Edge silenciosamente (evita SSR crash por página inexistente no host).
-    if (allowed !== null && !allowed.has(view)) {
+    // Allowlist: view fora da lista vai ao Edge (o host não tem a página React).
+    if (!allowed.has(view)) {
       return renderEdgeView(ctx, view, props);
     }
 

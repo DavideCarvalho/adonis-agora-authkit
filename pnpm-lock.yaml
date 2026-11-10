@@ -516,7 +516,7 @@ importers:
         specifier: workspace:*
         version: link:../authkit-core
       '@adonis-agora/media':
-        specifier: '>=0.5.0 <2.0.0'
+        specifier: '>=0.5.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0'
         version: 0.30.0(32e111f5faf385039deeba44885fc818)
       '@adonisjs/lock':
         specifier: catalog:adonisPeers

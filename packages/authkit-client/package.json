@@ -69,7 +69,7 @@
     "test": "node --import=@poppinss/ts-exec bin/test.ts"
   },
   "peerDependencies": {
-    "@adonis-agora/resilience": ">=0.1.0 <2.0.0",
+    "@adonis-agora/resilience": ">=0.1.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0",
     "@adonisjs/auth": "catalog:adonisPeers",
     "@adonisjs/core": "catalog:adonisPeers",
     "@adonisjs/lucid": "catalog:adonisPeers",

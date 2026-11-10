@@ -460,13 +460,6 @@ Requested screen: 'session-expired'
   → listed in views? no  → rendered by the built-in Edge view  [fallback]
 ```
 
-<Callout type="warn">
-  If you omit `views` entirely, every screen is sent to Inertia — including any new screens
-  added by future library updates. That will crash with an SSR error ("Cannot find module")
-  because those pages won't exist in your project yet. **Always provide `views`** with the
-  exact set of pages the scaffold generated.
-</Callout>
-
 #### Where the files live, and how `prefix` maps to them
 
 Two different things decide the final path, and it helps to keep them apart.
@@ -474,7 +467,7 @@ Two different things decide the final path, and it helps to keep them apart.
 The **scaffold** writes to fixed locations — `inertia/pages/authkit/*` for the screens and
 `inertia/components/auth_shell.tsx` for the shell. It does not read your Inertia config.
 
-The **renderer** doesn't know about files at all. `inertiaRenderer({ prefix: 'authkit' })`
+The **renderer** doesn't know about files at all. `inertiaRenderer({ prefix: 'authkit', views })`
 turns the screen name `login` into the Inertia page identifier `authkit/login`, and hands
 that string to `inertia.render()`. Resolving that identifier to a module is entirely
 `@adonisjs/inertia`'s job — in a default AdonisJS app, the glob in `inertia/app/app.tsx`

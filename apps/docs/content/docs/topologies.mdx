@@ -19,7 +19,7 @@ const authServerConfig = defineConfig({
   jwks: { source: 'managed', algorithm: 'RS256' },
   accountStore: lucidAccountStore(AuthUser),
   mountPath: '/oidc',
-  render: inertiaRenderer({ prefix: 'authkit' }),
+  render: inertiaRenderer({ prefix: 'authkit', views: ['login', 'consent', 'signup'] }),
   admin: { enabled: true },
   adminApi: { enabled: true, apiKeys: [env.get('AUTHKIT_ADMIN_API_KEY')] },
 })
@@ -57,7 +57,7 @@ const authServerConfig = defineConfig({
   jwks: { source: 'managed', algorithm: 'RS256' },
   accountStore: lucidAccountStore(AuthUser),
   mountPath: '/oidc',
-  render: inertiaRenderer({ prefix: 'authkit' }),
+  render: inertiaRenderer({ prefix: 'authkit', views: ['login', 'consent', 'signup'] }),
   admin: { enabled: true },
   adminApi: { enabled: true, apiKeys: [env.get('AUTHKIT_ADMIN_API_KEY')] },
 })
