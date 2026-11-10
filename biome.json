@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.11/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.6.6/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -91,6 +91,12 @@
             "useExhaustiveDependencies": "off"
           }
         }
+      }
+    },
+    {
+      "includes": ["**/*.md", "**/*.yaml", "**/*.yml"],
+      "formatter": {
+        "enabled": false
       }
     }
   ],
