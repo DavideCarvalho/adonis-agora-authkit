@@ -128,7 +128,9 @@ defineConfig({
   issuer: env.get('AUTHKIT_ISSUER'),
   adapter: adapters.database(),
   accountStore: lucidAccountStore(AuthUser),
-  render: inertiaRenderer(), // renders Inertia pages for /account/* and /auth/interaction/*
+  // `views` is required: only listed screens render as Inertia pages.
+  // Any other screen falls back to the built-in Edge view.
+  render: inertiaRenderer({ prefix: 'authkit', views: ['login', 'consent'] }),
 })
 ```
 
