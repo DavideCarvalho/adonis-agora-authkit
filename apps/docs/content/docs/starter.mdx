@@ -18,7 +18,7 @@ See [Topologies](/docs/topologies) for the conceptual background; switching late
 infrastructure change — keep the same `issuer` URL and the relying parties don't need to move.
 
 Once a client is wired, [Getting Started](/docs/getting-started#using-it-in-controllers) shows how to
-read the user in your controllers via `ctx.auth`.
+read the user in your controllers via `ctx.authkit`.
 
 ---
 
@@ -244,12 +244,12 @@ branding, and ejecting.
 ```ts title="start/kernel.ts"
 router.use([
   // ...
-  () => import('@adonis-agora/authkit-client/authkit_middleware'),
+  () => import('@adonis-agora/authkit-client/authkit_context_middleware'),
 ])
 ```
 
 The client middleware proactively refreshes the token set (see
-[Refresh Tokens](/docs/refresh-tokens)) and attaches an authenticator to `ctx.auth`.
+[Refresh Tokens](/docs/refresh-tokens)) and attaches an authenticator to `ctx.authkit`.
 
 ### A6. The login / callback / logout flow
 
@@ -481,7 +481,7 @@ export default authkitClientConfig
 ```ts title="start/kernel.ts (acme-web)"
 router.use([
   // ...
-  () => import('@adonis-agora/authkit-client/authkit_middleware'),
+  () => import('@adonis-agora/authkit-client/authkit_context_middleware'),
 ])
 ```
 

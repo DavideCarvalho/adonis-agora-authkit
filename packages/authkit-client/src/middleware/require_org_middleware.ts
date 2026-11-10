@@ -1,6 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http';
 import type { NextFn } from '@adonisjs/core/types/http';
-import { ctxAuth } from '../host/ctx_auth.js';
+import { getAuthkit } from '../host/request_authenticator.js';
 
 export interface RequireOrgMiddlewareOptions {
   /**
@@ -47,7 +47,7 @@ export interface RequireOrgMiddlewareOptions {
  */
 export default class RequireOrgMiddleware {
   async handle(ctx: HttpContext, next: NextFn, options: RequireOrgMiddlewareOptions = {}) {
-    const identity = await ctxAuth(ctx).getIdentity();
+    const identity = await (await getAuthkit(ctx)).getIdentity();
     const orgId = identity?.orgId ?? null;
 
     const allowed = orgId !== null && (!options.oneOf || options.oneOf.includes(orgId));

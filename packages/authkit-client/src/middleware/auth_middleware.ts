@@ -1,6 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http';
 import type { NextFn } from '@adonisjs/core/types/http';
-import { ctxAuth } from '../host/ctx_auth.js';
+import { getAuthkit } from '../host/request_authenticator.js';
 
 export interface AuthMiddlewareOptions {
   /** Para onde redirecionar quando não autenticado. Default: `/auth/login`. */
@@ -13,7 +13,7 @@ export interface AuthMiddlewareOptions {
  */
 export default class AuthkitAuthMiddleware {
   async handle(ctx: HttpContext, next: NextFn, options: AuthMiddlewareOptions = {}) {
-    const ok = await ctxAuth(ctx).check();
+    const ok = await (await getAuthkit(ctx)).check();
     if (!ok) return ctx.response.redirect(options.redirectTo ?? '/auth/login');
     return next();
   }

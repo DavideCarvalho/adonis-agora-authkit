@@ -201,7 +201,7 @@ On the client side (`@adonis-agora/authkit-client`) the org claims are promoted 
 first-class fields on the resolved `Identity` — you do not have to reach into `identity.raw`:
 
 ```ts
-const identity = await ctx.auth.getIdentity()
+const identity = await ctx.authkit.getIdentity()
 identity.orgId    // 'org-9'  | null
 identity.orgSlug  // 'acme'   | null
 identity.orgRole  // 'owner'  | null

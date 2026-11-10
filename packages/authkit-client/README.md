@@ -9,7 +9,7 @@ node ace add @adonis-agora/authkit-client
 # ou: pnpm add @adonis-agora/authkit-client && node ace configure @adonis-agora/authkit-client
 ```
 O `configure` publica `config/authkit_client.ts`, o controller `app/controllers/oidc_session_controller.ts`
-(login/callback/logout) e registra o provider + o middleware `authkit_middleware`.
+(login/callback/logout) e registra o provider + o middleware `authkit_context_middleware`.
 
 ## Rotas de sessão
 
@@ -51,16 +51,16 @@ router.post('/auth/logout', [OidcSessionController, 'logout'])
 > `startSession`/`endSession` são os caminhos que mantêm a invariante.
 
 ## Uso por request
-`ctx.auth` é populado pelo `authkit_middleware`:
+`ctx.authkit` é populado pelo `authkit_context_middleware`:
 ```ts
-const identity = await ctx.auth.getIdentity()   // claims OIDC validadas (ou null)
-const user = await ctx.auth.getUser()            // model do app (via resolveUser)
-ctx.auth.hasGlobalRole('ADMIN')                  // síncrono, das claims (roles do token)
+const identity = await ctx.authkit.getIdentity()   // claims OIDC validadas (ou null)
+const user = await ctx.authkit.getUser()            // model do app (via resolveUser)
+ctx.authkit.hasGlobalRole('ADMIN')                  // síncrono, das claims (roles do token)
 ```
 
 > **Autorização por app-role saiu do AuthKit.** O AuthKit só autentica e conhece as `globalRoles` do
 > token. Roles do app (numa tabela do domínio) e permissões são do `@adonis-agora/authz` — configure
-> o seam `resolveRoles` lá. Guard de rota por role vai pra authz/Bouncer, não para o `authkit_middleware`
+> o seam `resolveRoles` lá. Guard de rota por role vai pra authz/Bouncer, não para o `auth_middleware`
 > (que só exige login).
 
 ## Resolução de sessão
@@ -69,7 +69,7 @@ ctx.auth.hasGlobalRole('ADMIN')                  // síncrono, das claims (roles
 - `tokenSource: 'bearer'` — lê do header `Authorization` (SPA/API).
 
 ## Topologias de banco
-A identidade (`ctx.auth.identity`) sempre vem do **token validado** e independe da
+A identidade (`ctx.authkit.identity`) sempre vem do **token validado** e independe da
 topologia de banco. O que muda é como `resolveUser` obtém o model do app.
 
 ### Mesmo banco + schemas
@@ -102,7 +102,7 @@ Roles do app (a tabela de roles do próprio domínio) não passam mais pelo Auth
 `resolveRoles` do `@adonis-agora/authz`, que as une às `globalRoles` do token para decidir permissão.
 
 ## Ordem de middleware (importante)
-O middleware do `@adonisjs/session` DEVE rodar ANTES do `authkit_middleware` no stack `router`
+O middleware do `@adonisjs/session` DEVE rodar ANTES do `authkit_context_middleware` no stack `router`
 (o resolver lê o token da session). Garanta essa ordem em `start/kernel.ts`.
 
 ## Observabilidade (opcional)

@@ -54,6 +54,7 @@ export {
   authkitDashboardMiddleware,
   isAuthkitAdmin,
 } from './src/host/dashboard_guard.js';
+export type { AuthkitUser, AuthkitUserType } from './src/host/request_authenticator.js';
 export { getAuthkit } from './src/host/request_authenticator.js';
 export type { ResiliencePolicy } from './src/http/resilient_fetch.js';
 export { resilientFetch } from './src/http/resilient_fetch.js';

@@ -10,7 +10,7 @@ rotation**.
 
 ## How it works
 
-`authkit_middleware` calls `AuthkitClientManager.maybeRefresh(ctx)` on every request,
+`authkit_context_middleware` calls `AuthkitClientManager.maybeRefresh(ctx)` on every request,
 **before** resolving the identity. If the stored access token is close to expiring (within
 a 60s skew) and a `refresh_token` is present, it refreshes the token set and writes it back
 to the session.
@@ -18,7 +18,7 @@ to the session.
 ```ts title="start/kernel.ts"
 router.use([
   // ...
-  () => import('@adonis-agora/authkit-client/authkit_middleware'),
+  () => import('@adonis-agora/authkit-client/authkit_context_middleware'),
 ])
 ```
 
@@ -65,4 +65,4 @@ session.put(sessionKey, {
 - The client must request the `offline_access` scope (the client default `scopes` already
   include it) and have the `refresh_token` grant in its server-side `ClientConfig`.
 - `maybeRefresh` reads/writes the token set from `ctx.session`, so the session middleware
-  must run before `authkit_middleware`.
+  must run before `authkit_context_middleware`.

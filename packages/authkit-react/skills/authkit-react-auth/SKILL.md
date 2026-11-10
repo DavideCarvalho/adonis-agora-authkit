@@ -42,11 +42,11 @@ import { defineConfig } from '@adonisjs/inertia'
 export default defineConfig({
   sharedData: {
     authkit: async (ctx) => {
-      const auth = ctx.authkit // your Authenticator instance
-      const user = await auth.getUser() // same shape as identityToUser/resolveUser
+      const authkit = ctx.authkit // your Authenticator instance
+      const user = await authkit.getUser() // same shape as identityToUser/resolveUser
       return {
         user: user ?? null,
-        globalRoles: auth.identity?.globalRoles ?? [],
+        globalRoles: authkit.identity?.globalRoles ?? [],
       }
     },
   },
@@ -172,10 +172,10 @@ export default defineConfig({ sharedData: {} })
 // Correct — share { user, globalRoles } under the `authkit` key
 sharedData: {
   authkit: async (ctx) => {
-    const auth = ctx.authkit
+    const authkit = ctx.authkit
     return {
-      user: (await auth.getUser()) ?? null,
-      globalRoles: auth.identity?.globalRoles ?? [],
+      user: (await authkit.getUser()) ?? null,
+      globalRoles: authkit.identity?.globalRoles ?? [],
     }
   },
 }

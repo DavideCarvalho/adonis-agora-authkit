@@ -4,7 +4,7 @@ import AuthkitAuthMiddleware from '../src/middleware/auth_middleware.js';
 function fakeCtx(authenticated: boolean) {
   const redirects: string[] = [];
   const ctx = {
-    auth: { check: async () => authenticated },
+    authkit: { check: async () => authenticated },
     response: {
       redirect: (to: string) => {
         redirects.push(to);

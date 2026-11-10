@@ -9,7 +9,7 @@ export async function configure(command: Configure) {
     rc.addProvider('@adonis-agora/authkit-client/authkit_client_provider'),
   );
   await codemods.registerMiddleware('router', [
-    { path: '@adonis-agora/authkit-client/authkit_middleware' },
+    { path: '@adonis-agora/authkit-client/authkit_context_middleware' },
   ]);
   await codemods.defineEnvValidations({
     leadingComment: 'Variáveis do @adonis-agora/authkit-client (OIDC client)',

@@ -76,7 +76,7 @@ test.group('node ace configure (app descartável)', () => {
     );
     assert.include(
       await read('start/kernel.ts'),
-      '@adonis-agora/authkit-client/authkit_middleware',
+      '@adonis-agora/authkit-client/authkit_context_middleware',
     );
     assert.include(await read('start/env.ts'), 'AUTHKIT_REDIRECT_URI');
 

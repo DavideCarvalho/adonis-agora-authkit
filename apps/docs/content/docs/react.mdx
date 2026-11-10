@@ -41,8 +41,8 @@ import { defineConfig } from "@adonisjs/inertia";
 
 export default defineConfig({
   sharedData: {
-    // `ctx.auth` is the Authenticator installed by authkit_middleware
-    authkit: (ctx) => ctx.auth.toSharedProps(),
+    // `ctx.authkit` is the Authenticator installed by authkit_context_middleware
+    authkit: (ctx) => ctx.authkit.toSharedProps(),
   },
 });
 ```
@@ -60,7 +60,7 @@ quiet), collapse `null` into an empty state yourself:
 ```ts title="config/inertia.ts"
 sharedData: {
   authkit: async (ctx) =>
-    (await ctx.auth.toSharedProps()) ?? { user: null, globalRoles: [] },
+    (await ctx.authkit.toSharedProps()) ?? { user: null, globalRoles: [] },
 },
 ```
 

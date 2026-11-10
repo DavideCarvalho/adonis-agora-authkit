@@ -17,8 +17,8 @@ pnpm add @adonis-agora/authkit-react
 
 ## 1. No host AdonisJS: compartilhar a prop `authkit`
 
-A shared-prop tem o formato `AuthSharedProps`. Use `auth.getUser()` /
-`auth.identity` do `@adonis-agora/authkit-client` para preenchê-la — tipicamente
+A shared-prop tem o formato `AuthSharedProps`. Use `authkit.getUser()` /
+`authkit.identity` do `@adonis-agora/authkit-client` para preenchê-la — tipicamente
 num middleware ou no `config/inertia.ts` (`sharedData`):
 
 ```ts
@@ -28,11 +28,11 @@ import { defineConfig } from '@adonisjs/inertia'
 export default defineConfig({
   sharedData: {
     authkit: async (ctx) => {
-      const auth = ctx.authkit // sua instância do Authenticator
-      const user = await auth.getUser() // mesmo shape de identityToUser/resolveUser
+      const authkit = ctx.authkit // sua instância do Authenticator
+      const user = await authkit.getUser() // mesmo shape de identityToUser/resolveUser
       return {
         user: user ?? null,
-        globalRoles: auth.identity?.globalRoles ?? [],
+        globalRoles: authkit.identity?.globalRoles ?? [],
       }
     },
   },

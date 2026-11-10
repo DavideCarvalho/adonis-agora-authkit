@@ -1,3 +1,6 @@
+// Side-effect import: carries the `authkit.client` container binding into the emitted
+// `.d.ts` of the middleware an app registers in start/kernel.ts.
+import '../../container_bindings.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import type { NextFn } from '@adonisjs/core/types/http';
 import { getAuthkit } from '../host/request_authenticator.js';
@@ -20,10 +23,8 @@ import { getAuthkit } from '../host/request_authenticator.js';
  * ])
  * ```
  *
- * Não substitui o `authkit_middleware`: quem NÃO usa `@adonisjs/auth` continua
- * com o `authkit_middleware`, que segue colocando o `Authenticator` em
- * `ctx.auth` como sempre. Registrar os dois não faz sentido (e resolveria a
- * sessão duas vezes em objetos distintos).
+ * Sem `@adonisjs/auth`, é ele sozinho que dá a sessão ao app: `ctx.authkit`
+ * em qualquer rota, e `auth_middleware` para exigir login.
  */
 export default class AuthkitContextMiddleware {
   async handle(ctx: HttpContext, next: NextFn) {

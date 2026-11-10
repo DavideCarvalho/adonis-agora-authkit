@@ -5,7 +5,7 @@ description: >-
   @adonis-agora/authkit-client. Covers defineConfig({ issuer, clientId, redirectUri,
   resolver }), resolvers.jwt({ tokenSource }) / resolvers.pat / resolvers.opaque,
   resolveUser topologies (identityToUser, createUserinfoResolver, local Lucid model),
-  the authkit_middleware + @adonisjs/session ordering rule, ctx.auth
+  the authkit_context_middleware + @adonisjs/session ordering rule, ctx.authkit
   (getIdentity/getUser/hasGlobalRole), registerOidcClient(router, { prefix, redirects,
   afterLogin, loginMiddleware }), backchannelLogout: { store } +
   BackchannelRevocationMiddleware, AUTHKIT_REDIRECT_URI, and why app-role gating
@@ -29,7 +29,7 @@ sources:
 
 `@adonis-agora/authkit-client` makes an AdonisJS app consume an OIDC provider (the
 AuthKit IdP or any other) with session-based auth: PKCE authorization-code login,
-locally-validated ID tokens (JWKS), typed `ctx.auth` per request. `configure`
+locally-validated ID tokens (JWKS), typed `ctx.authkit` per request. `configure`
 publishes `config/authkit_client.ts` and registers the provider + middleware; the
 login/callback/logout routes come from `registerOidcClient(router)`. (`configure` also
 publishes an `OidcSessionController` stub, only for apps that must customise the flow.)
@@ -74,16 +74,16 @@ Source: `packages/authkit-client/README.md`, `stubs/config/authkit_client.stub`.
 
 ## Core patterns
 
-### Pattern 1 — `ctx.auth` per request
+### Pattern 1 — `ctx.authkit` per request
 
-The `authkit_middleware` populates `ctx.auth`; identity comes from the validated
+The `authkit_context_middleware` populates `ctx.authkit`; identity comes from the validated
 token, the user from your `resolveUser`:
 
 ```ts
-router.get('/me', async ({ auth }) => {
-  const identity = await auth.getIdentity() // validated OIDC claims, or null
-  const user = await auth.getUser()         // app model via resolveUser
-  const isAdmin = auth.hasGlobalRole('ADMIN') // sync — reads token claims
+router.get('/me', async ({ authkit }) => {
+  const identity = await authkit.getIdentity() // validated OIDC claims, or null
+  const user = await authkit.getUser()         // app model via resolveUser
+  const isAdmin = authkit.hasGlobalRole('ADMIN') // sync — reads token claims
   return { identity, user, isAdmin }
 })
 ```
@@ -162,7 +162,7 @@ Source: `src/define_config.ts` (`BackchannelLogoutInput`), README.
 
 ## Common mistakes
 
-### HIGH — Session middleware running after `authkit_middleware`
+### HIGH — Session middleware running after `authkit_context_middleware`
 
 ```ts
 // Wrong — resolver reads an empty session; every request looks anonymous
@@ -185,20 +185,20 @@ Source: `packages/authkit-client/README.md` § Ordem de middleware (importante).
 
 ```ts
 // Wrong — expecting authkit to resolve app roles/permissions
-if (auth.hasGlobalRole('ADMIN')) { /* app-role check? */ }
+if (authkit.hasGlobalRole('ADMIN')) { /* app-role check? */ }
 const can = await authkit.checkPermission(user, 'posts.edit') // does not exist
 ```
 
 ```ts
 // Correct — AuthKit authenticates + exposes token globalRoles; authz decides access
-if (auth.hasGlobalRole('ADMIN')) { /* global role from the token claims */ }
+if (authkit.hasGlobalRole('ADMIN')) { /* global role from the token claims */ }
 // App roles/permissions: configure resolveRoles in @adonis-agora/authz
-// and enforce with authz/Bouncer route guards, not authkit_middleware.
+// and enforce with authz/Bouncer route guards, not auth_middleware.
 ```
 
 AuthKit only authenticates and knows the `globalRoles` claim; app roles (domain
 tables) and permissions were deliberately moved out to `@adonis-agora/authz`.
-The `authkit_middleware` only enforces login.
+The `auth_middleware` only enforces login.
 
 Source: `packages/authkit-client/README.md` callout ("Autorização por app-role saiu
 do AuthKit"), `stubs/config/authkit_client.stub` comment.

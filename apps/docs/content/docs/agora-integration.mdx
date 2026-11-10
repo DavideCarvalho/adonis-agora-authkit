@@ -113,7 +113,7 @@ Context.set({
 <Callout type="info">
   The write is **best-effort**: if no context is active (a route the context middleware
   didn't cover), the value is silently dropped — it never throws. Make sure the context
-  server middleware runs before `authkit_middleware`. See
+  server middleware runs before `authkit_context_middleware`. See
   [Context → customization](/docs/context/customization) for the write-slot contract.
 </Callout>
 

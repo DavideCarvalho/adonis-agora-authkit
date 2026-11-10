@@ -129,8 +129,8 @@ composes the mixins the Lucid store needs; add columns to it as your domain grow
   login / callback / logout flow written out by hand, for when you need to customise it.
   You don't need it if you use `registerOidcClient` (below).
 - Registers the **provider** in `adonisrc.ts`.
-- Registers **`authkit_middleware` as a router-global middleware** automatically — this is
-  what makes `ctx.auth` exist on every request. No manual kernel edit needed.
+- Registers **`authkit_context_middleware` as a router-global middleware** automatically — this is
+  what makes `ctx.authkit` exist on every request. No manual kernel edit needed.
 - Adds **env validations** for `AUTHKIT_ISSUER`, `AUTHKIT_CLIENT_ID`,
   `AUTHKIT_CLIENT_SECRET`, and `AUTHKIT_REDIRECT_URI`. It does **not** write their values —
   fill them in `.env` yourself (see [Environment variables](#environment-variables)).
@@ -169,7 +169,7 @@ const authkitClientConfig = defineConfig({
 export default authkitClientConfig
 ```
 
-`resolveUser` runs lazily, only when you call `auth.getUser()`. For the conceptual model —
+`resolveUser` runs lazily, only when you call `authkit.getUser()`. For the conceptual model —
 the `Identity` shape, resolvers, and reconciling pre-existing rows by email — see
 [Client](/docs/client).
 
@@ -232,7 +232,7 @@ registerAuthHost(router, {
 
 ## The client middleware (already registered)
 
-`authkit_middleware` is what makes `ctx.auth` exist. **`node ace add` already registered it
+`authkit_context_middleware` is what makes `ctx.authkit` exist. **`node ace add` already registered it
 as a router-global middleware** in `start/kernel.ts`, so every route gets an authenticator —
 you don't have to add it yourself. For reference, the registration it wrote looks like:
 
@@ -241,16 +241,16 @@ import router from '@adonisjs/core/services/router'
 
 router.use([
   // ...existing middleware
-  () => import('@adonis-agora/authkit-client/authkit_middleware'),
+  () => import('@adonis-agora/authkit-client/authkit_context_middleware'),
 ])
 ```
 
 Per request it proactively refreshes the token set (`maybeRefresh`, see
 [Refresh Tokens](/docs/refresh-tokens)) and then attaches the authenticator
-(`ctx.auth = await manager.createAuthenticator(ctx)`).
+on `ctx.authkit`.
 
 <Callout type="info">
-  `ctx.auth` is **always present** after the middleware runs — it never throws on an
+  `ctx.authkit` is **always present** after the middleware runs — it never throws on an
   anonymous request. Whether someone is actually logged in is decided by `getIdentity()`
   resolving to a non-`null` value. Use `authenticate()` / `check()` for that (below).
 </Callout>
@@ -261,7 +261,7 @@ If you'd rather opt routes in explicitly, swap the router-global registration fo
 ```ts title="start/kernel.ts"
 export const middleware = router.named({
   // ...
-  authkit: () => import('@adonis-agora/authkit-client/authkit_middleware'),
+  authkit: () => import('@adonis-agora/authkit-client/authkit_context_middleware'),
 })
 ```
 
@@ -269,8 +269,8 @@ export const middleware = router.named({
 router.get('/dashboard', [DashboardController]).use(middleware.authkit())
 ```
 
-Don't confuse this middleware with the one that *enforces* a login. `authkit_middleware`
-only makes `ctx.auth` available; requiring a session is a separate, opt-in middleware
+Don't confuse this middleware with the one that *enforces* a login. `authkit_context_middleware`
+only makes `ctx.authkit` available; requiring a session is a separate, opt-in middleware
 covered under [Protecting a route group](#protecting-a-route-group).
 
 ## Login, callback, logout
@@ -377,35 +377,24 @@ AUTHKIT_REDIRECT_URI=http://localhost:3333/auth/callback
 
 ## Using it in controllers
 
-This is the part you'll use every day. After the middleware runs, `ctx.auth` is an
+This is the part you'll use every day. After the middleware runs, `ctx.authkit` is an
 `Authenticator`; destructure it from the context.
 
-`Authenticator` is generic over *your* user type, and it defaults to `unknown` because the
-library cannot know your model. Fix it once, in an app-level type declaration, and every
-`getUser()` call site is typed without a cast:
+`getUser()` returns whatever your `resolveUser` produces. Declare that type once and every
+call site is typed without a cast:
 
 ```ts title="types/authkit.ts"
-import type { Authenticator } from '@adonis-agora/authkit-client'
 import type AppUser from '#models/app_user'
 
-declare module '@adonisjs/core/http' {
-  interface HttpContext {
-    auth: Authenticator<AppUser>
+declare module '@adonis-agora/authkit-client' {
+  interface AuthkitUserType {
+    user: AppUser
   }
 }
 ```
 
-That single declaration is what makes the examples below read as cleanly as they do.
-
-<Callout type="info">
-  **Only declare it once.** The library ships the same declaration, unparameterised, at
-  `@adonis-agora/authkit-client/types` — but nothing imports it on your behalf. Two
-  declarations of `HttpContext.auth` with different types do not merge: TypeScript keeps
-  whichever it reached first and reports the conflict inside a `.d.ts`, where
-  `skipLibCheck` discards it. So pick one. Declare your own as above when you want
-  `getUser()` typed as your model, or `import '@adonis-agora/authkit-client/types'` if you
-  are happy with the default and want no app-level file — never both.
-</Callout>
+To also get `ctx.auth.user`, `middleware.auth()` and Bouncer from `@adonisjs/auth`, add
+[`authkitClientGuard`](/docs/adonis-auth); `ctx.authkit` keeps working next to it.
 
 **Identity vs User.** Two distinct things come out of the authenticator:
 
@@ -423,8 +412,8 @@ anonymous access is a programming error:
 import type { HttpContext } from '@adonisjs/core/http'
 
 export default class DashboardController {
-  async handle({ auth, inertia }: HttpContext) {
-    const identity = await auth.authenticate() // throws if not logged in
+  async handle({ authkit, inertia }: HttpContext) {
+    const identity = await authkit.authenticate() // throws if not logged in
     return inertia.render('dashboard', { email: identity.email })
   }
 }
@@ -437,8 +426,8 @@ usual entry point, since you almost always want your model rather than raw claim
 declaration above it is already typed as `AppUser | null`:
 
 ```ts
-async handle({ auth, response }: HttpContext) {
-  const user = await auth.getUser()
+async handle({ authkit, response }: HttpContext) {
+  const user = await authkit.getUser()
   if (!user) return response.unauthorized({ message: 'Not authenticated' })
   return user
 }
@@ -453,8 +442,8 @@ it's a misconfigured route. `getUserOrFail()` says that out loud: same resolutio
 throws instead of handing you a `null` you'd only have to re-check:
 
 ```ts
-async handle({ auth }: HttpContext) {
-  const user = await auth.getUserOrFail() // AppUser, never null
+async handle({ authkit }: HttpContext) {
+  const user = await authkit.getUserOrFail() // AppUser, never null
   return user
 }
 ```
@@ -468,9 +457,9 @@ guarantees an `Identity`, the second guarantees *your* user.
 vs. members:
 
 ```ts
-async handle({ auth, inertia }: HttpContext) {
-  if (await auth.check()) {
-    return inertia.render('home', { user: await auth.getUser() })
+async handle({ authkit, inertia }: HttpContext) {
+  if (await authkit.check()) {
+    return inertia.render('home', { user: await authkit.getUser() })
   }
   return inertia.render('home', { user: null })
 }
@@ -482,7 +471,7 @@ When you need the claims directly (the `sub`, `sessionId`, anything in `raw`) wi
 hitting your DB, use `getIdentity()` — it returns `Identity | null`:
 
 ```ts
-const identity = await auth.getIdentity()
+const identity = await authkit.getIdentity()
 if (identity) console.log(identity.userId, identity.sessionId, identity.raw)
 ```
 
@@ -495,7 +484,7 @@ the shape by hand:
 
 ```ts title="config/inertia.ts"
 sharedData: {
-  authkit: (ctx) => ctx.auth.toSharedProps(),
+  authkit: (ctx) => ctx.authkit.toSharedProps(),
 },
 ```
 
@@ -511,9 +500,9 @@ call `authenticate()`, `check()` or `getIdentity()` first, otherwise it always a
 `false`:
 
 ```ts
-async handle({ auth, response }: HttpContext) {
-  await auth.authenticate()                 // ensure the identity is resolved
-  if (!auth.hasGlobalRole('ADMIN')) {       // sync, straight from the claims
+async handle({ authkit, response }: HttpContext) {
+  await authkit.authenticate()                 // ensure the identity is resolved
+  if (!authkit.hasGlobalRole('ADMIN')) {       // sync, straight from the claims
     return response.forbidden({ message: 'Access denied' })
   }
   // ...
@@ -524,7 +513,7 @@ async handle({ auth, response }: HttpContext) {
   **AuthKit authenticates; it does not authorize.** A global role is a coarse,
   IdP-wide fact — "this person is a platform admin" — carried in the token so every relying
   party sees the same answer. It is not a permission model: there is no per-app role, no
-  resource-scoped check, and no policy engine on `ctx.auth`, by design. For
+  resource-scoped check, and no policy engine on `ctx.authkit`, by design. For
   "can this user update *this* post", use
   [`@adonis-agora/authz`](https://www.npmjs.com/package/@adonis-agora/authz), which owns
   roles, permissions and resource checks in your own database, or AdonisJS Bouncer
@@ -566,10 +555,10 @@ router
   .use(middleware.auth({ redirectTo: '/auth/login' }))
 ```
 
-It calls `ctx.auth.check()` and redirects anonymous visitors to `redirectTo`
+It calls `ctx.authkit.check()` and redirects anonymous visitors to `redirectTo`
 (default `/auth/login`) instead of letting `authenticate()` throw. Note that this is a
-*different* middleware from `authkit_middleware`: that one runs router-globally and creates
-`ctx.auth` on every request; this one is opt-in per route and enforces that a session
+*different* middleware from `authkit_context_middleware`: that one runs router-globally and creates
+`ctx.authkit` on every request; this one is opt-in per route and enforces that a session
 exists. You need both, and they stack in that order.
 
 There is a companion for the other half of the problem —
@@ -577,7 +566,7 @@ There is a companion for the other half of the problem —
 requiring it, for public pages that render differently once someone is logged in. Both are
 covered in detail in [Client](/docs/client) and [AdonisJS auth](/docs/adonis-auth).
 
-That's the whole single-app setup — provider, relying party, and `ctx.auth` all wired.
+That's the whole single-app setup — provider, relying party, and `ctx.authkit` all wired.
 Continue with [Topologies](/docs/topologies) to decide how to deploy it,
 [Account Store](/docs/account-store) to point AuthKit at your user table,
 [Client](/docs/client) for the deeper resolver model, or

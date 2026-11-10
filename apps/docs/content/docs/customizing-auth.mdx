@@ -10,7 +10,7 @@ you need.
 
 ## Protect a route group with a redirect to login
 
-`ctx.auth` is always present after the client middleware runs, but it never forces a login.
+`ctx.authkit` is always present after the client middleware runs, but it never forces a login.
 For browser routes you want anonymous hits to *redirect* to your login route rather than
 throw a 500.
 
@@ -36,7 +36,7 @@ router
   .use(middleware.auth({ redirectTo: '/auth/login' }))
 ```
 
-The shipped middleware probes `ctx.auth.check()` and redirects to `redirectTo` when there
+The shipped middleware probes `ctx.authkit.check()` and redirects to `redirectTo` when there
 is no session — `/auth/login` if you omit the option. Its sibling,
 `silent_auth_middleware`, resolves the identity **without** requiring it, which is what you
 want on public pages that render a "Sign in" button for guests and an avatar for members:
@@ -47,8 +47,8 @@ router.get('/', [HomeController]).use(middleware.silentAuth())
 
 <Callout type="info">
   Two different middleware, two different jobs, and you generally want both.
-  `authkit_middleware` is registered **router-globally** by `node ace add` and is what
-  *creates* `ctx.auth` on every request. `auth_middleware` and `silent_auth_middleware` are
+  `authkit_context_middleware` is registered **router-globally** by `node ace add` and is what
+  *creates* `ctx.authkit` on every request. `auth_middleware` and `silent_auth_middleware` are
   opt-in per route and decide what happens when nobody is logged in. Full details in
   [Client](/docs/client) and [AdonisJS auth](/docs/adonis-auth).
 </Callout>
@@ -70,7 +70,7 @@ import type { NextFn } from '@adonisjs/core/types/http'
  */
 export default class RequireAuthMiddleware {
   async handle(ctx: HttpContext, next: NextFn) {
-    if (await ctx.auth.check()) return next()
+    if (await ctx.authkit.check()) return next()
 
     if (ctx.request.accepts(['html', 'json']) === 'json') {
       return ctx.response.unauthorized({ message: 'Not authenticated' })
@@ -85,7 +85,7 @@ export default class RequireAuthMiddleware {
 `auth.login` is the route name from the [Getting Started](/docs/getting-started#login-callback-logout)
 login/callback/logout wiring (`registerOidcClient` registers it under that name too). For
 API routes where anonymous access is a programming error, skip the middleware entirely and
-call `auth.authenticate()` in the controller — it throws.
+call `authkit.authenticate()` in the controller — it throws.
 
 ## Role-gate a group
 
@@ -100,7 +100,7 @@ import type { NextFn } from '@adonisjs/core/types/http'
 export default class RequireGlobalRoleMiddleware {
   async handle(ctx: HttpContext, next: NextFn, options: { role: string }) {
     // `middleware.auth()` already ran, so the identity is resolved and non-null.
-    if (!ctx.auth.hasGlobalRole(options.role)) {
+    if (!ctx.authkit.hasGlobalRole(options.role)) {
       return ctx.response.forbidden({ message: 'Access denied' })
     }
     return next()
@@ -126,7 +126,7 @@ router
   **Global roles are the only role surface AuthKit gives you, and that is deliberate.**
   `identity.globalRoles` is what the *identity provider* asserted about a person — a
   platform-wide fact, the same for every relying party that receives the token. There is no
-  per-app role, no permission, and no resource-scoped check on `ctx.auth`.
+  per-app role, no permission, and no resource-scoped check on `ctx.authkit`.
 
   Per-app authorization belongs to
   [`@adonis-agora/authz`](https://www.npmjs.com/package/@adonis-agora/authz), which stores
@@ -322,7 +322,7 @@ export default defineConfig({
 })
 ```
 
-`resolveUser` runs **lazily** — only when something calls `auth.getUser()` — and its result
+`resolveUser` runs **lazily** — only when something calls `authkit.getUser()` — and its result
 is memoised for the rest of the request, so a request that never asks for the user never
 touches your database. It receives a second argument, `{ accessToken }`, when the session
 carries one; use it if your mapping needs to call back to the IdP (for example to fetch

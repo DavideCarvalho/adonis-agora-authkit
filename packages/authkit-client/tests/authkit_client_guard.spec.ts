@@ -5,7 +5,6 @@ import { test } from '@japa/runner';
 import { Authenticator } from '../src/authenticator.js';
 import { authkitClientGuard } from '../src/host/authkit_client_guard.js';
 import AuthkitContextMiddleware from '../src/middleware/authkit_context_middleware.js';
-import AuthkitMiddleware from '../src/middleware/authkit_middleware.js';
 
 const SET_SLOT = Symbol.for('@agora/context:set');
 
@@ -214,57 +213,5 @@ test.group('AuthkitContextMiddleware', () => {
 
     assert.equal(manager.calls.createAuthenticator, 1);
     assert.equal(manager.calls.maybeRefresh, 1);
-  });
-});
-
-/**
- * A GARANTIA DE COMPATIBILIDADE (plano, passo 3): sem guard configurado, o
- * `authkit_middleware` continua sendo o dono de `ctx.auth` e a superfície do
- * `Authenticator` do authkit segue idêntica. Este teste NÃO depende do guard —
- * é ele que prova que a adição do guard não mexeu no caminho default.
- */
-test.group('compatibilidade: sem guard configurado', () => {
-  test('authkit_middleware continua colocando o Authenticator do authkit em ctx.auth', async ({
-    assert,
-  }) => {
-    const manager = fakeManager({
-      identity,
-      resolveUser: async () => ({ id: 'u1', name: 'via resolveUser' }),
-    });
-    const { ctx } = fakeCtx(manager);
-
-    let nextCalled = false;
-    await new AuthkitMiddleware().handle(ctx, async () => {
-      nextCalled = true;
-    });
-
-    assert.isTrue(nextCalled);
-    const auth = (ctx as unknown as { auth: Authenticator }).auth;
-    assert.instanceOf(auth, Authenticator);
-    assert.equal(manager.calls.maybeRefresh, 1);
-
-    // superfície histórica, intacta
-    assert.equal((await auth.getIdentity())?.userId, 'u1');
-    assert.equal((await auth.authenticate()).email, 'ana@example.com');
-    assert.isTrue(await auth.check());
-    assert.isTrue(auth.hasGlobalRole('ADMIN'));
-    assert.isFalse(auth.hasGlobalRole('STAFF'));
-    assert.deepEqual(await auth.getUser(), { id: 'u1', name: 'via resolveUser' });
-    assert.deepEqual(await auth.getUserOrFail(), { id: 'u1', name: 'via resolveUser' });
-
-    // o middleware default NÃO passa a mexer em ctx.authkit
-    assert.isUndefined((ctx as unknown as { authkit?: unknown }).authkit);
-  });
-
-  test('authkit_middleware sem sessão: check() false e authenticate() lança o erro histórico', async ({
-    assert,
-  }) => {
-    const manager = fakeManager({ identity: null });
-    const { ctx } = fakeCtx(manager);
-    await new AuthkitMiddleware().handle(ctx, async () => {});
-
-    const auth = (ctx as unknown as { auth: Authenticator }).auth;
-    assert.isFalse(await auth.check());
-    await assert.rejects(() => auth.authenticate(), 'Not authenticated');
   });
 });

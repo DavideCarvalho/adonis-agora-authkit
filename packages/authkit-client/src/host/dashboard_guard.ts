@@ -14,15 +14,11 @@ export interface DashboardGuardOptions {
 /**
  * Core predicate behind {@link authkitDashboardAuthorize} and
  * {@link authkitDashboardMiddleware}: authenticated (a resolvable authkit `Identity`) AND holding
- * the configured global role — `ctx.auth.hasGlobalRole('ADMIN')`, the pattern hosts already
+ * the configured global role — `ctx.authkit.hasGlobalRole('ADMIN')`, the pattern hosts already
  * hand-roll per embedded admin dashboard (durable/media/agent/telescope).
  *
- * Resolves the session via {@link getAuthkit} rather than reading `ctx.auth` directly: `ctx.auth`'s
- * TYPE is host-owned (each app augments `HttpContext.auth` for its own user model, or leaves it to
- * `@adonisjs/auth`'s guard), so this module — shipped from the library, with no visibility into
- * that augmentation — can't assume its shape. `getAuthkit` is the one session-resolution path that
- * works either way (legacy `authkit_middleware`'s `ctx.auth` or the newer `authkitClientGuard`'s
- * `ctx.authkit`), memoizing so a second call in the same request is free.
+ * Resolves the session via {@link getAuthkit}, which memoizes on `ctx.authkit`, so a second call
+ * in the same request is free.
  */
 export async function isAuthkitAdmin(
   ctx: HttpContext,

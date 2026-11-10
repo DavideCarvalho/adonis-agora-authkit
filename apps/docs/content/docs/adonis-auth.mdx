@@ -146,8 +146,8 @@ with no local account is treated as unauthenticated, not as a half-authenticated
 
 ### Register the context middleware
 
-Handing `ctx.auth` to the framework means the AuthKit-specific surface has to live somewhere else.
-That is `ctx.authkit`, populated by `authkit_context_middleware`:
+The AuthKit-specific surface stays on `ctx.authkit`, populated by `authkit_context_middleware`.
+Register it after `initialize_auth_middleware`:
 
 ```ts title="start/kernel.ts"
 router.use([
@@ -163,13 +163,6 @@ const identity = await ctx.authkit.getIdentity() // the raw OIDC claims
 const isAdmin = ctx.authkit.hasGlobalRole('ADMIN') // the IdP's global roles
 const shared = await ctx.authkit.toSharedProps() // props for @adonis-agora/authkit-react
 ```
-
-<Callout type="warn">
-  Replace `authkit_middleware` with `authkit_context_middleware` — do not register both. The old
-  one puts AuthKit's own authenticator on `ctx.auth`, which is the slot the framework guard now
-  owns; running the two together resolves the session twice into two objects that can disagree the
-  moment one refreshes the token set.
-</Callout>
 
 The context middleware and the guard share the same memoised authenticator, so the session is
 resolved — and the token refreshed — once per request no matter which of the two touches it first.

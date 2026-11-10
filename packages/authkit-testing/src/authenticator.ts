@@ -2,7 +2,7 @@ import type { Identity } from '@adonis-agora/authkit-core';
 import { createTestIdentity } from './identity.js';
 
 /**
- * Superfície pública do `Authenticator` do client (o que `ctx.auth` expõe).
+ * Superfície pública do `Authenticator` do client (o que `ctx.authkit` expõe).
  * Reproduzida aqui para não acoplar o pacote de testing ao client em runtime.
  */
 export interface FakeAuthenticatorLike {
@@ -25,7 +25,7 @@ export interface FakeAuthenticatorOptions {
 
 /**
  * Cria um objeto que satisfaz a superfície do `Authenticator` do client para
- * injetar em `ctx.auth` em testes de controller — sem resolver tokens de verdade.
+ * injetar em `ctx.authkit` em testes de controller — sem resolver tokens de verdade.
  */
 export function fakeAuthenticator(options: FakeAuthenticatorOptions = {}): FakeAuthenticatorLike {
   const identity: Identity | null =

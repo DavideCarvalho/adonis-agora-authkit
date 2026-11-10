@@ -5,7 +5,7 @@ function fakeCtx(identity: any) {
   const redirects: string[] = [];
   let aborted: { body: unknown; status: number } | null = null;
   const ctx = {
-    auth: { getIdentity: async () => identity },
+    authkit: { getIdentity: async () => identity },
     response: {
       redirect: (to: string) => {
         redirects.push(to);
