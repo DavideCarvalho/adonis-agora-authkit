@@ -411,14 +411,13 @@ node ace authkit:settings:set admin_impersonation '{"enabled":false}'
 A third condition is structural rather than configurable: the panel needs a client carrying
 the `urn:ietf:params:oauth:grant-type:token-exchange` grant to build its example against. It
 looks for one among the clients your OIDC adapter holds — the ones created through the
-[Client CRUD](#client-crud) page, the Admin API or `authkit:clients:create` — and falls back
-to any static clients still declared on the config. When no client anywhere carries the
+[Client CRUD](#client-crud) page, the Admin API or `authkit:clients:create`. When no client carries the
 grant, the endpoint answers 404 with `no_token_exchange_client`: there is no exchange to
 describe. Give an existing client the grant, or create one, and the panel appears.
 
 <Callout type="info">
-  An adapter that cannot enumerate its clients leaves only the config fallback. Every
-  adapter this library ships can enumerate; a custom adapter without a `list` method cannot,
+  The panel needs an adapter that can enumerate its clients. Every adapter this library
+  ships can; a custom adapter without a `list` method cannot,
   and the panel will report `no_token_exchange_client` on such a host even though the
   exchange itself works fine — the grant runs against any adapter-stored client that carries
   it, enumerable or not.
@@ -462,11 +461,9 @@ accounts with an "account disabled" message, even with a correct password.
 
 ## Client CRUD
 
-Clients are meant to be managed at runtime rather than declared in a config file. Create
-them from this console, the [Admin REST API](/docs/admin-api#clients), or the
-`authkit:clients:create` command (see [Reference](/docs/reference#authkitclientscreate)) —
-no redeploy needed. `defineConfig` does accept a `clients` array, but it is an internal
-seam for tests and one-off migrations, not the production path.
+Clients are managed at runtime. Create them from this console, the
+[Admin REST API](/docs/admin-api#clients), or the `authkit:clients:create` command (see
+[Reference](/docs/reference#authkitclientscreate)) — no redeploy needed.
 
 The clients page lists all **adapter-stored** clients created via the
 console or [Dynamic Registration](/docs/dynamic-registration). Adapter-stored clients are

@@ -1,37 +1,3 @@
-/**
- * Client OIDC persistido no adapter/DB, gerenciável via console admin ou Admin API
- * em runtime. Usado internamente pela lib para representar clients em memória.
- */
-export interface ClientConfig {
-  clientId: string;
-  clientSecret?: string;
-  redirectUris: string[];
-  postLogoutRedirectUris?: string[];
-  grants?: string[];
-  /** 'none' para public clients (SPA com PKCE) */
-  tokenEndpointAuthMethod?: 'client_secret_basic' | 'client_secret_post' | 'none';
-  /**
-   * Tipo de aplicação (OIDC Registration §2, `application_type`). Default `'web'`.
-   *
-   * `'native'` (RFC 8252 — OAuth 2.0 for Native Apps) libera os redirects de app
-   * mobile/desktop: esquema privado (`com.example.app:/callback`), URL https
-   * "claimed" (universal/app links) e loopback `http://127.0.0.1` com qualquer
-   * porta. Client nativo é SEMPRE público (sem `clientSecret`,
-   * `tokenEndpointAuthMethod: 'none'`) — PKCE já é obrigatório no issuer.
-   */
-  applicationType?: 'web' | 'native';
-  /**
-   * Endpoint do RP que recebe o POST de OIDC Back-Channel Logout. Quando definido,
-   * o IdP envia um `logout_token` para esta URI ao encerrar a sessão/grant do usuário.
-   */
-  backchannelLogoutUri?: string;
-  /**
-   * Exige que o `logout_token` inclua a claim `sid` (session id). Mapeado para
-   * `backchannel_logout_session_required` do oidc-provider. Default: false.
-   */
-  backchannelLogoutSessionRequired?: boolean;
-}
-
 export interface TtlConfig {
   accessToken?: string | number;
   refreshToken?: string | number;
@@ -136,7 +102,6 @@ export interface AccessTokensConfig {
 /** Forma normalizada do config do server (pós-`defineConfig`). */
 export interface ResolvedAuthServerConfig {
   issuer: string;
-  clients: ClientConfig[];
   ttl: Required<TtlConfig>;
   jwks: JwksConfig;
   globalRolesClaim: string;

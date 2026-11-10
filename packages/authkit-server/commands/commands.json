@@ -124,6 +124,13 @@
           "description": "Endpoint de OIDC Back-Channel Logout do RP."
         },
         {
+          "name": "clientSecret",
+          "flagName": "client-secret",
+          "required": false,
+          "type": "string",
+          "description": "Usa este client_secret em vez de gerar um (client confidencial)."
+        },
+        {
           "name": "json",
           "flagName": "json",
           "required": false,

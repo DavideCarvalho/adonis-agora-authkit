@@ -27,6 +27,7 @@ import {
 import InteractionController from '../../src/host/controllers/interaction_controller.js';
 import { OidcService } from '../../src/provider/oidc_service.js';
 import { fakeAccountStore } from '../bootstrap.js';
+import { withClients } from '../helpers/seed_clients.js';
 
 const NATIVE_CLIENT = 'mobile';
 const SCHEME_REDIRECT = 'com.example.app:/oauth';
@@ -114,11 +115,8 @@ async function startServer(): Promise<Harness> {
   } as any;
   const cfg = await configProvider.resolve<ResolvedServerConfig>(
     fakeApp,
-    defineConfig({
-      issuer,
-      adapter: adapters.redis({ connection: 'main' }),
-      jwks: { source: 'managed', algorithm: 'RS256' },
-      clients: [
+    withClients(
+      [
         {
           // App nativo: sem secret (público), redirect de esquema privado + loopback.
           clientId: NATIVE_CLIENT,
@@ -135,19 +133,24 @@ async function startServer(): Promise<Harness> {
           grants: [],
         },
       ],
-      branding: {
-        company: 'AuthKit Test',
-        clients: {},
-        default: { appName: 'Test', accent: '#000', accentSoft: '#111', tagline: 'tl' },
-        firstParty: [NATIVE_CLIENT],
-      },
-      render: ((_ctx: any, view: string) => {
-        rendered.push(view);
-        _ctx.response.response.writeHead(200, { 'x-render-view': view });
-        _ctx.response.response.end();
-      }) as any,
-      accountStore: fakeAccountStore(),
-    }),
+      defineConfig({
+        issuer,
+        adapter: adapters.redis({ connection: 'main' }),
+        jwks: { source: 'managed', algorithm: 'RS256' },
+        branding: {
+          company: 'AuthKit Test',
+          clients: {},
+          default: { appName: 'Test', accent: '#000', accentSoft: '#111', tagline: 'tl' },
+          firstParty: [NATIVE_CLIENT],
+        },
+        render: ((_ctx: any, view: string) => {
+          rendered.push(view);
+          _ctx.response.response.writeHead(200, { 'x-render-view': view });
+          _ctx.response.response.end();
+        }) as any,
+        accountStore: fakeAccountStore(),
+      }),
+    ),
   );
   service = new OidcService(cfg!, 'a'.repeat(32));
   return { service, issuer, server, rendered };

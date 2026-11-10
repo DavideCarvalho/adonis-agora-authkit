@@ -12,7 +12,6 @@ import { createServer, type Server } from 'node:http';
 import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
 import AuthkitClientsCreate from '../commands/clients_create.js';
-import { importClients } from '../src/commands/import_clients.js';
 import type { ResolvedServerConfig } from '../src/define_config.js';
 import { adapters, defineConfig } from '../src/define_config.js';
 import { AdminClientsService } from '../src/host/admin_clients_service.js';
@@ -285,26 +284,6 @@ test.group('AdminClientsService — clients nativos', (group) => {
       ClientMetadataError,
     );
   });
-
-  test('importClients leva o applicationType do config estático', async ({ assert, cleanup }) => {
-    const { service, server } = await startService(db);
-    cleanup(() => new Promise<void>((r) => server.close(() => r())));
-    const svc = new AdminClientsService(service);
-    const report = await importClients(
-      [
-        {
-          clientId: 'static-mobile',
-          applicationType: 'native',
-          redirectUris: ['com.example.app:/oauth'],
-        },
-      ],
-      svc,
-    );
-    assert.equal(report.created, 1);
-    const found = await svc.find('static-mobile');
-    assert.equal(found!.applicationType, 'native');
-    assert.equal(found!.tokenEndpointAuthMethod, 'none');
-  });
 });
 
 /**
@@ -366,5 +345,34 @@ test.group('authkit:clients:create --native', (group) => {
     assert.equal(exitCode, 1);
     assert.match(lines.join('\n'), /http\/https/);
     assert.isUndefined(await new AdminClientsService(service).find('oops'));
+  });
+  test('--client-secret mantém o secret informado', async ({ assert, cleanup }) => {
+    const { service, server } = await startService(db);
+    cleanup(() => new Promise<void>((r) => server.close(() => r())));
+
+    const { lines, exitCode } = await runClientsCreate(service, {
+      clientId: 'web-app',
+      redirectUri: ['https://app.test/cb'],
+      clientSecret: 'kept-secret',
+      json: true,
+    });
+    assert.notEqual(exitCode, 1);
+    assert.equal(JSON.parse(lines[0]).clientSecret, 'kept-secret');
+    const payload = await new service.config.AdapterClass('Client').find('web-app');
+    assert.equal(payload?.client_secret, 'kept-secret');
+  });
+
+  test('--client-secret com --public é recusado (exit 1)', async ({ assert, cleanup }) => {
+    const { service, server } = await startService(db);
+    cleanup(() => new Promise<void>((r) => server.close(() => r())));
+
+    const { exitCode } = await runClientsCreate(service, {
+      clientId: 'spa',
+      public: true,
+      redirectUri: ['https://app.test/cb'],
+      clientSecret: 'nope',
+    });
+    assert.equal(exitCode, 1);
+    assert.isUndefined(await new AdminClientsService(service).find('spa'));
   });
 });

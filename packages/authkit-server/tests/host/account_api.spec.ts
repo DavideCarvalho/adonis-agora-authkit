@@ -41,6 +41,7 @@ import { withPersonalAccessToken } from '../../src/mixins/with_personal_access_t
 import { lucidPatStore } from '../../src/pat/lucid_pat_store.js';
 import { OidcService } from '../../src/provider/oidc_service.js';
 import { createTestDatabase } from '../bootstrap.js';
+import { withClients } from '../helpers/seed_clients.js';
 
 // ─── Test PAT model ──────────────────────────────────────────────────────────
 
@@ -250,11 +251,8 @@ async function makeService(port: number, db: any, accountStore?: AccountStore, e
   const fakeApp = { container: { make: async () => db } } as any;
   const cfg = await configProvider.resolve(
     fakeApp,
-    defineConfig({
-      issuer,
-      adapter: adapters.database({}),
-      jwks: { source: 'managed', algorithm: 'RS256' },
-      clients: [
+    withClients(
+      [
         {
           clientId: 'c1',
           clientSecret: 's',
@@ -262,12 +260,17 @@ async function makeService(port: number, db: any, accountStore?: AccountStore, e
           grants: ['authorization_code', 'refresh_token'],
         },
       ],
-      accountStore: accountStore ?? memoryAccountStore(),
-      patStore: lucidPatStore(TestPat),
-      audit: memoryAuditSink(),
-      mail: { onPasswordReset: async () => {} },
-      ...extra,
-    }),
+      defineConfig({
+        issuer,
+        adapter: adapters.database({}),
+        jwks: { source: 'managed', algorithm: 'RS256' },
+        accountStore: accountStore ?? memoryAccountStore(),
+        patStore: lucidPatStore(TestPat),
+        audit: memoryAuditSink(),
+        mail: { onPasswordReset: async () => {} },
+        ...extra,
+      }),
+    ),
   );
   const service = new OidcService(cfg!, 'a'.repeat(32));
   const server: Server = createServer(service.callback);
@@ -1024,7 +1027,6 @@ test.group('AccountApiController — sem patStore → tokens 422', (group) => {
         issuer,
         adapter: adapters.database({}),
         jwks: { source: 'managed', algorithm: 'RS256' },
-        clients: [],
         accountStore: store,
         // patStore omitido intencionalmente.
         mail: { onPasswordReset: async () => {} },

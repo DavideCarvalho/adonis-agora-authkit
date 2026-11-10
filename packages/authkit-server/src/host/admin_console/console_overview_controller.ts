@@ -1,6 +1,7 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import { LIST_FIRST_PAGE } from '../../pagination.js';
+import { AdminClientsService } from '../admin_clients_service.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
 import { computeAdminStats } from '../admin_stats_service.js';
 
@@ -9,7 +10,7 @@ import { computeAdminStats } from '../admin_stats_service.js';
  *
  * Métricas-resumo do IdP para o dashboard do console React. Reutiliza
  * `computeAdminStats` (mesma fonte do console Edge) e adiciona:
- * - `clientsCount`   — número de clients na config
+ * - `clientsCount`   — número de clients no adapter (0 quando o adapter não enumera)
  * - `auditTotal`     — total de eventos de auditoria (0 quando sink não suporta)
  * - `recentEvents`   — últimos 5 eventos de auditoria ([] quando não suporta)
  */
@@ -20,7 +21,8 @@ export default class ConsoleOverviewController {
 
     const sessions = new AdminSessionsService(service);
     const stats = await computeAdminStats(cfg, sessions);
-    const clientsCount = cfg.clients.length;
+    const clients = new AdminClientsService(service);
+    const clientsCount = clients.canList ? (await clients.list()).length : 0;
 
     const recentResult =
       typeof cfg.audit?.list === 'function'

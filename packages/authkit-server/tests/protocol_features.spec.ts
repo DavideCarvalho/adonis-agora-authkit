@@ -5,6 +5,7 @@ import RedisMock from 'ioredis-mock';
 import { adapters, defineConfig } from '../src/define_config.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { fakeAccountStore } from './bootstrap.js';
+import { withClients } from './helpers/seed_clients.js';
 
 /**
  * Cobertura dos quatro recursos de protocolo: Device Flow (RFC 8628), DPoP
@@ -38,11 +39,8 @@ async function startServer(
   ];
   const cfg = await configProvider.resolve(
     fakeApp,
-    defineConfig({
-      issuer,
-      adapter: adapters.redis({ connection: 'main' }),
-      jwks: { source: 'managed', algorithm: 'RS256' },
-      clients: [
+    withClients(
+      [
         {
           clientId: 'app1',
           clientSecret: 's',
@@ -50,9 +48,14 @@ async function startServer(
           grants,
         },
       ],
-      accountStore: fakeAccountStore(),
-      ...configOverrides,
-    }),
+      defineConfig({
+        issuer,
+        adapter: adapters.redis({ connection: 'main' }),
+        jwks: { source: 'managed', algorithm: 'RS256' },
+        accountStore: fakeAccountStore(),
+        ...configOverrides,
+      }),
+    ),
   );
   const service = new OidcService(cfg!, 'a'.repeat(32));
   const server = createServer(service.callback);
@@ -157,14 +160,16 @@ test.group('B2 DPoP (RFC 9449)', () => {
     } as any;
     const cfg = await configProvider.resolve(
       fakeApp,
-      defineConfig({
-        issuer: 'http://localhost:1',
-        adapter: adapters.redis({ connection: 'main' }),
-        jwks: { source: 'managed' },
-        clients: [{ clientId: 'app1', clientSecret: 's', redirectUris: ['https://a/cb'] }],
-        accountStore: fakeAccountStore(),
-        dpop: { enabled: true },
-      }),
+      withClients(
+        [{ clientId: 'app1', clientSecret: 's', redirectUris: ['https://a/cb'] }],
+        defineConfig({
+          issuer: 'http://localhost:1',
+          adapter: adapters.redis({ connection: 'main' }),
+          jwks: { source: 'managed' },
+          accountStore: fakeAccountStore(),
+          dpop: { enabled: true },
+        }),
+      ),
     );
     assert.isTrue(cfg!.dpop.enabled);
   });

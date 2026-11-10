@@ -63,6 +63,6 @@ session.put(sessionKey, {
 ## Requirements
 
 - The client must request the `offline_access` scope (the client default `scopes` already
-  include it) and have the `refresh_token` grant in its server-side `ClientConfig`.
+  include it) and have the `refresh_token` grant on the IdP (it is in the default grants of a new client).
 - `maybeRefresh` reads/writes the token set from `ctx.session`, so the session middleware
   must run before `authkit_context_middleware`.

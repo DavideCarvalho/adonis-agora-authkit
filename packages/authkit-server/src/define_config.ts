@@ -1,7 +1,6 @@
 import type {
   AccessTokenFormat,
   AccessTokensConfig,
-  ClientConfig,
   JwksConfig,
   KeystoreStoreConfig,
   ObservabilityConfig,
@@ -447,8 +446,8 @@ export function resolveNotifications(): ResolvedNotificationsConfig {
  *
  * Quando habilitado, o oidc-provider expõe o endpoint de registro (`/reg`) e os
  * clients criados ali são PERSISTIDOS pelo MESMO adapter usado para os demais
- * artefatos OIDC. Assim, clients dinâmicos coexistem com os `clients` estáticos
- * da config e ficam disponíveis para uma futura UI admin que gerencia clients no DB.
+ * artefatos OIDC, junto dos clients criados pelo console admin, pela Admin API e
+ * pelo `node ace authkit:clients:create`.
  */
 export interface DynamicRegistrationConfigInput {
   /** Liga o endpoint de registro dinâmico. Default: false (comportamento atual). */
@@ -1182,13 +1181,6 @@ export interface AuthServerConfigInput {
     adapter?: AdapterFactory;
   };
   /**
-   * Clientes OIDC pré-carregados no provider ao subir. Útil para testes e
-   * migrações pontuais. Para uso em produção, gerencie clients via console admin
-   * ou Admin API (`node ace authkit:clients:create`).
-   * @internal
-   */
-  clients?: ClientConfig[];
-  /**
    * Config de JWKS, ou `'auto'` (recomendado p/ deploys efêmeros): se a env
    * `AUTHKIT_JWKS` (JSON `{"keys":[...]}`) estiver presente, usa-a inline
    * (`source: 'jwks'`) — sobrevive a restarts/deploys; senão cai no managed
@@ -1552,7 +1544,6 @@ export interface ResolvedServerConfig {
    * `session.adapter` no input é a MESMA classe do `AdapterClass`.
    */
   SessionAdapterClass: OidcAdapterClass;
-  clients: ClientConfig[];
   jwks: { keys: Record<string, any>[] };
   /**
    * Eco do `jwks` de INPUT (source/store/algorithm) — o `jwks` resolvido acima é o
@@ -1848,7 +1839,6 @@ export function defineConfig(config: AuthServerConfigInput) {
       issuer: config.issuer,
       AdapterClass,
       SessionAdapterClass,
-      clients: config.clients ?? [],
       jwks: jwks as { keys: Record<string, any>[] },
       jwksConfig,
       ttl: {

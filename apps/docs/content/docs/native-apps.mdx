@@ -36,7 +36,7 @@ client:
   an installed app is not a secret ([RFC 8252 §8.5](https://www.rfc-editor.org/rfc/rfc8252#section-8.5)). PKCE (S256) is already mandatory for every
   client of this issuer, and native clients cannot use `client_credentials`.
 
-<Tabs items={['CLI', 'Admin API', 'config/authkit.ts']}>
+<Tabs items={['CLI', 'Admin API']}>
 <Tab value="CLI">
 
 ```bash
@@ -67,23 +67,6 @@ curl -X POST https://auth.acme.com/api/authkit/v1/clients \
 `client_credentials`, or a redirect that breaks the rules above answers `422` with
 `error.code: "invalid_client_metadata"`. The admin console's client form has the same
 **Application Type** switch.
-
-</Tab>
-<Tab value="config/authkit.ts">
-
-```ts title="config/authkit.ts"
-defineConfig({
-  // ...
-  clients: [
-    {
-      clientId: 'my-mobile-app',
-      applicationType: 'native',
-      redirectUris: ['com.example.app:/oauth'],
-      grants: ['authorization_code', 'refresh_token'],
-    },
-  ],
-})
-```
 
 </Tab>
 </Tabs>

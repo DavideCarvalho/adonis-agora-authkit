@@ -13,6 +13,7 @@ import {
   signWebhookBody,
 } from '../src/events/dispatcher.js';
 import { fakeAccountStore } from './bootstrap.js';
+import { withClients } from './helpers/seed_clients.js';
 
 const fakeApp = () =>
   ({
@@ -259,15 +260,17 @@ test.group('events — resolveEvents + define_config wiring', () => {
       },
     };
 
-    const provider = defineConfig({
-      issuer: 'https://auth.test',
-      adapter: adapters.redis({ connection: 'main' }),
-      jwks: { source: 'managed', algorithm: 'RS256' },
-      clients: [{ clientId: 'app1', redirectUris: ['https://app1/cb'] }],
-      accountStore: fakeAccountStore(),
-      audit: original,
-      events: { onEvent: (e) => void observed.push(e) },
-    });
+    const provider = withClients(
+      [{ clientId: 'app1', redirectUris: ['https://app1/cb'] }],
+      defineConfig({
+        issuer: 'https://auth.test',
+        adapter: adapters.redis({ connection: 'main' }),
+        jwks: { source: 'managed', algorithm: 'RS256' },
+        accountStore: fakeAccountStore(),
+        audit: original,
+        events: { onEvent: (e) => void observed.push(e) },
+      }),
+    );
 
     const resolved = await configProvider.resolve(fakeApp(), provider);
     assert.isFunction(resolved.audit?.record);
@@ -285,14 +288,16 @@ test.group('events — resolveEvents + define_config wiring', () => {
         persisted.push(e);
       },
     };
-    const provider = defineConfig({
-      issuer: 'https://auth.test',
-      adapter: adapters.redis({ connection: 'main' }),
-      jwks: { source: 'managed', algorithm: 'RS256' },
-      clients: [{ clientId: 'app1', redirectUris: ['https://app1/cb'] }],
-      accountStore: fakeAccountStore(),
-      audit: original,
-    });
+    const provider = withClients(
+      [{ clientId: 'app1', redirectUris: ['https://app1/cb'] }],
+      defineConfig({
+        issuer: 'https://auth.test',
+        adapter: adapters.redis({ connection: 'main' }),
+        jwks: { source: 'managed', algorithm: 'RS256' },
+        accountStore: fakeAccountStore(),
+        audit: original,
+      }),
+    );
     const resolved = await configProvider.resolve(fakeApp(), provider);
     // O sink resolvido é o fan-out (não o original), pois o ramo de diagnostics
     // é sempre ligado; mas ele delega o record ao sink original.

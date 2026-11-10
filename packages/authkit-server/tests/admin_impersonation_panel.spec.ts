@@ -33,10 +33,7 @@ import { fakeAccountStore } from './bootstrap.js';
 const TOKEN_EXCHANGE = 'urn:ietf:params:oauth:grant-type:token-exchange';
 const ISSUER = 'https://panel.test';
 
-/**
- * A resolved config with NO static clients — the shape every real host has.
- * `clients` is omitted deliberately: passing them is what masked the bug.
- */
+/** A resolved config; the clients live in the adapter stubbed per test. */
 async function resolvedConfig(extra: Partial<AuthServerConfigInput> = {}) {
   const fakeApp = {
     container: { make: async () => ({ connection: () => new RedisMock() }) },
@@ -110,7 +107,7 @@ function fakeCtx(service: any, userId: string) {
   return { ctx, status: () => status, body: () => body };
 }
 
-/** A service whose config has no static clients but whose adapter enumerates. */
+/** A service whose adapter enumerates `clients` (`null` = adapter without `list`). */
 async function serviceWithRuntimeClients(
   clients: Array<{ id: string; payload: Record<string, unknown> }> | null,
 ) {
@@ -134,8 +131,7 @@ test.group('impersonation panel — runtime clients', (group) => {
   group.each.teardown(() => resetLockedSettingKeys());
 
   test('builds the panel from a client that lives only in the adapter', async ({ assert }) => {
-    const { service, cfg } = await serviceWithRuntimeClients([TOKEN_EXCHANGE_CLIENT]);
-    assert.deepEqual(cfg.clients, [], 'precondition: a real host has no static clients');
+    const { service } = await serviceWithRuntimeClients([TOKEN_EXCHANGE_CLIENT]);
 
     const { ctx, status } = fakeCtx(service, 'target-1');
     const result: any = await new ConsoleImpersonationController().handle(ctx);
@@ -191,21 +187,14 @@ test.group('impersonation panel — runtime clients', (group) => {
     assert.equal(result.clientId, 'runtime-cli');
   });
 
-  test('an adapter that cannot enumerate still falls back to static clients', async ({
-    assert,
-  }) => {
-    const cfg = await resolvedConfig();
-    cfg.clients = [
-      { clientId: 'legacy-cli', clientSecret: 'sec', grants: [TOKEN_EXCHANGE], redirectUris: [] },
-    ];
-    cfg.AdapterClass = adapterClassWith(null);
-    const { ctx, status } = fakeCtx({ config: cfg }, 'target-1');
+  test('an adapter that cannot enumerate → 404 no_token_exchange_client', async ({ assert }) => {
+    const { service } = await serviceWithRuntimeClients(null);
+    const { ctx, status, body } = fakeCtx(service, 'target-1');
 
-    const result: any = await new ConsoleImpersonationController().handle(ctx);
+    await new ConsoleImpersonationController().handle(ctx);
 
-    assert.equal(status(), 200);
-    assert.equal(result.clientId, 'legacy-cli');
-    assert.include(result.curl, "-u 'legacy-cli:sec'");
+    assert.equal(status(), 404);
+    assert.equal(body().error.code, 'no_token_exchange_client');
   });
 
   test('no token-exchange client anywhere → 404, and the response carries no URL', async ({

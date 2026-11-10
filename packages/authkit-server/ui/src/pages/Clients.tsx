@@ -353,7 +353,7 @@ export function Clients() {
       <div className="page-header-row">
         <div>
           <div className="page-title">OAuth Clients</div>
-          <div className="page-sub">{clientsCount} dynamic clients</div>
+          <div className="page-sub">{clientsCount} clients</div>
         </div>
         <div className="page-actions">
           <button className="btn btn-primary" onClick={openCreate}>

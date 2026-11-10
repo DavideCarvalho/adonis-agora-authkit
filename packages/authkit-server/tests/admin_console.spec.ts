@@ -40,6 +40,7 @@ import { withPersonalAccessToken } from '../src/mixins/with_personal_access_toke
 import { lucidPatStore } from '../src/pat/lucid_pat_store.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { createTestDatabase } from './bootstrap.js';
+import { withClients } from './helpers/seed_clients.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -238,11 +239,8 @@ async function startService(port: number, db: any, extra: Partial<AuthServerConf
   const fakeApp = { container: { make: async () => db } } as any;
   const cfg = await configProvider.resolve(
     fakeApp,
-    defineConfig({
-      issuer,
-      adapter: adapters.database({}),
-      jwks: { source: 'managed', algorithm: 'RS256' },
-      clients: [
+    withClients(
+      [
         {
           clientId: 'c1',
           clientSecret: 's',
@@ -250,12 +248,17 @@ async function startService(port: number, db: any, extra: Partial<AuthServerConf
           grants: ['authorization_code', 'refresh_token'],
         },
       ],
-      accountStore: memoryAccountStore(),
-      patStore: lucidPatStore(TestPat),
-      audit: memoryAuditSink(),
-      mail: { onPasswordReset: async () => {} },
-      ...extra,
-    }),
+      defineConfig({
+        issuer,
+        adapter: adapters.database({}),
+        jwks: { source: 'managed', algorithm: 'RS256' },
+        accountStore: memoryAccountStore(),
+        patStore: lucidPatStore(TestPat),
+        audit: memoryAuditSink(),
+        mail: { onPasswordReset: async () => {} },
+        ...extra,
+      }),
+    ),
   );
   const service = new OidcService(cfg!, 'a'.repeat(32));
   const server: Server = createServer(service.callback);

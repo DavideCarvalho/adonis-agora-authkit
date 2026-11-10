@@ -104,7 +104,6 @@ async function makeService(path: string, port: number) {
       issuer: `http://localhost:${port}`,
       adapter: adapters.redis({ connection: 'main' }),
       jwks: { source: 'managed', algorithm: 'RS256', store: path, encrypt: false },
-      clients: [],
       accountStore: fakeAccountStore(),
       admin: { enabled: true, roles: ['ADMIN'] },
     }),

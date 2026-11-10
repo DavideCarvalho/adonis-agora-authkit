@@ -26,6 +26,7 @@ import { resetLockedSettingKeys, setLockedSettingKeys } from '../src/host/config
 import { SETTING_KEYS } from '../src/host/runtime_toggles.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { fakeAccountStore } from './bootstrap.js';
+import { withClients } from './helpers/seed_clients.js';
 
 const TOKEN_EXCHANGE = 'urn:ietf:params:oauth:grant-type:token-exchange';
 const ISSUER = 'https://impersonation.test';
@@ -37,11 +38,8 @@ async function resolvedConfig(extra: Partial<AuthServerConfigInput> = {}) {
   } as any;
   return (await configProvider.resolve(
     fakeApp,
-    defineConfig({
-      issuer: ISSUER,
-      adapter: adapters.redis({ connection: 'main' }),
-      jwks: { source: 'managed', algorithm: 'RS256' },
-      clients: [
+    withClients(
+      [
         {
           clientId: 'admin-cli',
           clientSecret: 'sec',
@@ -49,14 +47,19 @@ async function resolvedConfig(extra: Partial<AuthServerConfigInput> = {}) {
           grants: ['authorization_code', 'refresh_token', TOKEN_EXCHANGE],
         },
       ],
-      accountStore: fakeAccountStore({
-        findById: async (id: string) =>
-          id === 'target-1'
-            ? { id, email: 't@x.com', globalRoles: ['USER'], name: 'Target' }
-            : null,
+      defineConfig({
+        issuer: ISSUER,
+        adapter: adapters.redis({ connection: 'main' }),
+        jwks: { source: 'managed', algorithm: 'RS256' },
+        accountStore: fakeAccountStore({
+          findById: async (id: string) =>
+            id === 'target-1'
+              ? { id, email: 't@x.com', globalRoles: ['USER'], name: 'Target' }
+              : null,
+        }),
+        ...extra,
       }),
-      ...extra,
-    }),
+    ),
   )) as any;
 }
 

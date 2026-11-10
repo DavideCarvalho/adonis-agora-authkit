@@ -5,6 +5,7 @@ import RedisMock from 'ioredis-mock';
 import { adapters, defineConfig } from '../src/define_config.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { fakeAccountStore } from './bootstrap.js';
+import { withClients } from './helpers/seed_clients.js';
 
 const PORT = 9779;
 const ISSUER = `http://localhost:${PORT}`;
@@ -16,11 +17,8 @@ test.group('OIDC discovery', () => {
     } as any;
     const cfg = await configProvider.resolve(
       fakeApp,
-      defineConfig({
-        issuer: ISSUER,
-        adapter: adapters.redis({ connection: 'main' }),
-        jwks: { source: 'managed' },
-        clients: [
+      withClients(
+        [
           {
             clientId: 'app1',
             clientSecret: 's',
@@ -28,8 +26,13 @@ test.group('OIDC discovery', () => {
             grants: ['authorization_code', 'refresh_token'],
           },
         ],
-        accountStore: fakeAccountStore(),
-      }),
+        defineConfig({
+          issuer: ISSUER,
+          adapter: adapters.redis({ connection: 'main' }),
+          jwks: { source: 'managed' },
+          accountStore: fakeAccountStore(),
+        }),
+      ),
     );
     const service = new OidcService(cfg!, 'a'.repeat(32));
     const server = createServer(service.callback);
@@ -60,11 +63,8 @@ test.group('OIDC discovery', () => {
     } as any;
     const cfg = await configProvider.resolve(
       fakeApp,
-      defineConfig({
-        issuer: PATH_ISSUER,
-        adapter: adapters.redis({ connection: 'main' }),
-        jwks: { source: 'managed' },
-        clients: [
+      withClients(
+        [
           {
             clientId: 'app1',
             clientSecret: 's',
@@ -72,8 +72,13 @@ test.group('OIDC discovery', () => {
             grants: ['authorization_code'],
           },
         ],
-        accountStore: fakeAccountStore(),
-      }),
+        defineConfig({
+          issuer: PATH_ISSUER,
+          adapter: adapters.redis({ connection: 'main' }),
+          jwks: { source: 'managed' },
+          accountStore: fakeAccountStore(),
+        }),
+      ),
     );
     const service = new OidcService(cfg!, 'a'.repeat(32));
     const server = createServer(service.callback);

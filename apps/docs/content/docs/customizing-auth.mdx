@@ -756,7 +756,7 @@ works in its own area; the IdP just imports and registers them.
 <Callout type="info">
   `branding.firstParty` does double duty here. Beyond skipping the consent screen, it is
   read as a fallback allowlist for the roles and organization claims — see
-  [The roles claim](#the-roles-claim). Adding a product to `clients` without adding it to
+  [The roles claim](#the-roles-claim). Adding a product to `branding.clients` without adding it to
   `firstParty` gives it your branding but no roles. Declare `firstPartyClients` to keep the
   two decisions apart.
 </Callout>

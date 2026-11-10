@@ -9,6 +9,7 @@ import { type AuthServerConfigInput, adapters, defineConfig } from '../../src/de
 import InteractionController from '../../src/host/controllers/interaction_controller.js';
 import { registerOAuthResource } from '../../src/mcp/mcp_oauth.js';
 import { OidcService } from '../../src/provider/oidc_service.js';
+import { withClients } from '../helpers/seed_clients.js';
 
 // ---------------------------------------------------------------------------
 // E2E harness for RFC 9068 JWT Access Tokens. Drives login → consent → token
@@ -163,25 +164,25 @@ async function startServer(
   } as any;
   const cfg = await configProvider.resolve(
     fakeApp,
-    defineConfig({
-      issuer: ISSUER,
-      adapter: adapters.redis({ connection: 'main' }),
-      jwks: { source: 'managed', algorithm: 'RS256' },
-      clients: [
-        { clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, redirectUris: [REDIRECT_URI], grants },
-      ],
-      accountStore: makeStore(),
-      branding: {
-        company: 'AuthKit Test',
-        clients: {},
-        default: { appName: 'Test', accent: '#000', accentSoft: '#111', tagline: 'tl' },
-        firstParty: [],
-      },
-      render: recordingRenderer as any,
-      trustedDevices: { enabled: false },
-      accessTokens,
-      ...extra,
-    }),
+    withClients(
+      [{ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, redirectUris: [REDIRECT_URI], grants }],
+      defineConfig({
+        issuer: ISSUER,
+        adapter: adapters.redis({ connection: 'main' }),
+        jwks: { source: 'managed', algorithm: 'RS256' },
+        accountStore: makeStore(),
+        branding: {
+          company: 'AuthKit Test',
+          clients: {},
+          default: { appName: 'Test', accent: '#000', accentSoft: '#111', tagline: 'tl' },
+          firstParty: [],
+        },
+        render: recordingRenderer as any,
+        trustedDevices: { enabled: false },
+        accessTokens,
+        ...extra,
+      }),
+    ),
   );
   const service = new OidcService(cfg!, APP_KEY);
   const controller = new InteractionController();

@@ -11,6 +11,7 @@ import RedisMock from 'ioredis-mock';
 import { buildAuthorizeUrl, generatePkce } from '../src/oidc_login.js';
 import { resolvers } from '../src/resolvers/factory.js';
 import { resolverContext } from './helpers/resolvers.js';
+import { seedClient } from './helpers/seed_client.js';
 
 const PORT = 9821;
 const ISSUER = `http://localhost:${PORT}`;
@@ -39,14 +40,6 @@ test.group('client ↔ server round-trip (ID token)', (group) => {
         issuer: ISSUER,
         adapter: adapters.redis({ connection: 'main' }),
         jwks: { source: 'managed', algorithm: 'RS256' },
-        clients: [
-          {
-            clientId: CLIENT_ID,
-            clientSecret: CLIENT_SECRET,
-            redirectUris: [REDIRECT_URI],
-            grants: ['authorization_code', 'refresh_token'],
-          },
-        ],
         // accountStore é o contrato primário de identidade do server kit: o provider
         // resolve as claims via accountStore.findById(sub). Aqui basta um store mínimo
         // que devolve a conta admin para qualquer sub (o interaction flow é dirigido
@@ -88,6 +81,11 @@ test.group('client ↔ server round-trip (ID token)', (group) => {
         },
       }),
     );
+    await seedClient(cfg!, {
+      clientId: CLIENT_ID,
+      clientSecret: CLIENT_SECRET,
+      redirectUris: [REDIRECT_URI],
+    });
     service = new OidcService(cfg!, 'a'.repeat(32));
 
     // Handler: rotas OIDC normais vão pro service.callback; a tela de interaction

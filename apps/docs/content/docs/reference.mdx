@@ -12,7 +12,6 @@ description: The full defineConfig option tables for server and client.
 | --- | --- | --- | --- |
 | `issuer` | `string` | — | Public provider URL; must end with `mountPath`. |
 | `adapter` | `AdapterFactory` | — | Storage adapter, e.g. `adapters.database({ connection })`. |
-| `clients` | `ClientConfig[]` | — | Internal/test use only. Create clients via the admin console, Admin API (`node ace authkit:clients:create`), or [Dynamic Registration](/docs/dynamic-registration). |
 | `jwks` | `JwksConfig` | — | `{ source: 'managed' \| 'jwks', algorithm?, rotationDays?, keys? }`. |
 | `ttl` | `TtlConfig` | see below | Token/session lifetimes; accepts `'15m'`, `'30d'`, or seconds. **Declaring this key locks the `token_ttl` setting.** |
 | `globalRolesClaim` | `string` | `'roles'` | Claim name where global roles are emitted. |
@@ -86,17 +85,6 @@ description: The full defineConfig option tables for server and client.
 | `refreshToken` | `2592000` (30d) |
 | `idToken` | `900` (15m) |
 | `session` | `604800` (7d) |
-
-### `ClientConfig`
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `clientId` | `string` | — |
-| `clientSecret` | `string?` | Omit for public clients. |
-| `redirectUris` | `string[]` | Allowed authorization redirect URIs. |
-| `postLogoutRedirectUris` | `string[]?` | For RP-initiated logout. |
-| `grants` | `string[]?` | e.g. `authorization_code`, `refresh_token`, `urn:ietf:params:oauth:grant-type:token-exchange`. |
-| `tokenEndpointAuthMethod` | `'client_secret_basic' \| 'client_secret_post' \| 'none'` | `'none'` for public/SPA + PKCE. |
 
 ### `RateLimitConfigInput`
 
@@ -282,7 +270,7 @@ Commands provided by `@adonis-agora/authkit-server`:
 | `node ace authkit:users:import --file <path> [--dry-run]` | Bulk-import users from a JSON array or NDJSON file, preserving hashes as-is for lazy rehash on login. |
 | `node ace authkit:users:normalize-emails [--apply]` | Migrate stored addresses to the normalized identity form (`trim` + `toLowerCase`). Reports by default; `--apply` writes, refusing to touch accounts involved in a collision. **Required upgrade step** from 0.70 or earlier — see [below](#authkitusersnormalize-emails). |
 | `node ace authkit:keys:rotate [--keep=N] [--retire] [--dry-run]` | Rotate signing keys in a managed keystore file; keeps a grace-period window of N previous keys (default 2). |
-| `node ace authkit:clients:create --redirect-uri=<uri> [--client-id] [--public] [--grant] [--post-logout-uri] [--backchannel-logout-uri] [--json]` | Create an OIDC client in the adapter/DB at runtime. For confidential clients a secret is generated and printed **once** — save it immediately. See [below](#authkitclientscreate). |
+| `node ace authkit:clients:create --redirect-uri=<uri> [--client-id] [--public] [--grant] [--post-logout-uri] [--backchannel-logout-uri] [--client-secret] [--json]` | Create an OIDC client in the adapter/DB at runtime. For confidential clients a secret is generated and printed **once** — save it immediately. See [below](#authkitclientscreate). |
 | `node ace authkit:settings:list [--json]` | List all runtime settings currently persisted in the `auth_settings` table. |
 | `node ace authkit:settings:get <key> [--json]` | Get a specific setting by key. Prints `null` if the key is not set (lib default applies). |
 | `node ace authkit:settings:set <key> <json> [--json]` | Upsert a setting. Validates shape for known keys. Audits `settings.updated` with `updatedBy: 'cli'`. |
@@ -300,8 +288,8 @@ it covers is switched off — an opt-in feature you never enabled is not a findi
 | --- | --- |
 | `checkConfigResolves` | `config('authkit')` resolves at all. |
 | `checkIssuer` | `issuer` is a valid URL and its pathname matches `mountPath`. |
-| `checkClients` | No static `clients` in the config — clients are runtime-only, via the console or the Admin API. |
-| `checkAdapterVolatility` | The adapter persists. Because clients live only at runtime, a volatile adapter (in-memory, Redis without persistence) silently loses them on restart. |
+| `checkClients` | Reminds that clients live in the adapter, managed via the console, the Admin API or `authkit:clients:create`. |
+| `checkAdapterVolatility` | The adapter persists. Because clients live in the adapter, a volatile adapter (in-memory, Redis without persistence) silently loses them on restart. |
 | `checkAccountStore` | The store is present, and which capabilities it implements. |
 | `checkSession` | `@adonisjs/session` is configured; warns about the cookie store with large token sets. |
 | `checkShield` | The CSRF exceptions Shield needs for `mountPath`. |
@@ -390,6 +378,7 @@ node ace authkit:clients:create \
 | `--grant=<type>` | Grant type (repeatable). Default: `authorization_code` + `refresh_token`. |
 | `--post-logout-uri=<uri>` | Post-logout redirect URI (repeatable). |
 | `--backchannel-logout-uri=<uri>` | OIDC Back-Channel Logout endpoint of the RP. |
+| `--client-secret=<secret>` | Use this secret instead of generating one (confidential clients only). Keeps the secret your RPs already use. |
 | `--json` | Print the result as JSON (includes `clientId` and `clientSecret` for confidential clients). |
 
 For confidential clients a `clientSecret` is generated and printed **exactly once** — store
@@ -468,7 +457,7 @@ See [Native apps](/docs/native-apps) for the bearer guard.
 
 | Export | Purpose |
 | --- | --- |
-| `ApplicationType` | `'web' \| 'native'` — `ClientConfig.applicationType` / Admin API `applicationType`. |
+| `ApplicationType` | `'web' \| 'native'` — the Admin API / `AdminClientsService` `applicationType`. |
 | `redirectUriProblem(uri, type?)` | Why a redirect URI is invalid for a client type, or `null`. |
 | `assertClientMetadata(input)` / `ClientMetadataError` | The type-aware checks `AdminClientsService` runs before persisting a client (the Admin API maps the error to `422 invalid_client_metadata`). |
 

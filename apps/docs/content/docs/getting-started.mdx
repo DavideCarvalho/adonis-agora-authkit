@@ -114,8 +114,8 @@ The `issuer` is the public URL of the provider and **must end with `mountPath`**
 composes the mixins the Lucid store needs; add columns to it as your domain grows.
 
 <Callout type="info">
-  **No `clients:` block needed at boot.** The server starts fine with zero static clients.
-  You register your first client through the admin console or the Admin API after the first
+  **Clients are not part of the config.** The server starts with zero clients; you register
+  your first client through the admin console or the Admin API after the first
   start (see [Registering your first client](#registering-your-first-client)).
 </Callout>
 

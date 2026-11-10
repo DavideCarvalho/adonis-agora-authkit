@@ -2,10 +2,10 @@ import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
 import RedisMock from 'ioredis-mock';
 import instance from 'oidc-provider/lib/helpers/weak_cache.js';
-import { adapters, defineConfig, type ResolvedServerConfig } from '../src/define_config.js';
-import { ClientMetadataError } from '../src/host/client_metadata.js';
+import { adapters, defineConfig } from '../src/define_config.js';
 import { buildProvider } from '../src/provider/build_provider.js';
 import { fakeAccountStore } from './bootstrap.js';
+import { withClients } from './helpers/seed_clients.js';
 
 async function resolved() {
   const fakeApp = {
@@ -13,11 +13,8 @@ async function resolved() {
   } as any;
   return configProvider.resolve(
     fakeApp,
-    defineConfig({
-      issuer: 'https://auth.test',
-      adapter: adapters.redis({ connection: 'main' }),
-      jwks: { source: 'managed', algorithm: 'RS256' },
-      clients: [
+    withClients(
+      [
         {
           clientId: 'app1',
           clientSecret: 's',
@@ -28,30 +25,17 @@ async function resolved() {
           backchannelLogoutSessionRequired: true,
         },
       ],
-      accountStore: fakeAccountStore(),
-    }),
+      defineConfig({
+        issuer: 'https://auth.test',
+        adapter: adapters.redis({ connection: 'main' }),
+        jwks: { source: 'managed', algorithm: 'RS256' },
+        accountStore: fakeAccountStore(),
+      }),
+    ),
   );
 }
 
 test.group('buildProvider', () => {
-  test('client estático inválido (nativo com secret) falha no boot', async ({ assert }) => {
-    const cfg = (await resolved()) as ResolvedServerConfig;
-    cfg.clients.push({
-      clientId: 'app-nativo',
-      clientSecret: 'nao-pode',
-      redirectUris: ['com.example.app:/callback'],
-      applicationType: 'native',
-    } as ResolvedServerConfig['clients'][number]);
-    assert.throws(
-      () =>
-        buildProvider(cfg, {
-          appKey: 'a'.repeat(32),
-          findAccount: async () => undefined,
-        }),
-      ClientMetadataError as any,
-    );
-  });
-
   test('instancia um Provider OIDC com issuer', async ({ assert }) => {
     const cfg = await resolved();
     const provider = buildProvider(cfg!, {

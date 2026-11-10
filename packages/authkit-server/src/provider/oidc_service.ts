@@ -1,5 +1,5 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
-import { type ClientConfig, type MetricsRecorder, NoopRecorder } from '@adonis-agora/authkit-core';
+import { createHmac } from 'node:crypto';
+import { type MetricsRecorder, NoopRecorder } from '@adonis-agora/authkit-core';
 import Koa from 'koa';
 import mount from 'koa-mount';
 import type { ActiveOrgInfo } from '../accounts/account_store.js';
@@ -72,7 +72,6 @@ export class OidcService {
   readonly sessionTtlHolder: SessionTtlHolder;
   /** Holder mutável dos TTLs de access/id/refresh tokens (lido sincronamente pelo oidc-provider). */
   readonly tokenTtlHolder: TokenTtlHolder;
-  #clients: ClientConfig[];
   #config: ResolvedServerConfig;
   /** Closures de acesso ao cofre de chaves (injetadas pelo provider para hot-reload). */
   #deps: {
@@ -127,7 +126,6 @@ export class OidcService {
     } = {},
   ) {
     this.#config = config;
-    this.#clients = config.clients ?? [];
     this.#appKey = appKey;
     this.recorder = recorder;
     this.#deps = deps;
@@ -400,14 +398,5 @@ export class OidcService {
       // hash-de-conteúdo (acima) continua garantindo correção; só perdemos a expulsão
       // imediata da entrada órfã. Best-effort — não propaga erro pro caminho da request.
     }
-  }
-
-  /** Verifica client_id + client_secret contra os clients da config (p/ endpoints custom como introspecção de PAT). */
-  verifyClientCredentials(clientId: string, clientSecret: string): boolean {
-    const client = this.#clients.find((c) => c.clientId === clientId);
-    if (!client?.clientSecret) return false;
-    const a = Buffer.from(client.clientSecret);
-    const b = Buffer.from(clientSecret);
-    return a.length === b.length && timingSafeEqual(a, b);
   }
 }

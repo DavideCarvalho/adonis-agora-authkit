@@ -544,9 +544,6 @@ test.group('sudo — o backstop dispara no boot, a partir do defineConfig', () =
     issuer: 'https://sudo-backstop.test',
     adapter: adapters.redis({ connection: 'main' }),
     jwks: { source: 'managed' as const, algorithm: 'RS256' as const },
-    clients: [
-      { clientId: 'app1', clientSecret: 's', redirectUris: ['https://sudo-backstop.test/cb'] },
-    ],
   };
 
   async function resolveWith(extra: Record<string, unknown>) {

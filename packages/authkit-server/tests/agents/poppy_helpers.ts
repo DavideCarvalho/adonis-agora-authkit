@@ -176,7 +176,6 @@ export async function setupPoppy(
       issuer: extra.issuer ?? ISSUER,
       adapter: adapters.redis({ connection: 'main' }),
       jwks: { source: 'managed', algorithm: 'ES256' },
-      clients: [],
       accountStore: {
         findById: async (id: string) =>
           accounts[id] ? { id, email: accounts[id].email, globalRoles: [] } : null,

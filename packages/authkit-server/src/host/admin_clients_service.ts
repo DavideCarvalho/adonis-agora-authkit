@@ -119,9 +119,8 @@ export class AdminClientsService {
   }
 
   /**
-   * Cria um client PRESERVANDO um `clientSecret` fornecido externamente (em vez de
-   * gerar um aleatório). Útil para migração de clients estáticos do config, onde o
-   * secret original deve ser preservado para não quebrar apps já configurados.
+   * Cria um client com um `clientSecret` fornecido externamente (em vez de gerar
+   * um aleatório) — ex.: para manter o secret que os RPs já usam.
    *
    * Para clients públicos (auth method `none`), `providedSecret` é ignorado.
    * Lança se o `clientId` já existir no adapter — chame `find` antes.

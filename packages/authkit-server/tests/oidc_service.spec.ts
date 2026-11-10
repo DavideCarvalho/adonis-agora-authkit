@@ -6,6 +6,7 @@ import { adapters, defineConfig } from '../src/define_config.js';
 import type { BrandingConfig } from '../src/host/branding.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { fakeAccountStore } from './bootstrap.js';
+import { withClients } from './helpers/seed_clients.js';
 
 test.group('OidcService', () => {
   test('expõe provider e callback handler', async ({ assert }) => {
@@ -14,13 +15,15 @@ test.group('OidcService', () => {
     } as any;
     const cfg = await configProvider.resolve(
       fakeApp,
-      defineConfig({
-        issuer: 'https://auth.test',
-        adapter: adapters.redis({ connection: 'main' }),
-        jwks: { source: 'managed' },
-        clients: [{ clientId: 'app1', clientSecret: 's', redirectUris: ['https://app1/cb'] }],
-        accountStore: fakeAccountStore(),
-      }),
+      withClients(
+        [{ clientId: 'app1', clientSecret: 's', redirectUris: ['https://app1/cb'] }],
+        defineConfig({
+          issuer: 'https://auth.test',
+          adapter: adapters.redis({ connection: 'main' }),
+          jwks: { source: 'managed' },
+          accountStore: fakeAccountStore(),
+        }),
+      ),
     );
     const service = new OidcService(cfg!, 'a'.repeat(32));
     assert.isOk(service.provider);
@@ -34,41 +37,21 @@ test.group('OidcService', () => {
     } as any;
     const cfg = await configProvider.resolve(
       fakeApp,
-      defineConfig({
-        issuer: 'https://auth.test',
-        adapter: adapters.redis({ connection: 'main' }),
-        jwks: { source: 'managed' },
-        clients: [{ clientId: 'app1', clientSecret: 's', redirectUris: ['https://app1/cb'] }],
-        accountStore: fakeAccountStore(),
-        mountPath: '/oidc',
-        render: () => {},
-      }),
+      withClients(
+        [{ clientId: 'app1', clientSecret: 's', redirectUris: ['https://app1/cb'] }],
+        defineConfig({
+          issuer: 'https://auth.test',
+          adapter: adapters.redis({ connection: 'main' }),
+          jwks: { source: 'managed' },
+          accountStore: fakeAccountStore(),
+          mountPath: '/oidc',
+          render: () => {},
+        }),
+      ),
     );
     const service = new OidcService(cfg!, 'a'.repeat(32));
     assert.equal(service.config.mountPath, '/oidc');
     assert.isFunction(service.config.render);
-  });
-
-  test('verifyClientCredentials aceita par correto e rejeita errado/inexistente', async ({
-    assert,
-  }) => {
-    const fakeApp = {
-      container: { make: async () => ({ connection: () => new RedisMock() }) },
-    } as any;
-    const cfg = await configProvider.resolve(
-      fakeApp,
-      defineConfig({
-        issuer: 'https://auth.test',
-        adapter: adapters.redis({ connection: 'main' }),
-        jwks: { source: 'managed' },
-        clients: [{ clientId: 'rs1', clientSecret: 's3cr3t', redirectUris: ['https://rs1/cb'] }],
-        accountStore: fakeAccountStore(),
-      }),
-    );
-    const service = new OidcService(cfg!, 'a'.repeat(32));
-    assert.isTrue(service.verifyClientCredentials('rs1', 's3cr3t'));
-    assert.isFalse(service.verifyClientCredentials('rs1', 'errado'));
-    assert.isFalse(service.verifyClientCredentials('naoexiste', 's3cr3t'));
   });
 
   // ── Gate de least-privilege: roles/org_* só para clients first-party ──────────
@@ -85,18 +68,20 @@ test.group('OidcService', () => {
     } as any;
     const cfg = await configProvider.resolve(
       fakeApp,
-      defineConfig({
-        issuer: 'https://auth.test',
-        adapter: adapters.redis({ connection: 'main' }),
-        jwks: { source: 'managed' },
-        clients: [
+      withClients(
+        [
           { clientId: 'first-app', clientSecret: 's', redirectUris: ['https://first-app/cb'] },
           { clientId: 'third-app', clientSecret: 's', redirectUris: ['https://third-app/cb'] },
         ],
-        accountStore: fakeAccountStore(),
-        branding,
-        ...extra,
-      }),
+        defineConfig({
+          issuer: 'https://auth.test',
+          adapter: adapters.redis({ connection: 'main' }),
+          jwks: { source: 'managed' },
+          accountStore: fakeAccountStore(),
+          branding,
+          ...extra,
+        }),
+      ),
     );
     return new OidcService(cfg!, 'a'.repeat(32));
   }

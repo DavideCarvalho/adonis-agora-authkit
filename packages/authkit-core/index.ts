@@ -13,7 +13,6 @@ export type {
   AccessTokenFormat,
   AccessTokenResourceConfig,
   AccessTokensConfig,
-  ClientConfig,
   JwksConfig,
   KeystoreStoreConfig,
   ObservabilityConfig,

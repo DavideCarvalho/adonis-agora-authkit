@@ -41,7 +41,6 @@ async function startService(
       issuer,
       adapter: adapters.redis({ connection: 'main' }),
       jwks: { source: 'managed', algorithm: 'RS256' },
-      clients: [],
       accountStore: fakeAccountStore(),
       dynamicRegistration: dynReg,
     }),

@@ -14,6 +14,7 @@ import { KeystoreManager } from '../../src/keys/keystore_manager.js';
 import { FileKeystoreVault } from '../../src/keys/keystore_vault.js';
 import { OidcService } from '../../src/provider/oidc_service.js';
 import { fakeAccountStore } from '../bootstrap.js';
+import { withClients } from '../helpers/seed_clients.js';
 
 function mgr(path: string) {
   return new KeystoreManager(
@@ -80,11 +81,8 @@ test.group('OidcService.reloadKeys (e2e)', (group) => {
     } as any;
     const cfg = await configProvider.resolve(
       fakeApp,
-      defineConfig({
-        issuer: ISSUER,
-        adapter: adapters.redis({ connection: 'main' }),
-        jwks: { source: 'managed', algorithm: 'RS256', store: path, encrypt: false },
-        clients: [
+      withClients(
+        [
           {
             clientId: 'app1',
             clientSecret: 's',
@@ -92,8 +90,13 @@ test.group('OidcService.reloadKeys (e2e)', (group) => {
             grants: ['authorization_code'],
           },
         ],
-        accountStore: fakeAccountStore(),
-      }),
+        defineConfig({
+          issuer: ISSUER,
+          adapter: adapters.redis({ connection: 'main' }),
+          jwks: { source: 'managed', algorithm: 'RS256', store: path, encrypt: false },
+          accountStore: fakeAccountStore(),
+        }),
+      ),
     );
     service = new OidcService(cfg!, 'a'.repeat(32), undefined, {
       jwksLoader: async () => {
@@ -142,7 +145,6 @@ test.group('OidcService.reloadKeys (e2e)', (group) => {
           issuer: `http://localhost:${PORT + 1}`,
           adapter: adapters.redis({ connection: 'main' }),
           jwks: { source: 'managed', algorithm: 'RS256' },
-          clients: [],
           accountStore: fakeAccountStore(),
         }),
       ))!,
@@ -170,7 +172,6 @@ test.group('OidcService.reloadKeys (atomicidade)', () => {
           issuer: 'http://localhost:9792',
           adapter: adapters.redis({ connection: 'main' }),
           jwks: { source: 'managed', algorithm: 'RS256', store: path2, encrypt: false },
-          clients: [],
           accountStore: fakeAccountStore(),
         }),
       );
@@ -208,7 +209,6 @@ test.group('OidcService reload serialization + age', () => {
           issuer: 'http://localhost:9793',
           adapter: adapters.redis({ connection: 'main' }),
           jwks: { source: 'managed', algorithm: 'RS256', store: pathX, encrypt: false },
-          clients: [],
           accountStore: fakeAccountStore(),
         }),
       );
@@ -248,7 +248,6 @@ test.group('OidcService reload serialization + age', () => {
           issuer: 'http://localhost:9794',
           adapter: adapters.redis({ connection: 'main' }),
           jwks: { source: 'managed', algorithm: 'RS256', store: pathY, encrypt: false },
-          clients: [],
           accountStore: fakeAccountStore(),
         }),
       );
@@ -282,7 +281,6 @@ test.group('OidcService reload serialization + age', () => {
           issuer: 'http://localhost:9796',
           adapter: adapters.redis({ connection: 'main' }),
           jwks: { source: 'managed', algorithm: 'RS256', store: pathR, encrypt: false },
-          clients: [],
           accountStore: fakeAccountStore(),
         }),
       );
@@ -323,7 +321,6 @@ test.group('OidcService reload serialization + age', () => {
           issuer: 'http://localhost:9795',
           adapter: adapters.redis({ connection: 'main' }),
           jwks: { source: 'managed', algorithm: 'RS256', store: pathZ, encrypt: false },
-          clients: [],
           accountStore: fakeAccountStore(),
           audit: {
             record: async (e: any) => {
