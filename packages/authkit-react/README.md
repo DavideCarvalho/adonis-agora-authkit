@@ -98,29 +98,39 @@ import { AuthProvider } from '@adonis-agora/authkit-react'
 
 ## 5. Config + componentes prontos
 
-Envolva a app com `<AuthkitProvider>` para configurar URLs/endpoints e use os
-hooks headless e componentes prontos:
+Envolva a app com `<AuthkitProvider>` (URLs, CSRF, modo de IdP). Os componentes de
+conta (`UserProfile`, `AuthorizedApps`, `OrganizationSwitcher`, `OrganizationProfile`)
+buscam dados pela Account API, então também precisam de `QueryClientProvider` +
+`AuthkitClientProvider`:
 
 ```tsx
 import '@adonis-agora/authkit-react/styles.css'
+import { QueryClientProvider } from '@tanstack/react-query'
 import {
+  AuthkitClientProvider,
   AuthkitProvider,
-  useSignIn, useSignOut, useUser, useProfile, useSessions, useAuthorizedApps,
-  SignInButton, SignOutButton, UserButton, UserProfile, AuthorizedApps,
+  createAuthkitQueryClient,
+  AuthorizedApps,
+  UserButton,
+  UserProfile,
 } from '@adonis-agora/authkit-react'
 
-<AuthkitProvider config={{ csrfToken: page.props.csrfToken }}>
-  <UserButton />
-  <UserProfile />
-  <AuthorizedApps />
-</AuthkitProvider>
+const queryClient = createAuthkitQueryClient()
+
+<QueryClientProvider client={queryClient}>
+  <AuthkitClientProvider>
+    <AuthkitProvider config={{ csrfToken: page.props.csrfToken }}>
+      <UserButton />
+      <UserProfile />
+      <AuthorizedApps />
+    </AuthkitProvider>
+  </AuthkitClientProvider>
+</QueryClientProvider>
 ```
 
-Defaults dos endpoints apontam para as rotas reais do host-kit
-(`/auth/login`, `/account/logout`, `/account/security`, `/account/security/profile`,
-`/account/apps`, …). Numa topologia de *client app*, aponte-os para rotas locais que
-redirecionam para o IdP. Temável via CSS vars `--authkit-*`. Veja a
-[doc de React](https://...) para detalhes.
+Para telas próprias, use as query options com `useQuery`/`useMutation`
+(`useMeQueryOptions`, `useAccountSessionsQueryOptions`, `useAppsQueryOptions`,
+`useAccountOrgsQueryOptions`, …). Temável via CSS vars `--authkit-*`.
 
 ## Helpers puros
 

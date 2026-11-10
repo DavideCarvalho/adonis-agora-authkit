@@ -193,29 +193,8 @@ export {
   resolveConfig,
   useAuthkitConfig,
 } from './src/config.js';
-export type {
-  AuthorizedApp,
-  UseAuthorizedAppsResult,
-} from './src/hooks/use_authorized_apps.js';
-export { useAuthorizedApps } from './src/hooks/use_authorized_apps.js';
 export type { UseCanResult } from './src/hooks/use_can.js';
 export { checkCan, invalidateCanCache, useCan } from './src/hooks/use_can.js';
-export type {
-  OrgInvitationEntry,
-  UseOrgInvitationsResult,
-} from './src/hooks/use_org_invitations.js';
-export { useOrgInvitations } from './src/hooks/use_org_invitations.js';
-export type {
-  ActiveOrgDetail,
-  OrgMemberEntry,
-  UseOrganizationResult,
-} from './src/hooks/use_organization.js';
-export { useOrganization } from './src/hooks/use_organization.js';
-export type {
-  OrgEntry,
-  UseOrganizationsResult,
-} from './src/hooks/use_organizations.js';
-export { useOrganizations } from './src/hooks/use_organizations.js';
 export type {
   UsePasskeyAssertionOptions,
   UsePasskeyAssertionResult,
@@ -243,24 +222,11 @@ export {
   heuristicScorer,
   usePasswordStrength,
 } from './src/hooks/use_password_strength.js';
-export type {
-  ProfileUpdate,
-  UseProfileResult,
-} from './src/hooks/use_profile.js';
-export { useProfile } from './src/hooks/use_profile.js';
-export type { ResourceState } from './src/hooks/use_resource.js';
-export { jsonRequest, useResource } from './src/hooks/use_resource.js';
-export type {
-  AuthSession,
-  UseSessionsResult,
-} from './src/hooks/use_sessions.js';
-export { useSessions } from './src/hooks/use_sessions.js';
+export { jsonRequest } from './src/hooks/use_resource.js';
 export type { SignInOptions } from './src/hooks/use_sign_in.js';
 export { useSignIn } from './src/hooks/use_sign_in.js';
 export type { SignOutOptions } from './src/hooks/use_sign_out.js';
 export { useSignOut } from './src/hooks/use_sign_out.js';
-export type { UseSwitchOrganizationResult } from './src/hooks/use_switch_organization.js';
-export { useSwitchOrganization } from './src/hooks/use_switch_organization.js';
 export type { UseUserResult } from './src/hooks/use_user.js';
 export { useUser } from './src/hooks/use_user.js';
 export type { LastLoginMethod } from './src/interaction/last_used.js';

@@ -585,7 +585,6 @@ test.group('registerAuthHost — montagem por tela do console de conta', (group)
     const router = fakeRouter();
     registerAuthHost(router, { mountPath: '/oidc', account: { orgs: false } });
     assert.isFalse(has(router, '/account/orgs'), 'orgs desmontado');
-    assert.isFalse(has(router, '/account/orgs/json'), 'orgs json desmontado');
     assert.isFalse(
       has(router, '/account/orgs/invitations/:token/accept'),
       'accept de convite desmontado',

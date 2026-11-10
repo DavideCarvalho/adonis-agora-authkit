@@ -1,8 +1,13 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createElement, type FormEvent, useState } from 'react';
 import { useAuthkitConfig } from '../config.js';
-import { useOrganization } from '../hooks/use_organization.js';
-import { useOrganizations } from '../hooks/use_organizations.js';
-import { jsonRequest } from '../hooks/use_resource.js';
+import {
+  useAccountInviteOrgMemberMutationOptions,
+  useAccountLeaveOrgMutationOptions,
+  useAccountOrgQueryOptions,
+  useAccountOrgsQueryOptions,
+} from '../queries/account/index.js';
+import { authkitKeys } from '../queries/keys.js';
 import { useAuth } from '../use_auth.js';
 
 export interface OrganizationProfileProps {
@@ -15,7 +20,8 @@ export interface OrganizationProfileProps {
 
 /**
  * Card de perfil da organização ativa: lista de membros + formulário de convite
- * (visível para owner/admin) + botão de sair. SSR-safe.
+ * (visível para owner/admin) + botão de sair. SSR-safe. Requer
+ * `AuthkitClientProvider` + `QueryClientProvider`.
  */
 function OrganizationProfileInner({
   inviteLabel = 'Convidar membro',
@@ -23,52 +29,48 @@ function OrganizationProfileInner({
   className,
 }: OrganizationProfileProps) {
   const { isAuthenticated } = useAuth();
-  const config = useAuthkitConfig();
-  const { activeOrgId, actions: orgListActions } = useOrganizations();
-  const { data: org, loading, error, actions } = useOrganization(activeOrgId);
+  const qc = useQueryClient();
+  const orgs = useQuery({ ...useAccountOrgsQueryOptions(), enabled: isAuthenticated });
+  const activeOrgId = orgs.data?.activeOrgId ?? null;
+  const orgQuery = useAccountOrgQueryOptions(activeOrgId ?? '');
+  const detail = useQuery({ ...orgQuery, enabled: isAuthenticated && activeOrgId !== null });
+  const invite = useMutation({
+    ...useAccountInviteOrgMemberMutationOptions(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: orgQuery.queryKey }),
+  });
+  const leave = useMutation({
+    ...useAccountLeaveOrgMutationOptions(),
+    onSuccess: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: authkitKeys.account.orgs() }),
+        qc.invalidateQueries({ queryKey: authkitKeys.account.me() }),
+      ]),
+  });
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('member');
-  const [inviteLoading, setInviteLoading] = useState(false);
-  const [inviteError, setInviteError] = useState<Error | null>(null);
 
   if (!isAuthenticated || !activeOrgId) return null;
-  if (loading)
+  if (detail.isLoading)
     return createElement('div', { className: 'authkit-org-profile__loading' }, 'Carregando…');
-  if (error) return createElement('div', { className: 'authkit-error' }, error.message);
+  if (detail.error)
+    return createElement('div', { className: 'authkit-error' }, detail.error.message);
+  const org = detail.data;
   if (!org) return null;
-
-  const base = config.endpoints.orgs.replace('/json', '');
 
   const handleInvite = async (e: FormEvent) => {
     e.preventDefault();
     if (!inviteEmail.trim()) return;
-    setInviteLoading(true);
-    setInviteError(null);
     try {
-      await jsonRequest(`${base}/${encodeURIComponent(activeOrgId)}/invite`, {
-        method: 'POST',
-        body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
-        csrfToken: config.csrfToken,
-      });
+      await invite.mutateAsync({ orgId: activeOrgId, email: inviteEmail.trim(), role: inviteRole });
       setInviteEmail('');
-      await actions.refetch();
-    } catch (err) {
-      setInviteError(err as Error);
-    } finally {
-      setInviteLoading(false);
+    } catch {
+      // o erro fica em `invite.error`
     }
   };
 
-  const handleLeave = async () => {
-    try {
-      await jsonRequest(`${base}/${encodeURIComponent(activeOrgId)}/leave`, {
-        method: 'POST',
-        csrfToken: config.csrfToken,
-      });
-      await orgListActions.refetch();
-    } catch {
-      // best-effort
-    }
+  const handleLeave = () => {
+    // best-effort
+    leave.mutate(activeOrgId);
   };
 
   const memberList = createElement(
@@ -113,17 +115,17 @@ function OrganizationProfileInner({
           value: inviteRole,
           onChange: (e: React.ChangeEvent<HTMLInputElement>) => setInviteRole(e.target.value),
         }),
-        inviteError
-          ? createElement('p', { className: 'authkit-error', role: 'alert' }, inviteError.message)
+        invite.error
+          ? createElement('p', { className: 'authkit-error', role: 'alert' }, invite.error.message)
           : null,
         createElement(
           'button',
           {
             type: 'submit',
             className: 'authkit-button authkit-button--primary',
-            disabled: inviteLoading,
+            disabled: invite.isPending,
           },
-          inviteLoading ? 'Enviando…' : inviteLabel,
+          invite.isPending ? 'Enviando…' : inviteLabel,
         ),
       )
     : null;

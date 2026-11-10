@@ -1,11 +1,5 @@
 /**
- * Hooks TanStack Query para a Account Self-Service API.
- *
- * Reescreve os hooks legados (useProfile, useSessions, useAuthorizedApps,
- * useOrganizations, useOrganization, useOrgInvitations) como wrappers sobre
- * o `AuthkitClient`. O shape agora é o standard do TanStack Query:
- *   `{ data, isLoading, isError, error, refetch, ... }`
- * em vez do anterior `{ data, loading, error, actions }`.
+ * Hooks TanStack Query para a Account Self-Service API, sobre o `AuthkitClient`.
  *
  * Estilo consistente com os hooks de admin: retornam options para que o
  * consumidor passe para `useQuery` / `useMutation`.
@@ -68,12 +62,8 @@ import { authkitKeys } from '../keys.js';
 // ---------------------------------------------------------------------------
 
 /**
- * Query do perfil + flags do usuário logado.
- *
- * Substitui o antigo `useProfile()` com shape TanStack Query.
- * Antes: `{ data: AuthUser|null, loading, error, actions: { update } }`
- * Agora: `{ data: AccountMe|undefined, isLoading, isError, error, refetch }`
- * (mutação separada via `useUpdateProfileMutationOptions`)
+ * Query do perfil + flags do usuário logado. A edição é via
+ * `useUpdateProfileMutationOptions`.
  */
 export function useMeQueryOptions() {
   const client = useAuthkitClient();
@@ -85,10 +75,6 @@ export function useMeQueryOptions() {
 
 /**
  * Query de visão geral de segurança (sessões, MFA, e-mail pendente).
- *
- * Substitui parcialmente o antigo `useSessions()`.
- * Antes: `{ data: AuthSession[]|null, loading, error, actions: { revoke } }`
- * Agora: `{ data: AccountSecurityOverview|undefined, ... }`
  */
 export function useSecurityQueryOptions() {
   const client = useAuthkitClient();
@@ -147,12 +133,8 @@ export function useCancelEmailChangeMutationOptions() {
 // ---------------------------------------------------------------------------
 
 /**
- * Query de sessões ativas do usuário logado.
- *
- * Substitui o antigo `useSessions()` (o antigo era `/account/security`,
- * este bate em `/account/api/sessions`).
- * Antes: `{ data: AuthSession[]|null, loading, error, actions: { revoke, refetch } }`
- * Agora: shape TanStack padrão; mutação via `useRevokeSessionMutationOptions`.
+ * Query de sessões ativas do usuário logado. Revogação via
+ * `useRevokeSessionMutationOptions`.
  */
 export function useAccountSessionsQueryOptions() {
   const client = useAuthkitClient();
@@ -198,11 +180,8 @@ export function useAccountRevokeAllSessionsMutationOptions() {
 // ---------------------------------------------------------------------------
 
 /**
- * Query de apps autorizados (grants OAuth/OIDC).
- *
- * Substitui o antigo `useAuthorizedApps()`.
- * Antes: `{ data: AuthorizedApp[]|null, loading, error, actions: { revoke, refetch } }`
- * Agora: shape TanStack padrão; mutação via `useRevokeAppMutationOptions`.
+ * Query de apps autorizados (grants OAuth/OIDC). Revogação via
+ * `useRevokeAppMutationOptions`.
  */
 export function useAppsQueryOptions() {
   const client = useAuthkitClient();
@@ -320,12 +299,8 @@ export function useRevokeTokenMutationOptions() {
 // ---------------------------------------------------------------------------
 
 /**
- * Query de organizações do usuário logado.
- *
- * Substitui o antigo `useOrganizations()`.
- * Antes: `{ data: OrgEntry[]|null, loading, error, activeOrgId, supported, actions }`
- * Agora: shape TanStack padrão com `data: AccountOrgsResult`.
- * O `activeOrgId` fica em `data.activeOrgId` e `supported` em `data.supported`.
+ * Query de organizações do usuário logado: `data.orgs`, `data.activeOrgId` e
+ * `data.supported`.
  */
 export function useAccountOrgsQueryOptions() {
   const client = useAuthkitClient();
@@ -336,11 +311,7 @@ export function useAccountOrgsQueryOptions() {
 }
 
 /**
- * Query de detalhe de uma organização.
- *
- * Substitui o antigo `useOrganization(orgId)`.
- * Antes: `{ data: ActiveOrgDetail|null, loading, error, actions }`
- * Agora: shape TanStack padrão.
+ * Query de detalhe de uma organização (membros incluídos para owner/admin).
  */
 export function useAccountOrgQueryOptions(id: string) {
   const client = useAuthkitClient();
@@ -352,11 +323,8 @@ export function useAccountOrgQueryOptions(id: string) {
 }
 
 /**
- * Query de convites de organizações pendentes para o usuário logado.
- *
- * Substitui o antigo `useOrgInvitations()`.
- * Antes: `{ data: OrgInvitationEntry[]|null, loading, error, actions: { accept } }`
- * Agora: shape TanStack padrão. `accept` vira um POST via `useAccountAcceptOrgInvitationMutationOptions`.
+ * Query de convites de organizações pendentes para o usuário logado. Aceite via
+ * `useAccountAcceptOrgInvitationMutationOptions`.
  */
 export function useAccountOrgInvitationsQueryOptions() {
   const client = useAuthkitClient();

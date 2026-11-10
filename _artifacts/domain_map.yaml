@@ -43,7 +43,7 @@ primary_packages:
     role: >-
       Frontend ergonomics for AdonisJS + Inertia + React: useAuth() over the
       shared-prop `authkit`, role helpers, gating components, AuthkitProvider +
-      headless hooks (useSignIn/useSignOut/useProfile/useSessions/...), ready
+      headless hooks (useSignIn/useSignOut), account query options, ready
       components (UserButton/UserProfile/AuthorizedApps).
 
 # Packages NOT given their own skills — summarized inside server/client skills

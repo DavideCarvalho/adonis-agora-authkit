@@ -19,30 +19,6 @@ test.group('resolveConfig', () => {
     assert.equal(r.profileUrl, DEFAULT_CONFIG.profileUrl);
   });
 
-  test('mescla endpoints parcialmente', ({ assert }) => {
-    const r = resolveConfig({ endpoints: { apps: '/api/apps' } });
-    assert.equal(r.endpoints.apps, '/api/apps');
-    assert.equal(r.endpoints.profile, DEFAULT_CONFIG.endpoints.profile);
-    assert.equal(r.endpoints.sessions, DEFAULT_CONFIG.endpoints.sessions);
-    assert.equal(r.endpoints.passkeys, DEFAULT_CONFIG.endpoints.passkeys);
-    assert.equal(r.endpoints.orgs, DEFAULT_CONFIG.endpoints.orgs);
-    assert.equal(r.endpoints.orgInvitations, DEFAULT_CONFIG.endpoints.orgInvitations);
-  });
-
-  test('orgs e orgInvitations têm defaults corretos', ({ assert }) => {
-    const r = resolveConfig();
-    assert.equal(r.endpoints.orgs, '/account/orgs/json');
-    assert.equal(r.endpoints.orgInvitations, '/account/orgs/invitations/json');
-  });
-
-  test('orgs e orgInvitations podem ser sobrescritos', ({ assert }) => {
-    const r = resolveConfig({
-      endpoints: { orgs: '/api/orgs', orgInvitations: '/api/orgs/invitations' },
-    });
-    assert.equal(r.endpoints.orgs, '/api/orgs');
-    assert.equal(r.endpoints.orgInvitations, '/api/orgs/invitations');
-  });
-
   test('propaga csrfToken', ({ assert }) => {
     assert.equal(resolveConfig({ csrfToken: 'abc' }).csrfToken, 'abc');
   });

@@ -1,7 +1,7 @@
 ---
 icon: Database
 title: Typed Client & TanStack Query
-description: useResource, createAuthkitClient, AuthkitClientProvider, query/mutation hooks, query keys, and error handling for the admin and account APIs.
+description: createAuthkitClient, AuthkitClientProvider, query/mutation hooks, query keys, and error handling for the admin and account APIs.
 ---
 
 `@adonis-agora/authkit-react` ships a **typed HTTP client** and a full set of
@@ -32,76 +32,6 @@ is for **management screens** (admin UIs, account pages) that need rich, reactiv
 ```bash
 pnpm add @adonis-agora/authkit-react @tanstack/react-query
 ```
-
-## Building your own hook with useResource
-
-Before the typed client, there is a smaller escape hatch. Every headless hook in
-[`@adonis-agora/authkit-react`](/docs/react#6-headless-hooks) — `useProfile`, `useSessions`,
-`useOrganizations`, and the rest — is `useResource` plus a couple of actions built on
-`jsonRequest`. Both are exported, so a screen that needs an endpoint AuthKit knows nothing
-about does not have to switch fetching styles (or pull in React Query for one list).
-
-```ts
-function useResource<T>(url: string, csrfToken?: string): {
-  data: T | null
-  loading: boolean
-  error: Error | null
-  refetch: () => Promise<void>
-}
-
-function jsonRequest<T>(url: string, init?: RequestInit & { csrfToken?: string }): Promise<T>
-```
-
-`jsonRequest` is the one-shot primitive: it always sends `credentials: 'same-origin'` and
-`Accept: application/json`, adds `Content-Type: application/json` when there is a body and
-`X-CSRF-TOKEN` when you pass `csrfToken`, throws an `Error` on any non-2xx response (using the
-server's `message` field when the error body has one), and resolves to `null` on an empty
-`204`. `useResource` wraps it in a GET-on-mount effect: it only fetches inside the effect, so
-it is SSR-safe, and it refetches whenever the URL or the token changes.
-
-Building your own hook is then mostly naming things:
-
-```ts title="app/hooks/use_api_keys.ts"
-import { useCallback } from 'react'
-import { jsonRequest, useResource, useAuthkitConfig } from '@adonis-agora/authkit-react'
-
-interface ApiKey {
-  id: string
-  label: string
-  createdAt: string
-}
-
-export function useApiKeys() {
-  const { csrfToken } = useAuthkitConfig()
-  const { data, loading, error, refetch } = useResource<ApiKey[]>('/api/keys', csrfToken)
-
-  const revoke = useCallback(
-    async (id: string) => {
-      await jsonRequest(`/api/keys/${encodeURIComponent(id)}`, {
-        method: 'DELETE',
-        csrfToken,
-      })
-      await refetch()
-    },
-    [csrfToken, refetch],
-  )
-
-  return { data, loading, error, actions: { refetch, revoke } }
-}
-```
-
-Two details worth copying from the built-in hooks: read `csrfToken` from
-`useAuthkitConfig()` instead of threading it through props, and return mutations under an
-`actions` object so the hook keeps the `{ data, loading, error, actions }` shape the rest of
-the kit uses. When a mutation needs to be reflected in the UI, `await refetch()` after it —
-there is no cache to invalidate at this layer, which is exactly the trade-off you accept for
-not needing a `QueryClient`.
-
-<Callout type="info">
-  Reach for the typed client and the TanStack hooks below when a screen has many interlocking
-  queries, needs shared caching across components, or wants optimistic updates. Reach for
-  `useResource` when a screen needs one list and a refresh.
-</Callout>
 
 ## Provider setup
 
@@ -800,3 +730,31 @@ the admin hooks internally — it is the canonical reference implementation. If 
 building a custom admin interface or embedding management panels in your app, use the same
 hooks the console does. See [Admin Console](/docs/admin-console) for the full route
 table and how to mount it.
+
+## Your own endpoints with jsonRequest
+
+`jsonRequest` is exported for endpoints AuthKit knows nothing about. It always sends
+`credentials: 'same-origin'` and `Accept: application/json`, adds `Content-Type:
+application/json` when there is a body and `X-CSRF-TOKEN` when you pass `csrfToken`, throws an
+`Error` on any non-2xx response (using the server's `message` field when there is one), and
+resolves to `null` on an empty `204`. Pair it with `useQuery` like any other fetcher:
+
+```tsx title="inertia/pages/settings/api_keys.tsx"
+import { useQuery } from '@tanstack/react-query'
+import { jsonRequest, useAuthkitConfig } from '@adonis-agora/authkit-react'
+
+interface ApiKey {
+  id: string
+  label: string
+}
+
+export default function ApiKeys() {
+  const { csrfToken } = useAuthkitConfig()
+  const keys = useQuery({
+    queryKey: ['api-keys'],
+    queryFn: () => jsonRequest<ApiKey[]>('/api/keys', { csrfToken }),
+  })
+  return <ul>{keys.data?.map((k) => <li key={k.id}>{k.label}</li>)}</ul>
+}
+```
+

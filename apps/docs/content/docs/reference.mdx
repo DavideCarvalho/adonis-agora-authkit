@@ -589,18 +589,11 @@ Full export list. For usage and examples see
 | --- | --- |
 | `useSignIn` / `useSignOut` | OIDC redirect |
 | `useUser` | Alias over `useAuth` |
-| `useProfile` | `{ data, loading, error, actions: { update } }` |
-| `useSessions` | `{ data, loading, error, actions: { revoke, refetch } }` |
-| `useAuthorizedApps` | `{ data, loading, error, actions: { revoke } }` |
-| `useOrganizations` | `{ data, loading, error, activeOrgId, supported, actions }` |
-| `useOrganization(orgId)` | Org detail + members |
-| `useSwitchOrganization` | `{ activate(orgId), deactivate() }` |
-| `useOrgInvitations` | `{ data, loading, error, actions: { accept } }` |
 | `usePasswordStrength(password, opts?)` | `{ score: 0–4, feedback }`; `heuristicScorer` is the default scorer and can be swapped |
 | `usePasskeyAutofill(opts)` | WebAuthn conditional mediation |
 | `usePasskeyLogin(opts)` | Passkey sign-in for a custom login screen |
 | `usePasskeyAssertion(opts)` / `usePasskeyRegistration(opts)` | The assertion and registration ceremonies as hooks |
-| `useResource` / `jsonRequest` | The generic JSON primitive every headless hook is built on |
+| `jsonRequest` | JSON fetch helper (credentials, CSRF header, throws on non-2xx) for your own endpoints |
 
 ### Passkeys — the three tiers
 

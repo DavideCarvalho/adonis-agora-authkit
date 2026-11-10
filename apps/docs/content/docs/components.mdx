@@ -6,10 +6,40 @@ description: Pre-built, themeable components — buttons, profile and organizati
 
 `@adonis-agora/authkit-react` exports three layers: auth-state primitives, a typed HTTP
 client with TanStack Query hooks, and the pre-built UI components documented here. The
-components are built on the [headless hooks](/docs/react#6-headless-hooks) and consume the
-same auth state and `AuthkitProvider` config — no extra wiring beyond what
+components consume the same auth state and `AuthkitProvider` config that
 [React](/docs/react) sets up. Several render **nothing** when the user is unauthenticated,
 so they're safe to drop into a shared layout.
+
+The account components (`UserProfile`, `AuthorizedApps`, `OrganizationSwitcher`,
+`OrganizationProfile`) load their data through the Account API, so they also need
+`QueryClientProvider` and `AuthkitClientProvider` above them:
+
+```tsx title="inertia/app/app.tsx"
+import { createInertiaApp } from '@inertiajs/react'
+import { QueryClientProvider } from '@tanstack/react-query'
+import {
+  AuthkitClientProvider,
+  AuthkitProvider,
+  createAuthkitQueryClient,
+} from '@adonis-agora/authkit-react'
+
+const queryClient = createAuthkitQueryClient()
+
+createInertiaApp({
+  // …
+  setup({ el, App, props }) {
+    createRoot(el).render(
+      <QueryClientProvider client={queryClient}>
+        <AuthkitClientProvider>
+          <AuthkitProvider>
+            <App {...props} />
+          </AuthkitProvider>
+        </AuthkitClientProvider>
+      </QueryClientProvider>,
+    )
+  },
+})
+```
 
 For data-fetching in management screens (admin panels, account pages), see
 **[Typed Client & TanStack Query](/docs/data-fetching)**.
@@ -91,9 +121,9 @@ A clickable avatar that opens a dropdown menu with a profile link (`config.profi
 
 ## UserProfile
 
-A card showing the avatar, name, and email, with an inline edit form that POSTs to the
-configured `profile` endpoint (via `useProfile`). Renders **nothing** when unauthenticated;
-disables the submit button while saving and surfaces errors.
+A card showing the avatar, name, and email, with an inline form that updates the name
+through the Account API. Renders **nothing** when unauthenticated; disables the submit button
+while saving and surfaces errors.
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -105,8 +135,8 @@ disables the submit button while saving and surfaces errors.
 
 ## AuthorizedApps
 
-Lists the OAuth/OIDC apps the user has authorized, each with a revoke button (via
-`useAuthorizedApps`). Shows loading, error, and empty states.
+Lists the OAuth/OIDC apps the user has authorized (by client id), each with a revoke button.
+Shows loading, error, and empty states.
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -198,9 +228,9 @@ you can restyle the scale without touching the component.
 
 ## OrganizationSwitcher
 
-A dropdown to switch the active organization. It reads the list and the active id from
-`useOrganizations()` and calls `useSwitchOrganization()` on selection — selecting the personal
-account entry deactivates the current org, selecting another org activates it. Each row shows
+A dropdown to switch the active organization. It reads the list and the active id from the
+Account API — selecting the personal account entry deactivates the current org, selecting
+another org activates it. Each row shows
 the org name and the user's role in it.
 
 It renders **nothing** when the user is unauthenticated, when the server reports that
@@ -216,8 +246,9 @@ organizations are not supported, or when the provider is configured with `idp: '
 ```
 
 Creating an organization is not part of this component — it is a server-side decision (see
-[Organizations](/docs/organizations)). Build the create flow with `useOrganizations()` and your
-own form when your deployment allows self-service creation.
+[Organizations](/docs/organizations)). Build the create flow with
+`useAccountCreateOrgMutationOptions()` and your own form when your deployment allows
+self-service creation.
 
 CSS hooks: `.authkit-orgswitcher`, `__trigger`, `__label`, `__chevron`, `__menu`, `__item`
 (with `--active`), `__item-name`, `__item-role`.
@@ -227,10 +258,10 @@ CSS hooks: `.authkit-orgswitcher`, `__trigger`, `__label`, `__chevron`, `__menu`
 A card for the **active** organization: name and slug, the member list with each member's
 role, an invite form, and a "leave organization" button.
 
-There is no `orgId` prop, and that is the point — the component asks `useOrganizations()` for
-the active org id and loads its detail with `useOrganization()`. The active org is server-side
-session state, so a prop here could disagree with the session; instead, switching orgs (via
-`OrganizationSwitcher` or `useSwitchOrganization()`) is what changes what this card shows. It
+There is no `orgId` prop: the component reads the active org id from the Account API and
+loads that org's detail. The active org is server-side session state, so switching orgs (via
+`OrganizationSwitcher` or `useAccountActivateOrgMutationOptions()`) is what changes what this
+card shows. It
 renders **nothing** when unauthenticated or when there is no active org, and degrades to
 `null` under `idp: 'external'`.
 

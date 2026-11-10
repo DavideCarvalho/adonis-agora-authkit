@@ -1,6 +1,9 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createElement } from 'react';
+import type { AccountAppEntry } from '../client/types.js';
 import { useAuthkitConfig } from '../config.js';
-import { type AuthorizedApp, useAuthorizedApps } from '../hooks/use_authorized_apps.js';
+import { useAppsQueryOptions, useRevokeAppMutationOptions } from '../queries/account/index.js';
+import { authkitKeys } from '../queries/keys.js';
 
 export interface AuthorizedAppsProps {
   className?: string;
@@ -10,21 +13,27 @@ export interface AuthorizedAppsProps {
 
 /**
  * Lista os apps autorizados pelo usuário com botão de revogar por item.
+ * Requer `AuthkitClientProvider` + `QueryClientProvider`.
  */
 function AuthorizedAppsInner({
   className,
   revokeLabel = 'Revogar',
   emptyLabel = 'Nenhum app autorizado.',
 }: AuthorizedAppsProps) {
-  const { data, loading, error, actions } = useAuthorizedApps();
+  const qc = useQueryClient();
+  const query = useQuery(useAppsQueryOptions());
+  const revoke = useMutation({
+    ...useRevokeAppMutationOptions(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: authkitKeys.account.apps() }),
+  });
 
-  if (loading && !data) {
+  if (query.isLoading && !query.data) {
     return createElement('div', { className: 'authkit-apps__loading' }, 'Carregando…');
   }
-  if (error) {
-    return createElement('p', { className: 'authkit-error', role: 'alert' }, error.message);
+  if (query.error) {
+    return createElement('p', { className: 'authkit-error', role: 'alert' }, query.error.message);
   }
-  const apps = data ?? [];
+  const apps = query.data?.apps ?? [];
   if (apps.length === 0) {
     return createElement('p', { className: 'authkit-apps__empty' }, emptyLabel);
   }
@@ -32,28 +41,22 @@ function AuthorizedAppsInner({
   return createElement(
     'ul',
     { className: ['authkit-apps', className].filter(Boolean).join(' ') },
-    ...apps.map((app: AuthorizedApp) =>
+    ...apps.map((app: AccountAppEntry) =>
       createElement(
         'li',
         { key: app.clientId, className: 'authkit-apps__item' },
         createElement(
           'div',
           { className: 'authkit-apps__info' },
-          app.logoUrl
-            ? createElement('img', {
-                className: 'authkit-apps__logo',
-                src: app.logoUrl,
-                alt: '',
-              })
-            : null,
-          createElement('span', { className: 'authkit-apps__name' }, app.name ?? app.clientId),
+          createElement('span', { className: 'authkit-apps__name' }, app.clientId),
         ),
         createElement(
           'button',
           {
             type: 'button',
             className: 'authkit-button authkit-button--danger',
-            onClick: () => void actions.revoke(app.clientId),
+            disabled: revoke.isPending,
+            onClick: () => revoke.mutate(app.clientId),
           },
           revokeLabel,
         ),

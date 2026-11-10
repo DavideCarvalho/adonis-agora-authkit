@@ -1212,10 +1212,6 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
           C.accountOrgs,
           'revokeInvitation',
         ]);
-        // JSON endpoints for React hooks (authkit-react).
-        router.get(`${orgsPath}/json`, [C.accountOrgs, 'listJson']);
-        router.get(`${orgsPath}/invitations/json`, [C.accountOrgs, 'listInvitationsJson']);
-        router.get(`${orgsPath}/:id/json`, [C.accountOrgs, 'showJson']);
       }
 
       // ─── Account self-service JSON API (authkit-react TanStack hooks) ─────

@@ -435,43 +435,53 @@ See [SDK](/docs/sdk) for the full type table.
 
 ## React
 
-`@adonis-agora/authkit-react` ships four hooks and two pre-built components for
-organizations. They fetch data from the JSON endpoints the host kit exposes (`/account/orgs/json`,
-`/account/orgs/invitations/json`, `/account/orgs/:id/json`) and POST mutations via the
-standard account routes.
+`@adonis-agora/authkit-react` reads organizations through the Account API
+(`/account/api/orgs/*`) with TanStack Query options, and ships two pre-built components on top
+of them. Both need `QueryClientProvider` + `AuthkitClientProvider` (see
+[Typed Client & TanStack Query](/docs/data-fetching#provider-setup)).
 
-### Hooks
+### Query and mutation options
 
-```tsx
+```tsx title="inertia/pages/account/orgs.tsx"
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  useOrganizations,
-  useOrganization,
-  useSwitchOrganization,
-  useOrgInvitations,
+  authkitKeys,
+  useAccountActivateOrgMutationOptions,
+  useAccountOrgInvitationsQueryOptions,
+  useAccountOrgsQueryOptions,
 } from '@adonis-agora/authkit-react'
 
-// List the current user's organizations + pending inbound invitations
-const orgs = useOrganizations()
-// orgs.data: OrgEntry[]   (id, name, slug, logoUrl, role, isActive)
-// orgs.invitations: OrgInvitationEntry[]
-// orgs.loading, orgs.error
-// orgs.actions.create({ name, slug }), orgs.actions.leave(orgId), orgs.actions.accept(token)
+export default function Orgs() {
+  const qc = useQueryClient()
+  const orgs = useQuery(useAccountOrgsQueryOptions()) // data: { supported, activeOrgId, orgs }
+  const invitations = useQuery(useAccountOrgInvitationsQueryOptions())
+  const activate = useMutation({
+    ...useAccountActivateOrgMutationOptions(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: authkitKeys.account.orgs() }),
+  })
 
-// Detail of one organization (members + active invitations)
-const org = useOrganization(orgId)
-// org.data: ActiveOrgDetail   (includes members: OrgMemberEntry[])
-// org.actions.invite({ email, role }), org.actions.removeMember(accountId), org.actions.revokeInvitation(invId)
-
-// Switch the active organization
-const switcher = useSwitchOrganization()
-// switcher.activate(orgId), switcher.deactivate()
-// switcher.loading
-
-// Pending invitations for the current user
-const invitations = useOrgInvitations()
-// invitations.data: OrgInvitationEntry[]
-// invitations.actions.accept(token), invitations.actions.refetch()
+  return (
+    <ul>
+      {orgs.data?.orgs.map((org) => (
+        <li key={org.id}>
+          {org.name} ({org.role})
+          {!org.isActive && <button onClick={() => activate.mutate(org.id)}>Switch</button>}
+        </li>
+      ))}
+    </ul>
+  )
+}
 ```
+
+| Need | Options |
+| --- | --- |
+| List orgs + active org | `useAccountOrgsQueryOptions()` |
+| Org detail + members | `useAccountOrgQueryOptions(orgId)` |
+| Pending invitations | `useAccountOrgInvitationsQueryOptions()` |
+| Create / leave | `useAccountCreateOrgMutationOptions()`, `useAccountLeaveOrgMutationOptions()` |
+| Switch | `useAccountActivateOrgMutationOptions()`, `useAccountDeactivateOrgMutationOptions()` |
+| Members and invites | `useAccountInviteOrgMemberMutationOptions()`, `useAccountRemoveOrgMemberMutationOptions()`, `useAccountUpdateOrgMemberRoleMutationOptions()`, `useAccountRevokeOrgInvitationMutationOptions()` |
+| Accept an invitation | `useAccountAcceptOrgInvitationMutationOptions()` |
 
 ### Components
 

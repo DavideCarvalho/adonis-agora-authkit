@@ -1171,7 +1171,7 @@ export default class AccountApiController {
 
   // ─── GET /account/api/orgs ───────────────────────────────────────────────
 
-  /** Lista orgs do usuário logado. Alias consolidado dos /account/orgs/json existentes. */
+  /** Lista orgs do usuário logado. */
   async listOrgs(ctx: HttpContext) {
     const service = await ctx.containerResolver.make('authkit.server');
     const cfg = service.config;
