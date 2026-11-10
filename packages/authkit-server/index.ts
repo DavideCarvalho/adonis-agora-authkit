@@ -517,9 +517,8 @@ export { enrichSessionsWithContext } from './src/host/session_context.js';
 //
 // `completeSudo` é público porque o host PRECISA chamá-lo: o `oidcStepUp` não
 // registra rotas — quem valida o grant é o callback do host, e é lá que a
-// concessão acontece. Sem exportá-lo, o host improvisaria com `markSudo` e
-// perderia o audit `sudo.confirmed`, a preferência de método e o redirect para
-// o `return_to`.
+// concessão acontece, com o audit `sudo.confirmed`, a preferência de método e o
+// redirect para o `return_to`.
 export { sudoMethods } from './src/host/sudo/index.js';
 // Montador do `SudoContext` que `completeSudo`/`failSudo` recebem. Exportado
 // junto porque sem ele o host teria de montar o contexto na mão (resolver o
@@ -547,7 +546,6 @@ export {
   // A DECISÃO de sudo sem efeito na resposta — o que o host chama quando quer
   // recusar em JSON em vez de redirecionar para `/account/confirm`.
   isSudoSatisfied,
-  markSudo,
   requireSudo,
   resolveEffectiveSudoMode,
   SUDO_ACCOUNT_SESSION_KEY,
@@ -604,7 +602,6 @@ export {
 export { withAuditLog } from './src/mixins/with_audit_log.js';
 export { withAuthUser } from './src/mixins/with_auth_user.js';
 export { withCredentials } from './src/mixins/with_credentials.js';
-export { withMfa } from './src/mixins/with_mfa.js';
 export { withPersonalAccessToken } from './src/mixins/with_personal_access_token.js';
 export type {
   ProviderIdentityClass,

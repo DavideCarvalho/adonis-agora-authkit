@@ -278,7 +278,7 @@ export interface LucidAccountStoreOptions {
 
 /**
  * Implementação default do {@link AccountStore} sobre um model Lucid composto
- * de `withAuthUser()` + `withCredentials()` (+ opcionalmente `withMfa()`). O
+ * de `withAuthUser()` + `withCredentials()`. O
  * model carrega `connection`/`table` (app-específico) e, por convenção, uma
  * coluna `fullName` (mapeada de `name`).
  *

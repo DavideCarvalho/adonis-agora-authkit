@@ -42,4 +42,5 @@
 - [Internationalization](/docs/i18n): Built-in pt-BR and English; how to add a locale.
 - [Observability](/docs/observability): OpenTelemetry instrumentation, metrics routes, Grafana dashboard.
 - [Reference](/docs/reference): Full defineConfig option tables (admin.ui:'react'|'edge' field; mail hooks including onOtpUnlock/onAccountExpirationWarning), 21 known runtime setting keys with shapes and lib defaults, registerAuthHost AuthHostOptions (admin true|{prefix,ui}), ace commands (authkit:clients:create, authkit:settings:list/get/set/unset, authkit:keys:rotate, authkit:users:import, authkit:eject, authkit:doctor, authkit:accounts:expire-scan), client/SDK exports, Account self-service API route table (/account/api/*), full @adonis-agora/authkit-react export list (auth state, headless hooks, typed client, query keys, all admin+account query+mutation hooks).
+- [Migrating to 1.0](/docs/migrating-to-1-0): Breaking changes in 1.0 — drop the withMfa() mixin, grant sudo with completeSudo(sudoContextFrom(ctx), id) instead of markSudo, onEmailChangeConfirm for email-change confirmations; Node >=24.
 - [Changelog](/docs/changelog): Version history and migration notes.

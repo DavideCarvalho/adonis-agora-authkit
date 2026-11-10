@@ -326,8 +326,7 @@ import { sudoContextFrom, completeSudo, failSudo } from '@adonis-agora/authkit-s
   refuses when the account could not be loaded, stamps the mark bound to the account, records
   the method so the screen can promote it next time, writes a `sudo.confirmed` audit event
   with the method in its metadata, and redirects to the validated `return_to` (or to
-  `accountHome`). Reaching for `markSudo` instead grants the privilege with none of that —
-  no audit trail, no remembered method, no redirect.
+  `accountHome`).
 - `failSudo(context, messageKey)` flashes a localized error and sends the user back to the
   confirmation screen with the destination preserved.
 

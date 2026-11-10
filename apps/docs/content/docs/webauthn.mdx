@@ -44,7 +44,6 @@ import { BaseModel } from '@adonisjs/lucid/orm'
 import {
   withAuthUser,
   withCredentials,
-  withMfa,
   withWebauthnCredential,
 } from '@adonis-agora/authkit-server'
 
@@ -52,7 +51,6 @@ export default class AuthUser extends compose(
   BaseModel,
   withAuthUser(),
   withCredentials(),
-  withMfa(),
   withWebauthnCredential()
 ) {}
 ```

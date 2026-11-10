@@ -13,10 +13,9 @@ import {
 } from '../../src/host/trusted_device.js';
 import { withAuthUser } from '../../src/mixins/with_auth_user.js';
 import { withCredentials } from '../../src/mixins/with_credentials.js';
-import { withMfa } from '../../src/mixins/with_mfa.js';
 import { createTestDatabase } from '../bootstrap.js';
 
-class TestAccount extends compose(BaseModel, withAuthUser(), withCredentials(), withMfa()) {
+class TestAccount extends compose(BaseModel, withAuthUser(), withCredentials()) {
   static table = 'users';
   static selfAssignPrimaryKey = true;
   @column({ isPrimary: true })

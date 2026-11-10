@@ -19,13 +19,6 @@ import {
   sudoContextFrom,
 } from '../sudo/runtime.js';
 
-/**
- * Reexport de compatibilidade. O construtor canônico do `SudoContext` vive em
- * `sudo/runtime.ts` (é runtime do SPI, não detalhe da tela); este caminho
- * antigo segue valendo para quem já o importava.
- */
-export { sudoContextFrom };
-
 export default class AccountConfirmController {
   async show(ctx: HttpContext) {
     const c = await sudoContextFrom(ctx);

@@ -418,7 +418,6 @@ See [Console session & sudo mode](/docs/console-session) for recipes.
 | --- | --- |
 | `requireSudo(ctx, settings)` | Returns `true` when the caller already holds sudo, and otherwise returns a redirect to the confirmation screen with a `return_to`. Guard with `if (gate !== true) return gate`. Both arguments are required: `settings` is a `SettingsCapability` or `null`, and `null` means "no runtime settings here", so `SUDO_MODE_DEFAULTS` applies. Fail-safe — a settings error lets the request through. |
 | `isSudoActive(ctx, graceMinutes)` | Pure boolean check — `true` when the step-up timestamp is within the grace window **and** belongs to the account currently signed in. |
-| `markSudo(ctx)` | Stamps the step-up timestamp, bound to the current account. Deprecated as a way to *grant* sudo — it records no `sudo.confirmed` audit event, no remembered method and no redirect. Use `completeSudo(sudoContextFrom(ctx), methodId)` instead. |
 | `SUDO_SESSION_KEY` | Raw session key for the timestamp. |
 | `SUDO_ACCOUNT_SESSION_KEY` | Raw session key for the account the grace was earned by — checked before the grace window, so a sudo grant cannot survive a switch to another account. |
 | `SUDO_MODE_DEFAULTS` | `{ enabled: true, graceMinutes: 15 }` |
@@ -432,7 +431,7 @@ The methods offered on the confirmation screen are pluggable. Read
 | Export | Purpose |
 | --- | --- |
 | `sudoMethods` | The built-in method factories: `password()`, `passkey()`, `magicLink()`, `oidcStepUp()`. |
-| `completeSudo(context)` | Grant sudo from your own handler. Required for `oidcStepUp()`, which registers no routes — your callback validates the grant, so your callback has to grant the sudo. Doing it with `markSudo` instead loses the `sudo.confirmed` audit event, the remembered method, and the `return_to` redirect. |
+| `completeSudo(context)` | Grant sudo from your own handler. Required for `oidcStepUp()`, which registers no routes — your callback validates the grant, so your callback has to grant the sudo. |
 | `failSudo(context, reason)` | Record a failed confirmation attempt. |
 | `sudoContextFrom(ctx)` | Build the `SudoContext` the two functions above take. Use it — assembling the context by hand means validating `return_to` by hand, which is an open redirect waiting to happen. |
 | `LAST_METHOD_SESSION_KEY` | Raw session key for the last method used successfully, which is promoted to the top of the screen. |

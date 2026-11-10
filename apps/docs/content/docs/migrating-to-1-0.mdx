@@ -1,0 +1,136 @@
+---
+icon: ArrowUpCircle
+title: Migrating to 1.0
+description: The breaking changes in AuthKit 1.0 and how to update your app.
+---
+
+Every `@adonis-agora/authkit-*` package moves to **1.0.0**. Most apps upgrade by bumping the
+versions; the changes below only affect apps that use one of the APIs listed.
+
+## Requirements
+
+- **Node.js 24 or newer.** Every package declares `"engines": { "node": ">=24" }`.
+- The `@adonis-agora/*` peers (`durable`, `media`, `telescope`, `resilience`,
+  `authkit-server`) accept both their 0.x and 1.x lines, so you can upgrade them in any order.
+
+```sh
+pnpm add @adonis-agora/authkit-server@^1.0.0 @adonis-agora/authkit-client@^1.0.0
+```
+
+## Drop `withMfa()` from your model
+
+`lucidAccountStore` keeps the MFA state (TOTP secret, recovery codes) in its own `auth_mfa`
+table, so the model needs no MFA mixin. `withMfa` is no longer exported: remove it from the
+import and from `compose(...)`. Nothing else changes and no migration is needed.
+
+Before:
+
+```ts title="app/models/auth_user.ts"
+import { compose } from '@adonisjs/core/helpers'
+import { BaseModel } from '@adonisjs/lucid/orm'
+import { withAuthUser, withCredentials, withMfa } from '@adonis-agora/authkit-server'
+
+export default class AuthUser extends compose(
+  BaseModel,
+  withAuthUser(),
+  withCredentials(),
+  withMfa()
+) {}
+```
+
+After:
+
+```ts title="app/models/auth_user.ts"
+import { compose } from '@adonisjs/core/helpers'
+import { BaseModel } from '@adonisjs/lucid/orm'
+import { withAuthUser, withCredentials } from '@adonis-agora/authkit-server'
+
+export default class AuthUser extends compose(BaseModel, withAuthUser(), withCredentials()) {}
+```
+
+## Grant sudo with `completeSudo`
+
+`markSudo` is no longer exported. To grant sudo from your own handler (for example the
+callback of an `oidcStepUp()` confirmation), build the context with `sudoContextFrom` and call
+`completeSudo`. It stamps the grace window, writes the `sudo.confirmed` audit event, remembers
+the method and redirects to the validated `return_to`.
+
+Before:
+
+```ts title="app/controllers/step_up_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import { markSudo } from '@adonis-agora/authkit-server'
+
+export default class StepUpController {
+  async callback(ctx: HttpContext) {
+    // … validate the step-up grant
+    markSudo(ctx)
+    return ctx.response.redirect('/account/security')
+  }
+}
+```
+
+After:
+
+```ts title="app/controllers/step_up_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import { completeSudo, failSudo, sudoContextFrom } from '@adonis-agora/authkit-server'
+
+export default class StepUpController {
+  async callback(ctx: HttpContext) {
+    const c = await sudoContextFrom(ctx)
+    const grant = await exchangeAndValidate(ctx)
+    if (!grant) return failSudo(c, 'account.confirm.error')
+
+    return completeSudo(c, 'oidc-step-up')
+  }
+}
+```
+
+To check whether the current request already holds sudo, keep using `isSudoActive` or
+`requireSudo`. See [Console session & sudo mode](/docs/console-session).
+
+## Send email-change confirmations with `onEmailChangeConfirm`
+
+When a user changes their email address, the confirmation link goes through
+`mail.onEmailChangeConfirm`. If that hook is not set, AuthKit sends its built-in confirmation
+email. `onEmailVerification` is only used for verifying the address at signup and no longer
+receives email-change confirmations.
+
+If you relied on `onEmailVerification` for both, add `onEmailChangeConfirm`.
+
+Before:
+
+```ts title="config/authkit.ts"
+import mail from '@adonisjs/mail/services/main'
+
+defineConfig({
+  // …
+  mail: {
+    // Also received the email-change confirmation link.
+    onEmailVerification: async ({ email, verifyUrl }) => {
+      await mail.send((m) => m.to(email).subject('Confirm your email').text(verifyUrl))
+    },
+  },
+})
+```
+
+After:
+
+```ts title="config/authkit.ts"
+import mail from '@adonisjs/mail/services/main'
+
+defineConfig({
+  // …
+  mail: {
+    onEmailVerification: async ({ email, verifyUrl }) => {
+      await mail.send((m) => m.to(email).subject('Confirm your email').text(verifyUrl))
+    },
+    onEmailChangeConfirm: async ({ email, confirmUrl }) => {
+      await mail.send((m) => m.to(email).subject('Confirm your new email').text(confirmUrl))
+    },
+  },
+})
+```
+
+See [Compliance](/docs/compliance) for the full email-change flow.

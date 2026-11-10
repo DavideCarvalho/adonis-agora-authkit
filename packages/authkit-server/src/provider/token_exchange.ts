@@ -38,11 +38,9 @@ export interface TokenExchangeDeps {
    * Allowlist de roles que autorizam a impersonation. Default: `['ADMIN']`.
    * Aceita o papel EXATO (ex.: `'admin'` minúsculo) do app — resolve contra a
    * MESMA fonte de roles do `resolveTokenRoles`/`globalRoles`, não a um papel
-   * hardcoded. Mantém `adminRole` como alias singular para back-compat.
+   * hardcoded.
    */
   adminRoles?: string[];
-  /** @deprecated Use `adminRoles` (allowlist). Mantido como alias singular. */
-  adminRole?: string;
   /**
    * Resource indicators (RFC 8707) suportados pelo provider. Quando o pedido traz
    * `audience`/`resource`, validamos contra esta lista; um alvo não suportado é
@@ -107,7 +105,7 @@ function intersectScopes(requested: string, allowed: Set<string>): string {
 }
 
 export function registerTokenExchange(provider: any, deps: TokenExchangeDeps): void {
-  const adminRoles = deps.adminRoles ?? (deps.adminRole ? [deps.adminRole] : ['ADMIN']);
+  const adminRoles = deps.adminRoles ?? ['ADMIN'];
   const supportedResources = new Set(deps.supportedResources ?? []);
 
   const handler = async (ctx: any) => {

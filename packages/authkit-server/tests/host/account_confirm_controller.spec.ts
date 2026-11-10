@@ -1,7 +1,5 @@
 import { test } from '@japa/runner';
-import AccountConfirmController, {
-  sudoContextFrom,
-} from '../../src/host/controllers/account_confirm_controller.js';
+import AccountConfirmController from '../../src/host/controllers/account_confirm_controller.js';
 import { DEFAULT_MESSAGES } from '../../src/host/i18n.js';
 import { ACCOUNT_SESSION_KEY } from '../../src/host/middleware/account_auth.js';
 import {
@@ -9,7 +7,12 @@ import {
   passkey,
 } from '../../src/host/sudo/methods/passkey.js';
 import { password } from '../../src/host/sudo/methods/password.js';
-import { completeSudo, fail, setMountedSudoMethods } from '../../src/host/sudo/runtime.js';
+import {
+  completeSudo,
+  fail,
+  setMountedSudoMethods,
+  sudoContextFrom,
+} from '../../src/host/sudo/runtime.js';
 import { SUDO_SESSION_KEY } from '../../src/host/sudo_mode.js';
 
 const ACCOUNT = { id: 'acc-1', email: 'user@example.com' };

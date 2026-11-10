@@ -46,6 +46,10 @@ jobs:
       - name: Import smoke (packaging)
         run: node scripts/import-smoke.mjs
 
+      # publint + attw against every published package, as npm will serve it.
+      - name: Check packages (publint, attw)
+        run: pnpm check:package
+
       # The WebAuthn bundle served by authkit-server is a committed artifact, so
       # bumping @simplewebauthn/browser in the lockfile does NOT regenerate it —
       # the package would declare one version and serve another, silently. This

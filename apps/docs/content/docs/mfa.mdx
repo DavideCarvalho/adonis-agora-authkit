@@ -11,18 +11,13 @@ codes. A second option, **WebAuthn passkeys**, is available as an alternative fa
 
 ## Enabling MFA
 
-MFA is driven by the optional MFA methods on the `AccountStore`. With `lucidAccountStore`,
-compose the model with the `withMfa` mixin and set an `mfaIssuer`:
+MFA is driven by the optional MFA methods on the `AccountStore`. `lucidAccountStore` keeps
+the MFA state in its own `auth_mfa` table, so the model needs no extra mixin or column. Set an
+`mfaIssuer`:
 
 ```ts title="config/authkit.ts"
 accountStore: lucidAccountStore(AuthUser, { mfaIssuer: 'Acme' }),
 mfaIssuer: 'Acme',
-```
-
-```ts title="app/models/auth_user.ts"
-import { withMfa } from '@adonis-agora/authkit-server'
-
-export default class AuthUser extends compose(BaseModel, withAuthUser(), withCredentials(), withMfa()) {}
 ```
 
 `mfaIssuer` is the label shown in the authenticator app. If a store omits the MFA methods,

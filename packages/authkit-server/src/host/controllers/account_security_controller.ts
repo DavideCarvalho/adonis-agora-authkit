@@ -507,20 +507,13 @@ export default class AccountSecurityController {
     const origin = authkitOrigin(cfg);
     const confirmUrl = `${origin}${accountPath('emailConfirm')}?token=${encodeURIComponent(issued.token)}`;
 
-    // 1. Link de confirmação → NOVO e-mail (hook onEmailChangeConfirm > onEmailVerification > default).
+    // 1. Link de confirmação → NOVO e-mail (hook onEmailChangeConfirm > default).
     if (cfg.mail?.onEmailChangeConfirm) {
       await cfg.mail.onEmailChangeConfirm({
         email: newEmail,
         confirmUrl,
         token: issued.token,
         oldEmail: account?.email ?? '',
-      });
-    } else if (cfg.mail?.onEmailVerification) {
-      // Retrocompat: hook legado onEmailVerification (ainda funciona como override).
-      await cfg.mail.onEmailVerification({
-        email: newEmail,
-        verifyUrl: confirmUrl,
-        token: issued.token,
       });
     } else {
       await sendEmailChangeConfirmationEmail(ctx, {

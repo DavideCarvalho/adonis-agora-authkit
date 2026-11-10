@@ -14,7 +14,7 @@ import {
  * O estado de MFA (`totp_secret`, `mfa_enabled_at`, `recovery_codes`,
  * `last_totp_step`) vive numa tabela PRÓPRIA auto-gerida `auth_mfa` (criada pelo
  * {@link ensureAuthkitSchema}), keyed por `account_id`. O host NÃO precisa migrar
- * nada — `withMfa()` continua componível no model mas não declara mais colunas.
+ * nada e o model não declara colunas de MFA.
  *
  * Acesso ao banco via a CONEXÃO do próprio model (`Model.query().client`), a mesma
  * usada pelo restante do store. O `email` (para o keyuri/QR) continua vindo do

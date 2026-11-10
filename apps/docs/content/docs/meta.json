@@ -54,6 +54,7 @@
     "agora-integration",
     "observability",
     "reference",
+    "migrating-to-1-0",
     "changelog"
   ]
 }

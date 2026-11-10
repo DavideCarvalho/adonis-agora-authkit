@@ -6,7 +6,7 @@
   "author": "dudousxd",
   "repository": {
     "type": "git",
-    "url": "https://github.com/DavideCarvalho/adonis-agora-authkit.git",
+    "url": "git+https://github.com/DavideCarvalho/adonis-agora-authkit.git",
     "directory": "packages/authkit-core"
   },
   "homepage": "https://davidecarvalho.github.io/agora/docs/authkit",

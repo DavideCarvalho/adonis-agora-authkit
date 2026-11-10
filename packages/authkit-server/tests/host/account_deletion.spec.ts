@@ -14,7 +14,6 @@ import { AccountExportService } from '../../src/host/account_export_service.js';
 import { withAuditLog } from '../../src/mixins/with_audit_log.js';
 import { withAuthUser } from '../../src/mixins/with_auth_user.js';
 import { withCredentials } from '../../src/mixins/with_credentials.js';
-import { withMfa } from '../../src/mixins/with_mfa.js';
 import { withPersonalAccessToken } from '../../src/mixins/with_personal_access_token.js';
 import { withProviderIdentity } from '../../src/mixins/with_provider_identity.js';
 import { withWebauthnCredential } from '../../src/mixins/with_webauthn_credential.js';
@@ -24,7 +23,7 @@ import { createTestDatabase } from '../bootstrap.js';
 
 // ---- Models (Acme app) ----
 
-class Account extends compose(BaseModel, withAuthUser(), withCredentials(), withMfa()) {
+class Account extends compose(BaseModel, withAuthUser(), withCredentials()) {
   static table = 'users';
   static selfAssignPrimaryKey = true;
   @column({ isPrimary: true })

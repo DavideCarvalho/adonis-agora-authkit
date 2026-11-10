@@ -505,12 +505,6 @@ export default class AccountApiController {
         token: issued.token,
         oldEmail: account?.email ?? '',
       });
-    } else if (cfg.mail?.onEmailVerification) {
-      await cfg.mail.onEmailVerification({
-        email: newEmail,
-        verifyUrl: confirmUrl,
-        token: issued.token,
-      });
     } else {
       await sendEmailChangeConfirmationEmail(ctx, { email: newEmail, confirmUrl });
     }
