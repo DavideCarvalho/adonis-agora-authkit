@@ -121,7 +121,7 @@ Infrastructure fields only. Bucket policy (`login`, `introspection`) is managed 
 
 | Factory | Config | Notes |
 | --- | --- | --- |
-| `resolvers.jwt` | `{ tokenSource?, jwksUri? }` | Local JWKS validation; `tokenSource` defaults to `'session'`, `jwksUri` to the discovered `jwks_uri`. |
+| `resolvers.jwt` | `{ tokenSource?, jwksUri? }` | Local JWKS validation; `tokenSource` defaults to `'session'`, `jwksUri` to the discovered `jwks_uri`. `'bearer'` reads `Authorization: Bearer <jwt>` and `Authorization: DPoP <jwt>` with its `DPoP` proof; a DPoP-bound token (`cnf.jkt`) sent as `Bearer` is refused. |
 | `resolvers.pat` | `{ introspectionUrl, introspectionSecret }` | Validates PATs via the IdP introspection endpoint. |
 | `resolvers.opaque` | `{ tokenSource?, introspectionUrl?, cacheTtlMs? }` | Per-request introspection of opaque access tokens (immediate revocation). Requires a confidential client. |
 
@@ -130,9 +130,10 @@ Infrastructure fields only. Bucket policy (`login`, `introspection`) is managed 
 | Export | Purpose |
 | --- | --- |
 | `registerOidcClient(router, options)` | Registers `/auth/login`, the callback, `/auth/logout` and the back-channel endpoint in one call, with PKCE, state, and role-based post-login redirects. The path most relying parties want — see [Client](/docs/client#the-login--callback--logout-flow). |
-| `authkitClientGuard` / `AuthkitClientGuard` | `@adonisjs/auth` guard backed by the AuthKit session, so `ctx.auth.user` and `middleware.auth()` work natively. See [AdonisJS Auth integration](/docs/adonis-auth). |
+| `authkitClientGuard({ provider, resolver? })` / `AuthkitClientGuard` | `@adonisjs/auth` guard backed by the AuthKit session (also on the `/auth` subpath), so `ctx.auth.user`, `middleware.auth()` and Bouncer work natively. The user comes from `resolveUser` first, then the provider. `resolver` replaces the configured resolver for this guard only — bearer JWT/DPoP, opaque or PAT API routes. See [AdonisJS auth](/docs/adonis-auth). |
+| `authkitIdentityProvider()` / `IdentityUserProviderContract` | A user provider with no database: `ctx.auth.user` is the AuthKit `Identity`. See [Choosing a user provider](/docs/adonis-auth#choosing-a-user-provider). |
 | `getAuthkit(ctx)` | Read the request's `Authenticator` without going through the container. |
-| `AuthkitContextMiddleware` | Populates the per-request identity. |
+| `AuthkitContextMiddleware` | `authkit_context_middleware`: refreshes the token set and puts the `Authenticator` on `ctx.authkit`. |
 | `lucidMirror(options)` | A `resolveUser` that mirrors the IdP identity into a Lucid model. |
 | `createUserinfoResolver(options)` | Builds a `resolveUser` that fetches the OP's `userinfo` endpoint. |
 | `conventionEndpoints(issuer)` | The endpoint map by convention, skipping discovery. |

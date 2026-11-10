@@ -41,15 +41,16 @@ import { defineConfig } from "@adonisjs/inertia";
 
 export default defineConfig({
   sharedData: {
-    // `ctx.authkit` is the Authenticator installed by authkit_context_middleware
+    // ctx.authkit carries the AuthKit-only data next to ctx.auth
     authkit: (ctx) => ctx.authkit.toSharedProps(),
   },
 });
 ```
 
 `toSharedProps()` resolves the session and returns `{ user, globalRoles }` — where `user` is
-whatever your `resolveUser` produced and `globalRoles` are the roles carried in the validated
-OIDC claims. **It returns `null` when there is no session**, because for an anonymous request
+whatever your `resolveUser` produced (the same object as `ctx.auth.user` on the server) and
+`globalRoles` are the roles carried in the validated OIDC claims. Your controllers keep reading
+the user from `ctx.auth`; the shared prop is how the same session reaches React. **It returns `null` when there is no session**, because for an anonymous request
 there is nothing to share.
 
 `useAuth()` treats a missing or `null` prop as "not authenticated" and never throws, so the

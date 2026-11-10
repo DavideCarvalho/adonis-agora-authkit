@@ -134,6 +134,7 @@ you can keep a side effect (an audit row, a cache bust) alongside the built-in b
 ```ts title="start/kernel.ts"
 router.use([
   () => import('@adonisjs/session/session_middleware'),
+  () => import('@adonisjs/auth/initialize_auth_middleware'),
   () => import('@adonis-agora/authkit-client/authkit_context_middleware'),
   () => import('@adonis-agora/authkit-client/backchannel_revocation_middleware'),
 ])

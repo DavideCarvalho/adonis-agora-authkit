@@ -1,7 +1,7 @@
 ---
 icon: Plug
-title: Native @adonisjs/auth
-description: Make ctx.auth.user, middleware.auth() and the Bouncer work over an AuthKit session.
+title: AdonisJS auth
+description: ctx.auth.user, middleware.auth() and the Bouncer over an AuthKit session, for browser and API routes.
 ---
 
 AuthKit resolves identities on its own: the server authenticates its account console with its
@@ -10,9 +10,9 @@ Neither of those is `@adonisjs/auth`. In an app that also runs the framework's a
 means `ctx.auth.user` is `undefined`, `middleware.auth()` rejects a perfectly logged-in user, and
 a Bouncer ability written against `ctx.auth.user` never fires.
 
-This page closes that gap. It is **opt-in** — nothing here changes unless you configure it — and
-`@adonisjs/auth` stays an *optional* peer dependency of both packages, so an app that never wants
-the framework's auth layer never has to install it.
+This page closes that gap. On a relying party, `@adonisjs/auth` is a required peer of
+`@adonis-agora/authkit-client` and `node ace configure @adonis-agora/authkit-client` wires the
+guard for you. On the IdP host it is opt-in: nothing changes unless you configure it.
 
 ## Which situation are you in?
 
@@ -20,9 +20,10 @@ The wiring depends on where the identity is actually established, and there are 
 
 <Cards>
   <Card title="I am the IdP host" description="The app runs @adonis-agora/authkit-server and its account console is where people log in. Use authkitUserProvider() + adonisAuth: { guard }." href="#the-idp-host" />
-  <Card title="I am a relying party on authkit-client" description="The app signs in against an AuthKit IdP over OIDC. Use authkitClientGuard()." href="#a-relying-party-on-the-client-kit" />
+  <Card title="I am a relying party on authkit-client" description="The app signs in against an AuthKit IdP over OIDC. Use authkitClientGuard() — configure sets it up." href="#a-relying-party-on-the-client-kit" />
+  <Card title="My relying party serves an API" description="Requests carry a bearer JWT, a DPoP-bound token or a PAT. Use authkitClientGuard({ resolver })." href="#api-routes" />
   <Card title="I drive my own OIDC callback" description="The app depends on authkit-server and stores the user id in the session itself. Use oidcRpGuard()." href="#a-relying-party-that-owns-its-own-session" />
-  <Card title="My API is called with a bearer token" description="A native app, SPA or service sends Authorization: Bearer. Use oidcBearerGuard()." href="#an-api-called-with-a-bearer-access-token" />
+  <Card title="The IdP app's own API is called with a bearer token" description="A native app, SPA or service calls the app that runs authkit-server. Use oidcBearerGuard()." href="#an-api-called-with-a-bearer-access-token" />
 </Cards>
 
 The rest of this page walks each one.
@@ -99,7 +100,8 @@ cannot serialise.
 
 A relying party does not authenticate anyone. The browser comes back from the IdP with a code,
 `@adonis-agora/authkit-client` exchanges it, and from then on the session is an OIDC token set.
-`authkitClientGuard` bridges that token set into `@adonisjs/auth`:
+`authkitClientGuard` bridges that token set into `@adonisjs/auth`. `node ace configure
+@adonis-agora/authkit-client` writes this file (pass `--model` to point it at your model):
 
 ```ts title="config/auth.ts"
 import { defineConfig } from '@adonisjs/auth'
@@ -150,10 +152,10 @@ resolveUser: lucidMirror(AppUser, {
 If neither returns a user, the guard fails closed: a valid IdP session with no local account is
 treated as unauthenticated.
 
-### Register the context middleware
+### The middleware
 
-The AuthKit-specific surface stays on `ctx.authkit`, populated by `authkit_context_middleware`.
-Register it after `initialize_auth_middleware`:
+The configure command registers `initialize_auth_middleware` and, after it,
+`authkit_context_middleware`, which puts the AuthKit-specific surface on `ctx.authkit`:
 
 ```ts title="start/kernel.ts"
 router.use([
@@ -190,6 +192,119 @@ export default class DashboardController {
   }
 }
 ```
+
+### Choosing a user provider
+
+The provider decides where `ctx.auth.user` comes from when `config/authkit_client.ts` has no
+`resolveUser` (or it returned `null`).
+
+| Your app | `resolveUser` | Guard `provider` | `ctx.auth.user` |
+| --- | --- | --- | --- |
+| Keeps a local user table, created on first login | `lucidMirror(AppUser, …)` | `sessionUserProvider({ model: () => import('#models/app_user') })` | the `AppUser` row `lucidMirror` returned, with what it preloaded |
+| Keeps a local table you fill yourself (imports, invitations) | — | `sessionUserProvider(...)` | the row with `id = sub`; no row means not authenticated |
+| Keeps no user table | — | `authkitIdentityProvider()` | the AuthKit `Identity` (`userId`, `email`, `globalRoles`, `profile`, `raw`) |
+
+```ts title="config/auth.ts"
+import { defineConfig } from '@adonisjs/auth'
+import type { InferAuthenticators } from '@adonisjs/auth/types'
+import { authkitClientGuard, authkitIdentityProvider } from '@adonis-agora/authkit-client/auth'
+
+const authConfig = defineConfig({
+  default: 'web',
+  guards: {
+    // No local users: ctx.auth.user is the identity.
+    web: authkitClientGuard({ provider: authkitIdentityProvider() }),
+  },
+})
+
+export default authConfig
+
+declare module '@adonisjs/auth/types' {
+  interface Authenticators extends InferAuthenticators<typeof authConfig> {}
+}
+```
+
+With `authkitIdentityProvider()`, a `resolveUser` still wins when you configure one, so you can
+add a local table later without touching `config/auth.ts`.
+
+### API routes
+
+Routes called by a native app, an SPA or a service carry the token in the `Authorization`
+header instead of a session. Give them their own guard with its own `resolver`; the `web`
+guard keeps reading the OIDC session:
+
+```ts title="config/auth.ts"
+import env from '#start/env'
+import { defineConfig } from '@adonisjs/auth'
+import { sessionUserProvider } from '@adonisjs/auth/session'
+import type { InferAuthenticators } from '@adonisjs/auth/types'
+import { resolvers } from '@adonis-agora/authkit-client'
+import { authkitClientGuard, authkitIdentityProvider } from '@adonis-agora/authkit-client/auth'
+
+const authConfig = defineConfig({
+  default: 'web',
+  guards: {
+    web: authkitClientGuard({
+      provider: sessionUserProvider({ model: () => import('#models/app_user') }),
+    }),
+    // Bearer JWT access tokens, and DPoP-bound ones with their proof.
+    api: authkitClientGuard({
+      provider: authkitIdentityProvider(),
+      resolver: resolvers.jwt({ tokenSource: 'bearer' }),
+    }),
+    // Personal access tokens, checked by introspection at the IdP.
+    pat: authkitClientGuard({
+      provider: authkitIdentityProvider(),
+      resolver: resolvers.pat({
+        introspectionUrl: `${env.get('AUTHKIT_ISSUER')}/authkit/pat/introspect`,
+        introspectionSecret: env.get('PAT_INTROSPECTION_SECRET'),
+      }),
+    }),
+  },
+})
+
+export default authConfig
+
+declare module '@adonisjs/auth/types' {
+  interface Authenticators extends InferAuthenticators<typeof authConfig> {}
+}
+```
+
+```ts title="start/routes.ts"
+import router from '@adonisjs/core/services/router'
+import { middleware } from '#start/kernel'
+
+const CoursesController = () => import('#controllers/api/courses_controller')
+
+router
+  .group(() => {
+    router.get('/courses', [CoursesController, 'index'])
+  })
+  .prefix('/api/v1')
+  .use(middleware.auth({ guards: ['api', 'pat'] }))
+```
+
+```ts title="app/controllers/api/courses_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import Course from '#models/course'
+
+export default class CoursesController {
+  async index({ auth }: HttpContext) {
+    const caller = auth.getUserOrFail() // the Identity of the token's subject
+    return Course.query().where('ownerId', caller.userId)
+  }
+}
+```
+
+| Resolver | Accepts | Checked |
+| --- | --- | --- |
+| `resolvers.jwt({ tokenSource: 'bearer' })` | `Authorization: Bearer <jwt>`; `Authorization: DPoP <jwt>` + `DPoP: <proof>` | Locally, against the IdP's JWKS. A token bound to a DPoP key (`cnf.jkt`) is refused when sent as `Bearer`, and its proof must match the method, URL, token and key, and not be replayed. |
+| `resolvers.opaque({ tokenSource: 'bearer' })` | `Authorization: Bearer <token>` | By introspection at the IdP, per request (needs a confidential client). |
+| `resolvers.pat({ introspectionUrl, introspectionSecret })` | `Authorization: Bearer pat_…` | By the IdP's PAT introspection endpoint. See [Personal access tokens](/docs/personal-access-tokens). |
+
+The JWT resolver checks the token's audience against your `clientId`. A failed API
+authentication is a `401` JSON response from `middleware.auth()`, not a redirect, when the
+request asks for JSON.
 
 ## A relying party that owns its own session
 
@@ -270,6 +385,9 @@ Both exist because they read different things, and the packaging follows from th
   package purely to obtain this guard is not worth it, and `authkitClientGuard` covers that case.
 
 ## An API called with a bearer access token
+
+This section is for the app that runs `@adonis-agora/authkit-server`. A relying party on the
+client kit uses [`authkitClientGuard({ resolver })`](#api-routes) instead.
 
 Mobile apps (RFC 8252), SPAs talking straight to your API and services carry no web session — they
 send `Authorization: Bearer <access_token>`. `oidcBearerGuard` verifies that token against the
@@ -355,32 +473,6 @@ The failure cases are deliberately uniform:
 That last row is the deliberate part. `check()` swallows **only** `E_UNAUTHORIZED_ACCESS` and
 rethrows everything else, so an infrastructure failure surfaces as a `500` in your logs instead of
 quietly turning every user into a logged-out visitor.
-
-### Swapping the exception
-
-Because `@adonisjs/auth` is an optional peer, neither package can import its error class
-statically. Both capture it at boot through a dynamic import and hold it as an
-`UnauthorizedAccessConstructor` — the exported type describing that constructor
-(`new (message, { guardDriverName, redirectTo? })`). The guard classes take it as a constructor
-argument, so a host that instantiates a guard itself can hand it a different exception class:
-
-```ts
-import { AuthkitClientGuard } from '@adonis-agora/authkit-client'
-import type { UnauthorizedAccessConstructor } from '@adonis-agora/authkit-client'
-
-class ApiUnauthorized extends Error {
-  static status = 401
-  constructor(message: string, _options: { guardDriverName: string; redirectTo?: string }) {
-    super(message)
-  }
-}
-
-const guard = new AuthkitClientGuard('web', ctx, provider, ApiUnauthorized as UnauthorizedAccessConstructor)
-```
-
-This is a genuine escape hatch, not a config key: the `authkitClientGuard()` and `oidcRpGuard()`
-factories always wire the framework's own class, which is what you want in almost every app.
-Reach for it only when the whole host has standardised on a different unauthorized exception.
 
 <Callout type="warn">
   `authkitClientGuard` cannot support the `loginAs` helper in the framework's test plugins, and

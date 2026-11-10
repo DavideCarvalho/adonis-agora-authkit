@@ -30,7 +30,14 @@ Breaking changes (`@adonis-agora/authkit-core`):
 
 Breaking changes (`@adonis-agora/authkit-client`):
 
-- `authkit_middleware` and the `./authkit_middleware` subpath are removed. Register `authkit_context_middleware` and read `ctx.authkit`; use `authkitClientGuard` with `@adonisjs/auth` for `ctx.auth`. `authkitClientGuard` takes its user from `resolveUser` when one is configured (so `lucidMirror` provisions the row on first login, and what it loads is on `ctx.auth.user`, the same instance as `ctx.authkit.getUser()`), with the provider as the fallback. `@adonis-agora/authkit-client/types` no longer declares `HttpContext.auth`; type `getUser()` through the `AuthkitUserType` interface.
+- `@adonisjs/auth` is a required peer. `ctx.auth` is `@adonisjs/auth`, backed by the AuthKit session through `authkitClientGuard`; `ctx.authkit` (from `authkit_context_middleware`) carries the AuthKit-only data (identity, `hasGlobalRole`, active org, `toSharedProps`).
+- `authkit_middleware` and the `./authkit_middleware` subpath are removed. `@adonis-agora/authkit-client/types` no longer declares `HttpContext.auth`; type `ctx.authkit.getUser()` through the `AuthkitUserType` interface.
+- `node ace configure @adonis-agora/authkit-client` installs `@adonisjs/auth` when missing (`--no-install` prints the command), writes `config/auth.ts` with `authkitClientGuard` + `sessionUserProvider` (`--model`, default `#models/user`; an existing file is left alone and the guard to add is printed), registers `@adonisjs/auth/auth_provider`, `initialize_auth_middleware` + `authkit_context_middleware`, and publishes the named `auth` / `silentAuth` middleware.
+- `authkitClientGuard` takes its user from `resolveUser` when one is configured (so `lucidMirror` provisions the row on first login, and what it loads is on `ctx.auth.user`, the same instance as `ctx.authkit.getUser()`), with the provider as the fallback.
+- New `authkitIdentityProvider()`: a user provider with no database; `ctx.auth.user` is the AuthKit `Identity`.
+- New `authkitClientGuard({ provider, resolver })` option: a per-guard resolver for API routes (bearer JWT, opaque, PAT).
+- `resolvers.jwt({ tokenSource: 'bearer' })` accepts `Authorization: DPoP <jwt>` with a valid `DPoP` proof for `cnf.jkt`-bound tokens, and refuses DPoP-bound tokens sent as `Bearer`.
+- `UnauthorizedAccessConstructor` is no longer exported, and `AuthkitClientGuard` no longer takes an exception class; it always throws `@adonisjs/auth`'s `E_UNAUTHORIZED_ACCESS`.
 
 Breaking changes (`@adonis-agora/authkit-react`):
 

@@ -61,7 +61,7 @@ resolving real tokens.
 | `user` | `unknown` | the identity | The domain user returned by `getUser()`. |
 
 Everything the fake does follows from one piece of state — whether an identity is present.
-That single switch decides all eight members of the surface, which is what makes an
+That single switch decides the members of the surface, which is what makes an
 anonymous request a one-word change in a test. The returned object is typed as
 `FakeAuthenticatorLike`:
 
@@ -75,6 +75,7 @@ anonymous request a one-word change in a test. The returned object is typed as
 | `getUser()` | resolves the `user` option (the identity by default) | resolves `null` |
 | `getUserOrFail()` | resolves the `user` | **throws** |
 | `toSharedProps()` | `{ user, globalRoles }` | `null` |
+| `resolvesUser` | `true` when you passed `user` | same |
 
 Two of those deserve their own note, because they are the fail-closed and the
 frontend-facing halves of the surface:
@@ -116,6 +117,33 @@ test('returns the current user profile', async ({ assert }) => {
 
   assert.equal(result.email, 'jane@acme.dev')
   assert.isTrue(authkit.hasGlobalRole('ADMIN'))
+})
+```
+
+### Controllers that read `ctx.auth`
+
+`authkitClientGuard` reads the request's `ctx.authkit`, so the same fake drives `ctx.auth` too:
+when you pass `user`, `ctx.auth.user` is that user; without it, the guard asks its provider by
+the identity's `userId`. Set the fake on the context before the guard runs:
+
+```ts
+import { test } from '@japa/runner'
+import app from '@adonisjs/core/services/app'
+import testUtils from '@adonisjs/core/services/test_utils'
+import { fakeAuthenticator, createTestIdentity } from '@adonis-agora/authkit-testing'
+import InvoicesController from '#controllers/invoices_controller'
+import { UserFactory } from '#database/factories/user_factory'
+
+test('lists the invoices of the signed-in user', async ({ assert }) => {
+  const user = await UserFactory.create()
+  const ctx = await testUtils.createHttpContext()
+  ctx.authkit = fakeAuthenticator({ identity: createTestIdentity({ userId: user.id }), user }) as any
+  ctx.auth = (await app.container.make('auth.manager')).createAuthenticator(ctx)
+
+  await ctx.auth.authenticate()
+  const invoices = await new InvoicesController().index(ctx)
+
+  assert.isTrue(invoices.every((invoice) => invoice.userId === user.id))
 })
 ```
 

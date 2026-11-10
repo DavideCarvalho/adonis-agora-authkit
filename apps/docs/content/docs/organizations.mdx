@@ -197,14 +197,24 @@ A **role change** does not revoke anything: the next refresh simply carries the 
 
 ## Consuming the tenant in a relying party
 
-On the client side (`@adonis-agora/authkit-client`) the org claims are promoted to
-first-class fields on the resolved `Identity` — you do not have to reach into `identity.raw`:
+On the client side (`@adonis-agora/authkit-client`) the user comes from `ctx.auth` as usual,
+and the active organization is AuthKit-only data, on `ctx.authkit`. The org claims are promoted
+to first-class fields on the resolved `Identity` — you do not have to reach into
+`identity.raw`:
 
-```ts
-const identity = await ctx.authkit.getIdentity()
-identity.orgId    // 'org-9'  | null
-identity.orgSlug  // 'acme'   | null
-identity.orgRole  // 'owner'  | null
+```ts title="app/controllers/projects_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import Project from '#models/project'
+
+export default class ProjectsController {
+  // Behind middleware.auth() and middleware.requireOrg()
+  async index({ auth, authkit }: HttpContext) {
+    const user = auth.getUserOrFail()
+    const identity = await authkit.getIdentity()
+    // identity.orgId 'org-9', identity.orgSlug 'acme', identity.orgRole 'owner' (or null)
+    return Project.query().where('orgId', identity!.orgId!).where('memberId', user.id)
+  }
+}
 ```
 
 The derivation also accepts the tenant claims other IdPs emit (`active_organization_id`,
@@ -230,7 +240,7 @@ falls back to the **global** scope, which is the worst place to land by accident
 
 ```ts title="start/kernel.ts"
 export const middleware = router.named({
-  auth: () => import('@adonis-agora/authkit-client/auth_middleware'),
+  auth: () => import('#middleware/auth_middleware'),
   requireOrg: () => import('@adonis-agora/authkit-client/require_org_middleware'),
 })
 ```

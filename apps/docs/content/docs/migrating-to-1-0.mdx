@@ -11,6 +11,8 @@ versions; the changes below only affect apps that use one of the APIs listed.
 
 - **Node.js 24 or newer.** Every package declares `"engines": { "node": ">=24" }` and is tested
   on Node 24 and 26.
+- **`@adonisjs/auth`** is a required peer of `@adonis-agora/authkit-client` — see
+  [Use `authkitClientGuard` for `ctx.auth`](#use-authkitclientguard-for-ctxauth).
 - The `@adonis-agora/*` peers (`durable`, `media`, `telescope`, `resilience`,
   `authkit-server`) accept both their 0.x and 1.x lines, so you can upgrade them in any order.
 
@@ -223,11 +225,23 @@ node ace authkit:clients:create --client-id=mobile --native --redirect-uri=com.a
 `backchannelLogoutSessionRequired` has no CLI flag: set it in the admin console or with
 `PATCH /api/authkit/v1/clients/:id` after creating the client.
 
-## Use `authkit_context_middleware` and `ctx.authkit`
+## Use `authkitClientGuard` for `ctx.auth`
 
-`authkit_middleware` is removed. Register `authkit_context_middleware`, which puts AuthKit's
-authenticator on `ctx.authkit`. `ctx.auth` belongs to `@adonisjs/auth`: if you want
-`ctx.auth.user` and `middleware.auth()`, add [`authkitClientGuard`](/docs/adonis-auth).
+`authkit_middleware` is removed, and `@adonisjs/auth` is now a **required** peer of
+`@adonis-agora/authkit-client`. `ctx.auth` is the `@adonisjs/auth` authenticator, backed by the
+AuthKit session through `authkitClientGuard`; `authkit_context_middleware` puts the AuthKit-only
+data (identity, global roles, active organization, shared props) on `ctx.authkit`.
+
+Install `@adonisjs/auth` and re-run the configure command. It writes `config/auth.ts` (or, when
+you already have one, prints the guard to add), registers the provider and the middleware, and
+publishes the named `auth` / `silentAuth` middleware:
+
+```sh
+npm i @adonisjs/auth
+node ace configure @adonis-agora/authkit-client --model=#models/app_user
+```
+
+Then remove `authkit_middleware` from `start/kernel.ts`.
 
 Before:
 
@@ -237,17 +251,11 @@ router.use([
   () => import('@adonis-agora/authkit-client/authkit_middleware'),
   () => import('@adonis-agora/authkit-client/backchannel_revocation_middleware'),
 ])
-```
 
-```ts title="app/controllers/dashboard_controller.ts"
-import type { HttpContext } from '@adonisjs/core/http'
-
-export default class DashboardController {
-  async show({ auth, inertia }: HttpContext) {
-    const user = await auth.getUser()
-    return inertia.render('dashboard', { user, isAdmin: auth.hasGlobalRole('ADMIN') })
-  }
-}
+export const middleware = router.named({
+  auth: () => import('@adonis-agora/authkit-client/auth_middleware'),
+  silentAuth: () => import('@adonis-agora/authkit-client/silent_auth_middleware'),
+})
 ```
 
 After:
@@ -255,53 +263,60 @@ After:
 ```ts title="start/kernel.ts"
 router.use([
   () => import('@adonisjs/session/session_middleware'),
+  () => import('@adonisjs/auth/initialize_auth_middleware'),
   () => import('@adonis-agora/authkit-client/authkit_context_middleware'),
   () => import('@adonis-agora/authkit-client/backchannel_revocation_middleware'),
 ])
+
+export const middleware = router.named({
+  auth: () => import('#middleware/auth_middleware'),
+  silentAuth: () => import('#middleware/silent_auth_middleware'),
+})
 ```
 
-```ts title="app/controllers/dashboard_controller.ts"
-import type { HttpContext } from '@adonisjs/core/http'
+```ts title="config/auth.ts"
+import { defineConfig } from '@adonisjs/auth'
+import { sessionUserProvider } from '@adonisjs/auth/session'
+import type { InferAuthenticators } from '@adonisjs/auth/types'
+import { authkitClientGuard } from '@adonis-agora/authkit-client/auth'
 
-export default class DashboardController {
-  async show({ authkit, inertia }: HttpContext) {
-    const user = await authkit.getUser()
-    return inertia.render('dashboard', { user, isAdmin: authkit.hasGlobalRole('ADMIN') })
-  }
+const authConfig = defineConfig({
+  default: 'web',
+  guards: {
+    web: authkitClientGuard({
+      provider: sessionUserProvider({ model: () => import('#models/app_user') }),
+    }),
+  },
+})
+
+export default authConfig
+
+declare module '@adonisjs/auth/types' {
+  interface Authenticators extends InferAuthenticators<typeof authConfig> {}
 }
 ```
 
-Type `getUser()` once instead of augmenting `HttpContext.auth`:
+The guard takes its user from your `resolveUser` first, so `lucidMirror` still provisions the row
+on a first login and `ctx.auth.user` carries what it preloaded. An app with no local user table
+uses `authkitIdentityProvider()` as the provider, and `ctx.auth.user` is the AuthKit identity.
+See [AdonisJS auth](/docs/adonis-auth#choosing-a-user-provider). API routes that read a bearer
+token or a PAT get their own guard with a `resolver` — see
+[API routes](/docs/adonis-auth#api-routes).
 
-```ts title="types/authkit.ts"
-import type AppUser from '#models/app_user'
+`UnauthorizedAccessConstructor` is no longer exported, and `new AuthkitClientGuard(...)` no longer
+takes an exception class: the guard always throws `@adonisjs/auth`'s `E_UNAUTHORIZED_ACCESS`.
 
-declare module '@adonis-agora/authkit-client' {
-  interface AuthkitUserType {
-    user: AppUser
-  }
-}
-```
+### What changes in controllers
 
-The Inertia shared prop for `@adonis-agora/authkit-react` reads `ctx.authkit.toSharedProps()`.
-
-### If you move to `ctx.auth` with `authkitClientGuard`
-
-`ctx.auth` is then the `@adonisjs/auth` authenticator, not AuthKit's. The guard takes its user
-from your `resolveUser` (so `lucidMirror` still provisions the row on first login), but the
-methods differ:
-
-| Old client `ctx.auth` | `@adonisjs/auth` `ctx.auth` |
+| Old client `ctx.auth` | `ctx.auth` now |
 | --- | --- |
-| `await auth.getUser()` (nullable) | `auth.user`, after `middleware.auth()` or `auth.check()` |
+| `await auth.getUser()` (nullable) | `auth.user`, after `middleware.auth()`, `middleware.silentAuth()` or `auth.check()` |
 | `await auth.getUserOrFail()` | `auth.getUserOrFail()`: synchronous, and it throws unless `authenticate()` or `check()` already ran |
 | `auth.getIdentity()`, `auth.hasGlobalRole()`, `auth.toSharedProps()` | the same methods on `ctx.authkit` |
 | `await auth.authenticate()` returning the `Identity` | `await auth.authenticate()` returning the user; the identity is `await ctx.authkit.getIdentity()` |
 
-Put routes that read `auth.user` behind `middleware.auth()`. On routes that also serve guests, use
-the AdonisJS starter kit's `app/middleware/silent_auth_middleware.ts` (it calls
-`await ctx.auth.check()`), so `auth.user` is set whenever a session exists. The
-`@adonis-agora/authkit-client/silent_auth_middleware` only fills `ctx.authkit`.
+Put routes that read `auth.user` behind `middleware.auth()`, and routes that also serve guests
+behind `middleware.silentAuth()`.
 
 Before:
 
@@ -325,6 +340,19 @@ export default class CoursesController {
   async index({ auth, authkit, inertia }: HttpContext) {
     const user = auth.getUserOrFail()
     return inertia.render('courses/index', { isAdmin: authkit.hasGlobalRole('ADMIN'), user })
+  }
+}
+```
+
+The Inertia shared prop for `@adonis-agora/authkit-react` reads `ctx.authkit.toSharedProps()`.
+Type `ctx.authkit.getUser()` once instead of augmenting `HttpContext.auth`:
+
+```ts title="types/authkit.ts"
+import type AppUser from '#models/app_user'
+
+declare module '@adonis-agora/authkit-client' {
+  interface AuthkitUserType {
+    user: AppUser
   }
 }
 ```

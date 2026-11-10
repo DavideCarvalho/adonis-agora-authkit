@@ -18,6 +18,7 @@ to the session.
 ```ts title="start/kernel.ts"
 router.use([
   // ...
+  () => import('@adonisjs/auth/initialize_auth_middleware'),
   () => import('@adonis-agora/authkit-client/authkit_context_middleware'),
 ])
 ```

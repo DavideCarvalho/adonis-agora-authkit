@@ -18,7 +18,7 @@ See [Topologies](/docs/topologies) for the conceptual background; switching late
 infrastructure change — keep the same `issuer` URL and the relying parties don't need to move.
 
 Once a client is wired, [Getting Started](/docs/getting-started#using-it-in-controllers) shows how to
-read the user in your controllers via `ctx.authkit`.
+read the user in your controllers via `ctx.auth`.
 
 ---
 
@@ -241,15 +241,48 @@ branding, and ejecting.
   `authkitCsrfExceptions` snippet.
 </Callout>
 
+`node ace configure @adonis-agora/authkit-client` registers the middleware and writes
+`config/auth.ts` with `authkitClientGuard`:
+
 ```ts title="start/kernel.ts"
 router.use([
   // ...
+  () => import('@adonisjs/auth/initialize_auth_middleware'),
   () => import('@adonis-agora/authkit-client/authkit_context_middleware'),
 ])
+
+export const middleware = router.named({
+  auth: () => import('#middleware/auth_middleware'),
+  silentAuth: () => import('#middleware/silent_auth_middleware'),
+})
 ```
 
-The client middleware proactively refreshes the token set (see
-[Refresh Tokens](/docs/refresh-tokens)) and attaches an authenticator to `ctx.authkit`.
+```ts title="config/auth.ts"
+import { defineConfig } from '@adonisjs/auth'
+import { sessionUserProvider } from '@adonisjs/auth/session'
+import type { InferAuthenticators } from '@adonisjs/auth/types'
+import { authkitClientGuard } from '@adonis-agora/authkit-client/auth'
+
+const authConfig = defineConfig({
+  default: 'web',
+  guards: {
+    web: authkitClientGuard({
+      provider: sessionUserProvider({ model: () => import('#models/app_user') }),
+    }),
+  },
+})
+
+export default authConfig
+
+declare module '@adonisjs/auth/types' {
+  interface Authenticators extends InferAuthenticators<typeof authConfig> {}
+}
+```
+
+`ctx.auth` (`middleware.auth()`, `auth.user`, Bouncer) is backed by the AuthKit session, and
+`ctx.authkit` carries the AuthKit-only data: the identity, global roles and the props for the
+React package. The client middleware proactively refreshes the token set (see
+[Refresh Tokens](/docs/refresh-tokens)).
 
 ### A6. The login / callback / logout flow
 
@@ -478,9 +511,13 @@ export default authkitClientConfig
 
 #### B7. Middleware
 
+Same as [A5](#a5-mount-the-host--register-middleware) — `node ace configure @adonis-agora/authkit-client`
+writes `config/auth.ts` and registers:
+
 ```ts title="start/kernel.ts (acme-web)"
 router.use([
   // ...
+  () => import('@adonisjs/auth/initialize_auth_middleware'),
   () => import('@adonis-agora/authkit-client/authkit_context_middleware'),
 ])
 ```

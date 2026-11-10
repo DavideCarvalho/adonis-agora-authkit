@@ -10,20 +10,10 @@ you need.
 
 ## Protect a route group with a redirect to login
 
-`ctx.authkit` is always present after the client middleware runs, but it never forces a login.
-For browser routes you want anonymous hits to *redirect* to your login route rather than
-throw a 500.
-
-Don't write that middleware. `@adonis-agora/authkit-client` ships it. Register it as a
-**named** middleware and apply it to the group:
-
-```ts title="start/kernel.ts"
-export const middleware = router.named({
-  // ...existing named middleware
-  auth: () => import('@adonis-agora/authkit-client/auth_middleware'),
-  silentAuth: () => import('@adonis-agora/authkit-client/silent_auth_middleware'),
-})
-```
+`node ace configure @adonis-agora/authkit-client` publishes `app/middleware/auth_middleware.ts`
+and `app/middleware/silent_auth_middleware.ts` and registers them as the named `auth` and
+`silentAuth` middleware. Both run on `ctx.auth` (`@adonisjs/auth`, backed by the AuthKit
+session through `authkitClientGuard`):
 
 ```ts title="start/routes.ts"
 router
@@ -33,44 +23,30 @@ router
   })
   .prefix('/app')
   .as('app')
-  .use(middleware.auth({ redirectTo: '/auth/login' }))
+  .use(middleware.auth())
 ```
 
-The shipped middleware probes `ctx.authkit.check()` and redirects to `redirectTo` when there
-is no session — `/auth/login` if you omit the option. Its sibling,
-`silent_auth_middleware`, resolves the identity **without** requiring it, which is what you
-want on public pages that render a "Sign in" button for guests and an avatar for members:
+`middleware.auth()` redirects guests to `/auth/login` (the `redirectTo` of the published
+middleware) and answers JSON requests with a `401`. `middleware.silentAuth()` checks the
+session without requiring it, which is what you want on public pages that render a "Sign in"
+button for guests and an avatar for members:
 
 ```ts title="start/routes.ts"
 router.get('/', [HomeController]).use(middleware.silentAuth())
 ```
 
-<Callout type="info">
-  Two different middleware, two different jobs, and you generally want both.
-  `authkit_context_middleware` is registered **router-globally** by `node ace add` and is what
-  *creates* `ctx.authkit` on every request. `auth_middleware` and `silent_auth_middleware` are
-  opt-in per route and decide what happens when nobody is logged in. Full details in
-  [Client](/docs/client) and [AdonisJS auth](/docs/adonis-auth).
-</Callout>
+### When to change the published middleware
 
-### When to hand-roll one anyway
+The published file is yours. Edit it when the default doesn't fit — remember where the visitor
+was heading, or redirect by named route:
 
-Reach for your own middleware only when the shipped behaviour genuinely doesn't fit — you
-need to remember the originally requested URL, redirect by *named* route rather than by
-path, or return a JSON 401 for a mixed HTML/API surface. That is a real customization, not
-a re-implementation:
-
-```ts title="app/middleware/require_auth_middleware.ts"
+```ts title="app/middleware/auth_middleware.ts"
 import type { HttpContext } from '@adonisjs/core/http'
 import type { NextFn } from '@adonisjs/core/types/http'
 
-/**
- * Same guard as `auth_middleware`, plus: remembers where the visitor was
- * heading, and answers JSON on API requests instead of redirecting.
- */
-export default class RequireAuthMiddleware {
+export default class AuthMiddleware {
   async handle(ctx: HttpContext, next: NextFn) {
-    if (await ctx.authkit.check()) return next()
+    if (await ctx.auth.check()) return next()
 
     if (ctx.request.accepts(['html', 'json']) === 'json') {
       return ctx.response.unauthorized({ message: 'Not authenticated' })
@@ -82,10 +58,8 @@ export default class RequireAuthMiddleware {
 }
 ```
 
-`auth.login` is the route name from the [Getting Started](/docs/getting-started#login-callback-logout)
-login/callback/logout wiring (`registerOidcClient` registers it under that name too). For
-API routes where anonymous access is a programming error, skip the middleware entirely and
-call `authkit.authenticate()` in the controller — it throws.
+`auth.login` is the route name `registerOidcClient` registers (see
+[Getting Started](/docs/getting-started#login-callback-logout)).
 
 ## Role-gate a group
 
@@ -99,7 +73,7 @@ import type { NextFn } from '@adonisjs/core/types/http'
 
 export default class RequireGlobalRoleMiddleware {
   async handle(ctx: HttpContext, next: NextFn, options: { role: string }) {
-    // `middleware.auth()` already ran, so the identity is resolved and non-null.
+    // `middleware.auth()` already ran, so the identity on ctx.authkit is resolved.
     if (!ctx.authkit.hasGlobalRole(options.role)) {
       return ctx.response.forbidden({ message: 'Access denied' })
     }
@@ -322,9 +296,10 @@ export default defineConfig({
 })
 ```
 
-`resolveUser` runs **lazily** — only when something calls `authkit.getUser()` — and its result
-is memoised for the rest of the request, so a request that never asks for the user never
-touches your database. It receives a second argument, `{ accessToken }`, when the session
+`resolveUser` runs when the request is authenticated (`middleware.auth()`,
+`middleware.silentAuth()`, `auth.check()`) or when something calls `authkit.getUser()`, and its
+result is memoised for the rest of the request: `ctx.auth.user` and `ctx.authkit.getUser()` are
+the same object. A request that never authenticates never touches your database. It receives a second argument, `{ accessToken }`, when the session
 carries one; use it if your mapping needs to call back to the IdP (for example to fetch
 extra profile fields from a userinfo endpoint).
 
