@@ -209,8 +209,8 @@ catalogs:
       specifier: 5.4.0
       version: 5.4.0
     '@poppinss/ts-exec':
-      specifier: 1.5.1
-      version: 1.5.1
+      specifier: 1.5.2
+      version: 1.5.2
     '@vinejs/vine':
       specifier: 4.4.0
       version: 4.4.0
@@ -384,7 +384,7 @@ importers:
         version: 5.4.0
       '@poppinss/ts-exec':
         specifier: 'catalog:'
-        version: 1.5.1(@swc/helpers@0.5.23)
+        version: 1.5.2(@swc/helpers@0.5.23)
       '@tanstack/intent':
         specifier: 0.5.6
         version: 0.5.6
@@ -420,7 +420,7 @@ importers:
         version: 5.4.0
       '@poppinss/ts-exec':
         specifier: 'catalog:'
-        version: 1.5.1(@swc/helpers@0.5.23)
+        version: 1.5.2(@swc/helpers@0.5.23)
       '@types/node':
         specifier: catalog:adonis
         version: 26.6.5
@@ -451,7 +451,7 @@ importers:
         version: 5.4.0
       '@poppinss/ts-exec':
         specifier: 'catalog:'
-        version: 1.5.1(@swc/helpers@0.5.23)
+        version: 1.5.2(@swc/helpers@0.5.23)
       '@tanstack/intent':
         specifier: 0.5.6
         version: 0.5.6
@@ -496,7 +496,7 @@ importers:
         version: 5.4.0
       '@poppinss/ts-exec':
         specifier: 'catalog:'
-        version: 1.5.1(@swc/helpers@0.5.23)
+        version: 1.5.2(@swc/helpers@0.5.23)
       '@types/node':
         specifier: catalog:adonis
         version: 26.6.5
@@ -584,7 +584,7 @@ importers:
         version: 5.4.0
       '@poppinss/ts-exec':
         specifier: 'catalog:'
-        version: 1.5.1(@swc/helpers@0.5.23)
+        version: 1.5.2(@swc/helpers@0.5.23)
       '@tailwindcss/cli':
         specifier: catalog:frontend
         version: 4.3.3
@@ -705,7 +705,7 @@ importers:
         version: 5.4.0
       '@poppinss/ts-exec':
         specifier: 'catalog:'
-        version: 1.5.1(@swc/helpers@0.5.23)
+        version: 1.5.2(@swc/helpers@0.5.23)
       '@types/node':
         specifier: catalog:adonis
         version: 26.6.5
@@ -730,7 +730,7 @@ importers:
         version: 5.4.0
       '@poppinss/ts-exec':
         specifier: 'catalog:'
-        version: 1.5.1(@swc/helpers@0.5.23)
+        version: 1.5.2(@swc/helpers@0.5.23)
       '@types/node':
         specifier: catalog:adonis
         version: 26.6.5
@@ -758,7 +758,7 @@ importers:
         version: 5.4.0
       '@poppinss/ts-exec':
         specifier: 'catalog:'
-        version: 1.5.1(@swc/helpers@0.5.23)
+        version: 1.5.2(@swc/helpers@0.5.23)
       '@types/node':
         specifier: catalog:adonis
         version: 26.6.5
@@ -783,7 +783,7 @@ importers:
         version: 5.4.0
       '@poppinss/ts-exec':
         specifier: 'catalog:'
-        version: 1.5.1(@swc/helpers@0.5.23)
+        version: 1.5.2(@swc/helpers@0.5.23)
       '@types/node':
         specifier: catalog:adonis
         version: 26.6.5
@@ -2412,8 +2412,8 @@ packages:
   '@poppinss/string@1.7.2':
     resolution: {integrity: sha512-A182GLDfi36iDCbhDrHB0xzrPM1fO3GHnhCDIdadf8C6eycgct4m7zusbLwEh6GPaj2Pz5BVos7XK16w7tZ7wQ==}
 
-  '@poppinss/ts-exec@1.5.1':
-    resolution: {integrity: sha512-ZEABqzg0fRQ3JXyyRySWi+Q0pO5DaUigMca0pE5ttUVyK9iDWmO55ZThM5XNG4QnF+LF1rxz2o22UiJ+gUYVWQ==}
+  '@poppinss/ts-exec@1.5.2':
+    resolution: {integrity: sha512-MGGen03UwVgbg0zuq71UMs1EhaDZcHTzMk5KiTsT2ApXDXvVUTdlLNHLKf11jGmzyzeradiB+yPkqi3ZV2CVZw==}
     engines: {node: '>=24.0.0'}
 
   '@poppinss/types@1.2.1':
@@ -8213,7 +8213,7 @@ snapshots:
       pluralize: 8.0.0
       slugify: 1.6.9
 
-  '@poppinss/ts-exec@1.5.1(@swc/helpers@0.5.23)':
+  '@poppinss/ts-exec@1.5.2(@swc/helpers@0.5.23)':
     dependencies:
       '@swc/core': 1.16.20(@swc/helpers@0.5.23)
       get-tsconfig: 4.14.3
