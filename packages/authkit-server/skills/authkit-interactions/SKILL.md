@@ -153,6 +153,9 @@ export default function SessionExpired({
 - The page file must be `inertia/pages/<prefix>/<view>.tsx` with the view's
   kebab-case name: Inertia resolves it by string, so a renamed file only fails at
   runtime.
+- A screen of your own (a `render` wrapper that swaps `login` for an audience
+  variant, say) must be declared by augmenting `AuthkitScreenProps` in
+  `declare module '@adonis-agora/authkit-server'`; otherwise `views` rejects it.
 - Set `interactionRecovery: { redirectTo: '/auth/login' }` so `session-expired`
   restarts the sign-in, not the account console's `/account/login`.
 - The admin console (`/admin`) is not themed: build a custom admin UI with the

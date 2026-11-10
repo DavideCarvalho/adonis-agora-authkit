@@ -165,7 +165,20 @@ defineConfig({
 ```
 
 `views` (and `AuthkitScreen`) accept only the screens AuthKit renders; a name that is not a
-screen fails `tsc`. Type each page with `AuthkitScreenProps['<view>']` instead of copying the
+screen fails `tsc`. If your `render` serves a screen of your own, declare it by augmenting
+`AuthkitScreenProps`:
+
+```ts title="types/authkit_screens.d.ts"
+import type { LoginProps } from '@adonis-agora/authkit-server'
+
+declare module '@adonis-agora/authkit-server' {
+  interface AuthkitScreenProps {
+    'professional-login': LoginProps
+  }
+}
+```
+
+Type each page with `AuthkitScreenProps['<view>']` instead of copying the
 shape from the Edge templates; see [Themed Screens](/docs/themed-screens).
 
 ## Send `grantTypes` to the Admin API

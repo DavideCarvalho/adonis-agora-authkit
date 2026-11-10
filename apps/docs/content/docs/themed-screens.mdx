@@ -84,6 +84,43 @@ export default function SessionExpired({ loginUrl, brand, messages }: Props) {
 Every type is exported from `@adonis-agora/authkit-server`, along with `AuthkitScreen` (the
 union of view names) and `AuthkitScreenProps` (the map above).
 
+## Add screens of your own
+
+AuthKit only renders its own screen names. A screen of your own is reached when your `render`
+picks it, typically to swap a library screen for a variant: a second login page for another
+audience, say. Wrap the renderer and choose the view per request:
+
+```ts title="config/authkit.ts"
+import { defineConfig, inertiaRenderer } from '@adonis-agora/authkit-server'
+import { isProfessionalLogin } from '#auth/login_audience'
+
+const pages = inertiaRenderer({ prefix: 'authkit', views: ['login', 'professional-login'] })
+
+export default defineConfig({
+  // …
+  render: (ctx, view, props) =>
+    pages(ctx, view === 'login' && isProfessionalLogin(ctx) ? 'professional-login' : view, props),
+})
+```
+
+Declare the screen and its props once, by augmenting `AuthkitScreenProps`. `views`,
+`AuthkitScreen` and `AuthkitScreenProps['professional-login']` then accept it, while any other
+unknown name still fails `tsc`:
+
+```ts title="types/authkit_screens.d.ts"
+import type { LoginProps } from '@adonis-agora/authkit-server'
+
+declare module '@adonis-agora/authkit-server' {
+  interface AuthkitScreenProps {
+    'professional-login': LoginProps
+  }
+}
+```
+
+The page is `inertia/pages/authkit/professional-login.tsx`, typed with
+`AuthkitScreenProps['professional-login']`. A page your own controller renders with
+`inertia.render()` does not go through AuthKit and needs none of this.
+
 ## Send expired interactions back to your login
 
 When an OIDC interaction expires, the `session-expired` screen links to
