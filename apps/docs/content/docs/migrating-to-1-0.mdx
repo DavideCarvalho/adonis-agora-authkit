@@ -9,7 +9,8 @@ versions; the changes below only affect apps that use one of the APIs listed.
 
 ## Requirements
 
-- **Node.js 24 or newer.** Every package declares `"engines": { "node": ">=24" }`.
+- **Node.js 24 or newer.** Every package declares `"engines": { "node": ">=24" }` and is tested
+  on Node 24 and 26.
 - The `@adonis-agora/*` peers (`durable`, `media`, `telescope`, `resilience`,
   `authkit-server`) accept both their 0.x and 1.x lines, so you can upgrade them in any order.
 
@@ -134,3 +135,47 @@ defineConfig({
 ```
 
 See [Compliance](/docs/compliance) for the full email-change flow.
+
+## List your React pages in `inertiaRenderer({ views })`
+
+`views` is required. Screens listed there render through Inertia; every other screen uses the
+built-in Edge view. List the pages you have under `inertia/pages/<prefix>/`.
+
+Before:
+
+```ts title="config/authkit.ts"
+defineConfig({
+  // …
+  render: inertiaRenderer({ prefix: 'authkit' }),
+})
+```
+
+After:
+
+```ts title="config/authkit.ts"
+defineConfig({
+  // …
+  render: inertiaRenderer({
+    prefix: 'authkit',
+    views: ['login', 'consent', 'signup', 'forgot', 'reset', 'verify-email', 'mfa-challenge'],
+  }),
+})
+```
+
+## Send `grantTypes` to the Admin API
+
+`POST` and `PATCH` on `/api/authkit/v1/clients` (and the admin console form) read the grants from `grantTypes` only.
+A `grants` field in the request body is ignored. Responses keep returning `grants`.
+
+Before:
+
+```json
+{ "redirectUris": ["https://app.acme.com/auth/callback"], "grants": ["authorization_code", "refresh_token"] }
+```
+
+After:
+
+```json
+{ "redirectUris": ["https://app.acme.com/auth/callback"], "grantTypes": ["authorization_code", "refresh_token"] }
+```
+
