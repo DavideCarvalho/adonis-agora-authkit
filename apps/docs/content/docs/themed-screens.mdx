@@ -61,7 +61,7 @@ export default function SessionExpired({ loginUrl, brand, messages }: Props) {
 | --- | --- | --- |
 | `login` | `LoginProps` | `uid`, `csrfToken`, `brand`, `step` (`identifier` / `password` / `password_expired`), `email`, `account`, `error`, `authMethods`, `magicLinkAvailable`, `otpEnabled`, `passkeyFirstAvailable`, `lastUsedLoginMethod`, `botProtection`, `rememberEnabled`, `rememberDays`, `magicLinkSent`, `magicChannel`, `otpError`, `registrationEnabled` |
 | `signup` | `SignupProps` | `uid`, `csrfToken`, `brand`, `error`, `registrationDisabled`, `registrationDisabledMessage`, `passwordlessSignup`, `botProtection`, `magicLinkSent`, `otpEnabled` |
-| `consent` | `ConsentProps` | `uid`, `csrfToken`, `brand`, `params`, `clientName`, `scopes` |
+| `consent` | `ConsentProps` | `uid`, `csrfToken`, `brand`, `params` (`ConsentRequestParams`: `client_id`, plus `redirect_uri`, `response_type`, `scope`, `state`, `prompt`, `nonce`, `code_challenge(_method)` when the request has them), `clientName`, `scopes` |
 | `forgot` | `ForgotProps` | `csrfToken`, `error`, `botProtection`, `sent` |
 | `reset` | `ResetProps` | `token`, `csrfToken`, `error`, `done` |
 | `verify-email` | `VerifyEmailProps` | `verified` |

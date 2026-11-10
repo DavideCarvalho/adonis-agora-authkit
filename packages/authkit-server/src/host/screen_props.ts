@@ -141,13 +141,32 @@ export interface ConsentScope {
   label: string;
 }
 
+/**
+ * The authorization request behind a consent, as the provider parsed it. Only
+ * `client_id` is always there: device-flow and CIBA requests carry no
+ * `redirect_uri` / `response_type`, and plain OAuth requests may omit `scope`.
+ * Every other request parameter (`audience`, `resource`, `claims`, …) keeps its
+ * raw value under its own name.
+ */
+export type ConsentRequestParams = {
+  client_id: string;
+  redirect_uri?: string;
+  response_type?: string;
+  scope?: string;
+  state?: string;
+  prompt?: string;
+  nonce?: string;
+  code_challenge?: string;
+  code_challenge_method?: string;
+} & Record<string, unknown>;
+
 /** `consent` — the user grants the client the requested scopes. */
 export interface ConsentProps extends WithMessages {
   uid: string;
   csrfToken: string;
   brand?: ClientBrand;
-  /** The OIDC authorization request parameters. */
-  params: Record<string, unknown>;
+  /** The authorization request parameters. */
+  params: ConsentRequestParams;
   /** The client's registered `client_name`, or its `client_id`. */
   clientName: string;
   /** `clientName`, HTML-escaped (Edge raw output). */

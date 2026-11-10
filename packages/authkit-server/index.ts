@@ -521,6 +521,7 @@ export type {
   AuthkitScreenProps,
   AuthkitScreenRenderer,
   ConsentProps,
+  ConsentRequestParams,
   ConsentScope,
   ForgotProps,
   LoginAccount,

@@ -12,6 +12,7 @@ import { resolveAccountRoles } from '../account_roles.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
 import { guardBotProtection, resolveEffectiveBotProtection } from '../bot_protection.js';
 import { brandFor, isFirstParty } from '../branding.js';
+import { consentRequestParams } from '../consent_params.js';
 import { type CustomLoginIdentity, isCustomLoginMethodId } from '../custom_login.js';
 import { completeCustomLoginSession } from '../custom_login_completion.js';
 import {
@@ -352,7 +353,7 @@ export default class AuthInteractionController {
       // Consent or other prompts — unchanged
       return render(ctx, 'consent', {
         uid: details.uid,
-        params: details.params,
+        params: consentRequestParams(details.params),
         csrfToken: ctx.request.csrfToken,
         brand,
         ...(await consentSubject(service, details, cfg.messages)),
