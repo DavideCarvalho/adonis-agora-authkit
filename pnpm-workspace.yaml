@@ -45,7 +45,7 @@ catalog:
   "@vinejs/vine": "4.4.0"
   "@vitejs/plugin-react": "6.2.1"
   "adonis-lucid-filter": "5.2.0"
-  "concurrently": "10.0.6"
+  "concurrently": "10.0.7"
   "dotenv": "17.4.2"
   "dotenv-cli": "11.1.0"
   "edge.js": "6.5.1"
