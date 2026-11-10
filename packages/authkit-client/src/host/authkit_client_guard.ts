@@ -33,10 +33,13 @@ type RealUser<UserProvider> =
  *
  * A fonte da verdade de "quem está logado" é o `SessionResolver` do authkit
  * (JWT/opaco/PAT, conforme `config/authkit_client.ts`) — o guard NÃO reimplementa
- * resolução de sessão nem lê a sessão por conta própria. Ele só faz a ponte:
- * pega o `sub` da `Identity` (`identity.userId`) e pede o usuário do app ao
- * `provider`, exatamente como o `sessionGuard` nativo faria com o id que ele
- * guarda na sessão.
+ * resolução de sessão nem lê a sessão por conta própria.
+ *
+ * O usuário vem do `resolveUser` de `config/authkit_client.ts` quando ele existe
+ * (ex.: `lucidMirror`, que cria a linha local no primeiro login e carrega o que o
+ * app enriqueceu), e é a MESMA instância de `ctx.authkit.getUser()`. Sem
+ * `resolveUser`, ou quando ele não devolve usuário, o guard pede o usuário ao
+ * `provider` pelo `sub` da `Identity`, como o `sessionGuard` nativo faria.
  *
  * Consequência: `middleware.auth()`, `ctx.auth.user`, `auth.check()` e o Bouncer
  * passam a funcionar sobre uma sessão do authkit.
@@ -86,8 +89,9 @@ export class AuthkitClientGuard<UserProvider extends SessionUserProviderContract
   }
 
   /**
-   * Autentica a request: resolve a sessão do authkit e mapeia o `sub` para o
-   * usuário do app via `provider.findById`. Lança `E_UNAUTHORIZED_ACCESS` (o
+   * Autentica a request: resolve a sessão do authkit e obtém o usuário do app —
+   * do `resolveUser` configurado (que provisiona no primeiro login), senão do
+   * `provider.findById(sub)`. Lança `E_UNAUTHORIZED_ACCESS` (o
    * MESMO erro dos guards nativos, então o `middleware.auth()` e o handler de
    * exceção do host tratam igual) quando não há sessão OU quando a sessão é
    * válida mas não existe usuário local correspondente (fail-closed).
@@ -102,12 +106,22 @@ export class AuthkitClientGuard<UserProvider extends SessionUserProviderContract
     const identity = await authkit.getIdentity();
     if (!identity) throw this.#failed();
 
-    // `identity.userId` É a claim `sub` — o único id estável por conta que a
-    // `Identity` tem. (Ela NÃO tem `id`.)
-    const providerUser = await this.#userProvider.findById(identity.userId);
-    if (!providerUser) throw this.#failed();
+    // `resolveUser` (ex.: `lucidMirror`) provisiona a linha local no primeiro
+    // login e devolve o usuário enriquecido; reaproveitá-lo mantém UMA instância
+    // por request, compartilhada com `ctx.authkit.getUser()`.
+    let user: unknown = null;
+    if (authkit.resolvesUser) {
+      user = await authkit.getUser();
+    }
+    if (user === null || user === undefined) {
+      // `identity.userId` É a claim `sub` — o único id estável por conta que a
+      // `Identity` tem. (Ela NÃO tem `id`.)
+      const providerUser = await this.#userProvider.findById(identity.userId);
+      user = providerUser?.getOriginal() ?? null;
+    }
+    if (user === null || user === undefined) throw this.#failed();
 
-    this.user = providerUser.getOriginal() as RealUser<UserProvider>;
+    this.user = user as RealUser<UserProvider>;
     this.isAuthenticated = true;
     return this.user;
   }
@@ -172,11 +186,10 @@ export class AuthkitClientGuard<UserProvider extends SessionUserProviderContract
  * `sub`) — a coluna de id do model precisa ser essa (é o que o `lucidMirror()`
  * grava).
  *
- * Precedência com `resolveUser` de `config/authkit_client.ts`: são superfícies
- * SEPARADAS e ambas continuam valendo. `ctx.auth.user` (framework) vem SEMPRE do
- * `provider`; `ctx.authkit.getUser()` (authkit) continua vindo do `resolveUser`.
- * O guard nunca chama `resolveUser`. Com o guard configurado, o normal é apagar
- * o `resolveUser` e deixar só o `provider`.
+ * Com `resolveUser` em `config/authkit_client.ts` (ex.: `lucidMirror`), o guard
+ * usa o usuário que ele devolve: o primeiro login provisiona a linha local, o que
+ * o `resolveUser` carregou (relações, papéis) aparece em `ctx.auth.user`, e
+ * `ctx.auth.user === await ctx.authkit.getUser()`. O `provider` fica de fallback.
  */
 export function authkitClientGuard<
   UserProvider extends SessionUserProviderContract<unknown>,

@@ -11,6 +11,8 @@ export interface FakeAuthenticatorLike {
   authenticate(): Promise<Identity>;
   check(): Promise<boolean>;
   hasGlobalRole(role: string): boolean;
+  /** `true` when a `user` was given: `authkitClientGuard` then uses it for `ctx.auth.user`. */
+  readonly resolvesUser: boolean;
   getUser(): Promise<unknown>;
   getUserOrFail(): Promise<unknown>;
   toSharedProps(): Promise<{ user: unknown; globalRoles: string[] } | null>;
@@ -49,6 +51,7 @@ export function fakeAuthenticator(options: FakeAuthenticatorOptions = {}): FakeA
     hasGlobalRole(role: string) {
       return identity?.globalRoles.includes(role) ?? false;
     },
+    resolvesUser: 'user' in options,
     async getUser() {
       if (!identity) return null;
       return user;

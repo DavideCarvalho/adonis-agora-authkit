@@ -175,19 +175,64 @@ test.group('authkitClientGuard', () => {
     assert.strictEqual(auth.use('web').authkit, authkit);
   });
 
-  test('provider + resolveUser: o provider manda em ctx.auth.user; resolveUser só alimenta ctx.authkit', async ({
+  test('primeiro login: resolveUser provisiona o usuário que o provider ainda não tem', async ({
     assert,
   }) => {
+    // Banco local vazio: só o resolveUser (ex.: lucidMirror) sabe criar a linha.
+    const created: Record<string, { id: string; name: string }> = {};
+    const { auth, provider } = await bootGuard({
+      identity,
+      users: created,
+      resolveUser: async (i) => {
+        created[i.userId] = { id: i.userId, name: 'Ana (espelho novo)' };
+        return created[i.userId];
+      },
+    });
+
+    assert.isTrue(await auth.check());
+    assert.deepEqual(auth.user, { id: 'u1', name: 'Ana (espelho novo)' });
+    assert.deepEqual(provider.lookups, [], 'the provider is not needed when resolveUser answers');
+  });
+
+  test('o que o resolveUser enriqueceu aparece em ctx.auth.user, na MESMA instância de ctx.authkit', async ({
+    assert,
+  }) => {
+    class AppUser {
+      constructor(
+        public id: string,
+        public roles: string[],
+      ) {}
+      hasRole(role: string) {
+        return this.roles.includes(role);
+      }
+    }
     const { auth, ctx } = await bootGuard({
       identity,
-      resolveUser: async () => ({ id: 'u1', name: 'via resolveUser' }),
+      resolveUser: async (i) => new AppUser(i.userId, ['advisor']),
     });
 
     await auth.authenticate();
 
-    assert.deepEqual(auth.user, { id: 'u1', name: 'Ana (banco local)' });
+    const user = auth.user as unknown as AppUser;
+    assert.instanceOf(user, AppUser);
+    assert.isTrue(user.hasRole('advisor'));
     const authkit = (ctx as unknown as { authkit: Authenticator }).authkit;
-    assert.deepEqual(await authkit.getUser(), { id: 'u1', name: 'via resolveUser' });
+    assert.strictEqual(await authkit.getUser(), user);
+  });
+
+  test('resolveUser sem usuário → cai no provider', async ({ assert }) => {
+    const { auth, provider } = await bootGuard({ identity, resolveUser: async () => null });
+
+    await auth.authenticate();
+
+    assert.deepEqual(auth.user, { id: 'u1', name: 'Ana (banco local)' });
+    assert.deepEqual(provider.lookups, ['u1']);
+  });
+
+  test('resolveUser e provider sem usuário → E_UNAUTHORIZED_ACCESS', async ({ assert }) => {
+    const { auth } = await bootGuard({ identity, users: {}, resolveUser: async () => null });
+
+    assert.isFalse(await auth.check());
   });
 });
 

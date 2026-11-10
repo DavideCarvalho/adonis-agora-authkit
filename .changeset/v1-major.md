@@ -30,7 +30,7 @@ Breaking changes (`@adonis-agora/authkit-core`):
 
 Breaking changes (`@adonis-agora/authkit-client`):
 
-- `authkit_middleware` and the `./authkit_middleware` subpath are removed. Register `authkit_context_middleware` and read `ctx.authkit`; use `authkitClientGuard` with `@adonisjs/auth` for `ctx.auth`. `@adonis-agora/authkit-client/types` no longer declares `HttpContext.auth`; type `getUser()` through the `AuthkitUserType` interface.
+- `authkit_middleware` and the `./authkit_middleware` subpath are removed. Register `authkit_context_middleware` and read `ctx.authkit`; use `authkitClientGuard` with `@adonisjs/auth` for `ctx.auth`. `authkitClientGuard` takes its user from `resolveUser` when one is configured (so `lucidMirror` provisions the row on first login, and what it loads is on `ctx.auth.user`, the same instance as `ctx.authkit.getUser()`), with the provider as the fallback. `@adonis-agora/authkit-client/types` no longer declares `HttpContext.auth`; type `getUser()` through the `AuthkitUserType` interface.
 
 Breaking changes (`@adonis-agora/authkit-react`):
 

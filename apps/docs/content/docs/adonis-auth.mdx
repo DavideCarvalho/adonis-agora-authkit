@@ -130,19 +130,25 @@ handy when you would rather not pull the whole client surface into `config/auth.
 
 The guard does **not** reimplement session resolution. It asks AuthKit for the request's
 `Identity` — through the resolver you configured in `config/authkit_client.ts`, so JWT, opaque and
-PAT sessions all work identically — takes the `sub` claim off it, and calls `provider.findById(sub)`,
-exactly as the native session guard would with the id it keeps in the session.
+PAT sessions all work identically — and then gets the user:
 
-That has one hard consequence worth stating plainly: **your model's primary key must be the IdP's
-`sub`**. That is precisely what [`lucidMirror`](/docs/client#lucidmirror--mirror-the-identity-into-a-local-table)
-writes, so the two are designed to be used together:
+1. When `config/authkit_client.ts` has a `resolveUser` (for example
+   [`lucidMirror`](/docs/client#lucidmirror--mirror-the-identity-into-a-local-table)), the guard
+   uses the user it returns. On a first login that is what creates the local row, and anything
+   `resolveUser` loads (relations, roles) is on `ctx.auth.user`.
+2. Otherwise, or when `resolveUser` returns `null`, it calls `provider.findById(sub)`, as the
+   native session guard does with the id it keeps in the session. Your model's primary key must be
+   the IdP's `sub`, which is what `lucidMirror` writes.
 
 ```ts title="config/authkit_client.ts"
-resolveUser: lucidMirror(AppUser, { sync: (i) => ({ email: i.email }) })
+resolveUser: lucidMirror(AppUser, {
+  sync: (i) => ({ email: i.email }),
+  preload: ['roles'],
+})
 ```
 
-If the identity resolves but no local row matches, the guard fails closed — a valid IdP session
-with no local account is treated as unauthenticated, not as a half-authenticated request.
+If neither returns a user, the guard fails closed: a valid IdP session with no local account is
+treated as unauthenticated.
 
 ### Register the context middleware
 
@@ -169,19 +175,21 @@ resolved — and the token refreshed — once per request no matter which of the
 Registering the middleware is what makes `ctx.authkit` available on **public** routes too, where
 the guard never runs.
 
-### `resolveUser` and the provider are separate surfaces
+### One user per request
 
-With the guard in place there are two ways to get "the user", and they do not talk to each other:
+`ctx.auth.user` and `await ctx.authkit.getUser()` are the same object: the guard reuses the user
+`resolveUser` returned, so the request loads it once.
 
-| Expression | Comes from | Configured in |
-| --- | --- | --- |
-| `ctx.auth.user` | the guard's `provider` | `config/auth.ts` |
-| `await ctx.authkit.getUser()` | `resolveUser` | `config/authkit_client.ts` |
+```ts title="app/controllers/dashboard_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
 
-The guard never calls `resolveUser`. Keeping both means two lookups per request for the same
-person, so the usual move once you adopt the guard is to drop `resolveUser` and let the provider be
-the single answer — unless you were using `lucidMirror` for its write side, in which case keep it:
-it is what creates the row the provider then finds.
+export default class DashboardController {
+  async show({ auth, inertia }: HttpContext) {
+    const user = auth.getUserOrFail() // behind middleware.auth()
+    return inertia.render('dashboard', { user, isAdvisor: user.hasRole('advisor') })
+  }
+}
+```
 
 ## A relying party that owns its own session
 

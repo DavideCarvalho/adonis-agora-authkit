@@ -17,9 +17,8 @@ export interface AuthenticatorDeps {
 
 /**
  * Autenticador do request. O parâmetro `TUser` é o tipo do usuário do app que `resolveUser`
- * devolve — o app o fixa via augmentation de `HttpContext.auth` (`auth: Authenticator<AppUser>`),
- * e aí `getUser()` passa a devolver `AppUser | null` em todo call-site, sem cast. Default `unknown`
- * mantém o comportamento anterior (nada a mudar em quem não augmenta).
+ * devolve — o app o fixa pela interface `AuthkitUserType`, e aí `getUser()` passa a devolver
+ * `AppUser | null` em todo call-site, sem cast. Default `unknown`.
  */
 export class Authenticator<TUser = unknown> {
   #identity: Identity | null = null;
@@ -69,6 +68,11 @@ export class Authenticator<TUser = unknown> {
 
   async check(): Promise<boolean> {
     return (await this.getIdentity()) !== null;
+  }
+
+  /** `true` when the app configured `resolveUser` (e.g. `lucidMirror`) for this client. */
+  get resolvesUser(): boolean {
+    return typeof this.deps.resolveUser === 'function';
   }
 
   hasGlobalRole(role: string): boolean {

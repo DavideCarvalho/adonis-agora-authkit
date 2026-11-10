@@ -285,6 +285,60 @@ declare module '@adonis-agora/authkit-client' {
 
 The Inertia shared prop for `@adonis-agora/authkit-react` reads `ctx.authkit.toSharedProps()`.
 
+### If you move to `ctx.auth` with `authkitClientGuard`
+
+`ctx.auth` is then the `@adonisjs/auth` authenticator, not AuthKit's. The guard takes its user
+from your `resolveUser` (so `lucidMirror` still provisions the row on first login), but the
+methods differ:
+
+| Old client `ctx.auth` | `@adonisjs/auth` `ctx.auth` |
+| --- | --- |
+| `await auth.getUser()` (nullable) | `auth.user`, after `middleware.auth()` or `auth.check()` |
+| `await auth.getUserOrFail()` | `auth.getUserOrFail()`: synchronous, and it throws unless `authenticate()` or `check()` already ran |
+| `auth.getIdentity()`, `auth.hasGlobalRole()`, `auth.toSharedProps()` | the same methods on `ctx.authkit` |
+| `await auth.authenticate()` returning the `Identity` | `await auth.authenticate()` returning the user; the identity is `await ctx.authkit.getIdentity()` |
+
+Put routes that read `auth.user` behind `middleware.auth()`. On routes that also serve guests, use
+the AdonisJS starter kit's `app/middleware/silent_auth_middleware.ts` (it calls
+`await ctx.auth.check()`), so `auth.user` is set whenever a session exists. The
+`@adonis-agora/authkit-client/silent_auth_middleware` only fills `ctx.authkit`.
+
+Before:
+
+```ts title="app/controllers/courses_controller.ts"
+export default class CoursesController {
+  async index({ auth, inertia }: HttpContext) {
+    const user = await auth.getUserOrFail()
+    return inertia.render('courses/index', { isAdmin: auth.hasGlobalRole('ADMIN'), user })
+  }
+}
+```
+
+After:
+
+```ts title="start/routes.ts"
+router.get('/courses', [CoursesController, 'index']).use(middleware.auth())
+```
+
+```ts title="app/controllers/courses_controller.ts"
+export default class CoursesController {
+  async index({ auth, authkit, inertia }: HttpContext) {
+    const user = auth.getUserOrFail()
+    return inertia.render('courses/index', { isAdmin: authkit.hasGlobalRole('ADMIN'), user })
+  }
+}
+```
+
+The type checker catches most call sites, but not those typed `any` or cast (`ctx.auth as any`,
+`(auth as SomeType)`, helpers taking `auth: any`), which compile and then fail at runtime.
+`await auth.getUserOrFail()` also still compiles. Search for them before deploying:
+
+```sh
+grep -rnE "auth\.(getUser|getIdentity|hasGlobalRole|toSharedProps|identity)\b" app start
+grep -rnE "auth as |auth: any|\(auth\)" app start
+grep -rnE "await (ctx\.)?auth\.getUserOrFail\(" app start
+```
+
 ## Load account data with the query options
 
 `useProfile`, `useSessions`, `useAuthorizedApps`, `useOrganizations`, `useOrganization`,
