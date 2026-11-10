@@ -6,9 +6,8 @@ import type { LucidStoreContext } from './shared.js';
 const _noopVerify = async (_hash: string, _plain: string): Promise<boolean> => false;
 
 /**
- * Histórico de senhas (disallow_password_reuse). Só deve ser montado quando a
- * tabela `auth_password_history` está presente (capability-probed via
- * {@link hasTable} no `lucidAccountStore`).
+ * Histórico de senhas (disallow_password_reuse), sobre a tabela lib-owned
+ * `auth_password_history` (criada pelo `ensureAuthkitSchema`).
  *
  * Tabela: `auth_password_history`
  *   id          UUID/SERIAL PK
