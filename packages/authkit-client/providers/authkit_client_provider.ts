@@ -33,6 +33,7 @@ import {
 } from '../src/id_token.js';
 import { getJwks } from '../src/jwks.js';
 import { exchangeToken, refreshTokens } from '../src/oidc_login.js';
+import type { ResolverFactory } from '../src/resolvers/factory.js';
 import type { TokenSet } from '../src/types.js';
 
 interface SessionLike {
@@ -111,17 +112,31 @@ export class AuthkitClientManager {
     this.#logger = deps.logger ?? { warn: () => {} };
   }
 
-  async #getResolver(): Promise<SessionResolver> {
+  #extraResolvers = new WeakMap<ResolverFactory, Promise<SessionResolver>>();
+
+  #buildResolver(factory: ResolverFactory): Promise<SessionResolver> {
+    return factory.resolver({
+      issuer: this.config.issuer,
+      clientId: this.config.clientId,
+      clientSecret: this.config.clientSecret,
+      sessionKey: this.config.sessionKey,
+      globalRolesClaim: this.config.globalRolesClaim,
+      endpoints: () => this.endpoints(),
+      logger: this.#logger,
+    });
+  }
+
+  async #getResolver(factory?: ResolverFactory): Promise<SessionResolver> {
+    if (factory && factory !== this.config.resolverFactory) {
+      let resolver = this.#extraResolvers.get(factory);
+      if (!resolver) {
+        resolver = this.#buildResolver(factory);
+        this.#extraResolvers.set(factory, resolver);
+      }
+      return resolver;
+    }
     if (!this.#resolverCache) {
-      this.#resolverCache = await this.config.resolverFactory.resolver({
-        issuer: this.config.issuer,
-        clientId: this.config.clientId,
-        clientSecret: this.config.clientSecret,
-        sessionKey: this.config.sessionKey,
-        globalRolesClaim: this.config.globalRolesClaim,
-        endpoints: () => this.endpoints(),
-        logger: this.#logger,
-      });
+      this.#resolverCache = await this.#buildResolver(this.config.resolverFactory);
     }
     return this.#resolverCache;
   }
@@ -547,8 +562,15 @@ export class AuthkitClientManager {
     session.put(this.config.sessionKey, tokenSet);
   }
 
-  async createAuthenticator(ctx: HttpContext): Promise<Authenticator> {
-    const resolver = await this.#getResolver();
+  /**
+   * The request's {@link Authenticator}. `options.resolver` replaces the configured
+   * resolver for this authenticator only (e.g. a guard for bearer-token API routes).
+   */
+  async createAuthenticator(
+    ctx: HttpContext,
+    options: { resolver?: ResolverFactory } = {},
+  ): Promise<Authenticator> {
+    const resolver = await this.#getResolver(options.resolver);
     const sessionKey = this.config.sessionKey;
     return new Authenticator(ctx, {
       resolver,

@@ -3,7 +3,7 @@ import { errors as authErrors, Authenticator as FrameworkAuthenticator } from '@
 import type { HttpContext } from '@adonisjs/core/http';
 import { test } from '@japa/runner';
 import { Authenticator } from '../src/authenticator.js';
-import { authkitClientGuard } from '../src/host/authkit_client_guard.js';
+import { authkitClientGuard, authkitIdentityProvider } from '../src/host/authkit_client_guard.js';
 import AuthkitContextMiddleware from '../src/middleware/authkit_context_middleware.js';
 
 const SET_SLOT = Symbol.for('@agora/context:set');
@@ -79,14 +79,14 @@ async function bootGuard(options: {
   identity: Identity | null;
   users?: Record<string, { id: string; name: string }>;
   resolveUser?: ResolveUser;
+  provider?: unknown;
 }) {
   const manager = fakeManager({ identity: options.identity, resolveUser: options.resolveUser });
   const { ctx, resolved } = fakeCtx(manager);
   const provider = fakeProvider(options.users ?? { u1: { id: 'u1', name: 'Ana (banco local)' } });
-  const factory = await authkitClientGuard({ provider: provider as never }).resolver(
-    'web',
-    {} as never,
-  );
+  const factory = await authkitClientGuard({
+    provider: (options.provider ?? provider) as never,
+  }).resolver('web', {} as never);
   const auth = new FrameworkAuthenticator(ctx, {
     default: 'web',
     guards: { web: factory },
@@ -232,6 +232,30 @@ test.group('authkitClientGuard', () => {
   test('resolveUser e provider sem usuário → E_UNAUTHORIZED_ACCESS', async ({ assert }) => {
     const { auth } = await bootGuard({ identity, users: {}, resolveUser: async () => null });
 
+    assert.isFalse(await auth.check());
+  });
+});
+
+test.group('authkitClientGuard + authkitIdentityProvider', () => {
+  test('sem banco: ctx.auth.user é a Identity do authkit', async ({ assert }) => {
+    const { auth } = await bootGuard({ identity, provider: authkitIdentityProvider() });
+
+    assert.strictEqual(await auth.authenticate(), identity);
+    assert.strictEqual(auth.user, identity);
+  });
+
+  test('com resolveUser, o usuário dele vence a Identity', async ({ assert }) => {
+    const { auth } = await bootGuard({
+      identity,
+      provider: authkitIdentityProvider(),
+      resolveUser: async () => ({ id: 'u1', name: 'via resolveUser' }),
+    });
+
+    assert.deepEqual(await auth.authenticate(), { id: 'u1', name: 'via resolveUser' });
+  });
+
+  test('sem sessão → não autentica', async ({ assert }) => {
+    const { auth } = await bootGuard({ identity: null, provider: authkitIdentityProvider() });
     assert.isFalse(await auth.check());
   });
 });

@@ -6,6 +6,11 @@ import { OpaqueResolver } from './opaque_resolver.js';
 import { PatResolver } from './pat_resolver.js';
 
 export interface JwtResolverFactoryConfig {
+  /**
+   * `session` (default) validates the ID token of the OIDC session. `bearer` reads
+   * the `Authorization` header (API routes): `Bearer <jwt>`, or `DPoP <jwt>` with a
+   * `DPoP` proof for sender-constrained tokens (`cnf.jkt`).
+   */
   tokenSource?: TokenSource;
   /** Explicit jwks_uri. Default: the discovered `jwks_uri` (`${issuer}/jwks` with discovery off). */
   jwksUri?: string;
@@ -78,6 +83,7 @@ export const resolvers = {
           audience: rc.clientId,
           globalRolesClaim: rc.globalRolesClaim,
           getToken: (httpCtx) => getTokenFromSource(httpCtx, tokenSource, rc.sessionKey),
+          authorizationHeader: tokenSource === 'bearer',
         });
       },
     };

@@ -46,8 +46,12 @@ export {
   dpopJwkThumbprint,
   generateDpopKeyPair,
 } from './src/dpop.js';
-export type { UnauthorizedAccessConstructor } from './src/host/authkit_client_guard.js';
-export { AuthkitClientGuard, authkitClientGuard } from './src/host/authkit_client_guard.js';
+export type { IdentityUserProviderContract } from './src/host/authkit_client_guard.js';
+export {
+  AuthkitClientGuard,
+  authkitClientGuard,
+  authkitIdentityProvider,
+} from './src/host/authkit_client_guard.js';
 export type { DashboardGuardOptions } from './src/host/dashboard_guard.js';
 export {
   authkitDashboardAuthorize,

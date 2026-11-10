@@ -75,9 +75,6 @@
     "@adonisjs/session": "catalog:adonisPeers"
   },
   "peerDependenciesMeta": {
-    "@adonisjs/auth": {
-      "optional": true
-    },
     "@adonisjs/lucid": {
       "optional": true
     },
