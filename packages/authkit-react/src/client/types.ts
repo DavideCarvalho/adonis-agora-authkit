@@ -465,6 +465,10 @@ export interface RevokeAllResult {
 
 export interface AccountAppEntry {
   clientId: string;
+  /** The client's registered `client_name`, or its `clientId`. */
+  name: string;
+  /** The client's registered `logo_uri`, or `null`. */
+  logoUrl: string | null;
   accessTokens: number;
   refreshTokens: number;
 }

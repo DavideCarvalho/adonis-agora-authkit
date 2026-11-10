@@ -130,11 +130,39 @@ test.group('AuthorizedApps', () => {
     const html = render(createElement(AuthorizedApps, {}), (qc) =>
       qc.setQueryData(authkitKeys.account.apps(), {
         supported: true,
-        apps: [{ clientId: 'web-app', accessTokens: 1, refreshTokens: 1 }],
+        apps: [
+          {
+            clientId: 'web-app',
+            name: 'web-app',
+            logoUrl: null,
+            accessTokens: 1,
+            refreshTokens: 1,
+          },
+        ],
       }),
     );
     assert.include(html, 'web-app');
     assert.include(html, 'Revogar');
+  });
+
+  test('mostra o nome e o logo registrados do client', ({ assert }) => {
+    const html = render(createElement(AuthorizedApps, {}), (qc) =>
+      qc.setQueryData(authkitKeys.account.apps(), {
+        supported: true,
+        apps: [
+          {
+            clientId: 'mcp-123',
+            name: 'Claude Code',
+            logoUrl: 'https://cdn.example.com/logo.png',
+            accessTokens: 1,
+            refreshTokens: 0,
+          },
+        ],
+      }),
+    );
+    assert.include(html, 'Claude Code');
+    assert.include(html, 'src="https://cdn.example.com/logo.png"');
+    assert.include(html, 'authkit-apps__logo');
   });
 
   test('lista vazia → emptyLabel', ({ assert }) => {

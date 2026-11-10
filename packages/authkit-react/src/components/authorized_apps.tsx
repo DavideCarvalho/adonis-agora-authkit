@@ -48,7 +48,10 @@ function AuthorizedAppsInner({
         createElement(
           'div',
           { className: 'authkit-apps__info' },
-          createElement('span', { className: 'authkit-apps__name' }, app.clientId),
+          app.logoUrl
+            ? createElement('img', { className: 'authkit-apps__logo', src: app.logoUrl, alt: '' })
+            : null,
+          createElement('span', { className: 'authkit-apps__name' }, app.name || app.clientId),
         ),
         createElement(
           'button',
