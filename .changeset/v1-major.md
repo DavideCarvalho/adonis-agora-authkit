@@ -17,8 +17,27 @@ Breaking changes (`@adonis-agora/authkit-server`):
 - `withMfa` is removed. MFA state lives in the lib-owned `auth_mfa` table, so drop the mixin from your `AuthUser` model's `compose(...)`.
 - `markSudo` is no longer exported. Grant sudo with `completeSudo(sudoContextFrom(ctx), methodId)`, which also writes the `sudo.confirmed` audit event, remembers the method and redirects to the validated `return_to`.
 - The email-change confirmation link is sent through `mail.onEmailChangeConfirm` only. Without it, AuthKit sends its built-in email; `onEmailVerification` no longer receives email-change confirmations.
+- The `clients` option of `defineConfig` is removed. Create clients in the admin console, through the Admin API or with `node ace authkit:clients:create` (new `--client-secret` flag keeps an existing secret). `buildImpersonationPanel(cfg, targetId, clients)` now requires `clients`, and the impersonation curl always shows the `<CLIENT_SECRET>` placeholder.
+- `inertiaRenderer({ prefix, views })`: `views` is required. Screens not listed render with the built-in Edge view.
+- The Admin API client body reads `grantTypes` only; the `grants` alias is gone (responses still return `grants`).
+- `lucidAccountStore` always mounts password history over the model's connection (`auth_password_history`).
+- `/account/orgs/json`, `/account/orgs/invitations/json` and `/account/orgs/:id/json` are removed; use `/account/api/orgs/*`.
+- `GET /account/api/apps` entries gain `name` and `logoUrl`.
+
+Breaking changes (`@adonis-agora/authkit-core`):
+
+- `ClientConfig` and `ResolvedAuthServerConfig.clients` are removed.
+
+Breaking changes (`@adonis-agora/authkit-client`):
+
+- `authkit_middleware` and the `./authkit_middleware` subpath are removed. Register `authkit_context_middleware` and read `ctx.authkit`; use `authkitClientGuard` with `@adonisjs/auth` for `ctx.auth`. `@adonis-agora/authkit-client/types` no longer declares `HttpContext.auth`; type `getUser()` through the `AuthkitUserType` interface.
+
+Breaking changes (`@adonis-agora/authkit-react`):
+
+- `useProfile`, `useSessions`, `useAuthorizedApps`, `useOrganizations`, `useOrganization`, `useOrgInvitations`, `useSwitchOrganization` and their types are removed, with the `profile`, `sessions`, `apps`, `orgs` and `orgInvitations` keys of `endpoints`. Use the query options (`useMeQueryOptions`, `useAccountSessionsQueryOptions`, `useAppsQueryOptions`, `useAccountOrgsQueryOptions`, …).
+- `UserProfile`, `AuthorizedApps`, `OrganizationSwitcher` and `OrganizationProfile` need `QueryClientProvider` and `AuthkitClientProvider`.
 
 All packages:
 
-- `@adonis-agora/*` peer ranges accept 1.x (`<2.0.0`): `durable`, `media`, `telescope` (authkit-server), `resilience` (authkit-client), `authkit-server` (authkit-sdk).
-- Node.js `>=24` is required.
+- `@adonis-agora/*` peer ranges accept 1.x and its release candidates (`<2.0.0 || >=1.0.0-rc.0 <2.0.0`): `durable`, `media`, `telescope` (authkit-server), `resilience` (authkit-client), `authkit-server` (authkit-sdk).
+- Node.js `>=24` is required (tested on 24 and 26).
