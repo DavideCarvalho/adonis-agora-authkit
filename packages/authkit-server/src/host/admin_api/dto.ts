@@ -49,6 +49,8 @@ export function clientDto(client: AdminClient) {
     backchannelLogoutSessionRequired: client.backchannelLogoutSessionRequired ?? false,
     clientName: client.clientName,
     logoUri: client.logoUri,
+    disabled: client.disabled,
+    serviceTenant: client.serviceTenant,
   };
 }
 

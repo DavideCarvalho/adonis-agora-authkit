@@ -1454,6 +1454,8 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
         router.get(`${ap}/api/clients/:id`, [C.consoleClients, 'show']);
         router.patch(`${ap}/api/clients/:id`, [C.consoleClients, 'update']);
         router.delete(`${ap}/api/clients/:id`, [C.consoleClients, 'destroy']);
+        router.post(`${ap}/api/clients/:id/disable`, [C.consoleClients, 'disable']);
+        router.post(`${ap}/api/clients/:id/enable`, [C.consoleClients, 'enable']);
         router.post(`${ap}/api/clients/:id/regenerate-secret`, [
           C.consoleClients,
           'regenerateSecret',
@@ -1558,6 +1560,8 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
           router.post('/clients/:id/regenerate-secret', [C.apiClients, 'regenerateSecret']),
         );
         withApiThrottle(router.delete('/clients/:id', [C.apiClients, 'destroy']));
+        withApiThrottle(router.post('/clients/:id/disable', [C.apiClients, 'disable']));
+        withApiThrottle(router.post('/clients/:id/enable', [C.apiClients, 'enable']));
         // Organizações.
         withApiThrottle(router.get('/organizations', [C.apiOrgs, 'index']));
         withApiThrottle(router.post('/organizations', [C.apiOrgs, 'store']));

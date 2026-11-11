@@ -106,6 +106,34 @@ export default class ApiClientsController {
     }
   }
 
+  async disable(ctx: HttpContext) {
+    return this.#setDisabled(ctx, true);
+  }
+
+  async enable(ctx: HttpContext) {
+    return this.#setDisabled(ctx, false);
+  }
+
+  /** Disabled clients get `invalid_client` from the next request on. */
+  async #setDisabled(ctx: HttpContext, disabled: boolean) {
+    const { service, svc } = await clientsService(ctx);
+    const id = ctx.request.param('id');
+    if (!(await svc.setDisabled(id, disabled))) {
+      return ctx.response.notFound(apiError('not_found', 'Client não encontrado.'));
+    }
+    const client = await svc.find(id);
+    await service.config.audit?.record({
+      type: disabled ? 'client.disabled' : 'client.enabled',
+      clientId: id,
+      ip: ctx.request.ip?.() ?? null,
+      metadata: {
+        actor: 'admin-api',
+        ...(client?.serviceTenant ? { partition: client.serviceTenant.partition } : {}),
+      },
+    });
+    return clientDto(client!);
+  }
+
   async destroy(ctx: HttpContext) {
     const { service, svc } = await clientsService(ctx);
     const id = ctx.request.param('id');

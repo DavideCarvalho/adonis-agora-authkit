@@ -4,6 +4,8 @@ import type { ResolvedServerConfig } from '../define_config.js';
 import { normalizeActiveOrg, readActiveOrgFromKoaCtx } from '../host/active_org_cookie.js';
 import { consoleSsoClientMetadata } from '../host/console_sso.js';
 import { findMcpResource, mcpAuthorizeMiddleware } from '../mcp/mcp_oauth.js';
+import { hideDisabledClients } from '../service_tenants/client_metadata.js';
+import { createServiceTenantHooks } from '../service_tenants/provider_hooks.js';
 import { createDeviceSources } from './device_sources.js';
 import { createLogoutSources } from './logout_sources.js';
 import { registrationPolicyMiddleware } from './registration_policy.js';
@@ -132,21 +134,38 @@ export function buildProvider(
     return key ? { key, rc: at.resources[key] } : null;
   };
   const mcp = config.mcp;
+  // Service tenants (`serviceTenants`): `client_credentials` clients with a partition,
+  // whose tokens are JWTs for a service-tenant resource. See `service_tenants/`.
+  const serviceTenants = createServiceTenantHooks({
+    serviceTenants: config.serviceTenants ?? { enabled: false, resources: {} },
+    AdapterClass: config.AdapterClass,
+    audit: config.audit,
+  });
+  const signAlg = config.jwks.keys[0]?.alg ?? 'RS256';
   const resourceIndicatorFeatures =
-    at.anyJwt || declaredResources.length > 0 || mcp.enabled
+    at.anyJwt || declaredResources.length > 0 || mcp.enabled || serviceTenants.enabled
       ? {
           resourceIndicators: {
             enabled: true,
-            defaultResource: async (_ctx: any, _client: any, oneOf?: string[]) => {
+            defaultResource: async (ctx: any, client: any, oneOf?: string[]) => {
               // Nas trocas (code/refresh/device), o provider passa `oneOf` com as
               // resources já concedidas — devolvemos para não falhar a request.
               if (oneOf) return oneOf;
+              const serviceResource = await serviceTenants.defaultResource(ctx, client);
+              if (serviceResource) return serviceResource;
               // Authorize/sem resource explícito: no modo JWT, liga ao resource
               // default (modo simples). Só opaco: sem resource (AT de sempre).
               return at.anyJwt ? at.audience : undefined;
             },
             useGrantedResource: async () => true,
-            getResourceServerInfo: (_ctx: any, resourceIndicator: string, _client: any) => {
+            getResourceServerInfo: async (ctx: any, resourceIndicator: string, client: any) => {
+              const serviceInfo = await serviceTenants.resourceServerInfo(
+                ctx,
+                resourceIndicator,
+                client,
+                signAlg,
+              );
+              if (serviceInfo) return serviceInfo;
               const found = findResource(resourceIndicator);
               const isDefault = at.anyJwt && resourceIndicator === at.audience;
               // Servidores MCP (`mcp`): os declarados e os registrados em runtime.
@@ -177,7 +196,7 @@ export function buildProvider(
               if (ttl !== undefined) info.accessTokenTTL = ttl;
               if (format === 'jwt') {
                 // Assina com a chave de assinatura corrente do keystore (mesma do JWKS).
-                info.jwt = { sign: { alg: config.jwks.keys[0]?.alg ?? 'RS256' } };
+                info.jwt = { sign: { alg: signAlg } };
               }
               return info;
             },
@@ -194,16 +213,27 @@ export function buildProvider(
     // O ator (`act`, RFC 8693) dos access tokens de impersonation — ver
     // `impersonationExtraClaims` em `token_exchange.ts`. Sem isto o token trocado
     // não se distingue de um token do próprio alvo no resource server.
-    extraTokenClaims: async (_ctx: unknown, token: unknown) => impersonationExtraClaims(token),
+    // Service tenants add `partition`/`capabilities` (see `service_tenants/`).
+    extraTokenClaims: async (ctx: unknown, token: unknown) => {
+      const actor = impersonationExtraClaims(token);
+      const tenant = await serviceTenants.extraClaims(ctx, token);
+      return actor || tenant ? { ...tenant, ...actor } : undefined;
+    },
     // Dispatcher por modelo (suportado pelo oidc-provider: `Adapter` aceita
     // função `(name) => adapter` além de classe). Session-scoped vai pro
     // `SessionAdapterClass`, o resto pro `AdapterClass` — mesma regra de
     // `pickModelAdapterClass`, usada também pelos serviços que instanciam
     // adapter na mão. Sem `session.adapter`, as duas classes são a mesma.
-    adapter: ((name: string) =>
-      new (pickModelAdapterClass(name, config.AdapterClass, config.SessionAdapterClass))(
+    // A disabled client (`authkit_disabled`) is "not found" for the provider: every
+    // endpoint answers `invalid_client` on the next request.
+    adapter: ((name: string) => {
+      const instance = new (pickModelAdapterClass(
         name,
-      )) as any,
+        config.AdapterClass,
+        config.SessionAdapterClass,
+      ))(name);
+      return name === 'Client' ? hideDisabledClients(instance as any) : instance;
+    }) as any,
     findAccount: options.findAccount,
     // Grant REAPROVEITADO (consent já lembrado): o org capturado no primeiro
     // consent ficaria VELHO se o usuário trocasse de org no console e voltasse a
@@ -301,6 +331,7 @@ export function buildProvider(
       backchannelLogout: { enabled: true },
       revocation: { enabled: true },
       introspection: { enabled: true },
+      ...(serviceTenants.enabled ? { clientCredentials: { enabled: true } } : {}),
       ...registrationFeatures,
       ...deviceFlowFeatures,
       ...dpopFeatures,
@@ -337,6 +368,11 @@ export function buildProvider(
               ? (sessionTtlHolder as SessionTtlHolder).transientSec
               : (sessionTtlHolder as SessionTtlHolder).rememberSec
         : config.ttl.session,
+      // `client_credentials` tokens: the resource's lifetime (a service-tenant resource
+      // always sets one), else the access-token TTL.
+      ClientCredentials: (_ctx: any, token: any) =>
+        token?.resourceServer?.accessTokenTTL ??
+        (tokenTtlHolder ? tokenTtlHolder.accessTokenSec : config.ttl.accessToken),
       Interaction: 3600,
       Grant: tokenTtlHolder
         ? () => (tokenTtlHolder as TokenTtlHolder).refreshTokenSec

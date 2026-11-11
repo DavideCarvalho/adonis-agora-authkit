@@ -131,6 +131,20 @@
           "description": "Usa este client_secret em vez de gerar um (client confidencial)."
         },
         {
+          "name": "partition",
+          "flagName": "partition",
+          "required": false,
+          "type": "string",
+          "description": "Service tenant: the partition its tokens act as (`partition` claim). Implies client_credentials only, no redirect URIs."
+        },
+        {
+          "name": "capability",
+          "flagName": "capability",
+          "required": false,
+          "type": "array",
+          "description": "Service tenant: capability granted in its tokens (repeatable). Needs --partition."
+        },
+        {
           "name": "json",
           "flagName": "json",
           "required": false,

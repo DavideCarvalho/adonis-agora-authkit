@@ -12,6 +12,7 @@ import type { CommandOptions } from '@adonisjs/core/types/ace';
  *   node ace authkit:clients:create --client-id=my-api --redirect-uri=https://api/cb --redirect-uri=https://api/cb2 --grant=client_credentials
  *   node ace authkit:clients:create --redirect-uri=https://app/cb --json
  *   node ace authkit:clients:create --client-id=my-mobile --native --redirect-uri=com.example.app:/oauth
+ *   node ace authkit:clients:create --client-id=worker-acme --partition=acme --capability=reports
  */
 export default class AuthkitClientsCreate extends BaseCommand {
   static commandName = 'authkit:clients:create';
@@ -39,6 +40,12 @@ export default class AuthkitClientsCreate extends BaseCommand {
     '  node ace authkit:clients:create --redirect-uri=https://app/cb --backchannel-logout-uri=https://app/bc',
     '  node ace authkit:clients:create --client-id=my-app --redirect-uri=https://a/cb --redirect-uri=https://b/cb --json',
     '  node ace authkit:clients:create --client-id=my-mobile --native --redirect-uri=com.example.app:/oauth',
+    '',
+    'Service tenant (a process that acts as one partition, e.g. a durable tenant pod):',
+    'use --partition (and --capability, repeatable). Implies a confidential client with',
+    'only the client_credentials grant and no redirect URIs. Needs serviceTenants.resources',
+    'in config/authkit.ts.',
+    '  node ace authkit:clients:create --client-id=worker-acme --partition=acme --capability=reports',
   ];
 
   static options: CommandOptions = { startApp: true };
@@ -80,12 +87,27 @@ export default class AuthkitClientsCreate extends BaseCommand {
   })
   declare clientSecret?: string;
 
+  @flags.string({
+    description:
+      'Service tenant: the partition its tokens act as (`partition` claim). Implies client_credentials only, no redirect URIs.',
+  })
+  declare partition?: string;
+
+  @flags.array({
+    description:
+      'Service tenant: capability granted in its tokens (repeatable). Needs --partition.',
+  })
+  declare capability?: string[];
+
   @flags.boolean({
     description: 'Output em JSON machine-readable (inclui clientId e clientSecret).',
   })
   declare json?: boolean;
 
   async run() {
+    if (this.partition !== undefined || this.capability?.length) {
+      return this.#createServiceTenant();
+    }
     const redirectUris = this.redirectUri ?? [];
     if (redirectUris.length === 0) {
       this.logger.logError('❌ --redirect-uri é obrigatório. Passe ao menos uma URI de callback.');
@@ -168,5 +190,95 @@ export default class AuthkitClientsCreate extends BaseCommand {
       this.logger.success(`  ${created.clientSecret}`);
       this.logger.info('');
     }
+  }
+
+  /** `--partition`: a service tenant (client_credentials only, `partition` claim). */
+  async #createServiceTenant() {
+    if (!this.partition) {
+      this.logger.logError('❌ --capability needs --partition.');
+      this.exitCode = 1;
+      return;
+    }
+    const conflicting = [
+      this.redirectUri?.length && '--redirect-uri',
+      this.postLogoutUri?.length && '--post-logout-uri',
+      this.public && '--public',
+      this.native && '--native',
+      this.backchannelLogoutUri && '--backchannel-logout-uri',
+      this.grant?.some((g) => g !== 'client_credentials') && '--grant',
+    ].filter(Boolean);
+    if (conflicting.length) {
+      this.logger.logError(
+        `❌ ${conflicting.join(', ')} cannot be used with --partition (a service tenant only uses client_credentials).`,
+      );
+      this.exitCode = 1;
+      return;
+    }
+
+    const service = await this.app.container.make('authkit.server');
+    const { AdminClientsService } = await import('../src/host/admin_clients_service.js');
+    const { ClientMetadataError } = await import('../src/host/client_metadata.js');
+    const svc = new AdminClientsService(service);
+    const input = {
+      clientId: this.clientId,
+      applicationType: 'web' as const,
+      redirectUris: [],
+      postLogoutRedirectUris: [],
+      grantTypes: ['client_credentials'],
+      tokenEndpointAuthMethod: 'client_secret_basic' as const,
+      serviceTenant: { partition: this.partition, capabilities: this.capability ?? [] },
+    };
+    let created: Awaited<ReturnType<typeof svc.create>>;
+    try {
+      created = this.clientSecret
+        ? await svc.createWithSecret(input, this.clientSecret)
+        : await svc.create(input);
+    } catch (err) {
+      if (err instanceof ClientMetadataError) {
+        this.logger.logError(`❌ ${err.message}`);
+        this.exitCode = 1;
+        return;
+      }
+      throw err;
+    }
+    const tenant = (await svc.find(created.clientId))?.serviceTenant;
+    await service.config.audit
+      ?.record({
+        type: 'client.created',
+        clientId: created.clientId,
+        ip: null,
+        metadata: { actor: 'cli', partition: tenant?.partition },
+      })
+      .catch(() => {});
+
+    if (this.json) {
+      this.logger.info(
+        JSON.stringify(
+          {
+            clientId: created.clientId,
+            clientSecret: created.clientSecret,
+            grantTypes: ['client_credentials'],
+            serviceTenant: tenant,
+            resources: Object.keys(service.config.serviceTenants.resources),
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+
+    this.logger.success(`Service tenant created: ${created.clientId}`);
+    this.logger.info(`  partition:     ${tenant?.partition}`);
+    if (tenant?.capabilities.length) {
+      this.logger.info(`  capabilities:  ${tenant.capabilities.join(', ')}`);
+    }
+    this.logger.info(
+      `  resources:     ${Object.keys(service.config.serviceTenants.resources).join(', ')}`,
+    );
+    this.logger.info('');
+    this.logger.success('CLIENT SECRET (shown ONCE - store it now):');
+    this.logger.success(`  ${created.clientSecret}`);
+    this.logger.info('');
   }
 }
