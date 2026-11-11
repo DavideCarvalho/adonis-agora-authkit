@@ -1,7 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import type { EnumeratedClient, OidcAdapter } from '../adapters/adapter_contract.js';
 import type { OidcService } from '../provider/oidc_service.js';
-import { type ApplicationType, assertClientMetadata } from './client_metadata.js';
+import {
+  type ApplicationType,
+  assertClientMetadata,
+  ClientMetadataError,
+} from './client_metadata.js';
 import { CONSOLE_SSO_CLIENT_ID } from './console_sso.js';
 
 /** Métodos de autenticação no token endpoint suportados pelo formulário admin. */
@@ -306,6 +310,6 @@ export class AdminClientsService {
 /** O `client_id` do client interno do console (ver `console_sso.ts`) não pode ser cadastrado. */
 function assertNotReservedClientId(clientId: string): void {
   if (clientId === CONSOLE_SSO_CLIENT_ID) {
-    throw new Error(`client_id "${clientId}" é reservado pelo authkit`);
+    throw new ClientMetadataError(`client_id "${clientId}" é reservado pelo authkit`);
   }
 }

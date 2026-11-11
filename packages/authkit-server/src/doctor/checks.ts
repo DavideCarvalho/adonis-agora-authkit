@@ -1048,12 +1048,13 @@ export function checkConsoleSignIn(input: DoctorInput): Finding | null {
   const routes = typeof cfg.routes === 'object' && cfg.routes ? cfg.routes : undefined;
   if (!sso && passwordOff && !routes?.accountLoginUrl) {
     return {
-      level: 'error',
+      level: 'warn',
       message:
-        'The account and admin consoles have no way to sign in: `accountSession.acceptIdpSession` ' +
-        'is false and password login is off (`authMethods: { password: false }`). Remove ' +
-        '`acceptIdpSession: false` so the consoles sign in through the IdP, or point ' +
-        '`routes.accountLoginUrl` at a login route of your app.',
+        'The account and admin consoles have no way to sign in unless `registerAuthHost` gets an ' +
+        '`accountLoginUrl`: `accountSession.acceptIdpSession` is false and password login is off ' +
+        '(`authMethods: { password: false }`), and route registration refuses to start without ' +
+        'one. Remove `acceptIdpSession: false` so the consoles sign in through the IdP, or point ' +
+        '`accountLoginUrl` at a login route of your app.',
     };
   }
   if (!sso) {

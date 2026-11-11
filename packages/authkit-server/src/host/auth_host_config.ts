@@ -39,6 +39,11 @@ export interface AuthHostRuntimeConfig {
   /** Personal agents ligados → prefixo das rotas deles (`/agents`) e do Poppy (`/poppy`). */
   personalAgents?: { prefix: string; poppyPrefix?: string };
   /**
+   * `accountSession.acceptIdpSession: false` com `authMethods: { password: false }`:
+   * o console só entra por um `accountLoginUrl` do host (`registerAuthHost` recusa sem ele).
+   */
+  consoleNeedsLoginUrl?: boolean;
+  /**
    * API headless (Clerk-style). Presente quando o host a declarou — o provider o
    * stash no boot para `registerAuthHost` montar as rotas sem reler o config inteiro.
    */

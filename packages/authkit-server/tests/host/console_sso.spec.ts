@@ -115,26 +115,12 @@ test.group('login do console pelo IdP: client interno', () => {
     assert.notExists(client);
   });
 
-  test('`acceptIdpSession: false` + senha desligada sem `accountLoginUrl`: o boot recusa', async ({
-    assert,
-  }) => {
-    await assert.rejects(
-      () =>
-        makeService({
-          accountSession: { acceptIdpSession: false },
-          authMethods: { password: false },
-        }),
-      /nenhum jeito de entrar/,
-    );
-  });
-
-  test('`acceptIdpSession: false` + senha desligada COM `accountLoginUrl`: aceita', async ({
+  test('`acceptIdpSession: false` + senha desligada: o config resolve (a recusa é no registerAuthHost)', async ({
     assert,
   }) => {
     const service = await makeService({
       accountSession: { acceptIdpSession: false },
       authMethods: { password: false },
-      routes: { accountLoginUrl: '/login' },
     });
     assert.isFalse(service.config.accountSession.acceptIdpSession);
   });

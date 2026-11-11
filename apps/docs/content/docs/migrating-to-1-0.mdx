@@ -304,7 +304,8 @@ defineConfig({
 ```
 
 With `authMethods: { password: false }`, that opt-out leaves the consoles with no way in, so
-the app refuses to boot unless `routes.accountLoginUrl` points at a login route of yours.
+the app refuses to boot unless `accountLoginUrl` (passed to `registerAuthHost` or set in
+`routes`) points at a login route of yours.
 
 The client id `authkit-console` is reserved for the consoles: the Admin API and
 `authkit:clients:create` reject it.

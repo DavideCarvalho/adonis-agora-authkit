@@ -601,7 +601,9 @@ test.group('doctor: entrada nos consoles', () => {
     assert.equal(f!.level, 'warn');
   });
 
-  test('`acceptIdpSession: false` + senha desligada: error', ({ assert }) => {
+  test('`acceptIdpSession: false` + senha desligada: warn (registerAuthHost decide)', ({
+    assert,
+  }) => {
     const f = checkConsoleSignIn(
       baseInput({
         authkitConfig: {
@@ -610,7 +612,8 @@ test.group('doctor: entrada nos consoles', () => {
         },
       }),
     );
-    assert.equal(f!.level, 'error');
+    assert.equal(f!.level, 'warn');
+    assert.include(f!.message, 'registerAuthHost');
   });
 
   test('`acceptIdpSession: false` + senha desligada + `accountLoginUrl`: warn', ({ assert }) => {

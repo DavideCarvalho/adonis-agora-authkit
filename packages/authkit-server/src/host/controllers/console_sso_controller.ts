@@ -31,9 +31,10 @@ export default class ConsoleSsoController {
     // SSO desligado (`acceptIdpSession: false`): o console só tem o login próprio.
     if (cfg.accountSession?.acceptIdpSession !== true) {
       const login = getAccountLoginUrl();
+      const sep = login.includes('?') ? '&' : '?';
       return redirectExact(
         ctx.response,
-        returnTo ? `${login}?return_to=${encodeURIComponent(returnTo)}` : login,
+        returnTo ? `${login}${sep}return_to=${encodeURIComponent(returnTo)}` : login,
       );
     }
 
@@ -53,7 +54,8 @@ export default class ConsoleSsoController {
       redirect_uri: `${origin}${CONSOLE_SSO_CALLBACK_PATH}`,
       state,
     });
-    return ctx.response.redirect(
+    return redirectExact(
+      ctx.response,
       `${authorizationPath(cfg.issuer, service.provider)}?${query.toString()}`,
     );
   }

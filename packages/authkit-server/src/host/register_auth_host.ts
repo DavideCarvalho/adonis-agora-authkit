@@ -245,7 +245,7 @@ export const adminGuard = async (ctx: any, next: () => Promise<void>) => {
         .status(403)
         .send({ error: { code: 'forbidden', message: 'Admin role required.' } });
     }
-    return ctx.response.redirect(accountHome(cfg));
+    return redirectExact(ctx.response, accountHome(cfg));
   }
   // `admin.authorize`, after the roles: both must pass.
   if (cfg.admin.authorize) {
@@ -260,7 +260,7 @@ export const adminGuard = async (ctx: any, next: () => Promise<void>) => {
               .status(403)
               .send({ error: { code: 'forbidden', message: 'Access denied.' } });
       }
-      return ctx.response.redirect(decision.redirectTo ?? accountHome(cfg));
+      return redirectExact(ctx.response, decision.redirectTo ?? accountHome(cfg));
     }
   }
   return next();
@@ -795,6 +795,19 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
   const accountLoginUrlOpt = opts.accountLoginUrl ?? routesCfg?.accountLoginUrl;
   if (accountLoginUrlOpt !== undefined) {
     setAccountLoginUrl(accountLoginUrlOpt);
+  }
+  // Console sem porta de entrada: SSO desligado (`acceptIdpSession: false`) deixa só o
+  // login próprio do console, que é por senha; com a senha desligada ninguém entra em
+  // `/account/*` nem no console admin. Só passa com um `accountLoginUrl` do host (aqui
+  // ou em `routes.accountLoginUrl`) — por isso a checagem é no registro, não no config.
+  if (hostCfg?.consoleNeedsLoginUrl && !accountLoginUrlOpt) {
+    throw new Error(
+      'authkit: `accountSession.acceptIdpSession: false` com `authMethods: { password: false }` ' +
+        'deixa o console de conta e o console admin sem nenhum jeito de entrar (o login próprio ' +
+        'do console é por senha). Remova `acceptIdpSession: false` (o default entra pelo login ' +
+        'do IdP) ou passe `accountLoginUrl` (no `registerAuthHost` ou em `routes`) apontando ' +
+        'para um login do seu app.',
+    );
   }
 
   // Montagem por tela do console de conta. `undefined` → tudo montado;

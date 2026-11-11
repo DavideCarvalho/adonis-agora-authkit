@@ -72,7 +72,8 @@ defineConfig({
 
 Users then sign in twice: once in your apps, once in the consoles. With password login off
 (`authMethods: { password: false }`) that leaves the consoles with no way in, so the app
-refuses to boot unless `routes.accountLoginUrl` points at a login route of your own.
+refuses to boot unless `accountLoginUrl` (passed to `registerAuthHost` or set in `routes`)
+points at a login route of your own.
 
 `hasAccountSession`/`getAccountId` only *read* the console session. In your own guards,
 `await ensureConsoleSession(ctx)` first to honour the SSO bridge:
