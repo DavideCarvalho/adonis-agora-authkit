@@ -2,7 +2,7 @@ import { createServer, type Server } from 'node:http';
 import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
 import { adapters, defineConfig } from '../src/define_config.js';
-import { AdminClientsService } from '../src/host/admin_clients_service.js';
+import { AdminClientsService, type ClientInput } from '../src/host/admin_clients_service.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { createTestDatabase, fakeAccountStore } from './bootstrap.js';
 import { withClients } from './helpers/seed_clients.js';
@@ -119,6 +119,23 @@ test.group('AdminClientsService (CRUD de clients OIDC adapter-backed)', (group) 
     const found = await (service.provider as any).Client.find(created.clientId);
     assert.isOk(found);
     assert.deepEqual(found.metadata().redirect_uris, [`${issuer}/app/cb`]);
+  });
+
+  test('o client_id do console (`authkit-console`) é reservado', async ({ assert, cleanup }) => {
+    const port = 9934;
+    const { issuer, service, server } = await startService(port, db);
+    cleanup(() => new Promise<void>((r) => server.close(() => r())));
+
+    const admin = new AdminClientsService(service);
+    const input: ClientInput = {
+      clientId: 'authkit-console',
+      redirectUris: [`${issuer}/app/cb`],
+      postLogoutRedirectUris: [],
+      grantTypes: ['authorization_code'],
+      tokenEndpointAuthMethod: 'none',
+    };
+    await assert.rejects(() => admin.create(input), /reservado/);
+    await assert.rejects(() => admin.createWithSecret(input, undefined), /reservado/);
   });
 
   test('update invalida o cache: find devolve a metadata NOVA', async ({ assert, cleanup }) => {

@@ -178,6 +178,13 @@ export type {
 } from './src/audit/audit_sink.js';
 export { lucidAuditSink } from './src/audit/lucid_audit_sink.js';
 export type {
+  ConsoleAuthorize,
+  ConsoleAuthorizeResult,
+  ConsoleAuthorizer,
+  ConsoleAuthorizerClass,
+} from './src/console_authorize.js';
+export { authorizeByToken } from './src/console_authorize.js';
+export type {
   AdminApiConfigInput,
   AdminConfigInput,
   AuthHostRenderer,

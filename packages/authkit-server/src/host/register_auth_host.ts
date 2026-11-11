@@ -1,4 +1,10 @@
 import type { Router } from '@adonisjs/core/http';
+import { getBootedApp } from '../../services/booted_app.js';
+import {
+  type ConsoleAuthorize,
+  type ConsoleAuthorizeDecision,
+  resolveConsoleAuthorize,
+} from '../console_authorize.js';
 import type { AuthSocialConfig, RateLimitConfigInput } from '../define_config.js';
 import { resolveRateLimit } from '../define_config.js';
 import { accountHome } from './account_home.js';
@@ -27,7 +33,9 @@ import {
   wasAuthHostAutoMounted,
 } from './auth_host_config.js';
 import type { PolicyRouteOption } from './config_locks.js';
-import { ensureConsoleSession } from './idp_session_bridge.js';
+import { consoleDeniedPage } from './console_denied_page.js';
+import { CONSOLE_SSO_CALLBACK_PATH, CONSOLE_SSO_START_PATH } from './console_sso.js';
+import { endBridgedIdpSession, ensureConsoleSession } from './idp_session_bridge.js';
 import { POPPY_WEB_SESSION_KEY } from './poppy_session_key.js';
 import { createAuthThrottles } from './rate_limit.js';
 import { redirectExact } from './redirect_exact.js';
@@ -96,7 +104,10 @@ async function checkAndRefreshIdle(ctx: any): Promise<boolean> {
     const lastSeen = ctx.session?.get(ACCOUNT_LAST_SEEN_KEY) as number | undefined;
     const now = Date.now();
     if (lastSeen !== undefined && now - lastSeen > idleMs) {
-      // Idle excedido: encerra a sessão.
+      // Idle excedido: encerra a sessão. Console aberto pela sessão do IdP (SSO):
+      // encerra também essa sessão, senão a ponte reabriria o console no próximo
+      // request e o idle timeout não teria efeito.
+      await endBridgedIdpSession(ctx);
       ctx.session?.forget(ACCOUNT_SESSION_KEY);
       ctx.session?.forget(ACCOUNT_LAST_SEEN_KEY);
       return true;
@@ -197,6 +208,8 @@ const accountGuard = async (ctx: any, next: () => Promise<void>) => {
  *      (senão → `accountHome(cfg)`, default /account/security — NÃO revela a
  *      existência do /admin, e cai numa tela que o host controla via `accountHome`;
  *      se a tela default estiver desmontada, aponte `config.accountHome` para uma montada).
+ *   3. `config.admin.authorize` liberando (403/401/redirect conforme o resultado). Omitido:
+ *      aberto fora de produção, 403 em produção.
  * As roles permitidas são resolvidas em runtime do `authkit.server` (config lazy).
  */
 export const adminGuard = async (ctx: any, next: () => Promise<void>) => {
@@ -236,10 +249,68 @@ export const adminGuard = async (ctx: any, next: () => Promise<void>) => {
         .status(403)
         .send({ error: { code: 'forbidden', message: 'Admin role required.' } });
     }
-    return ctx.response.redirect(accountHome(cfg));
+    return redirectExact(ctx.response, accountHome(cfg));
   }
+  // `admin.authorize`, after the roles: both must pass. Omitted, the console is open
+  // outside production and closed (403) in production.
+  const decision: ConsoleAuthorizeDecision = cfg.admin.authorize
+    ? await adminAuthorizeChecker(cfg.admin.authorize)(ctx)
+    : appInProduction()
+      ? { allowed: false, status: 403 }
+      : { allowed: true };
+  if (!decision.allowed) return consoleDenied(ctx, decision);
   return next();
 };
+
+/**
+ * Whether the app runs in production. Unknown (the provider did not register the
+ * app) counts as production, so an omitted `admin.authorize` fails closed.
+ */
+function appInProduction(): boolean {
+  try {
+    return getBootedApp().inProduction !== false;
+  } catch {
+    return true;
+  }
+}
+
+/** The response for an `admin.authorize` denial: same rules in every `@adonis-agora` console. */
+function consoleDenied(
+  ctx: any,
+  decision: Extract<ConsoleAuthorizeDecision, { allowed: false }>,
+): unknown {
+  const json = wantsJson(ctx);
+  if (decision.redirectTo) {
+    if (json) {
+      return ctx.response
+        .status(401)
+        .send({ error: 'unauthenticated', redirectTo: decision.redirectTo });
+    }
+    return redirectExact(ctx.response, decision.redirectTo);
+  }
+  if (decision.status === 401) {
+    if (json) return ctx.response.status(401).send({ error: 'unauthenticated' });
+    ctx.response.header('Content-Type', 'text/html; charset=utf-8');
+    return ctx.response.status(401).send(consoleDeniedPage(401));
+  }
+  if (json) return ctx.response.status(403).send({ error: 'forbidden' });
+  ctx.response.header('Content-Type', 'text/html; charset=utf-8');
+  return ctx.response.status(403).send(consoleDeniedPage(403));
+}
+
+/** One checker per configured `admin.authorize`, so a lazy import runs once. */
+const adminAuthorizeCheckers = new WeakMap<
+  object,
+  (ctx: any) => Promise<ConsoleAuthorizeDecision>
+>();
+function adminAuthorizeChecker(authorize: ConsoleAuthorize) {
+  let checker = adminAuthorizeCheckers.get(authorize);
+  if (!checker) {
+    checker = resolveConsoleAuthorize(authorize);
+    adminAuthorizeCheckers.set(authorize, checker);
+  }
+  return checker;
+}
 
 /**
  * Opções de montagem das rotas do host-kit.
@@ -578,6 +649,7 @@ const C = {
   social: () => import('./controllers/social_controller.js'),
   patIntrospection: () => import('./controllers/pat_introspection_controller.js'),
   accountSession: () => import('./controllers/account_session_controller.js'),
+  consoleSso: () => import('./controllers/console_sso_controller.js'),
   accountTokens: () => import('./controllers/account_tokens_controller.js'),
   accountSecurity: () => import('./controllers/account_security_controller.js'),
   accountApps: () => import('./controllers/account_apps_controller.js'),
@@ -756,6 +828,19 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
   if (accountLoginUrlOpt !== undefined) {
     setAccountLoginUrl(accountLoginUrlOpt);
   }
+  // Console sem porta de entrada: SSO desligado (`acceptIdpSession: false`) deixa só o
+  // login próprio do console, que é por senha; com a senha desligada ninguém entra em
+  // `/account/*` nem no console admin. Só passa com um `accountLoginUrl` do host (aqui
+  // ou em `routes.accountLoginUrl`) — por isso a checagem é no registro, não no config.
+  if (hostCfg?.consoleNeedsLoginUrl && !accountLoginUrlOpt) {
+    throw new Error(
+      'authkit: `accountSession.acceptIdpSession: false` com `authMethods: { password: false }` ' +
+        'deixa o console de conta e o console admin sem nenhum jeito de entrar (o login próprio ' +
+        'do console é por senha). Remova `acceptIdpSession: false` (o default entra pelo login ' +
+        'do IdP) ou passe `accountLoginUrl` (no `registerAuthHost` ou em `routes`) apontando ' +
+        'para um login do seu app.',
+    );
+  }
 
   // Montagem por tela do console de conta. `undefined` → tudo montado;
   // `false` → nada; objeto → cada flag ausente default `true`.
@@ -889,6 +974,14 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
   // Provider OIDC (wildcard + root) — o que registerOidcRoutes fazia.
   router.any(`${mount}/*`, [C.oidc]).as('authkit.oidc.wildcard');
   router.any(mount, [C.oidc]).as('authkit.oidc.root');
+
+  // Login do console pelo IdP (SSO; client interno `authkit-console`, ver
+  // `console_sso.ts`). Sempre montado: com `acceptIdpSession: false` o início só
+  // redireciona para o login próprio do console.
+  router.get(CONSOLE_SSO_START_PATH, [C.consoleSso, 'start']).as('authkit.console_sso.start');
+  router
+    .get(CONSOLE_SSO_CALLBACK_PATH, [C.consoleSso, 'callback'])
+    .as('authkit.console_sso.callback');
 
   // Interaction (login multi-step + consent + signup).
   // Cada rota passa por `keep(key, …)`: entra em `AuthHostRouteMap.routes`/`urls` e

@@ -6,6 +6,7 @@ import { getAccountLoginUrl } from '../account_login_url.js';
 import type { AccountLoginProps } from '../account_screen_props.js';
 import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { syncAdonisAuthLogin, syncAdonisAuthLogout } from '../adonis_auth_sync.js';
+import { consoleSsoUrl } from '../console_sso.js';
 import { normalizeEmailIdentifier } from '../email_identifier.js';
 import { translate } from '../i18n.js';
 import { endBridgedIdpSession } from '../idp_session_bridge.js';
@@ -51,8 +52,17 @@ export default class AccountSessionController {
     }
 
     // Lê e valida o return_to da query-string — descarta valores inválidos (open-redirect).
-    const rawReturnTo = (ctx.request as any).qs?.()?.return_to ?? ctx.request.input?.('return_to');
+    const qs = ((ctx.request as any).qs?.() ?? {}) as Record<string, unknown>;
+    const rawReturnTo = qs.return_to ?? ctx.request.input?.('return_to');
     const returnTo = validateReturnTo(rawReturnTo);
+
+    // SSO (default): o console entra pelo login do IdP, a mesma tela de qualquer
+    // app. O formulário de senha daqui fica como porta alternativa
+    // (`?method=password`), e só quando a senha não foi desligada no config.
+    const passwordForm = qs.method === 'password' && cfg.authMethods?.password !== false;
+    if (cfg.accountSession?.acceptIdpSession === true && !passwordForm) {
+      return redirectExact(ctx.response, consoleSsoUrl(returnTo));
+    }
 
     const props = {
       csrfToken: ctx.request.csrfToken,

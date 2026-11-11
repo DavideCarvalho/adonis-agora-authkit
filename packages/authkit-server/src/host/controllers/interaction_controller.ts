@@ -13,6 +13,7 @@ import { AdminSessionsService } from '../admin_sessions_service.js';
 import { guardBotProtection, resolveEffectiveBotProtection } from '../bot_protection.js';
 import { brandFor, isFirstParty } from '../branding.js';
 import { consentRequestParams } from '../consent_params.js';
+import { CONSOLE_SSO_CLIENT_ID } from '../console_sso.js';
 import { type CustomLoginIdentity, isCustomLoginMethodId } from '../custom_login.js';
 import { completeCustomLoginSession } from '../custom_login_completion.js';
 import {
@@ -340,7 +341,8 @@ export default class AuthInteractionController {
 
     if (
       details.prompt.name === 'consent' &&
-      isFirstParty(cfg.branding, details.params.client_id as string | undefined)
+      (details.params.client_id === CONSOLE_SSO_CLIENT_ID ||
+        isFirstParty(cfg.branding, details.params.client_id as string | undefined))
     ) {
       // Clients first-party: auto-concede o consent (pula a tela de consent).
       // interactions.consent monta o Grant + interactionFinished e escreve o

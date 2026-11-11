@@ -9,6 +9,7 @@ import {
   checkAuthMethodsSetting,
   checkBotProtection,
   checkClients,
+  checkConsoleSignIn,
   checkIssuer,
   checkJwks,
   checkPasswordPolicy,
@@ -102,6 +103,20 @@ test.group('doctor checks', () => {
       }),
     );
     assert.equal(f!.level, 'warn');
+  });
+
+  test('admin on without authorize → warn; with authorize → ok', ({ assert }) => {
+    const open = checkAdmin(
+      baseInput({ authkitConfig: { admin: { enabled: true, roles: ['ADMIN'] } } }),
+    );
+    assert.equal(open!.level, 'warn');
+    assert.include(open!.message, 'admin.authorize');
+    const gated = checkAdmin(
+      baseInput({
+        authkitConfig: { admin: { enabled: true, roles: ['ADMIN'], authorize: () => true } },
+      }),
+    );
+    assert.equal(gated!.level, 'ok');
   });
 
   test('webauthn rpId divergente do host do issuer vira warn', ({ assert }) => {
@@ -582,5 +597,49 @@ test.group('doctor — colunas do model do account store', () => {
     const all = findings.map((f) => f.message).join(' ');
     assert.notInclude(all, "'password'");
     assert.include(all, 'passwordResetToken');
+  });
+});
+
+test.group('doctor: entrada nos consoles', () => {
+  test('default (SSO): ok', ({ assert }) => {
+    const f = checkConsoleSignIn(
+      baseInput({ authkitConfig: { accountSession: { acceptIdpSession: true } } }),
+    );
+    assert.equal(f!.level, 'ok');
+  });
+
+  test('`acceptIdpSession: false`: warn', ({ assert }) => {
+    const f = checkConsoleSignIn(
+      baseInput({ authkitConfig: { accountSession: { acceptIdpSession: false } } }),
+    );
+    assert.equal(f!.level, 'warn');
+  });
+
+  test('`acceptIdpSession: false` + senha desligada: warn (registerAuthHost decide)', ({
+    assert,
+  }) => {
+    const f = checkConsoleSignIn(
+      baseInput({
+        authkitConfig: {
+          accountSession: { acceptIdpSession: false },
+          authMethods: { password: false },
+        },
+      }),
+    );
+    assert.equal(f!.level, 'warn');
+    assert.include(f!.message, 'registerAuthHost');
+  });
+
+  test('`acceptIdpSession: false` + senha desligada + `accountLoginUrl`: warn', ({ assert }) => {
+    const f = checkConsoleSignIn(
+      baseInput({
+        authkitConfig: {
+          accountSession: { acceptIdpSession: false },
+          authMethods: { password: false },
+          routes: { accountLoginUrl: '/login' },
+        },
+      }),
+    );
+    assert.equal(f!.level, 'warn');
   });
 });

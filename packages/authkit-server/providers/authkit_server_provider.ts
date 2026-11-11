@@ -132,6 +132,8 @@ export default class AuthkitServerProvider {
       // Defaults estruturais de `config.routes` (o argumento ainda vence).
       routes: typeof config.routes === 'object' ? config.routes : undefined,
       lockedRouteOptions: config.lockedRouteOptions,
+      consoleNeedsLoginUrl:
+        config.accountSession?.acceptIdpSession === false && config.authMethods?.password === false,
       personalAgents: config.personalAgents
         ? {
             prefix: config.personalAgents.prefix,
@@ -148,6 +150,14 @@ export default class AuthkitServerProvider {
           }
         : undefined,
     });
+
+    // Admin console without `admin.authorize`: open outside production, 403 in production.
+    // Said once, at boot.
+    if (config.admin.enabled && !config.admin.authorize) {
+      const { warnAdminConsoleUnauthorized } = await import('../src/host/admin_console_warning.js');
+      const logger = await this.app.container.make('logger').catch(() => null);
+      warnAdminConsoleUnauthorized(logger);
+    }
 
     // Poppy: o slot global que o `@adonis-agora/agent` usa para autenticar o endpoint de
     // conversas (e o MCP) sem importar este pacote — o contrato é o símbolo.

@@ -285,6 +285,85 @@ node ace authkit:clients:create --client-id=mobile --native --redirect-uri=com.a
 `backchannelLogoutSessionRequired` has no CLI flag: set it in the admin console or with
 `PATCH /api/authkit/v1/clients/:id` after creating the client.
 
+## Consoles sign in through the IdP login
+
+`accountSession.acceptIdpSession` now defaults to `true`. `/account/*` and the admin console
+send people without a console session to the IdP login, and open for anyone already signed
+in to one of your apps. `/account/login` redirects there too; the old password form is at
+`/account/login?method=password`.
+
+If you already set `accountSession: { acceptIdpSession: true }`, remove it.
+
+To keep the separate password login, opt out:
+
+```ts title="config/authkit.ts"
+defineConfig({
+  // …
+  accountSession: { acceptIdpSession: false },
+})
+```
+
+With `authMethods: { password: false }`, that opt-out leaves the consoles with no way in, so
+the app refuses to boot unless `accountLoginUrl` (passed to `registerAuthHost` or set in
+`routes`) points at a login route of yours.
+
+The client id `authkit-console` is reserved for the consoles: the Admin API and
+`authkit:clients:create` reject it.
+
+## Set `admin.authorize` for the admin console in production
+
+The admin console takes a new `authorize`, the same one every `@adonis-agora` console takes. It
+runs after `admin.roles`, and both must pass. **Without it, the console answers 403 to every
+request in production** (it stays open outside production), and the app logs a warning at boot.
+
+```ts title="config/authkit.ts (before)"
+defineConfig({
+  // …
+  admin: { enabled: true, roles: ['ADMIN'] },
+})
+```
+
+```ts title="config/authkit.ts (after)"
+defineConfig({
+  // …
+  admin: {
+    enabled: true,
+    roles: ['ADMIN'],
+    // Any account with one of the roles, as before:
+    authorize: () => true,
+    // …or your own check:
+    // authorize: () => import('#policies/console_access'),
+  },
+})
+```
+
+A denial from `authorize` now renders a 403 page (401 for `reason: 'unauthenticated'`) instead
+of redirecting to `accountHome`. An account without one of the roles still goes to
+`accountHome`. See [Who can open the console](/docs/admin-console#who-can-open-the-console).
+
+## Gate consoles with `authkitDashboardAuthorize`
+
+`authkitDashboardMiddleware` is removed: every `@adonis-agora` console now takes `authorize`, and
+a console gated only by `middleware` answers 403 in production. Use `authkitDashboardAuthorize`
+instead. A visitor without a session now gets `401` (or a redirect to `loginPath`) instead of
+`403`.
+
+```ts title="config/media_dashboard.ts (before)"
+import { authkitDashboardMiddleware } from "@adonis-agora/authkit-client";
+
+export default defineConfig({
+  middleware: authkitDashboardMiddleware(),
+});
+```
+
+```ts title="config/media_dashboard.ts (after)"
+import { authkitDashboardAuthorize } from "@adonis-agora/authkit-client";
+
+export default defineConfig({
+  authorize: authkitDashboardAuthorize({ loginPath: "/login" }),
+});
+```
+
 ## Use `authkitClientGuard` for `ctx.auth`
 
 `authkit_middleware` is removed, and `@adonisjs/auth` is now a **required** peer of

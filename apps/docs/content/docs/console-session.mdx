@@ -40,36 +40,40 @@ After login, `return_to` sends the user back to `/reports`.
 
 ## Single sign-on with the IdP session
 
-<Callout type="warn">
-  Apps that turn password login off (`authMethods.password: false`, magic link / code /
-  passkey / social only) **need** `acceptIdpSession: true`. The console's own login takes a
-  password, so without it `/account/*` and the admin console are unreachable.
-</Callout>
+The consoles are one more app of your IdP. A visitor without a console session is sent to
+the IdP login (the same screen your OIDC apps use: password, magic link, code, passkey,
+social) and comes back with the console open. A user who is already signed in to one of
+your apps opens `/account/*` and `/auth/admin` without signing in again.
 
-The console session and the **IdP session** are different things. The IdP session is the
-one `oidc-provider` creates when the user completes the login interaction of `/oidc/auth`
-(password, magic link, OTP, passkey, social) — it is what gives SSO across your OIDC
-clients. The console session is only created by the console's own login
-(`POST /account/login`). So a user who just signed in to an OIDC app — including the host
-itself, when it is both IdP and relying party — is asked to sign in **again** on
-`/account/*`.
+The console session opened this way is **tied** to the IdP session:
 
-Opt in to let the console accept the active IdP session:
+- when the IdP session ends (OIDC logout, expiry, another account signing in), the console
+  ends on the next request;
+- the console's "Sign out" and its idle timeout also end the IdP session;
+- disabled accounts do not get in;
+- sensitive operations still require [sudo mode](#sudo-mode-step-up-authentication).
+
+Admins open the most sensitive screens, so make sure their accounts have MFA enrolled, or
+require it for everyone with `mfa.requiredFactors`. `node ace authkit:doctor` reminds you.
+
+`/account/login` sends people to the IdP login too. The console's own password form is
+still there at `/account/login?method=password`, unless password login is off.
+
+### Using a separate console login
+
+To keep the consoles on their own password login, turn SSO off:
 
 ```ts title="config/authkit.ts"
 defineConfig({
   // ...
-  accountSession: { acceptIdpSession: true },
+  accountSession: { acceptIdpSession: false },
 })
 ```
 
-With it, the `/account/*` and admin guards (and `AccountAuthMiddleware`) open the console
-for the account of a valid IdP session (signed `_session` cookie, unexpired, account exists
-and is enabled). The console session opened this way is **tied** to that IdP session: when
-it ends (OIDC logout, expiry, a different account signing in) the console ends on the next
-request, and the console's "Sign out" also ends the IdP session. Sensitive operations still
-require [sudo mode](#sudo-mode-step-up-authentication). The default (`false`) keeps the
-console on its own session only.
+Users then sign in twice: once in your apps, once in the consoles. With password login off
+(`authMethods: { password: false }`) that leaves the consoles with no way in, so the app
+refuses to boot unless `accountLoginUrl` (passed to `registerAuthHost` or set in `routes`)
+points at a login route of your own.
 
 `hasAccountSession`/`getAccountId` only *read* the console session. In your own guards,
 `await ensureConsoleSession(ctx)` first to honour the SSO bridge:

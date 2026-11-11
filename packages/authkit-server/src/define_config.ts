@@ -18,6 +18,7 @@ import {
 } from './agents/config.js';
 import { assertDelegationSigningKey } from './agents/signer.js';
 import type { AuditSink } from './audit/audit_sink.js';
+import type { ConsoleAuthorize } from './console_authorize.js';
 import { composeAuditSink, type EventsConfigInput, resolveEvents } from './events/dispatcher.js';
 import {
   type BotProtectionConfigInput,
@@ -951,6 +952,13 @@ export interface AdminConfigInput {
    * default é decisão de major, mesma regra de `impersonation`).
    */
   impersonateAdmins?: boolean;
+  /**
+   * Access check for the console, run after `roles` (both must pass), on the shell
+   * and on every `{prefix}/api/*` route. An inline function, an authorizer class
+   * (`@inject()` works), a lazy import (`() => import('#policies/...')`) or
+   * `authorizeByToken({ token })`. Omitted: open outside production, 403 in production.
+   */
+  authorize?: ConsoleAuthorize;
 }
 
 export interface ResolvedAdminConfig {
@@ -958,6 +966,8 @@ export interface ResolvedAdminConfig {
   roles: string[];
   impersonation: boolean;
   impersonateAdmins: boolean;
+  /** `admin.authorize` as configured, or `null` when omitted. */
+  authorize: ConsoleAuthorize | null;
 }
 
 export function resolveAdmin(input?: AdminConfigInput): ResolvedAdminConfig {
@@ -968,6 +978,7 @@ export function resolveAdmin(input?: AdminConfigInput): ResolvedAdminConfig {
     // registrado). Ver o docblock de `AdminConfigInput.impersonation`.
     impersonation: input?.impersonation !== false,
     impersonateAdmins: input?.impersonateAdmins !== false,
+    authorize: input?.authorize ?? null,
   };
 }
 
@@ -1526,8 +1537,16 @@ export interface AuthServerConfigInput {
    * expiração), e o "Sair" do console encerra também a sessão do IdP. Contas
    * desabilitadas não entram. Operações sensíveis continuam pedindo sudo.
    *
-   * Default `false`: o console só aceita a própria sessão (`POST /account/login`),
-   * como sempre.
+   * Default `true`: o console é mais um app do IdP. Sem sessão, `/account/*` e o
+   * console admin mandam o visitante para o login do IdP (`/auth/console/sso`,
+   * client interno `authkit-console`) e voltam com o console aberto. Um único
+   * login, como no Keycloak, Okta e Google; o que protege as operações
+   * sensíveis é o sudo, não um segundo login.
+   *
+   * `false`: o console só aceita a própria sessão (`POST /account/login`, por
+   * senha). Com `authMethods: { password: false }` isso deixa o console sem
+   * nenhum jeito de entrar, então o boot recusa a combinação, a menos que
+   * `routes.accountLoginUrl` aponte para um login do próprio host.
    */
   accountSession?: { acceptIdpSession?: boolean };
 }
@@ -1956,7 +1975,7 @@ export function defineConfig(config: AuthServerConfigInput) {
       lockedRouteOptions: deriveLockedRouteOptions(config as Record<string, any>),
       // Opt-in: ausente = authkit nunca toca `ctx.auth` (comportamento de sempre).
       adonisAuth: config.adonisAuth,
-      accountSession: { acceptIdpSession: config.accountSession?.acceptIdpSession === true },
+      accountSession: { acceptIdpSession: config.accountSession?.acceptIdpSession !== false },
     };
   });
 }

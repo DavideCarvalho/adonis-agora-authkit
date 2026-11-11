@@ -150,7 +150,7 @@ const authServerConfig = defineConfig({
       'account/login', 'account/tokens', 'account/mfa',
     ],
   }),
-  admin: { enabled: true },
+  admin: { enabled: true, authorize: () => true },
   adminApi: { enabled: true, apiKeys: [env.get('AUTHKIT_ADMIN_API_KEY')] },
 })
 
@@ -404,7 +404,7 @@ const authServerConfig = defineConfig({
       'account/login', 'account/tokens', 'account/mfa',
     ],
   }),
-  admin: { enabled: true },
+  admin: { enabled: true, authorize: () => true },
   adminApi: { enabled: true, apiKeys: [env.get('AUTHKIT_ADMIN_API_KEY')] },
 })
 

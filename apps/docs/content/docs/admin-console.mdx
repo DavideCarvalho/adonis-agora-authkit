@@ -14,12 +14,10 @@ host sees no change in behaviour until it says so in `config/authkit.ts`.
 
 ## Enabling it
 
-<Callout type="warn">
-  The console and its API sign people in with the **account console session**
-  (`POST /account/login`, which takes a password). If your app turns password login off and
-  signs people in with magic links, codes, passkeys or social logins only, set
-  `accountSession: { acceptIdpSession: true }`: otherwise nobody can reach `/account/*` or
-  the admin console. See [Console session](/docs/console-session#single-sign-on-with-the-idp-session).
+<Callout type="info">
+  The console signs people in through the IdP login, the same one your apps use, so a user
+  already signed in to an app opens it directly. See
+  [Console session](/docs/console-session#single-sign-on-with-the-idp-session).
 </Callout>
 
 Turning the console on is a single decision, taken in `config/authkit.ts`:
@@ -30,6 +28,7 @@ defineConfig({
   admin: {
     enabled: true,
     roles: ['ADMIN'], // global roles allowed into /admin; default ['ADMIN']
+    authorize: () => true, // required in production: see "Who can open the console"
   },
 })
 ```
@@ -55,6 +54,7 @@ of locked keys.
 | `enabled` | `boolean` | `false` | Mounts the admin console group behind the admin guard. |
 | `roles` | `string[]` | `['ADMIN']` | Global roles that grant access to the console. An empty array falls back to `['ADMIN']`. |
 | `impersonation` | `boolean` | `true` | Kill switch for impersonation — the RFC 8693 grant **and** the console panel. See below. |
+| `authorize` | `ConsoleAuthorize` | open outside production, **403** in production | Access check run after `roles`; both must pass. See [Who can open the console](#who-can-open-the-console). |
 
 ### The impersonation kill switch
 
@@ -306,18 +306,121 @@ whole group — the shell **and** every `{prefix}/api/*` endpoint. In order, it 
 
 1. `admin.enabled: true` — when the console is **disabled**, the guard responds with **404
    Not Found** (the routes simply don't exist as far as a caller can tell);
-2. an active **account session** (otherwise a redirect to the account login URL, default
-   `/account/login`, carrying a `return_to`);
+2. an active **account session**, or an IdP session it can open one from (otherwise a
+   redirect to the IdP login, carrying a `return_to`);
 3. a session that has not idled out — the account console's idle timeout applies here too,
    and an expired one redirects to login with `reason=idle`;
 4. the signed-in account having at least one of `admin.roles` (otherwise a redirect to the
    configured `accountHome` — default `/account/security` — so the existence of `/admin` is
-   not leaked).
+   not leaked);
+5. `admin.authorize` allowing the request (see below). Without `admin.authorize`, the console
+   is open outside production and answers **403** to every request in production.
 
 A request that asks for JSON (`Accept: application/json`, as the React client sends) gets a
 status instead of a redirect: **401** without a session (or after the idle timeout) and **403**
 without an admin role. The account console's JSON API (`/account/api/*`) answers **401** the
 same way.
+
+### Who can open the console
+
+A request needs one of `admin.roles` **and** an allowing `admin.authorize`. It takes the same
+`authorize` every `@adonis-agora` console takes, in three forms:
+
+```ts title="config/authkit.ts"
+defineConfig({
+  // …
+  admin: {
+    enabled: true,
+    roles: ['ADMIN'],
+    // An inline function
+    authorize: (ctx) => ctx.request.ip().startsWith('10.'),
+    // …or an authorizer class
+    // authorize: ConsoleAccess,
+    // …or a lazy import of one
+    // authorize: () => import('#policies/console_access'),
+  },
+})
+```
+
+```ts title="app/policies/console_access.ts"
+import { inject } from '@adonisjs/core'
+import type { HttpContext } from '@adonisjs/core/http'
+import type { ConsoleAuthorizer } from '@adonis-agora/authkit-server'
+import AuditService from '#services/audit_service'
+
+@inject()
+export default class ConsoleAccess implements ConsoleAuthorizer {
+  constructor(private audit: AuditService) {}
+
+  async authorize(ctx: HttpContext) {
+    const allowed = await this.audit.isOnCall(ctx.request.ip())
+    return allowed ? true : { allowed: false, reason: 'forbidden' }
+  }
+}
+```
+
+The class is built through the container, so `@inject()` works, and a lazy import is loaded
+once.
+
+If every admin may open it, allow them all once the roles pass:
+
+```ts title="config/authkit.ts"
+admin: {
+  enabled: true,
+  roles: ['ADMIN'],
+  authorize: () => true,
+},
+```
+
+For a shared secret instead, use `authorizeByToken`. It allows requests that send
+`Authorization: Bearer <token>` and answers **401** to the rest. An empty token throws when the
+config loads.
+
+```ts title="config/authkit.ts"
+import { authorizeByToken, defineConfig } from '@adonis-agora/authkit-server'
+import env from '#start/env'
+
+defineConfig({
+  // …
+  admin: {
+    enabled: true,
+    roles: ['ADMIN'],
+    authorize: authorizeByToken({ token: env.get('CONSOLE_TOKEN') }),
+  },
+})
+```
+
+#### Without `authorize`
+
+Leave `admin.authorize` out and the console is open to anyone with one of `admin.roles` while
+the app is not in production. In production it answers **403** to every request, and the app
+logs this once at boot:
+
+```txt
+[@adonis-agora/authkit-server] console has no `authorize` configured: it is open outside production and denies every request in production. Set `authorize` in config/authkit.ts.
+```
+
+`node ace authkit:doctor` warns about it too.
+
+#### What the result does
+
+| Result | Page navigation | JSON request |
+| --- | --- | --- |
+| `true` or `{ allowed: true }` | allowed | allowed |
+| `false` or `{ allowed: false }` | **403** access-denied page | **403** `{ error: 'forbidden' }` |
+| `{ allowed: false, reason: 'unauthenticated' }` | **401** page | **401** `{ error: 'unauthenticated' }` |
+| `{ redirectTo: '/path' }` | redirect to `/path` | **401** `{ error: 'unauthenticated', redirectTo: '/path' }` |
+| an error is thrown | **403** access-denied page | **403** `{ error: 'forbidden' }` |
+
+A signed-in account without one of `admin.roles` still goes to `accountHome`; `authorize` is
+not called for it.
+
+`authorizeByToken` and the types `ConsoleAuthorize`, `ConsoleAuthorizer`,
+`ConsoleAuthorizerClass` and `ConsoleAuthorizeResult` are exported from
+`@adonis-agora/authkit-server`. One authorizer class fits every `@adonis-agora` console.
+
+The Admin REST API does not use `authorize`: it authenticates with API keys, not with a
+console session. See [Admin REST API](/docs/admin-api).
 
 Two details worth knowing. The `admin.enabled` check at step 1 is a genuine safety net, not
 a formality: routes are registered before the lazy config resolves, so the guard is the

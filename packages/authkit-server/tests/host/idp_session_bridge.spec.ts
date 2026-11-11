@@ -23,7 +23,7 @@ import { fakeAccountStore } from '../bootstrap.js';
 
 const ISSUER = 'http://localhost:9991';
 
-async function makeService(acceptIdpSession: boolean, disabled: string[] = []) {
+async function makeService(acceptIdpSession: boolean | undefined, disabled: string[] = []) {
   const fakeApp = {
     container: { make: async () => ({ connection: () => new RedisMock() }) },
   } as any;
@@ -40,7 +40,7 @@ async function makeService(acceptIdpSession: boolean, disabled: string[] = []) {
         disableAccount: async () => {},
         enableAccount: async () => {},
       } as any),
-      ...(acceptIdpSession ? { accountSession: { acceptIdpSession: true } } : {}),
+      ...(acceptIdpSession === undefined ? {} : { accountSession: { acceptIdpSession } }),
     }),
   );
   return new OidcService(cfg as ResolvedServerConfig, 'a'.repeat(32));
@@ -82,7 +82,16 @@ function fakeCtx(service: OidcService, cookie?: string, initial: Record<string, 
 }
 
 test.group('ponte SSO IdP → console de conta', () => {
-  test('default (desligado): sessão do IdP NÃO abre o console', async ({ assert }) => {
+  test('default (ligado): sessão ativa do IdP abre o console', async ({ assert }) => {
+    const service = await makeService(undefined);
+    const { cookie } = await idpSessionCookie(service, 'user-1');
+    const { ctx, store } = fakeCtx(service, cookie);
+
+    assert.isTrue(await ensureConsoleSession(ctx));
+    assert.equal(store.get(ACCOUNT_SESSION_KEY), 'user-1');
+  });
+
+  test('`acceptIdpSession: false`: sessão do IdP NÃO abre o console', async ({ assert }) => {
     const service = await makeService(false);
     const { cookie } = await idpSessionCookie(service, 'user-1');
     const { ctx, store } = fakeCtx(service, cookie);

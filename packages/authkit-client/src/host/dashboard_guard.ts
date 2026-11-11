@@ -9,16 +9,26 @@ const DEFAULT_ADMIN_ROLE = 'ADMIN';
 export interface DashboardGuardOptions {
   /** Global role required to pass the gate. Default `'ADMIN'`. */
   role?: string;
+  /**
+   * The app's login page. When set, a visitor without a session is sent there (a page navigation
+   * gets a `302`, an API call a `401` carrying `redirectTo`) instead of a plain `401`.
+   */
+  loginPath?: string;
 }
 
+/** What {@link authkitDashboardAuthorize} answers: the shared console `authorize` result. */
+export type DashboardGuardResult =
+  | boolean
+  | { allowed: false; reason: 'unauthenticated' }
+  | { redirectTo: string };
+
 /**
- * Core predicate behind {@link authkitDashboardAuthorize} and
- * {@link authkitDashboardMiddleware}: authenticated (a resolvable authkit `Identity`) AND holding
- * the configured global role — `ctx.authkit.hasGlobalRole('ADMIN')`, the pattern hosts already
- * hand-roll per embedded admin dashboard (durable/media/agent/telescope).
+ * Core predicate behind {@link authkitDashboardAuthorize}: authenticated (a resolvable authkit
+ * `Identity`) AND holding the configured global role.
  *
- * Resolves the session via {@link getAuthkit}, which memoizes on `ctx.authkit`, so a second call
- * in the same request is free.
+ * Resolves the session via {@link getAuthkit} rather than reading `ctx.auth` directly: `ctx.auth`'s
+ * TYPE is host-owned, so this module can't assume its shape. `getAuthkit` works with both
+ * `authkit_middleware`'s `ctx.auth` and `authkitClientGuard`'s `ctx.authkit`, memoized per request.
  */
 export async function isAuthkitAdmin(
   ctx: HttpContext,
@@ -30,10 +40,12 @@ export async function isAuthkitAdmin(
 }
 
 /**
- * Adapter for the `authorize: (ctx) => boolean` shape that `@adonis-agora/durable`,
- * `@adonis-agora/agent` and `@adonis-agora/telescope` dashboard configs expect. A `false` return
- * makes the provider reply `403 { error: 'forbidden' }` — the provider's own behavior, unchanged
- * here.
+ * An `authorize` for any `@adonis-agora` console (durable, telescope, media, payments, agent):
+ * signed in to authkit AND holding the global role (`ADMIN` by default).
+ *
+ * - no session → `401` (or the `loginPath` redirect when set);
+ * - signed in without the role → `403`;
+ * - otherwise allowed.
  *
  * ```ts
  * // config/durable_dashboard.ts
@@ -41,44 +53,20 @@ export async function isAuthkitAdmin(
  * import { authkitDashboardAuthorize } from '@adonis-agora/authkit-client'
  *
  * export default defineConfig({
- *   authorize: authkitDashboardAuthorize(),
+ *   authorize: authkitDashboardAuthorize({ loginPath: '/login' }),
  * })
  * ```
  */
 export function authkitDashboardAuthorize(
   options: DashboardGuardOptions = {},
-): (ctx: HttpContext) => Promise<boolean> {
-  return (ctx) => isAuthkitAdmin(ctx, options);
-}
-
-/**
- * Adapter for the `middleware: (ctx, next) => Promise<void>` shape that
- * `@adonis-agora/media`'s dashboard config expects. Mirrors the hand-rolled `requireAdmin` apps
- * wrote themselves: no session -> `401`; session without the role -> `403`; otherwise `next()`.
- *
- * ```ts
- * // config/media_dashboard.ts
- * import { defineConfig } from '@adonis-agora/media/dashboard'
- * import { authkitDashboardMiddleware } from '@adonis-agora/authkit-client'
- *
- * export default defineConfig({
- *   middleware: authkitDashboardMiddleware(),
- * })
- * ```
- */
-export function authkitDashboardMiddleware(
-  options: DashboardGuardOptions = {},
-): (ctx: HttpContext, next: () => Promise<void>) => Promise<void> {
-  return async (ctx, next) => {
+): (ctx: HttpContext) => Promise<DashboardGuardResult> {
+  return async (ctx) => {
     const authkit = await getAuthkit(ctx);
     if (!(await authkit.check())) {
-      ctx.response.unauthorized({ message: 'Authentication required' });
-      return;
+      return options.loginPath
+        ? { redirectTo: options.loginPath }
+        : { allowed: false, reason: 'unauthenticated' };
     }
-    if (!authkit.hasGlobalRole(options.role ?? DEFAULT_ADMIN_ROLE)) {
-      ctx.response.forbidden({ message: 'Admin access required' });
-      return;
-    }
-    await next();
+    return authkit.hasGlobalRole(options.role ?? DEFAULT_ADMIN_ROLE);
   };
 }

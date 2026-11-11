@@ -445,6 +445,36 @@ test.group('registerAuthHost — Admin REST API prefix', () => {
 test.group('registerAuthHost / dedup do config (Option C)', (group) => {
   group.each.teardown(() => resetAuthHostConfig());
 
+  test('console sem porta de entrada (SSO e senha desligados) sem `accountLoginUrl`: recusa', ({
+    assert,
+  }) => {
+    setAuthHostConfig({
+      mountPath: '/oidc',
+      rateLimit: resolveRateLimit(undefined),
+      adminEnabled: true,
+      adminApiEnabled: false,
+      consoleNeedsLoginUrl: true,
+    });
+    assert.throws(() => registerAuthHost(fakeRouter()), /nenhum jeito de entrar/);
+  });
+
+  test('console sem porta de entrada: `accountLoginUrl` no registerAuthHost ou em routes resolve', ({
+    assert,
+  }) => {
+    const base = {
+      mountPath: '/oidc',
+      rateLimit: resolveRateLimit(undefined),
+      adminEnabled: true,
+      adminApiEnabled: false,
+      consoleNeedsLoginUrl: true,
+    };
+    setAuthHostConfig(base);
+    assert.doesNotThrow(() => registerAuthHost(fakeRouter(), { accountLoginUrl: '/login' }));
+    setAuthHostConfig({ ...base, routes: { accountLoginUrl: '/login' } });
+    assert.doesNotThrow(() => registerAuthHost(fakeRouter()));
+    resetAccountLoginUrl();
+  });
+
   test('sem opts: lê mountPath/social/admin/adminApi do config stashado no boot', ({ assert }) => {
     setAuthHostConfig({
       mountPath: '/oidc',

@@ -52,10 +52,9 @@ export {
   authkitClientGuard,
   authkitIdentityProvider,
 } from './src/host/authkit_client_guard.js';
-export type { DashboardGuardOptions } from './src/host/dashboard_guard.js';
+export type { DashboardGuardOptions, DashboardGuardResult } from './src/host/dashboard_guard.js';
 export {
   authkitDashboardAuthorize,
-  authkitDashboardMiddleware,
   isAuthkitAdmin,
 } from './src/host/dashboard_guard.js';
 export type { AuthkitUser, AuthkitUserType } from './src/host/request_authenticator.js';
