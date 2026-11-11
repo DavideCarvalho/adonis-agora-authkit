@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 0.90.2
+
+### Patch Changes
+
+- fix(deps): update dependency @simplewebauthn/server to v14.1.0 ([#444](https://github.com/DavideCarvalho/adonis-agora-authkit/issues/444))
+
 ## 0.90.1
 
 ### Patch Changes
