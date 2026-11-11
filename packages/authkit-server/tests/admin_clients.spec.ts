@@ -2,7 +2,7 @@ import { createServer, type Server } from 'node:http';
 import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
 import { adapters, defineConfig } from '../src/define_config.js';
-import { AdminClientsService } from '../src/host/admin_clients_service.js';
+import { AdminClientsService, type ClientInput } from '../src/host/admin_clients_service.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { createTestDatabase, fakeAccountStore } from './bootstrap.js';
 import { withClients } from './helpers/seed_clients.js';
@@ -127,13 +127,13 @@ test.group('AdminClientsService (CRUD de clients OIDC adapter-backed)', (group) 
     cleanup(() => new Promise<void>((r) => server.close(() => r())));
 
     const admin = new AdminClientsService(service);
-    const input = {
+    const input: ClientInput = {
       clientId: 'authkit-console',
       redirectUris: [`${issuer}/app/cb`],
       postLogoutRedirectUris: [],
       grantTypes: ['authorization_code'],
       tokenEndpointAuthMethod: 'none',
-    } as const;
+    };
     await assert.rejects(() => admin.create(input), /reservado/);
     await assert.rejects(() => admin.createWithSecret(input, undefined), /reservado/);
   });

@@ -54,7 +54,9 @@ test.group('resolveConsoleAuthorize', () => {
     const { ctx } = fakeCtx();
     const check = resolveConsoleAuthorize(async (c: any) => c.user === 'u1');
     assert.deepEqual(await check(ctx), { allowed: true });
-    const deny = resolveConsoleAuthorize(() => ({ allowed: false, reason: 'unauthenticated' }));
+    const deny = resolveConsoleAuthorize(
+      () => ({ allowed: false, reason: 'unauthenticated' }) as const,
+    );
     assert.deepEqual(await deny(ctx), { allowed: false, status: 401 });
   });
 
