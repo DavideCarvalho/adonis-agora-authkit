@@ -13,38 +13,55 @@ function fakeCtx(opts: {
   adminRoles?: string[];
   adminEnabled?: boolean;
   requestUrl?: string;
+  json?: boolean;
+  authorize?: unknown;
   resolveTokenRoles?: (
     account: { id: string; email: string; globalRoles?: string[] },
     context: unknown,
   ) => string[] | Promise<string[]>;
 }) {
   const redirects: string[] = [];
+  const sent: Array<{ status: number; body: unknown }> = [];
+  let status = 200;
   let notFoundCalled = false;
   const ctx = {
     session: { get: (_k: string) => opts.sessionUserId },
     request: {
       url: () => opts.requestUrl ?? '',
       parsedUrl: { search: '' },
+      accepts: () => (opts.json ? 'json' : 'html'),
     },
     response: {
       redirect: (to: string) => redirects.push(to),
+      status(code: number) {
+        status = code;
+        return this;
+      },
+      send: (body: unknown) => sent.push({ status, body }),
       notFound: () => {
         notFoundCalled = true;
       },
     },
     containerResolver: {
-      make: async () => ({
-        config: {
-          admin: { enabled: opts.adminEnabled ?? true, roles: opts.adminRoles ?? ['ADMIN'] },
-          accountStore: {
-            findById: async (_id: string) => opts.account ?? null,
-          },
-          resolveTokenRoles: opts.resolveTokenRoles,
-        },
-      }),
+      make: async (key: unknown) =>
+        typeof key === 'function'
+          ? new (key as any)()
+          : {
+              config: {
+                admin: {
+                  enabled: opts.adminEnabled ?? true,
+                  roles: opts.adminRoles ?? ['ADMIN'],
+                  authorize: opts.authorize ?? null,
+                },
+                accountStore: {
+                  findById: async (_id: string) => opts.account ?? null,
+                },
+                resolveTokenRoles: opts.resolveTokenRoles,
+              },
+            },
     },
   } as any;
-  return { ctx, redirects, notFound: () => notFoundCalled };
+  return { ctx, redirects, sent, notFound: () => notFoundCalled };
 }
 
 test.group('adminGuard', () => {
@@ -166,5 +183,92 @@ test.group('adminGuard', () => {
     });
     assert.isFalse(nextCalled);
     assert.deepEqual(redirects, ['/account/security']);
+  });
+});
+
+test.group('adminGuard | admin.authorize', () => {
+  const admin = { id: 'u1', email: 'a@x.com', globalRoles: ['ADMIN'] };
+
+  async function run(opts: Parameters<typeof fakeCtx>[0]) {
+    const out = fakeCtx({ sessionUserId: 'u1', account: admin, ...opts });
+    let nextCalled = false;
+    await adminGuard(out.ctx, async () => {
+      nextCalled = true;
+    });
+    return { ...out, nextCalled };
+  }
+
+  test('omitted → roles alone decide', async ({ assert }) => {
+    const { nextCalled } = await run({});
+    assert.isTrue(nextCalled);
+  });
+
+  test('allowed → next()', async ({ assert }) => {
+    const { nextCalled, redirects } = await run({ authorize: async () => ({ allowed: true }) });
+    assert.isTrue(nextCalled);
+    assert.lengthOf(redirects, 0);
+  });
+
+  test('runs after roles: not called for a non-admin', async ({ assert }) => {
+    let called = false;
+    const { nextCalled, redirects } = await run({
+      account: { id: 'u1', email: 'a@x.com', globalRoles: ['VIEWER'] },
+      authorize: () => {
+        called = true;
+        return true;
+      },
+    });
+    assert.isFalse(nextCalled);
+    assert.isFalse(called);
+    assert.deepEqual(redirects, ['/account/security']);
+  });
+
+  test('denied page navigation → accountHome', async ({ assert }) => {
+    const { nextCalled, redirects } = await run({ authorize: () => false });
+    assert.isFalse(nextCalled);
+    assert.deepEqual(redirects, ['/account/security']);
+  });
+
+  test('denied JSON call → 403', async ({ assert }) => {
+    const { nextCalled, sent } = await run({ json: true, authorize: () => false });
+    assert.isFalse(nextCalled);
+    assert.equal(sent[0]?.status, 403);
+  });
+
+  test('unauthenticated JSON call → 401', async ({ assert }) => {
+    const { sent } = await run({
+      json: true,
+      authorize: () => ({ allowed: false, reason: 'unauthenticated' }),
+    });
+    assert.equal(sent[0]?.status, 401);
+  });
+
+  test('redirectTo → 302 on a page, 401 on JSON', async ({ assert }) => {
+    const page = await run({ authorize: () => ({ redirectTo: '/step-up' }) });
+    assert.deepEqual(page.redirects, ['/step-up']);
+    const api = await run({ json: true, authorize: () => ({ redirectTo: '/step-up' }) });
+    assert.lengthOf(api.redirects, 0);
+    assert.equal(api.sent[0]?.status, 401);
+  });
+
+  test('class form is built through the container', async ({ assert }) => {
+    class Access {
+      authorize(ctx: any) {
+        return ctx.session.get('k') === 'u1';
+      }
+    }
+    const { nextCalled } = await run({ authorize: Access });
+    assert.isTrue(nextCalled);
+  });
+
+  test('a throwing authorize denies', async ({ assert }) => {
+    const { nextCalled, sent } = await run({
+      json: true,
+      authorize: () => {
+        throw new Error('boom');
+      },
+    });
+    assert.isFalse(nextCalled);
+    assert.equal(sent[0]?.status, 403);
   });
 });

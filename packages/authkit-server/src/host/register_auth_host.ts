@@ -1,4 +1,9 @@
 import type { Router } from '@adonisjs/core/http';
+import {
+  type ConsoleAuthorize,
+  type ConsoleAuthorizeDecision,
+  resolveConsoleAuthorize,
+} from '../console_authorize.js';
 import type { AuthSocialConfig, RateLimitConfigInput } from '../define_config.js';
 import { resolveRateLimit } from '../define_config.js';
 import { accountHome } from './account_home.js';
@@ -242,8 +247,38 @@ export const adminGuard = async (ctx: any, next: () => Promise<void>) => {
     }
     return ctx.response.redirect(accountHome(cfg));
   }
+  // `admin.authorize`, after the roles: both must pass.
+  if (cfg.admin.authorize) {
+    const decision = await adminAuthorizeChecker(cfg.admin.authorize)(ctx);
+    if (!decision.allowed) {
+      if (wantsJson(ctx)) {
+        return decision.status === 401
+          ? ctx.response
+              .status(401)
+              .send({ error: { code: 'unauthenticated', message: 'Sign in to continue.' } })
+          : ctx.response
+              .status(403)
+              .send({ error: { code: 'forbidden', message: 'Access denied.' } });
+      }
+      return ctx.response.redirect(decision.redirectTo ?? accountHome(cfg));
+    }
+  }
   return next();
 };
+
+/** One checker per configured `admin.authorize`, so a lazy import runs once. */
+const adminAuthorizeCheckers = new WeakMap<
+  object,
+  (ctx: any) => Promise<ConsoleAuthorizeDecision>
+>();
+function adminAuthorizeChecker(authorize: ConsoleAuthorize) {
+  let checker = adminAuthorizeCheckers.get(authorize);
+  if (!checker) {
+    checker = resolveConsoleAuthorize(authorize);
+    adminAuthorizeCheckers.set(authorize, checker);
+  }
+  return checker;
+}
 
 /**
  * Opções de montagem das rotas do host-kit.

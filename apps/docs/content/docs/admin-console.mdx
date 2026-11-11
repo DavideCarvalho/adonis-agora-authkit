@@ -53,6 +53,7 @@ of locked keys.
 | `enabled` | `boolean` | `false` | Mounts the admin console group behind the admin guard. |
 | `roles` | `string[]` | `['ADMIN']` | Global roles that grant access to the console. An empty array falls back to `['ADMIN']`. |
 | `impersonation` | `boolean` | `true` | Kill switch for impersonation — the RFC 8693 grant **and** the console panel. See below. |
+| `authorize` | `ConsoleAuthorize` | — | Extra access check, run after `roles`; both must pass. See [Restricting access further](#restricting-access-further). |
 
 ### The impersonation kill switch
 
@@ -310,12 +311,70 @@ whole group — the shell **and** every `{prefix}/api/*` endpoint. In order, it 
    and an expired one redirects to login with `reason=idle`;
 4. the signed-in account having at least one of `admin.roles` (otherwise a redirect to the
    configured `accountHome` — default `/account/security` — so the existence of `/admin` is
-   not leaked).
+   not leaked);
+5. `admin.authorize` allowing the request, when you set it (see below).
 
 A request that asks for JSON (`Accept: application/json`, as the React client sends) gets a
 status instead of a redirect: **401** without a session (or after the idle timeout) and **403**
 without an admin role. The account console's JSON API (`/account/api/*`) answers **401** the
 same way.
+
+### Restricting access further
+
+`admin.authorize` adds a check of your own on top of `roles`: a request needs one of the roles
+**and** an allowing `authorize`. Leave it out and `roles` alone decides. It takes the same
+`authorize` every `@adonis-agora` console takes, in three forms:
+
+```ts title="config/authkit.ts"
+defineConfig({
+  // …
+  admin: {
+    enabled: true,
+    roles: ['ADMIN'],
+    // An inline function
+    authorize: (ctx) => ctx.request.ip().startsWith('10.'),
+    // …or an authorizer class
+    // authorize: ConsoleAccess,
+    // …or a lazy import of one
+    // authorize: () => import('#policies/console_access'),
+  },
+})
+```
+
+```ts title="app/policies/console_access.ts"
+import { inject } from '@adonisjs/core'
+import type { HttpContext } from '@adonisjs/core/http'
+import type { ConsoleAuthorizer } from '@adonis-agora/authkit-server'
+import AuditService from '#services/audit_service'
+
+@inject()
+export default class ConsoleAccess implements ConsoleAuthorizer {
+  constructor(private audit: AuditService) {}
+
+  async authorize(ctx: HttpContext) {
+    const allowed = await this.audit.isOnCall(ctx.request.ip())
+    return allowed ? true : { allowed: false, reason: 'forbidden' }
+  }
+}
+```
+
+The class is built through the container, so `@inject()` works, and a lazy import is loaded
+once. What `authorize` returns decides the response:
+
+| Result | Page navigation | JSON request |
+| --- | --- | --- |
+| `true` or `{ allowed: true }` | allowed | allowed |
+| `false` or `{ allowed: false }` | redirect to `accountHome` | **403** |
+| `{ allowed: false, reason: 'unauthenticated' }` | redirect to `accountHome` | **401** |
+| `{ redirectTo: '/path' }` | redirect to `/path` | **401** |
+| an error is thrown | redirect to `accountHome` | **403** |
+
+The types `ConsoleAuthorize`, `ConsoleAuthorizer`, `ConsoleAuthorizerClass` and
+`ConsoleAuthorizeResult` are exported from `@adonis-agora/authkit-server`. One authorizer class
+fits every `@adonis-agora` console.
+
+The Admin REST API does not use `authorize`: it authenticates with API keys, not with a
+console session. See [Admin REST API](/docs/admin-api).
 
 Two details worth knowing. The `admin.enabled` check at step 1 is a genuine safety net, not
 a formality: routes are registered before the lazy config resolves, so the guard is the

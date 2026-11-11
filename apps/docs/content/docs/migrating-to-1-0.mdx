@@ -309,6 +309,32 @@ the app refuses to boot unless `routes.accountLoginUrl` points at a login route 
 The client id `authkit-console` is reserved for the consoles: the Admin API and
 `authkit:clients:create` reject it.
 
+## Restrict the admin console with `admin.authorize`
+
+The admin console takes a new optional `authorize`, the same one every `@adonis-agora` console
+takes. Nothing changes if you leave it out: `admin.roles` alone decides, as before.
+
+```ts title="config/authkit.ts (before)"
+defineConfig({
+  // …
+  admin: { enabled: true, roles: ['ADMIN'] },
+})
+```
+
+```ts title="config/authkit.ts (after, with an extra check)"
+defineConfig({
+  // …
+  admin: {
+    enabled: true,
+    roles: ['ADMIN'],
+    authorize: () => import('#policies/console_access'),
+  },
+})
+```
+
+`authorize` runs after the role check, and both must pass. See
+[Restricting access further](/docs/admin-console#restricting-access-further).
+
 ## Use `authkitClientGuard` for `ctx.auth`
 
 `authkit_middleware` is removed, and `@adonisjs/auth` is now a **required** peer of

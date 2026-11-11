@@ -18,6 +18,7 @@ import {
 } from './agents/config.js';
 import { assertDelegationSigningKey } from './agents/signer.js';
 import type { AuditSink } from './audit/audit_sink.js';
+import type { ConsoleAuthorize } from './console_authorize.js';
 import { composeAuditSink, type EventsConfigInput, resolveEvents } from './events/dispatcher.js';
 import {
   type BotProtectionConfigInput,
@@ -951,6 +952,13 @@ export interface AdminConfigInput {
    * default é decisão de major, mesma regra de `impersonation`).
    */
   impersonateAdmins?: boolean;
+  /**
+   * Extra access check for the console, run after `roles` (both must pass), on the
+   * shell and on every `{prefix}/api/*` route. An inline function, an authorizer
+   * class (`@inject()` works) or a lazy import (`() => import('#policies/...')`).
+   * Omitted: `roles` alone decides.
+   */
+  authorize?: ConsoleAuthorize;
 }
 
 export interface ResolvedAdminConfig {
@@ -958,6 +966,8 @@ export interface ResolvedAdminConfig {
   roles: string[];
   impersonation: boolean;
   impersonateAdmins: boolean;
+  /** `admin.authorize` as configured, or `null` when omitted. */
+  authorize: ConsoleAuthorize | null;
 }
 
 export function resolveAdmin(input?: AdminConfigInput): ResolvedAdminConfig {
@@ -968,6 +978,7 @@ export function resolveAdmin(input?: AdminConfigInput): ResolvedAdminConfig {
     // registrado). Ver o docblock de `AdminConfigInput.impersonation`.
     impersonation: input?.impersonation !== false,
     impersonateAdmins: input?.impersonateAdmins !== false,
+    authorize: input?.authorize ?? null,
   };
 }
 
