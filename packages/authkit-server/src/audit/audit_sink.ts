@@ -114,7 +114,7 @@ export const AUDIT_EVENT_TYPES = [
   'agent.delegation_denied',
   'agent.grant_revoked',
   // Console admin: um admin revogou a conexão de um usuário, ou liberou/bloqueou um
-  // agente (PACT pelo `iss`, Poppy pelo `client_id`).
+  // agente (PACT pelo `iss`; uma extension pelo identificador dela).
   'agent.grant_revoked_by_admin',
   'agent.allowed',
   'agent.blocked',

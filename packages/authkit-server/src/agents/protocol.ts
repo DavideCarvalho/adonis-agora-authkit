@@ -11,10 +11,10 @@ import type { DelegationReceipt } from './delegation_service.js';
  * MESMA família (JWT do agente + token de delegação) entra como mais um objeto
  * desta interface, passado direto em `personalAgents.protocol`.
  *
- * O Personal Agent Protocol ("Poppy", Sierra/Meta) tem outro modelo — um
- * authorization server OAuth com Sessions e tokens DPoP — e por isso não é um
- * adapter daqui: liga-se em `personalAgents.poppy` (ver `poppy/`), ao lado do
- * PACT, reaproveitando o núcleo de grants.
+ * Um protocolo de outro modelo (ex.: um authorization server OAuth próprio, como o
+ * Personal Agent Protocol de `@adonis-agora/authkit-poppy`) não é um adapter daqui:
+ * liga-se em `personalAgents.extensions` (ver `extension.ts`), ao lado do PACT,
+ * reaproveitando o núcleo de grants.
  */
 export interface PersonalAgentProtocol {
   /** Identificador estável (`'pact'`). */

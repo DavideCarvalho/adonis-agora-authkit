@@ -1,0 +1,73 @@
+{
+  "name": "@adonis-agora/authkit-poppy",
+  "version": "0.0.0",
+  "description": "Personal Agent Protocol (\"Poppy\") for AuthKit: discovery, signed Poppy-Session agent sessions, Direct/Device/Mediated sign-in, MCP and browser sessions — an optional extension of @adonis-agora/authkit-server.",
+  "license": "MIT",
+  "author": "dudousxd",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DavideCarvalho/adonis-agora-authkit.git",
+    "directory": "packages/authkit-poppy"
+  },
+  "homepage": "https://davidecarvalho.github.io/agora/docs/authkit/personal-agents-poppy",
+  "bugs": {
+    "url": "https://github.com/DavideCarvalho/adonis-agora-authkit/issues"
+  },
+  "keywords": [
+    "adonisjs",
+    "authkit",
+    "personal-agents",
+    "poppy",
+    "personal-agent-protocol",
+    "oauth2",
+    "dpop"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "./build/index.js",
+  "types": "./build/index.d.ts",
+  "files": [
+    "build",
+    "CHANGELOG.md"
+  ],
+  "exports": {
+    ".": "./build/index.js",
+    "./types": "./build/index.js"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('build',{recursive:true,force:true})\" && tsc",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.tests.json",
+    "test": "node --import=@poppinss/ts-exec bin/test.ts"
+  },
+  "peerDependencies": {
+    "@adonis-agora/authkit-server": "workspace:^",
+    "@adonisjs/core": "catalog:adonisPeers",
+    "@adonisjs/session": "catalog:adonisPeers",
+    "@adonisjs/shield": "catalog:adonisPeers"
+  },
+  "dependencies": {
+    "jose": "6.2.15"
+  },
+  "devDependencies": {
+    "@adonis-agora/authkit-server": "workspace:*",
+    "@adonisjs/core": "catalog:adonis",
+    "@adonisjs/lucid": "catalog:adonis",
+    "@adonisjs/session": "catalog:adonis",
+    "@adonisjs/shield": "catalog:adonis",
+    "@adonisjs/tsconfig": "catalog:adonis",
+    "@japa/assert": "catalog:",
+    "@japa/runner": "catalog:",
+    "@poppinss/ts-exec": "catalog:",
+    "@types/ioredis-mock": "8.2.8",
+    "@types/node": "catalog:adonis",
+    "better-sqlite3": "13.0.3",
+    "ioredis-mock": "8.13.1",
+    "luxon": "catalog:",
+    "typescript": "catalog:frontend"
+  }
+}

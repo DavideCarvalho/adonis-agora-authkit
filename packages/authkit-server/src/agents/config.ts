@@ -14,10 +14,10 @@
  */
 
 import {
-  type PoppyConfigInput,
-  type ResolvedPoppyConfig,
-  resolvePoppyConfig,
-} from './poppy/config.js';
+  type PersonalAgentExtension,
+  type ResolvedPersonalAgentExtension,
+  resolvePersonalAgentExtensions,
+} from './extension.js';
 import {
   BUILTIN_PROTOCOLS,
   type BuiltinProtocolId,
@@ -73,8 +73,8 @@ export interface PersonalAgentsConfigInput {
   /**
    * Valor que os personal agents põem no `aud` do JWT deles (PACT). Opaco e
    * atribuído por ESTE app no registro do agente — um valor por app, não
-   * derivado de URL. Liga o PACT; obrigatório, a não ser num app só-Poppy
-   * (`poppy` sem `audience`).
+   * derivado de URL. Liga o PACT; obrigatório, a não ser num app que só usa
+   * `extensions` (sem `audience`).
    */
   audience?: string;
   /**
@@ -94,14 +94,10 @@ export interface PersonalAgentsConfigInput {
   /** Prefixo das rotas (`{prefix}/oauth/*`, `{prefix}/consent`). Default: `/agents`. */
   prefix?: string;
   /**
-   * Personal Agent Protocol ("Poppy", https://personalagentprotocol.org) — o
-   * segundo protocolo, ao lado do PACT. Um app pode servir os dois. Ver
-   * `poppy/config.ts`.
-   *
-   * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — acompanha a spec em desenvolvimento e PODE MUDAR
-   *   de forma incompatível fora de majors enquanto ela for draft.
+   * Outros protocolos de personal agents, de pacotes à parte, ao lado do PACT
+   * (ex.: `poppy()` de `@adonis-agora/authkit-poppy`). Ver {@link PersonalAgentExtension}.
    */
-  poppy?: PoppyConfigInput;
+  extensions?: PersonalAgentExtension[];
 }
 
 export interface ResolvedPersonalAgentDelegationConfig {
@@ -125,8 +121,8 @@ export interface ResolvedPersonalAgentsConfig {
   open: boolean;
   delegation?: ResolvedPersonalAgentDelegationConfig;
   prefix: string;
-  /** Poppy resolvido (undefined = desligado). */
-  poppy?: ResolvedPoppyConfig;
+  /** `extensions` resolvidas, na ordem do config. */
+  extensions: ResolvedPersonalAgentExtension[];
 }
 
 const SCOPE_ID = /^[\x21\x23-\x5B\x5D-\x7E]+$/; // RFC 6749 §3.3 scope-token
@@ -157,22 +153,24 @@ export function normalizePersonalAgentsPrefix(prefix: string | undefined): strin
 
 export function resolvePersonalAgentsConfig(
   input: PersonalAgentsConfigInput | undefined,
+  issuer = '',
 ): ResolvedPersonalAgentsConfig | undefined {
   if (!input) return undefined;
-  const pact = !!input.audience?.trim();
-  if (!pact && !input.poppy) {
+  // 0.x → 1.0: o Poppy virou o pacote `@adonis-agora/authkit-poppy`.
+  if ('poppy' in input) {
     throw new Error(
-      'authkit: personalAgents.audience é obrigatório (o `aud` dos JWTs dos agentes PACT) — ou configure só `personalAgents.poppy`.',
+      'authkit: `personalAgents.poppy` saiu do authkit-server — instale `@adonis-agora/authkit-poppy` e use `personalAgents.extensions: [poppy({ ... })]`.',
+    );
+  }
+  const pact = !!input.audience?.trim();
+  if (!pact && !input.extensions?.length) {
+    throw new Error(
+      'authkit: personalAgents.audience é obrigatório (o `aud` dos JWTs dos agentes PACT) — ou configure só `personalAgents.extensions`.',
     );
   }
   if (!pact && input.delegation) {
     throw new Error(
       'authkit: personalAgents.delegation é do PACT e exige `personalAgents.audience`.',
-    );
-  }
-  if ((input.protocol as unknown) === 'poppy') {
-    throw new Error(
-      'authkit: o Poppy não é um `protocol` do PACT — configure-o em `personalAgents.poppy` (os dois convivem).',
     );
   }
 
@@ -227,11 +225,16 @@ export function resolvePersonalAgentsConfig(
   }
 
   const prefix = normalizePersonalAgentsPrefix(input.prefix);
-  const poppy = resolvePoppyConfig(input.poppy, input.delegation?.scopes);
-  if (poppy && pact && (poppy.prefix === prefix || poppy.prefix.startsWith(`${prefix}/`))) {
-    throw new Error(
-      `authkit: personalAgents.poppy.prefix "${poppy.prefix}" não pode ficar debaixo de personalAgents.prefix ("${prefix}").`,
-    );
+  const extensions = resolvePersonalAgentExtensions(input.extensions, {
+    issuer,
+    delegationScopes: input.delegation?.scopes ? { ...input.delegation.scopes } : null,
+  });
+  for (const extension of extensions) {
+    if (pact && (extension.prefix === prefix || extension.prefix.startsWith(`${prefix}/`))) {
+      throw new Error(
+        `authkit: o prefixo "${extension.prefix}" de personalAgents.extensions "${extension.id}" não pode ficar debaixo de personalAgents.prefix ("${prefix}").`,
+      );
+    }
   }
 
   return {
@@ -243,7 +246,7 @@ export function resolvePersonalAgentsConfig(
     open: input.open === true,
     delegation,
     prefix,
-    poppy,
+    extensions,
   };
 }
 

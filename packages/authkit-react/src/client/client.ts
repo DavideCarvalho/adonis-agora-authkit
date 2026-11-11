@@ -457,7 +457,7 @@ class AuthkitClient {
         this.post<KeysRotateResult>(this.b('/keys/rotate'), input ?? {}),
     },
 
-    /** Personal agents (PACT e Poppy): conexões, liberar e bloquear (console API). */
+    /** Personal agents (PACT e `personalAgents.extensions`): conexões, liberar e bloquear (console API). */
     personalAgents: {
       /** GET {base}/personal-agents */
       overview: () => this.get<PersonalAgentsOverview>(this.b('/personal-agents')),

@@ -137,8 +137,8 @@ export default class AuthkitServerProvider {
       personalAgents: config.personalAgents
         ? {
             prefix: config.personalAgents.prefix,
-            ...(config.personalAgents.poppy
-              ? { poppyPrefix: config.personalAgents.poppy.prefix }
+            ...(config.personalAgents.extensions?.length
+              ? { extensions: config.personalAgents.extensions }
               : {}),
           }
         : undefined,
@@ -159,12 +159,9 @@ export default class AuthkitServerProvider {
       warnAdminConsoleUnauthorized(logger);
     }
 
-    // Poppy: o slot global que o `@adonis-agora/agent` usa para autenticar o endpoint de
-    // conversas (e o MCP) sem importar este pacote — o contrato é o símbolo.
-    if (config.personalAgents?.poppy) {
-      const { installPoppySlots } = await import('../src/agents/poppy/resource.js');
-      const { poppyUrls } = await import('../src/agents/poppy/service.js');
-      installPoppySlots(poppyUrls(config.issuer, config.personalAgents.poppy.prefix).issuer);
+    // `personalAgents.extensions`: o boot de cada uma (slots globais, etc.).
+    for (const extension of config.personalAgents?.extensions ?? []) {
+      await extension.boot?.();
     }
 
     // Auto-montagem das rotas (`config.routes`). Chama a MESMA função exportada que o
@@ -296,6 +293,7 @@ export default class AuthkitServerProvider {
       const report = await ensureAuthkitSchema(db, {
         connection: config.schema.connection,
         accountTable: config.accountStore?.accountTable,
+        tables: config.personalAgents?.extensions?.flatMap((e) => e.tables ?? []),
       });
 
       const logger = await this.app.container.make('logger').catch(() => null);

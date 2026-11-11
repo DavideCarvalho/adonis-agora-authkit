@@ -1,4 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http';
+import { getBootedApp } from '../../services/booted_app.js';
 import { supportsAccountStatus } from '../accounts/account_store.js';
 import { findMcpResource } from '../mcp/mcp_oauth.js';
 import type { OidcService } from '../provider/oidc_service.js';
@@ -6,18 +7,12 @@ import { PersonalAgentVerifier } from './agent_identity.js';
 import type { PersonalAgentRegistration, ResolvedPersonalAgentsConfig } from './config.js';
 import { PersonalAgentDelegation } from './delegation_service.js';
 import { DelegationStore, type GrantRow } from './delegation_store.js';
-import { PoppyClientRegistry } from './poppy/client_registry.js';
-import type { PoppyLimiter, PoppyReplayStore } from './poppy/config.js';
-import { hmacNonceSource } from './poppy/dpop.js';
-import {
-  databaseReplayStore,
-  memoryLimiter,
-  memoryReplayStore,
-  redisReplayStore,
-} from './poppy/replay.js';
-import type { JsonFetcher } from './poppy/safe_fetch.js';
-import { type PoppyMcpBridge, PoppyService, poppyUrls } from './poppy/service.js';
-import { PoppyStore } from './poppy/store.js';
+import type {
+  PersonalAgentAccessTokens,
+  PersonalAgentGrantLedger,
+  PersonalAgentProtocolRuntime,
+  ResolvedPersonalAgentExtension,
+} from './extension.js';
 import { type AgentProtocolId, AgentRegistryStore } from './registry_store.js';
 import { keystoreSigner } from './signer.js';
 
@@ -58,9 +53,15 @@ export interface PersonalAgentsRuntime {
   verifier: PersonalAgentVerifier;
   /** `null` quando o app não configurou `personalAgents.delegation`. */
   delegation: PersonalAgentDelegation | null;
-  /** `null` quando o app não configurou `personalAgents.poppy`. */
-  poppy: PoppyService | null;
-  /** Revoga um grant de personal agent DA CONTA (PACT ou Poppy). */
+  /**
+   * Runtimes de `personalAgents.extensions`, por id do protocolo. Vazio sem extensions ou sem
+   * banco.
+   */
+  extensions: Map<
+    string,
+    { extension: ResolvedPersonalAgentExtension; runtime: PersonalAgentProtocolRuntime }
+  >;
+  /** Revoga um grant de personal agent DA CONTA (PACT ou de uma extension). */
   revokeAgentGrant(accountId: string, grantId: string): Promise<boolean>;
   /** Revoga todos os grants de personal agents da conta. Devolve quantos estavam vivos. */
   revokeAllAgentGrants(accountId: string): Promise<number>;
@@ -82,17 +83,13 @@ const runtimes = new WeakMap<OidcService, Promise<PersonalAgentsRuntime | null>>
 export interface BuildPersonalAgentsOptions {
   /** Resolve serviços do container (redis do replay store). */
   make?: (binding: string) => Promise<any>;
-  /** Busca de JSON (metadata/JWKS dos agentes Poppy) — injetável nos testes. */
-  fetchJson?: JsonFetcher;
   now?: () => Date;
 }
 
-/** Ponte Poppy → oidc-provider: Bearer de MCP de Sessions logadas viram access tokens dele. */
-function mcpBridge(
-  service: OidcService,
-  poppyApis: { type: string; url: string }[],
-): PoppyMcpBridge {
+/** Access tokens do oidc-provider para resources MCP (ver {@link PersonalAgentAccessTokens}). */
+function accessTokens(service: OidcService): PersonalAgentAccessTokens {
   return {
+    mcpEnabled: !!service.config.mcp?.enabled,
     isMcpResource(url) {
       try {
         return findMcpResource(url, service.config.issuer, service.config.mcp) !== null;
@@ -103,16 +100,6 @@ function mcpBridge(
     async mint(input) {
       const provider = service.provider as any;
       if (!provider?.AccessToken || !provider?.Grant) return null;
-      // Só faz sentido quando a integração MCP do authkit está ligada, ou o MCP é de `apis`.
-      if (
-        !service.config.mcp?.enabled &&
-        !poppyApis.some(
-          (a) =>
-            a.type === 'mcp' && a.url.replace(/\/+$/, '') === input.resource.replace(/\/+$/, ''),
-        )
-      ) {
-        return null;
-      }
       const remaining = Math.max(
         60,
         Math.floor((input.grantExpiresAt.getTime() - Date.now()) / 1000),
@@ -132,13 +119,13 @@ function mcpBridge(
         clientId: input.clientId,
         grantId: input.grantId,
         scope: input.scope,
-        gty: 'poppy',
+        gty: input.grantType,
         expiresIn: input.expiresIn,
       });
       at.aud = input.resource;
       return at.save();
     },
-    async revoke(grantId) {
+    async revokeGrant(grantId) {
       const provider = service.provider as any;
       if (!provider?.Grant) return;
       await provider.AccessToken?.revokeByGrantId?.(grantId);
@@ -148,18 +135,31 @@ function mcpBridge(
   };
 }
 
-async function resolveReplay(
-  replay: NonNullable<ResolvedPersonalAgentsConfig['poppy']>['replay'],
-  conn: () => any,
-  make?: (binding: string) => Promise<any>,
-): Promise<PoppyReplayStore> {
-  if (replay === 'memory') return memoryReplayStore();
-  if (replay === 'database') return databaseReplayStore(conn);
-  if (typeof (replay as PoppyReplayStore).claim === 'function') return replay as PoppyReplayStore;
-  const name = (replay as { redis: string }).redis;
-  if (!make) throw new Error('authkit: personalAgents.poppy.replay { redis } exige o container.');
-  const redis = await make('redis');
-  return redisReplayStore(redis.connection(name));
+/** O ledger de grants visto por uma extension: só os ids com o prefixo dela. */
+function scopedLedger(store: DelegationStore, prefix: string): PersonalAgentGrantLedger {
+  const mine = (id: string) => typeof id === 'string' && id.startsWith(prefix);
+  return {
+    async insertGrant(grant) {
+      if (!mine(grant.id)) {
+        throw new Error(`authkit: grant "${grant.id}" fora do prefixo "${prefix}" da extension.`);
+      }
+      await store.insertGrant(grant);
+    },
+    async findGrant(id) {
+      return mine(id) ? store.findGrant(id) : null;
+    },
+    async listGrants(accountId) {
+      return (await store.listGrants(accountId)).filter((g) => mine(g.id));
+    },
+    async unrevokedGrantIdsOfClient(clientId) {
+      return (await store.unrevokedGrantIdsOfClient(clientId)).filter(mine);
+    },
+    async revokeGrantById(id, at) {
+      if (mine(id)) await store.revokeGrantById(id, at);
+    },
+    insertRefreshToken: (token) => store.insertRefreshToken(token),
+    findRefreshToken: (tokenHash) => store.findRefreshToken(tokenHash),
+  };
 }
 
 /**
@@ -183,23 +183,7 @@ function withRegistry(
     }
     return null;
   };
-  const poppy = config.poppy;
-  return {
-    ...config,
-    resolveAgent,
-    poppy: poppy && {
-      ...poppy,
-      clients: {
-        ...poppy.clients,
-        isBlocked: async (id) =>
-          (await poppy.clients.isBlocked(id)) ||
-          (await registry.find('poppy', id))?.status === 'blocked',
-        isRegistered: async (id) =>
-          (await poppy.clients.isRegistered(id)) ||
-          (await registry.find('poppy', id))?.status === 'allowed',
-      },
-    },
-  };
+  return { ...config, resolveAgent };
 }
 
 /**
@@ -226,7 +210,7 @@ export function buildPersonalAgentsRuntime(
 
       let conn: (() => any) | null = null;
       const connection = service.config.schema.connection;
-      if (config.delegation || config.poppy) {
+      if (config.delegation || (config.extensions ?? []).length > 0) {
         const db = await makeDb();
         conn = () => (connection ? db.connection(connection) : db.connection());
       } else {
@@ -253,40 +237,55 @@ export function buildPersonalAgentsRuntime(
         });
       }
 
-      let poppy: PoppyService | null = null;
-      if (effective.poppy && store && conn) {
-        const cfg = effective.poppy;
-        const limiter: PoppyLimiter | null =
-          cfg.rateLimit === false
-            ? null
-            : typeof cfg.rateLimit === 'function'
-              ? cfg.rateLimit
-              : memoryLimiter(cfg.rateLimit);
-        const secret = service.deriveSecret('poppy-dpop-nonce');
-        poppy = new PoppyService({
-          cfg,
-          urls: poppyUrls(service.config.issuer, cfg.prefix),
-          store: new PoppyStore(conn),
-          grants: store,
-          registry: new PoppyClientRegistry(cfg, { fetchJson: options.fetchJson }),
-          replay: await resolveReplay(cfg.replay, conn, options.make),
-          limiter,
-          nonces: hmacNonceSource(secret),
-          isAccountActive,
-          mcp: mcpBridge(service, cfg.apis),
-          now: options.now,
-        });
+      const extensions: PersonalAgentsRuntime['extensions'] = new Map();
+      const now = () => options.now?.() ?? new Date();
+      if (store && conn && registry) {
+        const db = conn;
+        const tokens = accessTokens(service);
+        for (const extension of config.extensions ?? []) {
+          const runtime = await extension.setup({
+            protocol: extension.id,
+            issuer: service.config.issuer,
+            db: () => db(),
+            grants: scopedLedger(store, extension.grantIdPrefix),
+            registryStatus: async (identifier) =>
+              (await registry.find(extension.id, identifier))?.status ?? null,
+            deriveSecret: (label) => service.deriveSecret(label),
+            isAccountActive,
+            make: async (binding) => {
+              if (!options.make) {
+                throw new Error(`authkit: o binding "${binding}" exige o container do app.`);
+              }
+              return options.make(binding);
+            },
+            accessTokens: tokens,
+            now,
+          });
+          extensions.set(extension.id, { extension, runtime });
+        }
       }
+      /** A extension dona de um grant, pelo prefixo do id. */
+      const ownerOf = (grantId: string) => {
+        for (const entry of extensions.values()) {
+          if (grantId.startsWith(entry.extension.grantIdPrefix)) return entry;
+        }
+        return null;
+      };
+      const isExtensionGrant = (grantId: string) =>
+        (config.extensions ?? []).some((e) => grantId.startsWith(e.grantIdPrefix));
 
       const revokeAgentGrant = async (accountId: string, grantId: string) => {
-        if (grantId.startsWith('pgrant_')) {
-          return poppy ? poppy.revokeAccountGrant(accountId, grantId) : false;
+        if (isExtensionGrant(grantId)) {
+          const owner = ownerOf(grantId);
+          return owner ? owner.runtime.revokeAccountGrant(accountId, grantId) : false;
         }
         return delegation ? delegation.revokeGrant(accountId, grantId) : false;
       };
       const revokeAllAgentGrants = async (accountId: string) => {
         let count = 0;
-        if (poppy) count += await poppy.revokeAllAccountGrants(accountId);
+        for (const { runtime } of extensions.values()) {
+          count += await runtime.revokeAllAccountGrants(accountId);
+        }
         if (delegation) count += await delegation.revokeAllGrants(accountId);
         return count;
       };
@@ -297,9 +296,10 @@ export function buildPersonalAgentsRuntime(
         const now = options.now?.() ?? new Date();
         // Expirado já não vale: revogar não muda nada (e não vira evento de auditoria).
         if (!grant || grant.revokedAt || grant.expiresAt <= now) return null;
-        if (grantId.startsWith('pgrant_')) {
-          if (!poppy) return null;
-          await poppy.revokeGrant(grantId);
+        if (isExtensionGrant(grantId)) {
+          const owner = ownerOf(grantId);
+          if (!owner) return null;
+          await owner.runtime.revokeGrant(grantId);
         } else {
           await store.revokeGrantById(grantId, now);
         }
@@ -307,9 +307,12 @@ export function buildPersonalAgentsRuntime(
       };
       const disconnectAgent = async (protocol: AgentProtocolId, identifier: string) => {
         if (!store) return 0;
-        if (protocol === 'poppy') return poppy ? poppy.disconnectClient(identifier) : 0;
+        if (protocol !== 'pact') {
+          const entry = extensions.get(protocol);
+          return entry ? entry.runtime.disconnectAgent(identifier) : 0;
+        }
         const ids = (await store.unrevokedGrantIdsOfClient(identifier)).filter(
-          (id) => !id.startsWith('pgrant_'),
+          (id) => !isExtensionGrant(id),
         );
         const at = options.now?.() ?? new Date();
         for (const id of ids) await store.revokeGrantById(id, at);
@@ -321,7 +324,7 @@ export function buildPersonalAgentsRuntime(
         urls,
         verifier: new PersonalAgentVerifier(effective),
         delegation,
-        poppy,
+        extensions,
         revokeAgentGrant,
         revokeAllAgentGrants,
         registry,
@@ -343,4 +346,44 @@ export async function personalAgentsFor(ctx: HttpContext): Promise<PersonalAgent
   return buildPersonalAgentsRuntime(service, () => ctx.containerResolver.make('lucid.db'), {
     make: (binding) => ctx.containerResolver.make(binding as any),
   });
+}
+
+/** Where {@link personalAgentExtensionRuntime} builds the runtime from, outside a request. */
+export interface PersonalAgentRuntimeSource {
+  service: OidcService;
+  /** The Lucid `Database` (the `lucid.db` binding). */
+  db(): Promise<unknown>;
+  make?(binding: string): Promise<unknown>;
+  now?(): Date;
+}
+
+/**
+ * The runtime an extension's `setup` built (`personalAgents.extensions`), by protocol id. `null`
+ * when the extension is not configured (or there is no database). Takes the request, an explicit
+ * source (tests, scripts) or nothing (the booted app).
+ *
+ * Stable for 1.x — see `extension.ts`.
+ */
+export async function personalAgentExtensionRuntime<
+  R extends PersonalAgentProtocolRuntime = PersonalAgentProtocolRuntime,
+>(id: string, from?: HttpContext | PersonalAgentRuntimeSource): Promise<R | null> {
+  let runtime: PersonalAgentsRuntime | null;
+  if (from && 'containerResolver' in from) {
+    runtime = await personalAgentsFor(from);
+  } else if (from) {
+    const source = from as PersonalAgentRuntimeSource;
+    runtime = await buildPersonalAgentsRuntime(source.service, () => source.db() as Promise<any>, {
+      make: source.make ? (binding) => source.make!(binding) : undefined,
+      now: source.now ? () => source.now!() : undefined,
+    });
+  } else {
+    const app = getBootedApp();
+    const service = (await app.container.make('authkit.server' as any)) as OidcService;
+    runtime = await buildPersonalAgentsRuntime(
+      service,
+      () => app.container.make('lucid.db' as any),
+      { make: (binding) => app.container.make(binding as any) },
+    );
+  }
+  return (runtime?.extensions.get(id)?.runtime as R | undefined) ?? null;
 }

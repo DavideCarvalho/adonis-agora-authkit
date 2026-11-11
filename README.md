@@ -20,11 +20,11 @@ It is built as an idiomatic wrapper around
   Registration (RFC 7591/7592).
 - **Personal agents** — AI assistants acting for your users: agent identity by signed JWT
   (JWKS, no shared secrets) and user-approved, revocable delegation with scopes you define,
-  over a pluggable protocol adapter ([PACT](https://openpactprotocol.org) built in).
-  Plus the [Personal Agent Protocol ("Poppy")](https://personalagentprotocol.org/docs/spec):
-  discovery, DPoP-bound agent sessions, Direct/Device/Mediated sign-in, MCP and browser sessions.
-  ⚠️ **Experimental** — tracks the spec's Draft 0.1 and will change (possibly breaking, outside
-  semver majors) while the spec is a draft.
+  over a pluggable protocol adapter ([PACT](https://openpactprotocol.org) built in), plus
+  protocol extensions from their own packages: `@adonis-agora/authkit-poppy` serves the
+  [Personal Agent Protocol ("Poppy")](https://personalagentprotocol.org/docs/spec) — discovery,
+  signed `Poppy-Session` agent sessions, Direct/Device/Mediated sign-in, MCP and browser sessions.
+  ⚠️ **Experimental** — that package tracks the spec's Draft 0.3 and stays on 0.x.
 - **Native apps** — RFC 8252 native clients (private-use scheme / claimed https / loopback
   redirects, public + PKCE, rotated refresh tokens) and `oidcBearerGuard`, an
   `@adonisjs/auth` guard for APIs called with a bearer access token (in-process, or as a

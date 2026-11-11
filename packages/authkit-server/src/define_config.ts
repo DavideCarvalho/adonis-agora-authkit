@@ -34,7 +34,12 @@ import {
 import type { CustomLoginMethods } from './host/custom_login.js';
 import type { CustomMfaMethods } from './host/custom_mfa.js';
 import type { ResolveGeo } from './host/geo.js';
-import { type AuthMessages, type I18nConfig, resolveMessages } from './host/i18n.js';
+import {
+  type AuthMessages,
+  type I18nConfig,
+  registerExtensionMessages,
+  resolveMessages,
+} from './host/i18n.js';
 import {
   type OtpLoginConfigInput,
   type ResolvedOtpLoginConfig,
@@ -163,18 +168,6 @@ export interface MailHooks {
    * credencial prévia dependia de alguém ter escrito um hook.
    */
   onSudoLink?: (data: { email: string; sudoUrl: string }) => Promise<void>;
-  /**
-   * Código do Mediated Sign-In pronto do Poppy (`poppyEmailCodeSignIn`): um personal
-   * agent quer entrar na conta e a pessoa precisa dar o código a ele. Sem o hook, o
-   * host-kit envia pelo mailer default, com branding e i18n.
-   */
-  onPoppySignInCode?: (data: {
-    email: string;
-    code: string;
-    /** Nome do agente (metadata dele, ou o host do `client_id`). */
-    agentName: string;
-    expiresInMinutes: number;
-  }) => Promise<void>;
   /**
    * Disparado num login bem-sucedido a partir de um IP NOVO para a conta (nenhum
    * `login.success` anterior desse IP no audit sink), quando `notifications.newLoginEmail`
@@ -1804,7 +1797,7 @@ export function defineConfig(config: AuthServerConfigInput) {
 
     // Personal agents com delegação assinam tokens e recibos com este keystore,
     // e o PACT só admite ES256/RS256 — falha no boot, não na primeira troca de token.
-    const personalAgents = resolvePersonalAgentsConfig(config.personalAgents);
+    const personalAgents = resolvePersonalAgentsConfig(config.personalAgents, config.issuer);
     if (personalAgents?.delegation) assertDelegationSigningKey(jwks);
     // Debaixo do mountPath, a rota curinga do oidc-provider (`${mount}/*`)
     // engoliria as rotas dos agentes — e o `authkitCsrfExceptions` (que isenta
@@ -1819,15 +1812,16 @@ export function defineConfig(config: AuthServerConfigInput) {
         `authkit: personalAgents.prefix "${personalAgents.prefix}" não pode ficar debaixo do mountPath do OIDC ("${oidcMount}").`,
       );
     }
-    const poppyPrefix = personalAgents?.poppy?.prefix;
-    if (
-      poppyPrefix &&
-      oidcMount &&
-      (poppyPrefix === oidcMount || poppyPrefix.startsWith(`${oidcMount}/`))
-    ) {
-      throw new Error(
-        `authkit: personalAgents.poppy.prefix "${poppyPrefix}" não pode ficar debaixo do mountPath do OIDC ("${oidcMount}").`,
-      );
+    for (const extension of personalAgents?.extensions ?? []) {
+      if (extension.messages) registerExtensionMessages(extension.messages);
+      if (
+        oidcMount &&
+        (extension.prefix === oidcMount || extension.prefix.startsWith(`${oidcMount}/`))
+      ) {
+        throw new Error(
+          `authkit: o prefixo "${extension.prefix}" de personalAgents.extensions "${extension.id}" não pode ficar debaixo do mountPath do OIDC ("${oidcMount}").`,
+        );
+      }
     }
 
     // BACKSTOP DE SUDO. Um host cujo `sudo.methods` não tem um único método

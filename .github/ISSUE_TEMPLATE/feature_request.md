@@ -24,6 +24,7 @@ Describe the API or behavior you'd like. Sketch config/code if you can.
 - [ ] @adonis-agora/authkit-client
 - [ ] @adonis-agora/authkit-react
 - [ ] @adonis-agora/authkit-testing
+- [ ] @adonis-agora/authkit-poppy
 
 ## Alternatives considered
 

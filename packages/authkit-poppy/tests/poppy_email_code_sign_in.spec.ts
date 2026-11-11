@@ -1,10 +1,27 @@
 import { test } from '@japa/runner';
-import { maskEmail, poppyEmailCodeSignIn } from '../../src/agents/poppy/email_code_sign_in.js';
+import {
+  maskEmail,
+  type PoppyEmailCodeSignInOptions,
+  poppyEmailCodeSignIn,
+} from '../src/email_code_sign_in.js';
 
 const CLIENT_ID = 'https://agent.example/agent.json';
 const SCOPES = ['orders:read'];
 
-/** Ctx falso: `authkit.server` com contas em memória e o hook de e-mail capturando. */
+/** Para onde o `sendCode` dos testes manda os e-mails (o `setup` aponta para o array dele). */
+let mailSink: any[] = [];
+
+/** `poppyEmailCodeSignIn` com o envio capturado em {@link mailSink}. */
+function emailSignIn(options: PoppyEmailCodeSignInOptions) {
+  return poppyEmailCodeSignIn({
+    sendCode: async (data) => {
+      mailSink.push(data);
+    },
+    ...options,
+  });
+}
+
+/** Ctx falso: `authkit.server` com contas em memória; os e-mails vão para `mails`. */
 function setup(
   opts: {
     accounts?: Record<string, { id: string; disabled?: boolean; kind?: string }>;
@@ -13,6 +30,7 @@ function setup(
 ) {
   const accounts = opts.accounts ?? { 'jane@example.com': { id: 'acct-1' } };
   const mails: any[] = [];
+  mailSink = mails;
   const service = {
     config: {
       accountStore: {
@@ -25,7 +43,6 @@ function setup(
           Object.values(accounts).some((a) => a.id === id && a.disabled),
         disableAccount: async () => {},
       },
-      mail: opts.hook === false ? {} : { onPoppySignInCode: async (data: any) => mails.push(data) },
     },
   };
   const logs: any[] = [];
@@ -53,7 +70,7 @@ test.group('poppyEmailCodeSignIn', () => {
   test('conta ativa: código de 6 dígitos, e-mail com o código e o nome do agente', async ({
     assert,
   }) => {
-    const cfg = poppyEmailCodeSignIn({ scopes: SCOPES, codeTtl: 300 });
+    const cfg = emailSignIn({ scopes: SCOPES, codeTtl: 300 });
     assert.deepEqual(cfg.fields, [{ name: 'email', label: 'Email address', secret: false }]);
     assert.equal(cfg.codeTtl, 300);
 
@@ -78,14 +95,14 @@ test.group('poppyEmailCodeSignIn', () => {
   test('sem conta, desativada ou recusada por eligible: mesma resposta, sem código nem e-mail', async ({
     assert,
   }) => {
-    const cfg = poppyEmailCodeSignIn({ scopes: SCOPES, eligible: (a: any) => a.kind !== 'pro' });
+    const cfg = emailSignIn({ scopes: SCOPES, eligible: (a: any) => a.kind !== 'pro' });
     const { verify, mails, flush } = setup({
       accounts: {
         'off@example.com': { id: 'acct-2', disabled: true },
         'pro@example.com': { id: 'acct-3', kind: 'pro' },
       },
     });
-    const throwing = poppyEmailCodeSignIn({
+    const throwing = emailSignIn({
       scopes: SCOPES,
       eligible: () => {
         throw new Error('boom');
@@ -108,7 +125,7 @@ test.group('poppyEmailCodeSignIn', () => {
   test('e-mail malformado → failed', async ({ assert }) => {
     const { verify } = setup();
     for (const email of ['', 'jane', 'jane@', '@example.com', 'a b@example.com']) {
-      assert.deepEqual(await verify(poppyEmailCodeSignIn({ scopes: SCOPES }), email), {
+      assert.deepEqual(await verify(emailSignIn({ scopes: SCOPES }), email), {
         status: 'failed',
       });
     }
@@ -117,7 +134,7 @@ test.group('poppyEmailCodeSignIn', () => {
   test('limite por e-mail: acima dele a resposta é a de conta inexistente, sem e-mail', async ({
     assert,
   }) => {
-    const cfg = poppyEmailCodeSignIn({ scopes: SCOPES, maxPerHour: 2 });
+    const cfg = emailSignIn({ scopes: SCOPES, maxPerHour: 2 });
     const { verify, mails, flush } = setup();
     assert.equal(((await verify(cfg, 'jane@example.com')) as any).accountId, 'acct-1');
     assert.equal(((await verify(cfg, 'jane@example.com')) as any).accountId, 'acct-1');
@@ -142,7 +159,7 @@ test.group('poppyEmailCodeSignIn', () => {
   });
 
   test('scopes, label e sentTo configuráveis', async ({ assert }) => {
-    const cfg = poppyEmailCodeSignIn({
+    const cfg = emailSignIn({
       scopes: ['saude:leitura'],
       label: 'E-mail',
       sentTo: (m) => `E-mail para ${m}`,
@@ -151,14 +168,11 @@ test.group('poppyEmailCodeSignIn', () => {
     assert.deepEqual(cfg.scopes, ['saude:leitura']);
     assert.equal(cfg.fields[0].label, 'E-mail');
     assert.equal(cfg.maxCodeAttempts, 3);
-    assert.equal(poppyEmailCodeSignIn({ scopes: SCOPES }).maxCodeAttempts, 5);
+    assert.equal(emailSignIn({ scopes: SCOPES }).maxCodeAttempts, 5);
     for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
-      assert.throws(() => poppyEmailCodeSignIn({ scopes: SCOPES, maxPerHour: bad }), /maxPerHour/);
-      assert.throws(
-        () => poppyEmailCodeSignIn({ scopes: SCOPES, maxCodeAttempts: bad }),
-        /maxCodeAttempts/,
-      );
-      assert.throws(() => poppyEmailCodeSignIn({ scopes: SCOPES, codeTtl: bad }), /codeTtl/);
+      assert.throws(() => emailSignIn({ scopes: SCOPES, maxPerHour: bad }), /maxPerHour/);
+      assert.throws(() => emailSignIn({ scopes: SCOPES, maxCodeAttempts: bad }), /maxCodeAttempts/);
+      assert.throws(() => emailSignIn({ scopes: SCOPES, codeTtl: bad }), /codeTtl/);
     }
     assert.equal(maskEmail('a@b@example.com'), 'a***@example.com');
     assert.equal(maskEmail('nope'), '***');
@@ -175,15 +189,15 @@ test.group('poppyEmailCodeSignIn — fluxo Mediated completo', () => {
     assert,
   }) => {
     const { setupPoppy, ACCOUNT_ID } = await import('./poppy_helpers.js');
-    const { MEDIATED_SIGN_IN_GRANT } = await import('../../src/agents/poppy/service.js');
-    const env = await setupPoppy({
-      signIn: { mediated: poppyEmailCodeSignIn({ scopes: SCOPES }) },
-    });
+    const { MEDIATED_SIGN_IN_GRANT } = await import('../src/service.js');
     const mails: any[] = [];
+    mailSink = mails;
+    const env = await setupPoppy({
+      signIn: { mediated: emailSignIn({ scopes: SCOPES }) },
+    });
     const config: any = env.service.config;
     config.accountStore.findByEmail = async (email: string) =>
       email === 'jane@example.com' ? { id: ACCOUNT_ID, email } : null;
-    config.mail = { onPoppySignInCode: async (data: any) => mails.push(data) };
     const ctx = {
       containerResolver: {
         make: async (k: string) => {

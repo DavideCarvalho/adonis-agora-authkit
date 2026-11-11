@@ -1,12 +1,13 @@
 import { test } from '@japa/runner';
-import { resolvePersonalAgentsConfig } from '../../src/agents/config.js';
-import { redirectUriAllowed } from '../../src/agents/poppy/client_registry.js';
-import { PoppyError } from '../../src/agents/poppy/errors.js';
+import { redirectUriAllowed } from '../src/client_registry.js';
+import { resolvePoppyConfig } from '../src/config.js';
+import { PoppyError } from '../src/errors.js';
+import { poppy as poppyExtension } from '../src/extension.js';
 import {
   DEVICE_CODE_GRANT,
   MEDIATED_SIGN_IN_GRANT,
   type PoppyVerifyResult,
-} from '../../src/agents/poppy/service.js';
+} from '../src/service.js';
 import {
   ACCOUNT_ID,
   b64,
@@ -990,8 +991,8 @@ test.group('poppy — extensão Mediated Sign-In', () => {
     for (const name of ['grant_type', 'scope', 'client_id', 'sign_in_id', 'one_time_code']) {
       assert.throws(
         () =>
-          resolvePersonalAgentsConfig({
-            poppy: {
+          resolvePoppyConfig(
+            {
               organization: { name: 'S', domain: 's.example' },
               scopes: { a: 'A' },
               signIn: {
@@ -1002,7 +1003,8 @@ test.group('poppy — extensão Mediated Sign-In', () => {
                 },
               },
             },
-          }),
+            undefined,
+          ),
         /reservado/,
       );
     }
@@ -1141,48 +1143,57 @@ test.group('poppy — slot de endpoints do agente', () => {
 });
 
 test.group('poppy — config', () => {
-  test('app só-Poppy (sem audience), PACT desligado; validações', ({ assert }) => {
+  test('resolve sem PACT; scopes da delegação PACT por default; validações', ({ assert }) => {
     const org = { name: 'Shop', domain: 'Shop.example' };
     const scopes = { 'orders:read': 'Orders' };
-    const only = resolvePersonalAgentsConfig({ poppy: { organization: org, scopes } })!;
-    assert.isFalse(only.pact);
-    assert.equal(only.poppy!.organization.domain, 'shop.example');
-    assert.equal(only.poppy!.prefix, '/poppy');
-    assert.isNull(only.poppy!.signIn.mediated);
-    assert.deepEqual(only.poppy!.signIn.direct!.scopes, ['orders:read']);
-    assert.isFalse(only.poppy!.dpop.required);
-    assert.equal(only.poppy!.sessionJwt.maxAge, 60);
+    const only = resolvePoppyConfig({ organization: org, scopes }, undefined)!;
+    assert.equal(only.organization.domain, 'shop.example');
+    assert.equal(only.prefix, '/poppy');
+    assert.isNull(only.signIn.mediated);
+    assert.deepEqual(only.signIn.direct!.scopes, ['orders:read']);
+    assert.isFalse(only.dpop.required);
+    assert.equal(only.sessionJwt.maxAge, 60);
 
     // `www.` não é normalizado: o domínio é exatamente o que serve o documento (§3.1).
-    const www = resolvePersonalAgentsConfig({
-      poppy: { organization: { name: 'S', domain: 'www.shop.example' }, scopes },
-    })!;
-    assert.equal(www.poppy!.organization.domain, 'www.shop.example');
+    const www = resolvePoppyConfig(
+      { organization: { name: 'S', domain: 'www.shop.example' }, scopes },
+      undefined,
+    )!;
+    assert.equal(www.organization.domain, 'www.shop.example');
 
     // O protocolo não reserva nomes (§4.7).
-    const named = resolvePersonalAgentsConfig({
-      poppy: { organization: org, scopes: { 'poppy:admin': 'x' } },
-    })!;
-    assert.deepEqual(named.poppy!.scopes, { 'poppy:admin': 'x' });
+    const named = resolvePoppyConfig(
+      { organization: org, scopes: { 'poppy:admin': 'x' } },
+      undefined,
+    )!;
+    assert.deepEqual(named.scopes, { 'poppy:admin': 'x' });
 
-    // Os scopes da delegação PACT viram os scopes do Poppy por default.
-    const both = resolvePersonalAgentsConfig({
-      audience: 'aud',
-      delegation: { interfaceUrl: 'https://shop.example/a2a', scopes },
-      poppy: { organization: org },
-    })!;
-    assert.isTrue(both.pact);
-    assert.deepEqual(both.poppy!.scopes, scopes);
+    // Os scopes da delegação PACT viram os scopes do Poppy por default (o authkit passa
+    // `delegationScopes` para o `resolve` da extension).
+    const definition = poppyExtension({ organization: org }).resolve({
+      issuer: 'https://shop.example/oidc',
+      delegationScopes: scopes,
+    });
+    assert.equal(definition.prefix, '/poppy');
+    assert.equal(definition.grantIdPrefix, 'pgrant_');
+    assert.deepEqual(resolvePoppyConfig({ organization: org }, scopes)!.scopes, scopes);
 
-    const signedOutOnly = resolvePersonalAgentsConfig({
-      poppy: { organization: org, signIn: { direct: false, device: false } },
-    })!;
-    assert.deepEqual(signedOutOnly.poppy!.scopes, {});
+    const signedOutOnly = resolvePoppyConfig(
+      { organization: org, signIn: { direct: false, device: false } },
+      undefined,
+    )!;
+    assert.deepEqual(signedOutOnly.scopes, {});
 
     const bad = (poppy: Record<string, unknown>) => () =>
-      resolvePersonalAgentsConfig({ poppy: { organization: org, scopes, ...poppy } as any });
-    assert.throws(() => resolvePersonalAgentsConfig({} as any), /audience/);
-    assert.throws(() => resolvePersonalAgentsConfig({ poppy: { organization: org } }), /scope/);
+      resolvePoppyConfig({ organization: org, scopes, ...poppy } as any, undefined);
+    assert.throws(
+      () =>
+        poppyExtension({ organization: org }).resolve({
+          issuer: 'https://shop.example/oidc',
+          delegationScopes: null,
+        }),
+      /scope/,
+    );
     assert.throws(bad({ organization: { name: 'x', domain: 'https://x.example' } }), /domínio/);
     assert.throws(bad({ signIn: { direct: { scopes: ['nope'] } } }), /desconhecido/);
     assert.throws(bad({ scopeHints: { a: { changes: 'maybe', personal_data: true } } }), /changes/);
@@ -1198,23 +1209,29 @@ test.group('poppy — config', () => {
       }),
       /mediated.scopes/,
     );
-    assert.throws(
-      () =>
-        resolvePersonalAgentsConfig({
-          audience: 'a',
-          protocol: 'poppy' as any,
-          poppy: { organization: org, scopes },
-        }),
-      /personalAgents.poppy/,
+  });
+
+  test('definição da extension: CSRF, tabelas, mensagens, navegador do agente', ({ assert }) => {
+    const definition = poppyExtension({
+      organization: { name: 'Shop', domain: 'shop.example' },
+      scopes: { a: 'A' },
+      prefix: 'agents-poppy/',
+    }).resolve({ issuer: 'https://shop.example/oidc', delegationScopes: null });
+    assert.equal(definition.prefix, '/agents-poppy');
+    assert.deepEqual(definition.csrfExemptPaths, [
+      '/agents-poppy/oauth/token',
+      '/agents-poppy/oauth/revoke',
+      '/agents-poppy/oauth/device',
+      '/agents-poppy/browser-session',
+      '/agents-poppy/browser-session/authorize',
+    ]);
+    assert.deepEqual(
+      definition.tables!.map((t) => t.name),
+      ['auth_poppy_sessions', 'auth_poppy_tokens', 'auth_poppy_requests', 'auth_poppy_jtis'],
     );
-    assert.throws(
-      () =>
-        resolvePersonalAgentsConfig({
-          audience: 'a',
-          prefix: '/agents',
-          poppy: { organization: org, scopes, prefix: '/agents/poppy' },
-        }),
-      /debaixo/,
-    );
+    assert.equal(definition.messages!['pt-BR']['mail.poppy_sign_in.code_label'], 'Seu código:');
+    const ctx = (marker: unknown) => ({ session: { get: () => marker } }) as any;
+    assert.isTrue(definition.isAgentBrowser!(ctx({ sessionId: 'ses_1' })));
+    assert.isFalse(definition.isAgentBrowser!(ctx(undefined)));
   });
 });

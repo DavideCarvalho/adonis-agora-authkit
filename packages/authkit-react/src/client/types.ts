@@ -513,8 +513,8 @@ export interface AccountAppsResult {
 export interface AccountAgentGrant {
   id: string;
   clientId: string;
-  /** Which personal-agent protocol granted it. */
-  protocol: 'pact' | 'poppy';
+  /** Which personal-agent protocol granted it: `'pact'` or a `personalAgents.extensions` id. */
+  protocol: PersonalAgentProtocol;
   scopes: Array<{ id: string; description: string }>;
   /** ISO dates, as the JSON API serializes them. */
   createdAt: string;
@@ -847,16 +847,17 @@ export interface KeysRotateResult {
 }
 
 // ---------------------------------------------------------------------------
-// Admin — Personal agents (PACT e Poppy)
+// Admin — Personal agents (PACT e `personalAgents.extensions`)
 // ---------------------------------------------------------------------------
 
-export type PersonalAgentProtocol = 'pact' | 'poppy';
+/** `'pact'` ou o id de uma extension (`personalAgents.extensions`). */
+export type PersonalAgentProtocol = 'pact' | (string & {});
 export type PersonalAgentListStatus = 'allowed' | 'blocked';
 
 /** Um agente no console: o que o config e o console dizem, e quantas contas conectadas. */
 export interface PersonalAgentEntry {
   protocol: PersonalAgentProtocol;
-  /** PACT: o `iss`. Poppy: o `client_id` (URL do documento de metadata). */
+  /** PACT: o `iss`. Extensions: o identificador do agente no protocolo delas. */
   identifier: string;
   name: string;
   /** O que o `defineConfig` diz (só listas estáticas); `null` = nada. */
@@ -876,15 +877,32 @@ export interface PersonalAgentEntry {
 
 /** GET {base}/personal-agents */
 export interface PersonalAgentsOverview {
+  /** `pact`, e uma entrada por extension ligada (pelo id dela). */
   protocols: {
-    pact: { open: boolean; hostResolver: boolean } | null;
-    poppy: {
-      requireRegistration: boolean;
-      hostResolver: boolean;
-      allowInsecureClientIds: boolean;
-    } | null;
+    pact: PersonalAgentPactOverview | null;
+    [protocol: string]: PersonalAgentPactOverview | PersonalAgentExtensionOverview | null;
   };
   agents: PersonalAgentEntry[];
+}
+
+export interface PersonalAgentPactOverview {
+  open: boolean;
+  hostResolver: boolean;
+}
+
+/** Uma `personalAgents.extensions` no console. */
+export interface PersonalAgentExtensionOverview {
+  /** Nome do protocolo (`'Poppy'`). */
+  label: string;
+  /** Só agentes listados conectam. */
+  requireRegistration: boolean;
+  /** Parte da lista vem de uma função do host (o console não enxerga). */
+  hostResolver: boolean;
+  /** Identificadores `http://` aceitos (só desenvolvimento). */
+  allowHttpIdentifiers: boolean;
+  /** Rótulo do campo do identificador. */
+  identifierLabel: string;
+  identifierPlaceholder: string | null;
 }
 
 /** Uma conexão (grant vivo) de um usuário com um agente. */

@@ -94,7 +94,8 @@ function affected(result: unknown): number {
 }
 
 export interface LiveGrantFilter {
-  protocol?: 'pact' | 'poppy';
+  /** Só os grants com este prefixo de id (`agrant_` = PACT; o `grantIdPrefix` de uma extension). */
+  idPrefix?: string;
   clientId?: string;
   accountId?: string;
 }
@@ -244,12 +245,12 @@ export class DelegationStore {
 
   /**
    * Grants vivos (não revogados nem expirados em `now`), de todas as contas. O
-   * protocolo sai do prefixo do id: `agrant_` (PACT) ou `pgrant_` (Poppy).
+   * protocolo sai do prefixo do id: `agrant_` (PACT) ou o `grantIdPrefix` de uma extension.
    */
   #live(now: Date, filter: LiveGrantFilter = {}) {
     let q = this.conn().from(GRANT_TABLE).whereNull('revoked_at').where('expires_at', '>', now);
-    if (filter.protocol)
-      q = q.where('id', 'like', filter.protocol === 'poppy' ? 'pgrant_%' : 'agrant_%');
+    // O prefixo é `[a-z0-9]+_`: o `_` do LIKE (um caractere qualquer) casa com ele mesmo.
+    if (filter.idPrefix) q = q.where('id', 'like', `${filter.idPrefix}%`);
     if (filter.clientId) q = q.where('client_id', filter.clientId);
     if (filter.accountId) q = q.where('account_id', filter.accountId);
     return q;
@@ -272,11 +273,8 @@ export class DelegationStore {
   }
 
   /** Conexões vivas de um protocolo por agente: `client_id` → número de grants. */
-  async countLiveGrantsByClient(
-    now: Date,
-    protocol: 'pact' | 'poppy',
-  ): Promise<Map<string, number>> {
-    const rows = await this.#live(now, { protocol })
+  async countLiveGrantsByClient(now: Date, idPrefix: string): Promise<Map<string, number>> {
+    const rows = await this.#live(now, { idPrefix })
       .select('client_id')
       .count('* as total')
       .groupBy('client_id');

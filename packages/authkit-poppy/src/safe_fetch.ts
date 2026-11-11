@@ -238,7 +238,7 @@ export function safeFetchJson(url: string, options: SafeFetchOptions = {}): Prom
 }
 
 /**
- * SÓ DEV/TESTE (`personalAgents.poppy.allowInsecureClientIds`): busca um JSON por
+ * SÓ DEV/TESTE (`poppy({ allowInsecureClientIds })`): busca um JSON por
  * `http:` ou `https:` SEM a guarda de SSRF — loopback e rede privada liberados,
  * para um agente local (`http://localhost:7777/agent.json`). Mantém sem redirect,
  * teto de tempo e de bytes. Nunca use em produção (a config recusa).

@@ -16,7 +16,6 @@
  * ```
  */
 import { normalizePersonalAgentsPrefix } from '../agents/config.js';
-import { normalizePoppyPrefix } from '../agents/poppy/config.js';
 import { getAuthHostConfig } from './auth_host_config.js';
 
 export interface AuthkitCsrfOptions {
@@ -32,10 +31,10 @@ export interface AuthkitCsrfOptions {
    */
   personalAgentsPrefix?: string | false;
   /**
-   * Prefixo do Poppy: isenta token/revoke/device authorization e a entrada do navegador
-   * (o código com o cookie `SameSite=Strict` é o que protege, §6).
+   * Isenta os `csrfExemptPaths` das `personalAgents.extensions` do config. Default: true.
+   * `false` desliga.
    */
-  poppyPrefix?: string | false;
+  personalAgentExtensions?: boolean;
 }
 
 /**
@@ -57,26 +56,18 @@ export function authkitCsrfExceptions(url: string, options: AuthkitCsrfOptions =
         ? normalizePersonalAgentsPrefix(options.personalAgentsPrefix)
         : getAuthHostConfig()?.personalAgents?.prefix;
   const agentsOAuth = agentsPrefix ? `${agentsPrefix}/oauth/` : null;
-  const poppyPrefix =
-    options.poppyPrefix === false
-      ? undefined
-      : options.poppyPrefix !== undefined
-        ? normalizePoppyPrefix(options.poppyPrefix)
-        : getAuthHostConfig()?.personalAgents?.poppyPrefix;
   const path = url.split('?')[0];
-  const poppyExempt =
-    !!poppyPrefix &&
-    (path === `${poppyPrefix}/oauth/token` ||
-      path === `${poppyPrefix}/oauth/revoke` ||
-      path === `${poppyPrefix}/oauth/device` ||
-      path === `${poppyPrefix}/browser-session` ||
-      path === `${poppyPrefix}/browser-session/authorize`);
+  const extensionExempt =
+    options.personalAgentExtensions !== false &&
+    (getAuthHostConfig()?.personalAgents?.extensions ?? []).some((e) =>
+      e.csrfExemptPaths?.includes(path),
+    );
 
   return (
     url.includes(mountPath) ||
     url.includes('/authkit/pat') ||
     (backchannel !== null && url === backchannel) ||
     (agentsOAuth !== null && url.startsWith(agentsOAuth)) ||
-    poppyExempt
+    extensionExempt
   );
 }

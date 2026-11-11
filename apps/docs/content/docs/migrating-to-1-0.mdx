@@ -611,3 +611,79 @@ createInertiaApp({
   },
 })
 ```
+
+## Install `@adonis-agora/authkit-poppy` for Poppy
+
+The Personal Agent Protocol ("Poppy") is no longer built into `@adonis-agora/authkit-server`. It
+lives in **`@adonis-agora/authkit-poppy`**, which stays on 0.x while the spec is a draft, and plugs
+into `personalAgents.extensions`. Routes, tables (`auth_poppy_*`), tokens, sessions, the
+`authkit_poppy_session` browser marker and the global slots `@adonis-agora/agent` reads are the same,
+so nothing is migrated: install the package and move the config.
+
+```sh
+node ace add @adonis-agora/authkit-poppy
+```
+
+Before:
+
+```ts title="config/authkit.ts"
+import { defineConfig, poppyEmailCodeSignIn } from '@adonis-agora/authkit-server'
+
+export default defineConfig({
+  personalAgents: {
+    poppy: {
+      organization: { name: 'Acme', domain: 'acme.com' },
+      scopes: { 'orders:read': 'See your orders' },
+      signIn: { mediated: poppyEmailCodeSignIn({ scopes: ['orders:read'] }) },
+    },
+  },
+  mail: {
+    onPoppySignInCode: async ({ email, code, agentName }) => { /* … */ },
+  },
+})
+```
+
+After:
+
+```ts title="config/authkit.ts"
+import { defineConfig } from '@adonis-agora/authkit-server'
+import { poppy, poppyEmailCodeSignIn } from '@adonis-agora/authkit-poppy'
+
+export default defineConfig({
+  personalAgents: {
+    extensions: [
+      poppy({
+        organization: { name: 'Acme', domain: 'acme.com' },
+        scopes: { 'orders:read': 'See your orders' },
+        signIn: {
+          mediated: poppyEmailCodeSignIn({
+            scopes: ['orders:read'],
+            sendCode: async ({ email, code, agentName }) => { /* … */ },
+          }),
+        },
+      }),
+    ],
+  },
+})
+```
+
+- The `poppy()` options are the old `personalAgents.poppy` options, unchanged. An app with
+  `personalAgents.poppy` left in its config fails at boot with a message pointing here.
+- Every Poppy export moves to `@adonis-agora/authkit-poppy`: `PoppyConfigInput`,
+  `PoppyMediatedResult` and the other `Poppy*` types, `poppyEmailCodeSignIn`, `verifyPoppyRequest`,
+  `poppyAuth`, `poppyOf`, `poppyWebSession`, `poppyWebSessionOf`, `installPoppySlots`,
+  `POPPY_AUTHENTICATE_SLOT`, `POPPY_WEB_SESSION_KEY`, `PoppyError`, `verifyDpopProof`,
+  `accessTokenHash`, `hmacNonceSource`, the replay stores (`databaseReplayStore`,
+  `memoryReplayStore`, `redisReplayStore`), `safeFetchJson`, `isBlockedAddress`, `SafeFetchError`
+  and `maskEmail`.
+- `mail.onPoppySignInCode` is gone: pass `sendCode` to `poppyEmailCodeSignIn()`. The default email
+  keeps its `mail.poppy_sign_in.*` texts, still overridable in `i18n.messages`.
+- `authkitCsrfExceptions` no longer takes `poppyPrefix`: the Poppy endpoints are exempted from the
+  config. `personalAgentExtensions: false` turns that off.
+- `ensureAuthkitSchema()` no longer creates the `auth_poppy_*` tables; they are created at boot with
+  the others while `schema.autoManage` is on. If you run `ensureAuthkitSchema()` in a migration,
+  call `ensurePoppySchema()` from `@adonis-agora/authkit-poppy` next to it.
+- Admin console JSON (`GET {admin}/api/personal-agents`): an extension's entry in `protocols` is
+  `{ label, requireRegistration, hostResolver, allowHttpIdentifiers, identifierLabel,
+  identifierPlaceholder }` (`allowInsecureClientIds` is now `allowHttpIdentifiers`), and
+  `PersonalAgentProtocol` in `@adonis-agora/authkit-react` is `'pact'` or any extension id.

@@ -1,4 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http';
+import type { ResolvedPersonalAgentExtension } from '../agents/extension.js';
 import type { AuthSocialConfig, ResolvedRateLimitConfig } from '../define_config.js';
 import type { PolicyRouteOption } from './config_locks.js';
 import type { AuthHostOptions } from './register_auth_host.js';
@@ -36,8 +37,11 @@ export interface AuthHostRuntimeConfig {
    * Ver `deriveLockedRouteOptions`.
    */
   lockedRouteOptions?: PolicyRouteOption[];
-  /** Personal agents ligados → prefixo das rotas deles (`/agents`) e do Poppy (`/poppy`). */
-  personalAgents?: { prefix: string; poppyPrefix?: string };
+  /**
+   * Personal agents ligados → prefixo das rotas do PACT (`/agents`) e as
+   * `personalAgents.extensions` resolvidas (rotas, isenções de CSRF, navegador do agente).
+   */
+  personalAgents?: { prefix: string; extensions?: readonly ResolvedPersonalAgentExtension[] };
   /**
    * `accountSession.acceptIdpSession: false` com `authMethods: { password: false }`:
    * o console só entra por um `accountLoginUrl` do host (`registerAuthHost` recusa sem ele).

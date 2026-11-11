@@ -2,6 +2,7 @@ import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import { displayNameFor } from '../../agents/agent_identity.js';
 import { parseScope } from '../../agents/config.js';
+import type { PersonalAgentConsoleSummary } from '../../agents/extension.js';
 import type { AgentProtocolId, AgentRegistryRow } from '../../agents/registry_store.js';
 import { type PersonalAgentsRuntime, personalAgentsFor } from '../../agents/runtime.js';
 import { parseListPage, parseListSize } from '../../pagination.js';
@@ -45,8 +46,21 @@ async function runtimeFor(ctx: HttpContext): Promise<
 function enabledProtocols(runtime: PersonalAgentsRuntime): AgentProtocolId[] {
   const out: AgentProtocolId[] = [];
   if (runtime.config.pact) out.push('pact');
-  if (runtime.config.poppy) out.push('poppy');
+  out.push(...runtime.extensions.keys());
   return out;
+}
+
+/** O protocolo dono de um grant, pelo prefixo do id. */
+function protocolOfGrant(runtime: PersonalAgentsRuntime, grantId: string): AgentProtocolId {
+  for (const [id, { extension }] of runtime.extensions) {
+    if (grantId.startsWith(extension.grantIdPrefix)) return id;
+  }
+  return 'pact';
+}
+
+/** Prefixo de id dos grants de um protocolo (`agrant_` = PACT). */
+function grantPrefixOf(runtime: PersonalAgentsRuntime, protocol: AgentProtocolId): string {
+  return runtime.extensions.get(protocol)?.extension.grantIdPrefix ?? 'agrant_';
 }
 
 function isUrl(value: unknown, allowHttp: boolean): value is string {
@@ -71,9 +85,8 @@ async function agentName(
   fallback: string | null,
 ): Promise<string> {
   if (fallback) return fallback;
-  if (protocol === 'poppy' && runtime.poppy) {
-    return runtime.poppy.registry.displayName(identifier);
-  }
+  const extension = runtime.extensions.get(protocol);
+  if (extension) return extension.runtime.displayName(identifier);
   const registration = await runtime.config.resolveAgent(identifier);
   return displayNameFor(registration ?? { issuer: identifier, jwksUri: '' });
 }
@@ -96,7 +109,7 @@ interface AgentEntry {
 }
 
 /**
- * Endpoints JSON de personal agents (PACT e Poppy) do console admin React.
+ * Endpoints JSON de personal agents (PACT e `personalAgents.extensions`) do console admin React.
  *
  * GET    {prefix}/api/personal-agents                          → agentes (config + console + conectados)
  * GET    {prefix}/api/personal-agents/connections?clientId=&accountId=&protocol=&page=&size=
@@ -142,16 +155,24 @@ export default class ConsolePersonalAgentsController {
         e.jwksUri = agent.jwksUri;
         names.set(keyOf('pact', agent.issuer), agent.name ?? null);
       }
-      for (const [clientId, count] of await runtime.grants.countLiveGrantsByClient(now, 'pact')) {
+      for (const [clientId, count] of await runtime.grants.countLiveGrantsByClient(
+        now,
+        'agrant_',
+      )) {
         entry('pact', clientId).connections = count;
       }
     }
-    if (cfg.poppy) {
-      for (const id of cfg.poppy.clients.registeredList ?? [])
-        entry('poppy', id).config = 'allowed';
-      for (const id of cfg.poppy.clients.blockedList ?? []) entry('poppy', id).config = 'blocked';
-      for (const [clientId, count] of await runtime.grants.countLiveGrantsByClient(now, 'poppy')) {
-        entry('poppy', clientId).connections = count;
+    const summaries: Record<string, PersonalAgentConsoleSummary & { label: string }> = {};
+    for (const [protocol, { extension, runtime: ext }] of runtime.extensions) {
+      const summary = ext.consoleSummary();
+      summaries[protocol] = { label: extension.label, ...summary };
+      for (const id of summary.configured.allowed) entry(protocol, id).config = 'allowed';
+      for (const id of summary.configured.blocked) entry(protocol, id).config = 'blocked';
+      for (const [clientId, count] of await runtime.grants.countLiveGrantsByClient(
+        now,
+        extension.grantIdPrefix,
+      )) {
+        entry(protocol, clientId).connections = count;
       }
     }
     for (const row of await runtime.registry.list()) {
@@ -195,14 +216,19 @@ export default class ConsolePersonalAgentsController {
               hostResolver: cfg.staticAgents === null,
             }
           : null,
-        poppy: cfg.poppy
-          ? {
-              requireRegistration: cfg.poppy.clients.requireRegistration,
-              hostResolver:
-                cfg.poppy.clients.registeredList === null || cfg.poppy.clients.blockedList === null,
-              allowInsecureClientIds: cfg.poppy.allowInsecureClientIds,
-            }
-          : null,
+        ...Object.fromEntries(
+          Object.entries(summaries).map(([protocol, summary]) => [
+            protocol,
+            {
+              label: summary.label,
+              requireRegistration: summary.requireRegistration,
+              hostResolver: summary.hostResolver,
+              allowHttpIdentifiers: summary.allowHttpIdentifiers,
+              identifierLabel: summary.identifierLabel,
+              identifierPlaceholder: summary.identifierPlaceholder ?? null,
+            },
+          ]),
+        ),
       },
       agents,
     };
@@ -216,11 +242,9 @@ export default class ConsolePersonalAgentsController {
     const page = parseListPage(qs.page);
     const size = parseListSize(qs.size);
     const protocol =
-      qs.protocol === 'pact' || qs.protocol === 'poppy'
-        ? (qs.protocol as AgentProtocolId)
-        : undefined;
+      qs.protocol && enabledProtocols(runtime).includes(qs.protocol) ? qs.protocol : undefined;
     const filter = {
-      protocol,
+      idPrefix: protocol ? grantPrefixOf(runtime, protocol) : undefined,
       clientId: qs.clientId?.trim() || undefined,
       accountId: qs.accountId?.trim() || undefined,
     };
@@ -235,7 +259,7 @@ export default class ConsolePersonalAgentsController {
     const nameCache = new Map<string, Promise<string>>();
     const data = await Promise.all(
       rows.map(async (g) => {
-        const rowProtocol: AgentProtocolId = g.id.startsWith('pgrant_') ? 'poppy' : 'pact';
+        const rowProtocol = protocolOfGrant(runtime, g.id);
         if (!emails.has(g.accountId)) {
           const account = await store.findById(g.accountId).catch(() => null);
           emails.set(g.accountId, account?.email ?? null);
@@ -295,18 +319,24 @@ export default class ConsolePersonalAgentsController {
 
     const protocol = body.protocol as AgentProtocolId;
     if (!enabledProtocols(runtime).includes(protocol)) {
-      return invalid('`protocol` precisa ser um protocolo ligado (`pact` ou `poppy`).');
+      return invalid(
+        `\`protocol\` precisa ser um protocolo ligado (${enabledProtocols(runtime)
+          .map((p) => `\`${p}\``)
+          .join(', ')}).`,
+      );
     }
     const status = body.status;
     if (status !== 'allowed' && status !== 'blocked') {
       return invalid('`status` precisa ser `allowed` ou `blocked`.');
     }
-    const allowHttp = protocol === 'poppy' && !!runtime.config.poppy?.allowInsecureClientIds;
+    const extension = runtime.extensions.get(protocol);
+    const summary = extension?.runtime.consoleSummary();
+    const allowHttp = !!summary?.allowHttpIdentifiers;
     const identifier = typeof body.identifier === 'string' ? body.identifier.trim() : '';
     if (!isUrl(identifier, allowHttp)) {
       return invalid(
-        protocol === 'poppy'
-          ? '`identifier` precisa ser o `client_id` do agente (URL HTTPS do documento de metadata).'
+        summary
+          ? `\`identifier\` precisa ser uma URL ${allowHttp ? 'http(s)' : 'HTTPS'}: ${summary.identifierLabel}.`
           : '`identifier` precisa ser o `iss` do agente (URL HTTPS).',
       );
     }
