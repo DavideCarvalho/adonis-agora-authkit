@@ -152,7 +152,7 @@ export class AdminSessionsService {
   /**
    * Revogação total também corta os personal agents: "sair de todas as sessões",
    * reset de senha, a ação do admin e a exclusão de conta não podem deixar um
-   * agente agindo na conta (delegações do PACT e refresh tokens do Poppy). Sem
+   * agente agindo na conta (delegações do PACT e conexões das extensions). Sem
    * `personalAgents` é no-op — e aí nem resolve o banco. Diferente do
    * `recordSubRevocation`, uma falha AQUI propaga: não há outra camada que corte
    * esses tokens.
@@ -211,12 +211,17 @@ export class AdminSessionsService {
     return (await adapter.list()).filter((r) => grantIds.has(r.payload.grantId as string));
   }
 
-  /** Grants da conta, exceto os espelhos `pgrant_` de refresh tokens do Poppy. */
+  /**
+   * Grants da conta, exceto os espelhos dos grants das `personalAgents.extensions` (os access
+   * tokens de MCP que elas emitem pelo oidc-provider usam o id do grant delas) — aparecem e são
+   * revogados como personal agent, não como app OIDC.
+   */
   async #accountGrants(accountId: string): Promise<EnumeratedArtifact[]> {
-    // Os grants `pgrant_` são o espelho de um refresh token do Poppy (Bearer de MCP) — aparecem e
-    // são revogados como personal agent, não como app OIDC.
+    const prefixes = (this.#oidc.config.personalAgents?.extensions ?? []).map(
+      (e) => e.grantIdPrefix,
+    );
     return (await this.#listModelOfAccount('Grant', accountId)).filter(
-      (r) => !r.id.startsWith('pgrant_'),
+      (r) => !prefixes.some((prefix) => r.id.startsWith(prefix)),
     );
   }
 

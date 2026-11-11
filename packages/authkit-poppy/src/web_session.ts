@@ -2,12 +2,27 @@
  * O cookie do site para o navegador de um personal agent (§6): a entrada na Session, e o
  * acompanhamento do acesso à conta autorizado nela a cada request.
  */
+import {
+  ACCOUNT_SESSION_KEY,
+  signInAccountSession,
+  signOutAccountSession,
+} from '@adonis-agora/authkit-server';
 import type { HttpContext } from '@adonisjs/core/http';
-import { ACCOUNT_SESSION_KEY } from '../../host/account_session_key.js';
-import { syncAdonisAuthLogin, syncAdonisAuthLogout } from '../../host/adonis_auth_sync.js';
-import { POPPY_WEB_SESSION_KEY } from '../../host/poppy_session_key.js';
-import { personalAgentsFor } from '../runtime.js';
-import type { PoppyBrowserJoin, PoppySessionState } from './service.js';
+import { poppyFor } from './runtime.js';
+import type { PoppyBrowserJoin, PoppyService, PoppySessionState } from './service.js';
+
+/**
+ * Session key que marca a sessão do navegador de um personal agent Poppy (§6): o console de conta,
+ * o admin e as telas de consentimento recusam essa sessão (`isAgentBrowser`). O mesmo valor de
+ * quando o Poppy morava no authkit-server — sessões abertas continuam valendo.
+ */
+export const POPPY_WEB_SESSION_KEY = 'authkit_poppy_session';
+
+/** A sessão é do navegador de um personal agent Poppy? */
+export function isPoppyBrowser(ctx: HttpContext): boolean {
+  const marker = (ctx as HttpContext & { session?: any }).session?.get?.(POPPY_WEB_SESSION_KEY);
+  return typeof marker === 'object' && marker !== null && typeof marker.sessionId === 'string';
+}
 
 export interface PoppyWebSessionMarker {
   sessionId: string;
@@ -26,12 +41,14 @@ export interface PoppyWebSessionMarker {
  * `adonisAuth.guard`. Uma entrada sem access token não mexe no login do navegador — a não ser que
  * uma entrada anterior o tenha logado: aí o sign-in dela termina aqui.
  */
-export async function loginPoppyBrowser(httpCtx: HttpContext, result: PoppyBrowserJoin) {
-  // Sem augmentation no barrel (ver `augmentation_isolation.spec.ts`): a sessão é lida sem tipo.
+export async function loginPoppyBrowser(
+  httpCtx: HttpContext,
+  poppy: PoppyService,
+  result: PoppyBrowserJoin,
+) {
+  // Sem augmentation no barrel: a sessão é lida sem tipo.
   const ctx = httpCtx as HttpContext & { session: any };
-  const service = await ctx.containerResolver.make('authkit.server');
-  const cfg = service.config;
-  const login = cfg.personalAgents?.poppy?.web?.login;
+  const login = poppy.cfg.web?.login;
   const previous = ctx.session.get(POPPY_WEB_SESSION_KEY) as PoppyWebSessionMarker | undefined;
   await ctx.session.regenerate();
   const marker: PoppyWebSessionMarker = {
@@ -54,12 +71,9 @@ export async function loginPoppyBrowser(httpCtx: HttpContext, result: PoppyBrows
     return;
   }
   if (result.accountId) {
-    ctx.session.put(ACCOUNT_SESSION_KEY, result.accountId);
-    const account = await cfg.accountStore.findById(result.accountId);
-    if (account) await syncAdonisAuthLogin(ctx, cfg, account);
+    await signInAccountSession(ctx, result.accountId);
   } else if (previous?.accountId) {
-    ctx.session.forget(ACCOUNT_SESSION_KEY);
-    await syncAdonisAuthLogout(ctx, cfg);
+    await signOutAccountSession(ctx);
   }
 }
 
@@ -88,19 +102,14 @@ export function poppyWebSession() {
     const ctx = httpCtx as HttpContext & { session: any };
     const marker = ctx.session?.get(POPPY_WEB_SESSION_KEY) as PoppyWebSessionMarker | undefined;
     if (!marker?.sessionId) return next();
-    const runtime = await personalAgentsFor(ctx);
-    const state = runtime?.poppy ? await runtime.poppy.browserState(marker) : null;
-    const service = await ctx.containerResolver.make('authkit.server');
-    const cfg = service.config;
-    const login = cfg.personalAgents?.poppy?.web?.login;
+    const poppy = await poppyFor(ctx);
+    const state = poppy ? await poppy.browserState(marker) : null;
+    const login = poppy?.cfg.web?.login;
 
     if (!state?.active || state.clientId !== marker.clientId) {
       // A Session terminou: o cookie também — e o login dela, não o do próprio navegador.
       ctx.session.forget(POPPY_WEB_SESSION_KEY);
-      if (marker.accountId) {
-        ctx.session.forget(ACCOUNT_SESSION_KEY);
-        await syncAdonisAuthLogout(ctx, cfg);
-      }
+      if (marker.accountId) await signOutAccountSession(ctx);
       await ctx.session.regenerate();
       return next();
     }
@@ -117,11 +126,7 @@ export function poppyWebSession() {
     }
     const current = ctx.session.get(ACCOUNT_SESSION_KEY) as string | undefined;
     if (state.signedIn && state.accountId) {
-      if (current !== state.accountId) {
-        ctx.session.put(ACCOUNT_SESSION_KEY, state.accountId);
-        const account = await cfg.accountStore.findById(state.accountId);
-        if (account) await syncAdonisAuthLogin(ctx, cfg, account);
-      }
+      if (current !== state.accountId) await signInAccountSession(ctx, state.accountId);
     } else if (marker.accountId) {
       // O sign-in da entrada terminou: o navegador sai, e a Session segue deslogada.
       ctx.session.put(POPPY_WEB_SESSION_KEY, {
@@ -130,8 +135,7 @@ export function poppyWebSession() {
         grantId: null,
         scopes: [],
       } satisfies PoppyWebSessionMarker);
-      ctx.session.forget(ACCOUNT_SESSION_KEY);
-      await syncAdonisAuthLogout(ctx, cfg);
+      await signOutAccountSession(ctx);
     }
     return next();
   };

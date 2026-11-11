@@ -1,20 +1,23 @@
+import { ACCOUNT_SESSION_KEY, authkitCsrfExceptions } from '@adonis-agora/authkit-server';
 import { test } from '@japa/runner';
-import { setBootedApp } from '../../services/booted_app.js';
+import PoppyController from '../src/controllers/poppy_controller.js';
+import { poppy as poppyExtension } from '../src/extension.js';
 import {
   installPoppySlots,
   POPPY_AUTHENTICATE_SLOT,
   type PoppyAuthenticate,
   poppyAuth,
   poppyOf,
-} from '../../src/agents/poppy/resource.js';
-import { isBlockedAddress, safeFetchJson } from '../../src/agents/poppy/safe_fetch.js';
-import { MEDIATED_SIGN_IN_GRANT } from '../../src/agents/poppy/service.js';
-import { poppyWebSession } from '../../src/agents/poppy/web_session.js';
-import { ACCOUNT_SESSION_KEY } from '../../src/host/account_session_key.js';
-import AccountAppsController from '../../src/host/controllers/account_apps_controller.js';
-import PoppyController from '../../src/host/controllers/poppy_controller.js';
-import { authkitCsrfExceptions } from '../../src/host/csrf.js';
-import { POPPY_WEB_SESSION_KEY } from '../../src/host/poppy_session_key.js';
+} from '../src/resource.js';
+import { isBlockedAddress, safeFetchJson } from '../src/safe_fetch.js';
+import { MEDIATED_SIGN_IN_GRANT } from '../src/service.js';
+import { POPPY_WEB_SESSION_KEY, poppyWebSession } from '../src/web_session.js';
+import {
+  AccountAppsController,
+  resetAuthHostConfig,
+  setAuthHostConfig,
+  setBootedApp,
+} from './authkit_internals.js';
 import {
   ACCOUNT_ID,
   CLIENT_ID,
@@ -522,8 +525,21 @@ test.group('poppy — HTTP', () => {
     await env.close();
   });
 
-  test('CSRF: isenta os endpoints de máquina, não as telas', async ({ assert }) => {
-    const o = { mountPath: '/oidc', poppyPrefix: '/poppy' };
+  test('CSRF: isenta os endpoints de máquina, não as telas', async ({ assert, cleanup }) => {
+    // O que o provider do authkit guarda no boot: as extensions resolvidas.
+    const definition = poppyExtension({
+      organization: { name: 'Shop', domain: 'shop.example' },
+      scopes: { a: 'A' },
+    }).resolve({ issuer: 'https://shop.example/oidc', delegationScopes: null });
+    setAuthHostConfig({
+      mountPath: '/oidc',
+      rateLimit: false as any,
+      adminEnabled: false,
+      adminApiEnabled: false,
+      personalAgents: { prefix: '/agents', extensions: [{ ...definition, id: 'poppy' }] },
+    });
+    cleanup(() => resetAuthHostConfig());
+    const o = { mountPath: '/oidc' };
     for (const p of [
       '/poppy/oauth/token',
       '/poppy/oauth/revoke',
@@ -537,7 +553,10 @@ test.group('poppy — HTTP', () => {
     assert.isFalse(authkitCsrfExceptions('/poppy/oauth/authorize', o));
     assert.isFalse(authkitCsrfExceptions('/poppy/device', o));
     assert.isFalse(
-      authkitCsrfExceptions('/poppy/oauth/token', { mountPath: '/oidc', poppyPrefix: false }),
+      authkitCsrfExceptions('/poppy/oauth/token', {
+        mountPath: '/oidc',
+        personalAgentExtensions: false,
+      }),
     );
   });
 });

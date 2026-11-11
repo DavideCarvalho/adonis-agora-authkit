@@ -1,9 +1,9 @@
 /**
- * Persistência do Poppy — tabelas LIB-OWNED (ver `schema/ensure.ts`): Sessions, access tokens (só o
+ * Persistência do Poppy — tabelas LIB-OWNED (ver `tables.ts`): Sessions, access tokens (só o
  * hash), pedidos de sign-in e de entrada de navegador, e `jti` vistos. Os refresh tokens
- * reaproveitam `auth_agent_grants` + `auth_agent_refresh_tokens` (ver `DelegationStore`).
+ * reaproveitam o ledger de grants do authkit (`PersonalAgentGrantLedger`).
  *
- * Mesmas regras do `DelegationStore`: query builder puro, datas comparadas em JS
+ * Query builder puro, datas comparadas em JS
  * depois de buscar a linha pela chave, transições de estado atômicas por
  * `where status = from`.
  */

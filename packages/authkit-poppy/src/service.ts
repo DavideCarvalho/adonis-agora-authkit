@@ -8,10 +8,14 @@
  * lista/revogação do console de conta do PACT.
  */
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
+import type {
+  PersonalAgentConsoleSummary,
+  PersonalAgentGrant,
+  PersonalAgentGrantLedger,
+  PersonalAgentProtocolRuntime,
+} from '@adonis-agora/authkit-server';
 import type { HttpContext } from '@adonisjs/core/http';
 import { type JWTPayload, jwtVerify } from 'jose';
-import { formatScope, parseScope } from '../config.js';
-import type { DelegationStore, GrantRow } from '../delegation_store.js';
 import type { PoppyClient, PoppyClientRegistry } from './client_registry.js';
 import { redirectUriAllowed } from './client_registry.js';
 import type {
@@ -114,7 +118,7 @@ export interface PoppyServiceDeps {
   cfg: ResolvedPoppyConfig;
   urls: PoppyUrls;
   store: PoppyStore;
-  grants: DelegationStore;
+  grants: PersonalAgentGrantLedger;
   registry: PoppyClientRegistry;
   replay: PoppyReplayStore;
   limiter: PoppyLimiter | null;
@@ -218,6 +222,15 @@ export interface PoppySessionState {
   scopes: string[];
 }
 
+/** `"a b  c"` → `['a','b','c']` sem duplicatas, na ordem. */
+function parseScope(value: string | null | undefined): string[] {
+  return [...new Set((value ?? '').split(' ').filter(Boolean))];
+}
+
+function formatScope(scopes: Iterable<string>): string {
+  return [...scopes].join(' ');
+}
+
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -316,12 +329,12 @@ export function registeredConversationProtocols(): {
 /**
  * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — pode mudar de forma incompatível enquanto a spec for draft.
  */
-export class PoppyService {
+export class PoppyService implements PersonalAgentProtocolRuntime {
   readonly cfg: ResolvedPoppyConfig;
   readonly urls: PoppyUrls;
   readonly registry: PoppyClientRegistry;
   #store: PoppyStore;
-  #grants: DelegationStore;
+  #grants: PersonalAgentGrantLedger;
   #replay: PoppyReplayStore;
   #limiter: PoppyLimiter | null;
   #nonces: DpopNonceSource;
@@ -1074,7 +1087,7 @@ export class PoppyService {
     const decoy = result.accountId === null;
     if (!decoy && result.code === undefined && !mediated.verifyCode) {
       throw new Error(
-        'authkit: personalAgents.poppy.signIn.mediated — `verify` devolveu code_required sem `code` e não há `verifyCode`.',
+        'authkit-poppy: poppy().signIn.mediated — `verify` devolveu code_required sem `code` e não há `verifyCode`.',
       );
     }
     const now = this.#now();
@@ -1554,6 +1567,34 @@ export class PoppyService {
       }));
   }
 
+  /** {@link listGrants} — o contrato de `PersonalAgentProtocolRuntime`. */
+  listAccountGrants(accountId: string): Promise<PoppyGrantSummary[]> {
+    return this.listGrants(accountId);
+  }
+
+  /** Nome do agente (metadata dele, ou o host do `client_id`). */
+  displayName(clientId: string): Promise<string> {
+    return this.registry.displayName(clientId);
+  }
+
+  /** {@link disconnectClient} — o contrato de `PersonalAgentProtocolRuntime`. */
+  disconnectAgent(clientId: string): Promise<number> {
+    return this.disconnectClient(clientId);
+  }
+
+  /** O que o console admin mostra sobre o Poppy. */
+  consoleSummary(): PersonalAgentConsoleSummary {
+    const clients = this.cfg.clients;
+    return {
+      requireRegistration: clients.requireRegistration,
+      hostResolver: clients.registeredList === null || clients.blockedList === null,
+      allowHttpIdentifiers: this.cfg.allowInsecureClientIds,
+      configured: { allowed: clients.registeredList ?? [], blocked: clients.blockedList ?? [] },
+      identifierLabel: 'Client ID (metadata URL)',
+      identifierPlaceholder: `${this.cfg.allowInsecureClientIds ? 'http(s)' : 'https'}://agent.example/poppy-agent/agent.json`,
+    };
+  }
+
   /** Desconectar o agente pela conta (§5.5): revoga um refresh token DA CONTA. */
   async revokeAccountGrant(accountId: string, grantId: string): Promise<boolean> {
     if (!grantId.startsWith('pgrant_')) return false;
@@ -1656,7 +1697,7 @@ export class PoppyService {
     return new Date(now.getTime() + this.cfg.sessionTtl * 1000);
   }
 
-  async #grantUsable(grant: GrantRow, clientId: string, now: Date): Promise<boolean> {
+  async #grantUsable(grant: PersonalAgentGrant, clientId: string, now: Date): Promise<boolean> {
     return (
       grant.id.startsWith('pgrant_') &&
       grant.revokedAt === null &&
@@ -1681,7 +1722,7 @@ export class PoppyService {
     const now = this.#now();
     const grantId = `pgrant_${randomUUID()}`;
     const expiresAt = new Date(now.getTime() + this.cfg.refreshTokenTtl * 1000);
-    const grant: GrantRow = {
+    const grant: PersonalAgentGrant = {
       id: grantId,
       accountId,
       clientId,
@@ -1707,7 +1748,7 @@ export class PoppyService {
 
   /** Emite um access token do grant (§4.5). */
   async #issue(
-    grant: GrantRow,
+    grant: PersonalAgentGrant,
     scopes: string[],
     binding: { jkt: string | null; resource: string | null },
   ): Promise<PoppyTokenResponse> {

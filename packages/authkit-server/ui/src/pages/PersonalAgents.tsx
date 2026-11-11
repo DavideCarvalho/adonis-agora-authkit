@@ -15,8 +15,8 @@ export function PersonalAgents() {
       <div className="page-header">
         <div className="page-title">Personal agents</div>
         <div className="page-sub">
-          AI agents (PACT, Poppy) acting for your users: who is connected, and which agents may
-          connect. Allow and block add to <code>defineConfig</code> and apply right away.
+          AI agents (PACT and other protocols) acting for your users: who is connected, and which
+          agents may connect. Allow and block add to <code>defineConfig</code> and apply right away.
         </div>
       </div>
       <PersonalAgentsContainer

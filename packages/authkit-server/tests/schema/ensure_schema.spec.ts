@@ -4,7 +4,7 @@ import { test } from '@japa/runner';
 import { lucidAccountStore } from '../../src/accounts/lucid_account_store.js';
 import { withAuthUser } from '../../src/mixins/with_auth_user.js';
 import { withCredentials } from '../../src/mixins/with_credentials.js';
-import { ensureAuthkitSchema } from '../../src/schema/ensure.js';
+import { ensureAuthkitSchema, ensureAuthkitTables } from '../../src/schema/ensure.js';
 import { createTestDatabase } from '../bootstrap.js';
 
 /** Conta com o mesmo nome de tabela que o scaffold da lib usa. */
@@ -63,10 +63,6 @@ test.group('ensureAuthkitSchema', (group) => {
       'auth_agent_device_codes',
       'auth_agent_grants',
       'auth_agent_refresh_tokens',
-      'auth_poppy_sessions',
-      'auth_poppy_tokens',
-      'auth_poppy_requests',
-      'auth_poppy_jtis',
       'auth_agent_registry',
     ]);
     assert.deepEqual(report.altered, {});
@@ -76,6 +72,26 @@ test.group('ensureAuthkitSchema', (group) => {
     const rows = await db.query().from('auth_settings').select('*');
     assert.lengthOf(rows, 1);
     assert.equal(rows[0].key, 'registration');
+  });
+
+  test('tabelas de extensions (`tables`) entram junto e seguem as mesmas regras', async ({
+    assert,
+  }) => {
+    const table = {
+      name: 'ext_things',
+      create: (t: any) => {
+        t.string('id').primary();
+        t.string('label').notNullable();
+      },
+      columns: { label: (t: any) => t.string('label') },
+    };
+    const first = await ensureAuthkitSchema(db, { tables: [table] });
+    assert.include(first.created, 'ext_things');
+    const evolved = { ...table, columns: { ...table.columns, note: (t: any) => t.text('note') } };
+    const second = await ensureAuthkitTables(db, [evolved]);
+    assert.deepEqual(second.created, []);
+    assert.deepEqual(second.altered, { ext_things: ['note'] });
+    await db.table('ext_things').insert({ id: '1', label: 'x', note: 'n' });
   });
 
   test('é idempotente — segunda execução não cria nem altera nada', async ({ assert }) => {

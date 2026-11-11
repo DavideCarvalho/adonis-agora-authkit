@@ -369,39 +369,49 @@ export async function sendMagicLinkEmail(
 }
 
 /**
- * Envia o código do Mediated Sign-In pronto do Poppy (`poppyEmailCodeSignIn`) pelo
- * mailer default do host. Só código, sem link: quem digita é a pessoa, no agente.
- * Best-effort: no fallback (sem mail) loga o código, como o magic link loga o link; nunca lança.
+ * Envia um e-mail só com um código (sem link: quem digita é a pessoa, em outro lugar) pelo mailer
+ * default do host, com o branding e o i18n do authkit. Os textos saem do catálogo pelas chaves
+ * `{messages}.subject`, `.heading`, `.intro`, `.code_label` e `.fallback`, com `params`
+ * interpolados — uma extension registra as dela em `messages`. Best-effort: sem `@adonisjs/mail`
+ * loga o código (dev); nunca lança.
+ *
+ * Estável no 1.x (é o mailer das `personalAgents.extensions`).
  */
-export async function sendPoppySignInCodeEmail(
+export async function sendAuthkitCodeEmail(
   ctx: HttpContext,
-  data: { email: string; code: string; agentName: string; expiresInMinutes: number },
+  data: {
+    email: string;
+    code: string;
+    /** Prefixo das chaves no catálogo (`'mail.poppy_sign_in'`). */
+    messages: string;
+    params?: Record<string, string | number>;
+  },
 ): Promise<void> {
   try {
     const brand = resolveBrand(ctx);
     const { messages: t, locale } = resolveMailMessages(ctx);
-    const params = { agent: data.agentName, minutes: data.expiresInMinutes };
+    const key = (name: string) => `${data.messages}.${name}`;
     const content = renderTransactionalEmail({
       brand,
       locale,
-      subject: translate(t, 'mail.poppy_sign_in.subject', params),
-      heading: translate(t, 'mail.poppy_sign_in.heading', params),
-      intro: translate(t, 'mail.poppy_sign_in.intro', params),
-      footnote: translate(t, 'mail.poppy_sign_in.fallback'),
+      subject: translate(t, key('subject'), data.params),
+      heading: translate(t, key('heading'), data.params),
+      intro: translate(t, key('intro'), data.params),
+      footnote: translate(t, key('fallback'), data.params),
       code: data.code,
-      codeLabel: translate(t, 'mail.poppy_sign_in.code_label'),
+      codeLabel: translate(t, key('code_label'), data.params),
     });
     const sent = await sendEmail(ctx, data.email, content);
     if (!sent) {
       ctx.logger.info(
-        { email: data.email, agent: data.agentName, code: data.code },
-        'authkit: código do Poppy Mediated Sign-In (dev — @adonisjs/mail ausente)',
+        { email: data.email, code: data.code, messages: data.messages, ...(data.params ?? {}) },
+        'authkit: código por e-mail (dev — @adonisjs/mail ausente)',
       );
     }
   } catch (error) {
     ctx.logger.error(
-      { err: error, email: data.email },
-      'authkit: falha ao enviar o código do Poppy Mediated Sign-In',
+      { err: error, email: data.email, messages: data.messages },
+      'authkit: falha ao enviar o e-mail com código',
     );
   }
 }

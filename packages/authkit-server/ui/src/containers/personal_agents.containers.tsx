@@ -2,6 +2,7 @@ import {
   type AuthkitClientError,
   authkitKeys,
   type PersonalAgentEntry,
+  type PersonalAgentExtensionOverview,
   type PersonalAgentProtocol,
   type PersonalAgentsOverview,
   usePersonalAgentConnectionsQueryOptions,
@@ -21,7 +22,21 @@ import { useToast } from '../lib/toast';
 
 const PAGE_SIZE = 20;
 
-const PROTOCOL_LABEL: Record<PersonalAgentProtocol, string> = { pact: 'PACT', poppy: 'Poppy' };
+/** As extensions ligadas (`personalAgents.extensions`), pelo id. */
+function extensionsOf(
+  overview: PersonalAgentsOverview,
+): Array<[PersonalAgentProtocol, PersonalAgentExtensionOverview]> {
+  return Object.entries(overview.protocols).filter(
+    (entry): entry is [string, PersonalAgentExtensionOverview] =>
+      entry[0] !== 'pact' && entry[1] !== null,
+  );
+}
+
+function protocolLabel(overview: PersonalAgentsOverview | undefined, protocol: string): string {
+  if (protocol === 'pact') return 'PACT';
+  const extension = overview?.protocols[protocol] as PersonalAgentExtensionOverview | null;
+  return extension?.label ?? protocol;
+}
 
 function isNotConfigured(error: unknown): boolean {
   return !!error && typeof error === 'object' && 'status' in error && error.status === 404;
@@ -74,7 +89,8 @@ function StatusBadges({ agent }: { agent: PersonalAgentEntry }) {
 
 function protocolPolicy(overview: PersonalAgentsOverview): string[] {
   const lines: string[] = [];
-  const { pact, poppy } = overview.protocols;
+  const { pact } = overview.protocols;
+  const extensions = extensionsOf(overview);
   if (pact) {
     lines.push(
       pact.open
@@ -82,14 +98,14 @@ function protocolPolicy(overview: PersonalAgentsOverview): string[] {
         : 'PACT: only listed agents are accepted.',
     );
   }
-  if (poppy) {
+  for (const [, extension] of extensions) {
     lines.push(
-      poppy.requireRegistration
-        ? 'Poppy: registration required — only listed agents can start sessions.'
-        : 'Poppy: any agent with a valid client_id can start sessions, except blocked ones.',
+      extension.requireRegistration
+        ? `${extension.label}: registration required — only listed agents can connect.`
+        : `${extension.label}: any agent with a valid identifier can connect, except blocked ones.`,
     );
   }
-  if (pact?.hostResolver || poppy?.hostResolver) {
+  if (pact?.hostResolver || extensions.some(([, e]) => e.hostResolver)) {
     lines.push('Part of the list comes from a host function and is not shown here.');
   }
   return lines;
@@ -115,7 +131,7 @@ export function PersonalAgentsContainer({ onShowConnections }: AgentsTableProps)
     return (
       <div className="error-box">
         Personal agents are not configured. Add <code>personalAgents</code> (PACT and/or{' '}
-        <code>poppy</code>) to <code>defineConfig</code>.
+        <code>extensions</code>) to <code>defineConfig</code>.
       </div>
     );
   }
@@ -235,7 +251,7 @@ export function PersonalAgentsContainer({ onShowConnections }: AgentsTableProps)
                           </td>
                           <td>
                             <span className="badge badge-muted">
-                              {PROTOCOL_LABEL[agent.protocol]}
+                              {protocolLabel(data, agent.protocol)}
                             </span>
                           </td>
                           <td>
@@ -299,12 +315,7 @@ export function PersonalAgentsContainer({ onShowConnections }: AgentsTableProps)
             )}
           </div>
 
-          <AddAgentModal
-            open={adding}
-            onClose={() => setAdding(false)}
-            protocols={(['pact', 'poppy'] as const).filter((p) => data.protocols[p] !== null)}
-            allowHttp={!!data.protocols.poppy?.allowInsecureClientIds}
-          />
+          <AddAgentModal open={adding} onClose={() => setAdding(false)} overview={data} />
         </>
       )}
     </QueryBoundary>
@@ -314,19 +325,23 @@ export function PersonalAgentsContainer({ onShowConnections }: AgentsTableProps)
 function AddAgentModal({
   open,
   onClose,
-  protocols,
-  allowHttp,
+  overview,
 }: {
   open: boolean;
   onClose: () => void;
-  protocols: PersonalAgentProtocol[];
-  allowHttp: boolean;
+  overview: PersonalAgentsOverview;
 }) {
+  const extensions = extensionsOf(overview);
+  const protocols: PersonalAgentProtocol[] = [
+    ...(overview.protocols.pact ? ['pact'] : []),
+    ...extensions.map(([id]) => id),
+  ];
   const setStatus = useMutation(useSetPersonalAgentStatusMutationOptions());
   const toast = useToast();
   const onError = useActionError();
   const invalidate = useInvalidate();
-  const [protocol, setProtocol] = useState<PersonalAgentProtocol>(protocols[0] ?? 'poppy');
+  const [protocol, setProtocol] = useState<PersonalAgentProtocol>(protocols[0] ?? 'pact');
+  const extension = extensions.find(([id]) => id === protocol)?.[1] ?? null;
   const [identifier, setIdentifier] = useState('');
   const [name, setName] = useState('');
   const [jwksUri, setJwksUri] = useState('');
@@ -394,20 +409,21 @@ function AddAgentModal({
           >
             {protocols.map((p) => (
               <option key={p} value={p}>
-                {PROTOCOL_LABEL[p]}
+                {protocolLabel(overview, p)}
               </option>
             ))}
           </select>
         </div>
         <div className="field">
-          <label>{protocol === 'poppy' ? 'Client ID (metadata URL)' : 'Issuer (iss)'}</label>
+          <label>{extension ? extension.identifierLabel : 'Issuer (iss)'}</label>
           <input
             className="input input-mono"
             value={identifier}
             onChange={(e) => setIdentifier(e.target.value)}
             placeholder={
-              protocol === 'poppy'
-                ? `${allowHttp ? 'http(s)' : 'https'}://agent.example/poppy-agent/agent.json`
+              extension
+                ? (extension.identifierPlaceholder ??
+                  `${extension.allowHttpIdentifiers ? 'http(s)' : 'https'}://agent.example`)
                 : 'https://agent.example'
             }
             required
@@ -468,6 +484,8 @@ export function PersonalAgentConnectionsContainer({
     ...usePersonalAgentConnectionsQueryOptions(params),
     retry: (n: number, err: unknown) => !isNotConfigured(err) && n < 1,
   });
+  // Só para os nomes dos protocolos (a mesma query da lista de agentes, em cache).
+  const { data: overview } = useQuery({ ...usePersonalAgentsQueryOptions(), retry: false });
   const revoke = useMutation(useRevokePersonalAgentConnectionMutationOptions());
   const toast = useToast();
   const onError = useActionError();
@@ -547,7 +565,7 @@ export function PersonalAgentConnectionsContainer({
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                             <span style={{ fontSize: 12 }}>{c.agentName}</span>
                             <span style={{ fontSize: 11, color: 'var(--faint)' }}>
-                              {PROTOCOL_LABEL[c.protocol]}
+                              {protocolLabel(overview, c.protocol)}
                             </span>
                           </div>
                         </td>

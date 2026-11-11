@@ -12,6 +12,7 @@ labels: bug
 - [ ] @adonis-agora/authkit-client
 - [ ] @adonis-agora/authkit-react
 - [ ] @adonis-agora/authkit-testing
+- [ ] @adonis-agora/authkit-poppy
 
 **Versions:** package `x.y.z`, AdonisJS `x.y.z`, Node `x.y.z`
 

@@ -782,7 +782,7 @@ export default class AccountApiController {
   /** Personal agents com delegação ativa na conta (scopes aprovados). */
   async listAgents(ctx: HttpContext) {
     const runtime = await personalAgentsFor(ctx);
-    if (!runtime?.delegation && !runtime?.poppy) {
+    if (!runtime || (!runtime.delegation && runtime.extensions.size === 0)) {
       return ctx.response
         .status(404)
         .send(apiErr('capability_unsupported', 'Personal agent delegation is not enabled.'));
@@ -791,10 +791,11 @@ export default class AccountApiController {
     const pact = runtime.delegation
       ? (await runtime.delegation.listGrants(userId)).map((g) => ({ ...g, protocol: 'pact' }))
       : [];
-    const poppy = runtime.poppy
-      ? (await runtime.poppy.listGrants(userId)).map((g) => ({ ...g, protocol: 'poppy' }))
-      : [];
-    return { agents: [...pact, ...poppy] };
+    const others = [];
+    for (const [protocol, { runtime: extension }] of runtime.extensions) {
+      for (const g of await extension.listAccountGrants(userId)) others.push({ ...g, protocol });
+    }
+    return { agents: [...pact, ...others] };
   }
 
   // ─── DELETE /account/api/agents/:id ──────────────────────────────────────
@@ -802,7 +803,7 @@ export default class AccountApiController {
   /** Revoga a delegação de um personal agent (efeito imediato nos tokens). */
   async revokeAgent(ctx: HttpContext) {
     const runtime = await personalAgentsFor(ctx);
-    if (!runtime?.delegation && !runtime?.poppy) {
+    if (!runtime || (!runtime.delegation && runtime.extensions.size === 0)) {
       return ctx.response
         .status(404)
         .send(apiErr('capability_unsupported', 'Personal agent delegation is not enabled.'));

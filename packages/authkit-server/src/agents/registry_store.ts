@@ -3,7 +3,7 @@
  * `auth_agent_registry` (ver `schema/ensure.ts`). SOMA ao `defineConfig`:
  *
  * - `allowed`: o agente entra mesmo fora da lista do config (PACT: issuer + JWKS;
- *   Poppy: `client_id` registrado quando `clients.requireRegistration`).
+ *   extensions: o identificador do agente no protocolo delas).
  * - `blocked`: o agente é recusado mesmo que o config o liste — bloquear é a
  *   ação de emergência, e precisa valer sem deploy.
  *
@@ -19,13 +19,14 @@ import { randomBytes } from 'node:crypto';
 
 export const REGISTRY_TABLE = 'auth_agent_registry';
 
-export type AgentProtocolId = 'pact' | 'poppy';
+/** `'pact'` ou o id de uma extension (`personalAgents.extensions`). */
+export type AgentProtocolId = 'pact' | (string & {});
 export type AgentRegistryStatus = 'allowed' | 'blocked';
 
 export interface AgentRegistryRow {
   id: string;
   protocol: AgentProtocolId;
-  /** PACT: o `iss` do agente. Poppy: o `client_id` (URL do documento de metadata). */
+  /** PACT: o `iss` do agente. Extensions: o identificador do agente no protocolo delas. */
   identifier: string;
   status: AgentRegistryStatus;
   name: string | null;

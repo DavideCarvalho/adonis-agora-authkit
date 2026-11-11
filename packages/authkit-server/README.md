@@ -15,11 +15,10 @@ wrapper around [`oidc-provider`](https://github.com/panva/node-oidc-provider).
   auth via `acr_values`, Dynamic Client Registration (RFC 7591/7592).
 - **Personal agents** — AI assistants acting for your users: agent identity by signed JWT
   (JWKS, no shared secrets) and user-approved, revocable delegation with scopes you define,
-  over a pluggable protocol adapter ([PACT](https://openpactprotocol.org) built in).
-  Plus the [Personal Agent Protocol ("Poppy")](https://personalagentprotocol.org/docs/spec):
-  discovery, signed `Poppy-Session` agent sessions, Direct/Device/Mediated sign-in, MCP and browser sessions.
-  ⚠️ **Experimental** — tracks the spec's Draft 0.3 and will change (possibly breaking, outside
-  semver majors) while the spec is a draft.
+  over a pluggable protocol adapter ([PACT](https://openpactprotocol.org) built in), plus
+  `personalAgents.extensions` for protocols shipped as their own packages — the
+  [Personal Agent Protocol ("Poppy")](https://personalagentprotocol.org/docs/spec) is
+  [`@adonis-agora/authkit-poppy`](https://www.npmjs.com/package/@adonis-agora/authkit-poppy).
 - **Native apps** — RFC 8252 native clients (`authkit:clients:create --native`: private-use
   scheme / claimed https / loopback redirects, always public + PKCE) and the `@adonisjs/auth`
   guards `oidcRpGuard` (session) and `oidcBearerGuard` (`Authorization: Bearer` access tokens,

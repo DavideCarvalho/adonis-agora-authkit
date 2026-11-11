@@ -1,15 +1,21 @@
 import { createHash, randomBytes } from 'node:crypto';
+import {
+  adapters,
+  defineConfig,
+  ensureAuthkitSchema,
+  OidcService,
+  personalAgentExtensionRuntime,
+  type ResolvedServerConfig,
+} from '@adonis-agora/authkit-server';
 import { configProvider } from '@adonisjs/core';
 import RedisMock from 'ioredis-mock';
 import { calculateJwkThumbprint, exportJWK, generateKeyPair, type JWK, SignJWT } from 'jose';
-import type { PoppyConfigInput } from '../../src/agents/poppy/config.js';
-import type { FetchedJson } from '../../src/agents/poppy/safe_fetch.js';
-import { CLIENT_ASSERTION_TYPE, DEVICE_CODE_GRANT } from '../../src/agents/poppy/service.js';
-import { buildPersonalAgentsRuntime } from '../../src/agents/runtime.js';
-import { adapters, defineConfig, type ResolvedServerConfig } from '../../src/define_config.js';
-import { OidcService } from '../../src/provider/oidc_service.js';
-import { ensureAuthkitSchema } from '../../src/schema/ensure.js';
-import { createTestDatabase } from '../bootstrap.js';
+import type { PoppyConfigInput } from '../src/config.js';
+import { poppy as poppyExtension } from '../src/extension.js';
+import type { FetchedJson } from '../src/safe_fetch.js';
+import { CLIENT_ASSERTION_TYPE, DEVICE_CODE_GRANT, type PoppyService } from '../src/service.js';
+import { ensurePoppySchema } from '../src/tables.js';
+import { createTestDatabase } from './bootstrap.js';
 
 export const ISSUER = 'https://shop.example/oidc';
 export const POPPY_ISSUER = 'https://shop.example/poppy';
@@ -119,8 +125,7 @@ export const DEFAULT_SID = 'Yx2b7Qd_Kp8mR3vT1nWc4A';
 export interface Env {
   service: OidcService;
   db: any;
-  runtime: NonNullable<Awaited<ReturnType<typeof buildPersonalAgentsRuntime>>>;
-  poppy: NonNullable<NonNullable<Awaited<ReturnType<typeof buildPersonalAgentsRuntime>>>['poppy']>;
+  poppy: PoppyService;
   keys: AgentKeys;
   docs: Map<string, unknown>;
   fetched: string[];
@@ -167,6 +172,11 @@ export async function setupPoppy(
     [ACCOUNT_ID]: { email: 'jane@example.com' },
     [OTHER_ACCOUNT_ID]: { email: 'john@example.com' },
   };
+  const fetchJson = async (url: string): Promise<FetchedJson> => {
+    fetched.push(url);
+    if (!docs.has(url)) throw new Error('not found');
+    return { status: 200, body: docs.get(url), maxAge: null };
+  };
   const fakeApp = {
     container: { make: async () => ({ connection: () => new RedisMock() }) },
   } as any;
@@ -184,39 +194,48 @@ export async function setupPoppy(
       trustedDevices: { enabled: false },
       ...(extra.mcp === false ? {} : { mcp: true }),
       personalAgents: {
-        poppy: {
-          organization: { name: 'Shop', domain: 'shop.example', aliases: ['shop.example.co.uk'] },
-          scopes: {
-            'orders:read': 'See your orders',
-            'orders:write': 'Exchange or return items',
-            addresses: 'Manage saved shipping addresses',
-          },
-          apis: [
+        extensions: [
+          poppyExtension(
             {
-              type: 'openapi',
-              url: 'https://api.shop.example/openapi.json',
-              description: 'Orders',
-            },
-            { type: 'mcp', url: MCP_URL, description: 'Product search' },
-          ],
-          agent: {
-            protocols: [{ type: 'poppy', endpoint: 'https://shop.example/poppy/conversations' }],
-          },
-          replay: 'memory',
-          ...poppy,
-        } as PoppyConfigInput,
+              organization: {
+                name: 'Shop',
+                domain: 'shop.example',
+                aliases: ['shop.example.co.uk'],
+              },
+              scopes: {
+                'orders:read': 'See your orders',
+                'orders:write': 'Exchange or return items',
+                addresses: 'Manage saved shipping addresses',
+              },
+              apis: [
+                {
+                  type: 'openapi',
+                  url: 'https://api.shop.example/openapi.json',
+                  description: 'Orders',
+                },
+                { type: 'mcp', url: MCP_URL, description: 'Product search' },
+              ],
+              agent: {
+                protocols: [
+                  { type: 'poppy', endpoint: 'https://shop.example/poppy/conversations' },
+                ],
+              },
+              replay: 'memory',
+              ...poppy,
+            } as PoppyConfigInput,
+            { fetchJson },
+          ),
+        ],
       },
     }),
   );
   const service = new OidcService(cfg as ResolvedServerConfig, 'a'.repeat(32));
   const db = createTestDatabase();
   await ensureAuthkitSchema(db);
-  const runtime = (await buildPersonalAgentsRuntime(service, async () => db, {
-    fetchJson: async (url: string): Promise<FetchedJson> => {
-      fetched.push(url);
-      if (!docs.has(url)) throw new Error('not found');
-      return { status: 200, body: docs.get(url), maxAge: null };
-    },
+  await ensurePoppySchema(db);
+  const poppyService = (await personalAgentExtensionRuntime<PoppyService>('poppy', {
+    service,
+    db: async () => db,
     now: () => (nowMs === null ? new Date() : new Date(nowMs)),
   }))!;
 
@@ -225,8 +244,7 @@ export async function setupPoppy(
   const env: Env = {
     service,
     db,
-    runtime,
-    poppy: runtime.poppy!,
+    poppy: poppyService,
     keys,
     docs,
     fetched,

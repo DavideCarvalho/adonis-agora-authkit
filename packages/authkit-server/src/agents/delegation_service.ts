@@ -121,11 +121,11 @@ function newUserCode(): string {
 }
 
 /**
- * A tabela de grants é compartilhada com o Poppy (refresh tokens, `pgrant_`):
- * o PACT só enxerga os dele.
+ * A tabela de grants é compartilhada com as `personalAgents.extensions` (cada uma com o seu
+ * prefixo de id): o PACT só enxerga os dele, `agrant_`.
  */
 function isPactGrant(id: string): boolean {
-  return !id.startsWith('pgrant_');
+  return id.startsWith('agrant_');
 }
 
 /** Aceita o código como o usuário digitar: minúsculas, sem hífen, com espaços. */

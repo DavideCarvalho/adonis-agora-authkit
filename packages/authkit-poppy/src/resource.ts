@@ -1,7 +1,7 @@
 /**
  * Lado resource server do Poppy (§4.5, §5.3, §7): verificar o header `Poppy-Session` e o access
  * token de uma request às APIs/conversas do app — e o slot GLOBAL que o `@adonis-agora/agent` usa
- * para autenticar o endpoint de conversas sem importar este pacote.
+ * para autenticar o endpoint de conversas sem importar este pacote (instalado no boot da extension).
  *
  * Contrato do slot (o mesmo padrão do `Symbol.for('@adonis-agora/oauth:resources')`):
  *
@@ -12,9 +12,8 @@
  * ```
  */
 import type { HttpContext } from '@adonisjs/core/http';
-import { getBootedApp } from '../../../services/booted_app.js';
-import { buildPersonalAgentsRuntime, personalAgentsFor } from '../runtime.js';
 import type { PoppyPrincipalBase } from './config.js';
+import { poppyFor, poppyFromApp } from './runtime.js';
 import type {
   PoppyAuthError,
   PoppyRequestInput,
@@ -32,7 +31,7 @@ export const POPPY_AUTHENTICATE_SLOT = Symbol.for('@adonis-agora/poppy:authentic
  *   de forma incompatível fora de majors enquanto ela for draft.
  */
 export interface PoppyPrincipal extends PoppyPrincipalBase {
-  /** O que `personalAgents.poppy.toActor` devolveu, quando configurado. */
+  /** O que `poppy({ toActor })` devolveu, quando configurado. */
   actor?: unknown;
 }
 
@@ -110,17 +109,6 @@ async function verifyWith(
   return { ok: true, principal };
 }
 
-async function poppyFromBootedApp(): Promise<PoppyService | null> {
-  const app = getBootedApp();
-  const service = await app.container.make('authkit.server' as any);
-  const runtime = await buildPersonalAgentsRuntime(
-    service as any,
-    () => app.container.make('lucid.db' as any),
-    { make: (binding) => app.container.make(binding as any) },
-  );
-  return runtime?.poppy ?? null;
-}
-
 /**
  * Verifica o header `Poppy-Session` de uma request e, se houver, o access token. Aceita o
  * `HttpContext` ou `{ method, url, headers }`.
@@ -134,11 +122,11 @@ export async function verifyPoppyRequest(
 ): Promise<PoppyAuthResult> {
   if ('request' in input && typeof (input as HttpContext).request?.method === 'function') {
     const ctx = input as HttpContext;
-    const poppy = (await personalAgentsFor(ctx))?.poppy;
+    const poppy = await poppyFor(ctx);
     if (!poppy) return NOT_ENABLED;
     return verifyWith(poppy, requestFromCtx(ctx, poppy), options);
   }
-  const poppy = await poppyFromBootedApp();
+  const poppy = await poppyFromApp();
   if (!poppy) return NOT_ENABLED;
   return verifyWith(poppy, input as PoppySlotRequest, options);
 }
@@ -195,8 +183,8 @@ export function poppyAuth(options: PoppyVerifyOptions = {}) {
 
 /**
  * Publica o slot global `Symbol.for('@adonis-agora/poppy:authenticate')` (e
- * `Symbol.for('@adonis-agora/poppy:issuer')`). Chamado no boot do provider
- * quando `personalAgents.poppy` está no config.
+ * `Symbol.for('@adonis-agora/poppy:issuer')`). Chamado no boot do authkit quando a extension
+ * `poppy()` está em `personalAgents.extensions`.
  *
  * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — acompanha a spec em desenvolvimento e PODE MUDAR
  *   de forma incompatível fora de majors enquanto ela for draft.

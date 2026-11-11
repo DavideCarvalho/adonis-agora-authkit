@@ -1,17 +1,18 @@
 ---
 icon: Bot
 title: Personal agents — Poppy
-description: Serve the Personal Agent Protocol ("Poppy", Draft 0.3) — discovery, the Poppy-Session header, OAuth sign-in, MCP and browser join.
+description: Serve the Personal Agent Protocol ("Poppy", Draft 0.3) with @adonis-agora/authkit-poppy — discovery, the Poppy-Session header, OAuth sign-in, MCP and browser join.
 ---
 
 <Callout type="warn" title="Experimental — tracks a draft spec">
 The [Personal Agent Protocol ("Poppy")](https://personalagentprotocol.org/docs/spec) is a
 **Draft 0.3 still in development**. This implementation targets **Draft 0.3**, with no
 compatibility with earlier drafts (the spec allows that before 1.0), and tracks the
-spec as it evolves: the config (`personalAgents.poppy`), the exports (`verifyPoppyRequest`,
-`poppyAuth`, the global slots…) and the wire behaviour **will change, possibly in breaking ways
-and outside semver majors**, while the spec is a draft. Pin your AuthKit version if you depend
-on it.
+spec as it evolves. It ships as its own package, **`@adonis-agora/authkit-poppy`**, which stays on
+**0.x**: its config, its exports (`verifyPoppyRequest`, `poppyAuth`, the global slots…) and the wire
+behaviour can change in any minor while the spec is a draft. Pin it with `~0.x.y` if you depend on
+it. `@adonis-agora/authkit-server` itself is unaffected: it only provides the
+[extension points](/docs/authkit/personal-agents#other-protocols-extensions) the package plugs into.
 </Callout>
 
 Poppy lets a **personal agent** (an AI assistant acting for one user) work with your app: find
@@ -46,55 +47,68 @@ accounts and email.
 
 ## Enabling it
 
+Install the package next to `@adonis-agora/authkit-server`:
+
+```sh
+node ace add @adonis-agora/authkit-poppy
+```
+
+It has no provider and no env vars of its own: add `poppy()` to `personalAgents.extensions` in
+`config/authkit.ts`.
+
 ```ts title="config/authkit.ts"
+import { poppy } from '@adonis-agora/authkit-poppy'
+
 defineConfig({
   // ...
   mcp: true, // optional: lets Poppy Bearer tokens reach the MCP server of @adonis-agora/agent
   personalAgents: {
     // PACT stays optional: omit `audience` for a Poppy-only app.
-    poppy: {
-      organization: { name: 'Acme', domain: 'acme.com', aliases: ['acme.co.uk'] },
-      // `auth.scopes`. Default: `personalAgents.delegation.scopes`.
-      scopes: {
-        'orders:read': 'See your orders',
-        'orders:write': 'Exchange or return items',
-      },
-      // Optional `auth.scope_hints`: the most consequential action each scope allows.
-      scopeHints: {
-        'orders:read': { changes: 'none', personal_data: true },
-        'orders:write': { changes: 'irreversible', personal_data: true },
-      },
-      signIn: {
-        direct: true, // OAuth code + PKCE on your own page (default on)
-        device: { scopes: ['orders:read'] }, // RFC 8628 (default on)
-        mediated: {
-          // Off unless you configure it: you verify the credentials.
-          fields: [
-            { name: 'email', label: 'Email', secret: false },
-            { name: 'password', label: 'Password', secret: true },
-          ],
-          scopes: ['orders:read'],
-          async verify({ credentials }) {
-            const account = await accounts.verifyCredentials(credentials.email, credentials.password)
-            if (!account) return { status: 'failed' }
-            if (looksUnusual(account)) {
-              const code = await sendSmsCode(account) // you send it
-              return { status: 'code_required', accountId: account.id, sentTo: 'Text to …71', code }
-            }
-            return { status: 'complete', accountId: account.id }
+    extensions: [
+      poppy({
+        organization: { name: 'Acme', domain: 'acme.com', aliases: ['acme.co.uk'] },
+        // `auth.scopes`. Default: `personalAgents.delegation.scopes`.
+        scopes: {
+          'orders:read': 'See your orders',
+          'orders:write': 'Exchange or return items',
+        },
+        // Optional `auth.scope_hints`: the most consequential action each scope allows.
+        scopeHints: {
+          'orders:read': { changes: 'none', personal_data: true },
+          'orders:write': { changes: 'irreversible', personal_data: true },
+        },
+        signIn: {
+          direct: true, // OAuth code + PKCE on your own page (default on)
+          device: { scopes: ['orders:read'] }, // RFC 8628 (default on)
+          mediated: {
+            // Off unless you configure it: you verify the credentials.
+            fields: [
+              { name: 'email', label: 'Email', secret: false },
+              { name: 'password', label: 'Password', secret: true },
+            ],
+            scopes: ['orders:read'],
+            async verify({ credentials }) {
+              const account = await accounts.verifyCredentials(credentials.email, credentials.password)
+              if (!account) return { status: 'failed' }
+              if (looksUnusual(account)) {
+                const code = await sendSmsCode(account) // you send it
+                return { status: 'code_required', accountId: account.id, sentTo: 'Text to …71', code }
+              }
+              return { status: 'complete', accountId: account.id }
+            },
           },
         },
-      },
-      // Your company agent. Omit it and @adonis-agora/agent registers its endpoint (see below).
-      agent: { protocols: [{ type: 'poppy', endpoint: 'https://acme.com/poppy/conversations' }] },
-      apis: [
-        { type: 'openapi', url: 'https://api.acme.com/openapi.json', description: 'Orders, returns' },
-        { type: 'mcp', url: 'https://acme.com/mcp', description: 'Product search' },
-      ],
-      // Optional: endpoints and documents you implement (§9).
-      feedback: { endpoint: 'https://acme.com/poppy/feedback' },
-      excludedTasks: { url: 'https://acme.com/poppy/excluded-tasks.json' },
-    },
+        // Your company agent. Omit it and @adonis-agora/agent registers its endpoint (see below).
+        agent: { protocols: [{ type: 'poppy', endpoint: 'https://acme.com/poppy/conversations' }] },
+        apis: [
+          { type: 'openapi', url: 'https://api.acme.com/openapi.json', description: 'Orders, returns' },
+          { type: 'mcp', url: 'https://acme.com/mcp', description: 'Product search' },
+        ],
+        // Optional: endpoints and documents you implement (§9).
+        feedback: { endpoint: 'https://acme.com/poppy/feedback' },
+        excludedTasks: { url: 'https://acme.com/poppy/excluded-tasks.json' },
+      }),
+    ],
   },
 })
 ```
@@ -119,7 +133,24 @@ defineConfig({
 | `toActor` | — | Maps a verified principal to your actor (returned as `principal.actor`). |
 
 Four lib-owned tables back it — `auth_poppy_sessions`, `auth_poppy_tokens`,
-`auth_poppy_requests`, `auth_poppy_jtis` — created by `ensureAuthkitSchema()`. Refresh tokens are
+`auth_poppy_requests`, `auth_poppy_jtis` — created at boot with AuthKit's own tables
+(`schema.autoManage`). If you manage the schema in migrations, call `ensurePoppySchema()` next to
+`ensureAuthkitSchema()`:
+
+```ts title="database/migrations/xxxx_authkit_schema.ts"
+import { BaseSchema } from '@adonisjs/lucid/schema'
+import { ensureAuthkitSchema } from '@adonis-agora/authkit-server'
+import { ensurePoppySchema } from '@adonis-agora/authkit-poppy'
+
+export default class extends BaseSchema {
+  async up() {
+    await ensureAuthkitSchema(this.db)
+    await ensurePoppySchema(this.db)
+  }
+}
+```
+
+Refresh tokens are
 grants in `auth_agent_grants` (ids `pgrant_…`), so they show up — and are revoked — in the same
 **Personal agents** list of the account console as PACT delegations.
 
@@ -148,23 +179,24 @@ impersonated session whatever the view looks like.
 
 You don't have to write `verify` to offer Mediated Sign-In. `poppyEmailCodeSignIn()` asks the agent
 for the account's email, emails a 6-digit code to it and lets the agent submit the code. It uses
-AuthKit's own accounts (`accountStore.findByEmail`) and email (the `mail.onPoppySignInCode` hook, or
-the default mailer with your branding and i18n; without `@adonisjs/mail` the code is logged, for
-dev):
+AuthKit's own accounts (`accountStore.findByEmail`) and email (AuthKit's default mailer with your
+branding and i18n, or your own `sendCode`; without `@adonisjs/mail` the code is logged, for dev):
 
 ```ts
-import { poppyEmailCodeSignIn } from '@adonis-agora/authkit-server'
+import { poppy, poppyEmailCodeSignIn } from '@adonis-agora/authkit-poppy'
 
 personalAgents: {
-  poppy: {
-    // …
-    signIn: {
-      mediated: poppyEmailCodeSignIn({
-        scopes: ['orders:read'],
-        eligible: (account) => account.kind === 'customer', // default: every active account
-      }),
-    },
-  },
+  extensions: [
+    poppy({
+      // …
+      signIn: {
+        mediated: poppyEmailCodeSignIn({
+          scopes: ['orders:read'],
+          eligible: (account) => account.kind === 'customer', // default: every active account
+        }),
+      },
+    }),
+  ],
 }
 ```
 
@@ -176,6 +208,7 @@ personalAgents: {
 | `eligible` | every active account | `(account) => boolean` — who may sign in this way. |
 | `maxPerHour` | `5` | Codes per email per hour, per instance, so an agent can't flood someone's inbox. |
 | `label` / `sentTo` | `'Email address'` / `` `Email to a***@example.com` `` | Text the agent shows the person. |
+| `sendCode` | AuthKit's mailer | `({ email, code, agentName, expiresInMinutes }) => Promise<void>` — send the code yourself. The default email's texts are the `mail.poppy_sign_in.*` keys, which `i18n.messages` can override. |
 
 It never enumerates accounts: an unknown email, a disabled account, one `eligible` refuses, or an
 email over `maxPerHour` all get the same `code_required` answer without a code, and the email is
@@ -225,7 +258,7 @@ CSRF, deny framing, refuse impersonation and never approve on open.
 ## Protecting your APIs
 
 ```ts title="start/routes.ts"
-import { poppyAuth, poppyOf } from '@adonis-agora/authkit-server'
+import { poppyAuth, poppyOf } from '@adonis-agora/authkit-poppy'
 
 router
   .post('/orders/:id/exchanges', async (ctx) => {
@@ -272,7 +305,7 @@ Conversations ([Poppy §8](https://personalagentprotocol.org/docs/spec#conversat
 they meet through two global slots:
 
 ```ts
-// authkit → agent: authenticate a request (installed at boot when `personalAgents.poppy` is set)
+// authkit → agent: authenticate a request (installed at boot when `poppy()` is in `extensions`)
 const authenticate = globalThis[Symbol.for('@adonis-agora/poppy:authenticate')]
 const result = await authenticate(
   { method: 'POST', url: 'https://acme.com/poppy/conversations', headers },

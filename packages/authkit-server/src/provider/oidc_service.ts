@@ -59,7 +59,7 @@ export class OidcService {
 
   /**
    * @internal Segredo derivado da app key para um uso (`label`) — HMAC dos nonces
-   * DPoP do Poppy, por exemplo. Igual em todas as instâncias, sem expor a chave.
+   * DPoP de uma extension de personal agents, por exemplo. Igual em todas as instâncias, sem expor a chave.
    */
   deriveSecret(label: string): Buffer {
     return createHmac('sha256', this.#appKey).update(`authkit:${label}`).digest();

@@ -1,13 +1,9 @@
 import type { HttpContext } from '@adonisjs/core/http';
-import { PoppyError } from '../../agents/poppy/errors.js';
-import {
-  type PoppyAuthResult,
-  publicRequestUrl,
-  writePoppyAuthError,
-} from '../../agents/poppy/resource.js';
-import type { PoppyService } from '../../agents/poppy/service.js';
-import { loginPoppyBrowser } from '../../agents/poppy/web_session.js';
-import { personalAgentsFor } from '../../agents/runtime.js';
+import { PoppyError } from '../errors.js';
+import { type PoppyAuthResult, publicRequestUrl, writePoppyAuthError } from '../resource.js';
+import { poppyFor } from '../runtime.js';
+import type { PoppyService } from '../service.js';
+import { loginPoppyBrowser } from '../web_session.js';
 
 function noStore(ctx: HttpContext) {
   ctx.response.header('Cache-Control', 'no-store');
@@ -31,7 +27,7 @@ function oauthError(ctx: HttpContext, error: PoppyError) {
 }
 
 async function poppyOr404(ctx: HttpContext): Promise<PoppyService | null> {
-  const poppy = (await personalAgentsFor(ctx))?.poppy ?? null;
+  const poppy = await poppyFor(ctx);
   if (!poppy) ctx.response.notFound();
   return poppy;
 }
@@ -44,7 +40,7 @@ function form(ctx: HttpContext): Record<string, unknown> {
 /**
  * Endpoints do Poppy (§3, §4, §6): descoberta, protected resource metadata, metadata RFC 8414,
  * token, revogação, device authorization e a entrada do navegador na Session. Os POSTs são isentos
- * de CSRF — ver `authkitCsrfExceptions`.
+ * de CSRF — `csrfExemptPaths` da extension, que o `authkitCsrfExceptions` do authkit lê.
  */
 export default class PoppyController {
   /** `GET /.well-known/poppy.json` — só no domínio da empresa; `www.` redireciona para ele. */
@@ -191,7 +187,7 @@ export default class PoppyController {
       readCookie(ctx.request.header('cookie'), name),
     );
     if (!result) return badBrowserRequest(ctx);
-    await loginPoppyBrowser(ctx, result);
+    await loginPoppyBrowser(ctx, poppy, result);
     ctx.response.append(
       'Set-Cookie',
       `${name}=; Path=/; Max-Age=0; ${cookieSecure(poppy)}HttpOnly; SameSite=Strict`,

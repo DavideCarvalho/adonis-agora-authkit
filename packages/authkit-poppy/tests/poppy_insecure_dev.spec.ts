@@ -1,9 +1,9 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { test } from '@japa/runner';
-import { resolvePersonalAgentsConfig } from '../../src/agents/config.js';
-import { PoppyClientRegistry } from '../../src/agents/poppy/client_registry.js';
-import { PoppyError } from '../../src/agents/poppy/errors.js';
+import { PoppyClientRegistry } from '../src/client_registry.js';
+import { resolvePoppyConfig } from '../src/config.js';
+import { PoppyError } from '../src/errors.js';
 import { agentKeys } from './poppy_helpers.js';
 
 const org = { name: 'Shop', domain: 'shop.example' };
@@ -55,7 +55,7 @@ test.group('poppy — allowInsecureClientIds (só dev/teste)', (group) => {
 
   test('default: client_id http em loopback → invalid_client', async ({ assert }) => {
     const agent = await localAgent();
-    const cfg = resolvePersonalAgentsConfig({ poppy: { organization: org, scopes } })!.poppy!;
+    const cfg = resolvePoppyConfig({ organization: org, scopes }, undefined)!;
     assert.isFalse(cfg.allowInsecureClientIds);
     const err = await rejects(() => new PoppyClientRegistry(cfg).resolve(agent.clientId));
     assert.equal(err.code, 'invalid_client');
@@ -67,9 +67,10 @@ test.group('poppy — allowInsecureClientIds (só dev/teste)', (group) => {
   }) => {
     process.env.NODE_ENV = 'development';
     const agent = await localAgent();
-    const cfg = resolvePersonalAgentsConfig({
-      poppy: { organization: org, scopes, allowInsecureClientIds: true },
-    })!.poppy!;
+    const cfg = resolvePoppyConfig(
+      { organization: org, scopes, allowInsecureClientIds: true },
+      undefined,
+    )!;
     const client = await new PoppyClientRegistry(cfg).resolve(agent.clientId);
     assert.equal(client.clientId, agent.clientId);
     assert.equal(client.name, 'Local Agent');
@@ -81,9 +82,7 @@ test.group('poppy — allowInsecureClientIds (só dev/teste)', (group) => {
     process.env.NODE_ENV = 'production';
     assert.throws(
       () =>
-        resolvePersonalAgentsConfig({
-          poppy: { organization: org, scopes, allowInsecureClientIds: true },
-        }),
+        resolvePoppyConfig({ organization: org, scopes, allowInsecureClientIds: true }, undefined),
       /allowInsecureClientIds/,
     );
   });

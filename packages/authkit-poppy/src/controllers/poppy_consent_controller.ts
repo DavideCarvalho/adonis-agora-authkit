@@ -1,12 +1,14 @@
-import type { ScreenRenderProps } from '../screen_props.js';
 import '../augmentations.js';
+import {
+  ACCOUNT_SESSION_KEY,
+  impersonationState,
+  type ScreenRenderProps,
+} from '@adonis-agora/authkit-server';
 import type { HttpContext } from '@adonisjs/core/http';
-import { personalAgentsFor } from '../../agents/runtime.js';
-import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
-import { impersonationState } from '../impersonation_session.js';
 import { redirectExact } from '../redirect_exact.js';
+import { poppyFor } from '../runtime.js';
 
-/** A tela nunca pode ser emoldurada (clickjacking — ver `agent_consent_controller.ts`). */
+/** A tela nunca pode ser emoldurada (clickjacking — como a do PACT no authkit-server). */
 function denyFraming(ctx: HttpContext): void {
   ctx.response.header('X-Frame-Options', 'DENY');
   ctx.response.header('Content-Security-Policy', "frame-ancestors 'none'");
@@ -27,8 +29,7 @@ function chosenScopes(ctx: HttpContext): string[] {
 export default class PoppyConsentController {
   /** GET {prefix}/oauth/authorize */
   async authorize(ctx: HttpContext) {
-    const runtime = await personalAgentsFor(ctx);
-    const poppy = runtime?.poppy;
+    const poppy = await poppyFor(ctx);
     if (!poppy?.cfg.signIn.direct) return ctx.response.notFound();
     denyFraming(ctx);
     const service = await ctx.containerResolver.make('authkit.server');
@@ -71,8 +72,7 @@ export default class PoppyConsentController {
 
   /** POST {prefix}/oauth/authorize — `request_id`, `decision=allow|deny`, `scope[]`. */
   async decideAuthorization(ctx: HttpContext) {
-    const runtime = await personalAgentsFor(ctx);
-    const poppy = runtime?.poppy;
+    const poppy = await poppyFor(ctx);
     if (!poppy?.cfg.signIn.direct) return ctx.response.notFound();
     denyFraming(ctx);
     const service = await ctx.containerResolver.make('authkit.server');
@@ -111,8 +111,7 @@ export default class PoppyConsentController {
 
   /** GET {prefix}/device?user_code=XXXX-XXXX */
   async device(ctx: HttpContext) {
-    const runtime = await personalAgentsFor(ctx);
-    const poppy = runtime?.poppy;
+    const poppy = await poppyFor(ctx);
     if (!poppy?.cfg.signIn.device) return ctx.response.notFound();
     denyFraming(ctx);
     const service = await ctx.containerResolver.make('authkit.server');
@@ -156,8 +155,7 @@ export default class PoppyConsentController {
 
   /** POST {prefix}/device — `user_code`, `decision`, `scope[]`. */
   async decideDevice(ctx: HttpContext) {
-    const runtime = await personalAgentsFor(ctx);
-    const poppy = runtime?.poppy;
+    const poppy = await poppyFor(ctx);
     if (!poppy?.cfg.signIn.device) return ctx.response.notFound();
     denyFraming(ctx);
     const service = await ctx.containerResolver.make('authkit.server');

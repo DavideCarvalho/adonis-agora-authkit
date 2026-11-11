@@ -3,12 +3,11 @@
  *
  * Mediated Sign-In pronto (extensão `mediated-sign-in`): o agente pede o e-mail da conta, o authkit manda
  * um código de 6 dígitos para ele e o agente devolve o código. Usa as contas
- * (`accountStore`) e o e-mail (hook `mail.onPoppySignInCode` ou o mailer default)
- * do próprio authkit — o app só liga:
+ * (`accountStore`) e o e-mail (o mailer default do authkit, ou `sendCode`) — o app só liga:
  *
  * ```ts
  * personalAgents: {
- *   poppy: { signIn: { mediated: poppyEmailCodeSignIn({ scopes: ['orders:read'] }) } },
+ *   extensions: [poppy({ signIn: { mediated: poppyEmailCodeSignIn({ scopes: ['orders:read'] }) } })],
  * }
  * ```
  *
@@ -18,11 +17,23 @@
  * esperado, então o tempo de resposta também não denuncia.
  */
 import { randomInt } from 'node:crypto';
+import {
+  type AuthAccount,
+  sendAuthkitCodeEmail,
+  supportsAccountStatus,
+} from '@adonis-agora/authkit-server';
 import type { HttpContext } from '@adonisjs/core/http';
-import { type AuthAccount, supportsAccountStatus } from '../../accounts/account_store.js';
-import { sendPoppySignInCodeEmail } from '../../host/default_mailer.js';
-import { personalAgentsFor } from '../runtime.js';
 import type { PoppyMediatedConfigInput, PoppyMediatedResult } from './config.js';
+import { poppyFor } from './runtime.js';
+
+/** O que {@link PoppyEmailCodeSignInOptions.sendCode} recebe. */
+export interface PoppySignInCodeEmail {
+  email: string;
+  code: string;
+  /** Nome do agente (metadata dele, ou o host do `client_id`). */
+  agentName: string;
+  expiresInMinutes: number;
+}
 
 export interface PoppyEmailCodeSignInOptions {
   /** Scopes que este sign-in pode conceder. */
@@ -45,6 +56,11 @@ export interface PoppyEmailCodeSignInOptions {
   label?: string;
   /** Texto de `sentTo` a partir do e-mail mascarado. Default: `` `Email to ${masked}` ``. */
   sentTo?: (masked: string) => string;
+  /**
+   * Envia o código você mesmo (era `mail.onPoppySignInCode` no `config/authkit.ts`). Sem ele, sai
+   * pelo mailer default do authkit, com o branding e o i18n dele (chaves `mail.poppy_sign_in.*`).
+   */
+  sendCode?: (data: PoppySignInCodeEmail) => Promise<void>;
 }
 
 /** `ana.souza@gmail.com` → `a***@gmail.com`: o bastante para a pessoa reconhecer. */
@@ -66,7 +82,7 @@ export function poppyEmailCodeSignIn(
   const positive = (value: number | undefined, fallback: number, what: string) => {
     if (value === undefined) return fallback;
     if (!Number.isFinite(value) || value < 1) {
-      throw new Error(`authkit: poppyEmailCodeSignIn ${what} precisa ser um número >= 1.`);
+      throw new Error(`authkit-poppy: poppyEmailCodeSignIn ${what} precisa ser um número >= 1.`);
     }
     return Math.floor(value);
   };
@@ -102,7 +118,7 @@ export function poppyEmailCodeSignIn(
       try {
         if (!(await options.eligible(account))) return null;
       } catch (error) {
-        ctx.logger.error({ err: error }, 'authkit: poppyEmailCodeSignIn eligible lançou');
+        ctx.logger.error({ err: error }, 'authkit-poppy: poppyEmailCodeSignIn eligible lançou');
         return null;
       }
     }
@@ -127,7 +143,11 @@ export function poppyEmailCodeSignIn(
 
       const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
       // Sem `await`: o caminho com conta não pode demorar mais que o sem conta.
-      void deliver(ctx, { email, code, clientId, expiresInMinutes: Math.ceil(codeTtl / 60) });
+      void deliver(
+        ctx,
+        { email, code, clientId, expiresInMinutes: Math.ceil(codeTtl / 60) },
+        options.sendCode,
+      );
       return { status: 'code_required', accountId: account.id, sentTo, code };
     },
   };
@@ -144,23 +164,29 @@ function hostOf(clientId: string): string {
 async function deliver(
   ctx: HttpContext,
   data: { email: string; code: string; clientId: string; expiresInMinutes: number },
+  hook: PoppyEmailCodeSignInOptions['sendCode'],
 ): Promise<void> {
   try {
-    const runtime = await personalAgentsFor(ctx);
-    const agentName = runtime?.poppy
-      ? await runtime.poppy.registry.displayName(data.clientId)
+    const poppy = await poppyFor(ctx);
+    const agentName = poppy
+      ? await poppy.registry.displayName(data.clientId)
       : hostOf(data.clientId);
-    const service = await ctx.containerResolver.make('authkit.server');
-    const hook = service.config.mail?.onPoppySignInCode;
-    const input = {
+    const input: PoppySignInCodeEmail = {
       email: data.email,
       code: data.code,
       agentName,
       expiresInMinutes: data.expiresInMinutes,
     };
     if (hook) await hook(input);
-    else await sendPoppySignInCodeEmail(ctx, input);
+    else {
+      await sendAuthkitCodeEmail(ctx, {
+        email: input.email,
+        code: input.code,
+        messages: 'mail.poppy_sign_in',
+        params: { agent: input.agentName, minutes: input.expiresInMinutes },
+      });
+    }
   } catch (error) {
-    ctx.logger.error({ err: error }, 'authkit: o código do Poppy Mediated Sign-In não saiu');
+    ctx.logger.error({ err: error }, 'authkit-poppy: o código do Mediated Sign-In não saiu');
   }
 }

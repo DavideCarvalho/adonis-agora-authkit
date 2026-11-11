@@ -189,7 +189,7 @@ export interface PoppyConfigInput {
   prefix?: string;
   /**
    * Scopes do app (`auth.scopes`), `id → descrição`. O protocolo não define nenhum (§4.7).
-   * Default: os de `personalAgents.delegation.scopes`, quando houver — um catálogo só para os
+   * Default: os de `personalAgents.delegation.scopes` (PACT), quando houver — um catálogo só para os
    * dois protocolos.
    */
   scopes?: Record<string, string>;
@@ -373,7 +373,7 @@ const DOMAIN =
   /^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/;
 
 function fail(message: string): never {
-  throw new Error(`authkit: personalAgents.poppy.${message}`);
+  throw new Error(`authkit-poppy: poppy().${message}`);
 }
 
 function positive(value: number | undefined, fallback: number, what: string): number {

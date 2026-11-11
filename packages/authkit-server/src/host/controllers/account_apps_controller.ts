@@ -54,19 +54,22 @@ export default class AccountAppsController {
           })),
         )
       : null;
-    // Refresh tokens do Poppy: o agente é desconectado pela mesma lista (§5.5).
-    const poppy = agentsRuntime?.poppy;
-    const poppyAgents = poppy
-      ? await Promise.all(
-          (await poppy.listGrants(accountId)).map(async (g) => ({
-            id: g.id,
-            name: await poppy.registry.displayName(g.clientId),
-            scopes: g.scopes,
-          })),
-        )
-      : null;
+    // Conexões das `personalAgents.extensions`: desconectadas pela mesma lista.
+    let extensionAgents:
+      | { id: string; name: string; scopes: { id: string; description: string }[] }[]
+      | null = null;
+    for (const { runtime } of agentsRuntime?.extensions.values() ?? []) {
+      extensionAgents ??= [];
+      for (const g of await runtime.listAccountGrants(accountId)) {
+        extensionAgents.push({
+          id: g.id,
+          name: await runtime.displayName(g.clientId),
+          scopes: g.scopes,
+        });
+      }
+    }
     const agents =
-      pactAgents || poppyAgents ? [...(pactAgents ?? []), ...(poppyAgents ?? [])] : null;
+      pactAgents || extensionAgents ? [...(pactAgents ?? []), ...(extensionAgents ?? [])] : null;
 
     return render(ctx, 'account/apps', {
       csrfToken: ctx.request.csrfToken,
@@ -115,7 +118,9 @@ export default class AccountAppsController {
   /** POST /account/apps/agents/:grantId/revoke — revoga a delegação de um personal agent. */
   async revokeAgent(ctx: HttpContext) {
     const runtime = await personalAgentsFor(ctx);
-    if (!runtime?.delegation && !runtime?.poppy) return ctx.response.notFound();
+    if (!runtime || (!runtime.delegation && runtime.extensions.size === 0)) {
+      return ctx.response.notFound();
+    }
     const service = await ctx.containerResolver.make('authkit.server');
     const cfg = service.config;
 

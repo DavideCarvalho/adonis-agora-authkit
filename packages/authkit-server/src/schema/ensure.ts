@@ -24,24 +24,12 @@
  * ```
  */
 
+import type { AuthkitTable } from '../agents/extension.js';
+
 type TableBuilder = any;
 
-interface TableDef {
-  name: string;
-  /** Builder completo — usado quando a tabela não existe. */
-  create: (table: TableBuilder) => void;
-  /**
-   * Builder por coluna — usado para ALTER ADD quando a tabela já existe
-   * mas a coluna não. Sem constraints que quebram em tabelas populadas
-   * (unique/FK ficam só no `create`).
-   */
-  columns: Record<string, (table: TableBuilder) => void>;
-  /**
-   * Índices garantidos por nome, independentes das colunas: uma tabela cuja coluna
-   * já existe (adicionada à mão) também os ganha. O `create` deve declará-los.
-   */
-  indexes?: Array<{ name: string; columns: string[] }>;
-}
+/** Ver {@link AuthkitTable} (o mesmo formato serve às tabelas das extensions). */
+type TableDef = AuthkitTable;
 
 /** Busca por conta (`account_id`) e limpeza dos expirados (`expires_at`). */
 const OIDC_PAYLOAD_INDEXES = [
@@ -329,7 +317,7 @@ const TABLES: TableDef[] = [
     name: 'auth_agent_registry',
     /**
      * Agentes liberados (`allowed`) ou bloqueados (`blocked`) pelo console admin,
-     * somados ao `defineConfig` — PACT pelo `iss`, Poppy pelo `client_id`.
+     * somados ao `defineConfig` — PACT pelo `iss`; uma extension pelo identificador dela.
      */
     create: (t) => {
       t.string('id').primary();
@@ -353,140 +341,16 @@ const TABLES: TableDef[] = [
       updated_at: (t) => t.dateTime('updated_at', { useTz: true, precision: 3 }).nullable(),
     },
   },
-  /*
-   * Personal Agent Protocol (Poppy). Os refresh tokens são grants de
-   * `auth_agent_grants` (prefixo `pgrant_`) com o hash em
-   * `auth_agent_refresh_tokens`; aqui ficam Sessions, access tokens, pedidos de
-   * sign-in e os `jti` vistos. Mesmas regras de data das tabelas acima.
-   */
-  {
-    name: 'auth_poppy_sessions',
-    /**
-     * Uma Session: um usuário do agente (`user_id`, opaco) num agente (`client_id`), com o
-     * `agent_id` opcional. `account_id` é a conta que já usou. `grant_id` e `scope` ficaram da
-     * Draft 0.1, sem uso (o schema só é aditivo).
-     */
-    create: (t) => {
-      t.string('id').primary();
-      t.string('client_id', 2048).notNullable();
-      t.string('user_id').notNullable();
-      t.string('agent_id').nullable();
-      t.string('account_id').nullable().index();
-      t.string('grant_id').nullable().index();
-      t.text('scope').notNullable();
-      t.dateTime('expires_at', { useTz: true, precision: 3 }).notNullable();
-      t.dateTime('ended_at', { useTz: true, precision: 3 }).nullable();
-      t.dateTime('created_at', { useTz: true, precision: 3 }).notNullable();
-      t.dateTime('updated_at', { useTz: true, precision: 3 }).notNullable();
-    },
-    columns: {
-      client_id: (t) => t.string('client_id', 2048),
-      user_id: (t) => t.string('user_id'),
-      agent_id: (t) => t.string('agent_id').nullable(),
-      account_id: (t) => t.string('account_id').nullable().index(),
-      grant_id: (t) => t.string('grant_id').nullable().index(),
-      scope: (t) => t.text('scope'),
-      expires_at: (t) => t.dateTime('expires_at', { useTz: true, precision: 3 }).nullable(),
-      ended_at: (t) => t.dateTime('ended_at', { useTz: true, precision: 3 }).nullable(),
-      created_at: (t) => t.dateTime('created_at', { useTz: true, precision: 3 }).nullable(),
-      updated_at: (t) => t.dateTime('updated_at', { useTz: true, precision: 3 }).nullable(),
-    },
-  },
-  {
-    name: 'auth_poppy_tokens',
-    /**
-     * Access tokens — só o hash. `jkt` = chave DPoP; `null` = Bearer. `session_id` e `user_id`
-     * ficaram da Draft 0.1 e saem vazios: o sign-in não conhece a Session.
-     */
-    create: (t) => {
-      t.string('token_hash', 64).primary();
-      t.string('session_id').notNullable().index();
-      t.string('client_id', 2048).notNullable();
-      t.string('user_id').notNullable();
-      t.string('account_id').nullable();
-      t.string('grant_id').nullable().index();
-      t.text('scope').notNullable();
-      t.string('resource', 2048).nullable();
-      t.string('jkt', 64).nullable();
-      t.dateTime('expires_at', { useTz: true, precision: 3 }).notNullable().index();
-      t.dateTime('created_at', { useTz: true, precision: 3 }).notNullable();
-    },
-    columns: {
-      session_id: (t) => t.string('session_id').index(),
-      client_id: (t) => t.string('client_id', 2048),
-      user_id: (t) => t.string('user_id'),
-      account_id: (t) => t.string('account_id').nullable(),
-      grant_id: (t) => t.string('grant_id').nullable().index(),
-      scope: (t) => t.text('scope'),
-      resource: (t) => t.string('resource', 2048).nullable(),
-      jkt: (t) => t.string('jkt', 64).nullable(),
-      expires_at: (t) => t.dateTime('expires_at', { useTz: true, precision: 3 }).nullable(),
-      created_at: (t) => t.dateTime('created_at', { useTz: true, precision: 3 }).nullable(),
-    },
-  },
-  {
-    name: 'auth_poppy_requests',
-    /**
-     * Pedidos: `authorize` (Direct — vira código após o consentimento), `device` (RFC 8628),
-     * `mediated` (aguardando o código de uso único) e `browser` (entrada de um navegador, §6).
-     * Códigos só como hash. Linhas expiradas são apagadas no próximo pedido.
-     */
-    create: (t) => {
-      t.string('id').primary();
-      t.string('kind', 16).notNullable();
-      t.string('code_hash', 64).nullable().unique();
-      t.string('user_code', 16).nullable().unique();
-      t.string('client_id', 2048).notNullable();
-      t.string('session_id').nullable();
-      t.string('account_id').nullable();
-      t.text('requested_scope').notNullable();
-      t.text('granted_scope').nullable();
-      t.string('redirect_uri', 2048).nullable();
-      t.string('code_challenge', 128).nullable();
-      t.string('status', 16).notNullable();
-      t.integer('attempts').notNullable().defaultTo(0);
-      t.integer('interval_seconds').nullable();
-      t.dateTime('last_polled_at', { useTz: true, precision: 3 }).nullable();
-      t.text('data').nullable();
-      t.dateTime('expires_at', { useTz: true, precision: 3 }).notNullable().index();
-      t.dateTime('created_at', { useTz: true, precision: 3 }).notNullable();
-    },
-    columns: {
-      kind: (t) => t.string('kind', 16),
-      code_hash: (t) => t.string('code_hash', 64).nullable(),
-      user_code: (t) => t.string('user_code', 16).nullable(),
-      client_id: (t) => t.string('client_id', 2048),
-      session_id: (t) => t.string('session_id').nullable(),
-      account_id: (t) => t.string('account_id').nullable(),
-      requested_scope: (t) => t.text('requested_scope'),
-      granted_scope: (t) => t.text('granted_scope').nullable(),
-      redirect_uri: (t) => t.string('redirect_uri', 2048).nullable(),
-      code_challenge: (t) => t.string('code_challenge', 128).nullable(),
-      status: (t) => t.string('status', 16),
-      attempts: (t) => t.integer('attempts').defaultTo(0),
-      interval_seconds: (t) => t.integer('interval_seconds').nullable(),
-      last_polled_at: (t) => t.dateTime('last_polled_at', { useTz: true, precision: 3 }).nullable(),
-      data: (t) => t.text('data').nullable(),
-      expires_at: (t) => t.dateTime('expires_at', { useTz: true, precision: 3 }).nullable(),
-      created_at: (t) => t.dateTime('created_at', { useTz: true, precision: 3 }).nullable(),
-    },
-  },
-  {
-    name: 'auth_poppy_jtis',
-    /** `jti` já aceitos (client assertions, Session JWTs, provas DPoP), até expirarem — anti-replay entre instâncias. */
-    create: (t) => {
-      t.string('key', 100).primary();
-      t.dateTime('expires_at', { useTz: true, precision: 3 }).notNullable().index();
-    },
-    columns: {
-      expires_at: (t) => t.dateTime('expires_at', { useTz: true, precision: 3 }).nullable(),
-    },
-  },
 ];
 
 export interface EnsureSchemaOptions {
   /** Conexão Lucid a usar. Default: conexão primária. */
   connection?: string;
+  /**
+   * Tabelas de `personalAgents.extensions` (`tables` de cada uma), garantidas junto. O provider
+   * passa as do config no boot.
+   */
+  tables?: readonly AuthkitTable[];
   /**
    * Tabela da conta, onde a coluna opcional `login_methods` pertence. Vem do
    * metadado `accountStore.accountTable` (o provider repassa no boot). Undefined
@@ -663,31 +527,13 @@ async function ensureIndex(
   }
 }
 
-/**
- * Garante que as tabelas do authkit existem e têm todas as colunas que esta
- * versão da lib espera. Aditivo e idempotente — seguro de rodar em todo boot
- * e dentro de migrations.
- *
- * `db` é o manager (`Database`, no boot) ou o client da própria migration
- * (`this.db`, um `QueryClient`/`TransactionClient`, usado como está).
- */
-export async function ensureAuthkitSchema(
-  db: any,
-  options: EnsureSchemaOptions = {},
-): Promise<EnsureSchemaReport> {
-  const conn =
-    typeof db.connection !== 'function'
-      ? db
-      : options.connection
-        ? db.connection(options.connection)
-        : db.connection();
-  const report: EnsureSchemaReport = {
-    created: [],
-    altered: {},
-    loginMethods: { table: options.accountTable ?? 'users', ensured: false },
-  };
-
-  for (const def of TABLES) {
+/** Cria/completa as tabelas (o miolo de {@link ensureAuthkitSchema}). */
+async function ensureTables(
+  conn: any,
+  tables: readonly TableDef[],
+  report: Pick<EnsureSchemaReport, 'created' | 'altered' | 'indexed'>,
+): Promise<void> {
+  for (const def of tables) {
     if (!(await tableExists(conn, def.name))) {
       try {
         await conn.schema.createTable(def.name, def.create);
@@ -716,6 +562,57 @@ export async function ensureAuthkitSchema(
       report.indexed[def.name].push(index.name);
     }
   }
+}
+
+/**
+ * Garante tabelas lib-owned no formato {@link AuthkitTable} — o que `ensureAuthkitSchema` faz com as
+ * do authkit: cria as que faltam, adiciona colunas e índices novos, nunca dropa nem altera. Para
+ * uma extension expor o próprio `ensure*Schema()` para migrations do host. Estável no 1.x.
+ */
+export async function ensureAuthkitTables(
+  db: any,
+  tables: readonly AuthkitTable[],
+  options: { connection?: string } = {},
+): Promise<Pick<EnsureSchemaReport, 'created' | 'altered' | 'indexed'>> {
+  const conn =
+    typeof db.connection !== 'function'
+      ? db
+      : options.connection
+        ? db.connection(options.connection)
+        : db.connection();
+  const report: Pick<EnsureSchemaReport, 'created' | 'altered' | 'indexed'> = {
+    created: [],
+    altered: {},
+  };
+  await ensureTables(conn, tables, report);
+  return report;
+}
+
+/**
+ * Garante que as tabelas do authkit existem e têm todas as colunas que esta
+ * versão da lib espera. Aditivo e idempotente — seguro de rodar em todo boot
+ * e dentro de migrations.
+ *
+ * `db` é o manager (`Database`, no boot) ou o client da própria migration
+ * (`this.db`, um `QueryClient`/`TransactionClient`, usado como está).
+ */
+export async function ensureAuthkitSchema(
+  db: any,
+  options: EnsureSchemaOptions = {},
+): Promise<EnsureSchemaReport> {
+  const conn =
+    typeof db.connection !== 'function'
+      ? db
+      : options.connection
+        ? db.connection(options.connection)
+        : db.connection();
+  const report: EnsureSchemaReport = {
+    created: [],
+    altered: {},
+    loginMethods: { table: options.accountTable ?? 'users', ensured: false },
+  };
+
+  await ensureTables(conn, [...TABLES, ...(options.tables ?? [])], report);
 
   // Coluna `login_methods` na tabela da CONTA — a tabela é HOST-owned (não está
   // em TABLES porque o nome/shape são decisão do app), mas a LIB consome a

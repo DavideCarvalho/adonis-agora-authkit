@@ -87,6 +87,23 @@ export type {
   DelegationGrantSummary,
   DelegationReceipt,
 } from './src/agents/delegation_service.js';
+// Personal-agent protocol extensions (`personalAgents.extensions`) — stable for 1.x.
+export type {
+  AuthkitTable,
+  PersonalAgentAccessTokens,
+  PersonalAgentConsoleSummary,
+  PersonalAgentExtension,
+  PersonalAgentExtensionContext,
+  PersonalAgentExtensionDefinition,
+  PersonalAgentGrant,
+  PersonalAgentGrantLedger,
+  PersonalAgentGrantSummary,
+  PersonalAgentHost,
+  PersonalAgentProtocolRuntime,
+  PersonalAgentRefreshToken,
+  PersonalAgentRouteKit,
+  ResolvedPersonalAgentExtension,
+} from './src/agents/extension.js';
 export type {
   PersonalAgentAuthOptions,
   PersonalAgentRequestContext,
@@ -99,75 +116,15 @@ export {
   personalAgentStepUp,
 } from './src/agents/middleware.js';
 export type {
-  PoppyAgentProtocolEntry,
-  PoppyApiEntry,
-  PoppyBrowserLogin,
-  PoppyClientsConfigInput,
-  PoppyConfigInput,
-  PoppyLimiter,
-  PoppyMediatedConfigInput,
-  PoppyMediatedField,
-  PoppyMediatedResult,
-  PoppyMediatedVerifyInput,
-  PoppyPrincipalBase,
-  PoppyReplayStore,
-  PoppyScopeHint,
-  ResolvedPoppyConfig,
-} from './src/agents/poppy/config.js';
-export {
-  accessTokenHash,
-  type DpopNonceSource,
-  type DpopResult,
-  hmacNonceSource,
-  type VerifyDpopInput,
-  verifyDpopProof,
-} from './src/agents/poppy/dpop.js';
-export {
-  maskEmail,
-  type PoppyEmailCodeSignInOptions,
-  poppyEmailCodeSignIn,
-} from './src/agents/poppy/email_code_sign_in.js';
-export { PoppyError, type PoppyErrorCode } from './src/agents/poppy/errors.js';
-export {
-  databaseReplayStore,
-  memoryReplayStore,
-  redisReplayStore,
-} from './src/agents/poppy/replay.js';
-export {
-  installPoppySlots,
-  POPPY_AUTHENTICATE_SLOT,
-  type PoppyAuthenticate,
-  type PoppyAuthResult,
-  type PoppyPrincipal,
-  type PoppySlotRequest,
-  poppyAuth,
-  poppyOf,
-  verifyPoppyRequest,
-  writePoppyAuthError,
-} from './src/agents/poppy/resource.js';
-export {
-  isBlockedAddress,
-  SafeFetchError,
-  safeFetchJson,
-} from './src/agents/poppy/safe_fetch.js';
-export type {
-  PoppyAuthError,
-  PoppyGrantSummary,
-  PoppySessionState,
-  PoppyTokenResponse,
-  PoppyVerifyOptions,
-} from './src/agents/poppy/service.js';
-export {
-  type PoppyWebSessionMarker,
-  poppyWebSession,
-  poppyWebSessionOf,
-} from './src/agents/poppy/web_session.js';
-export type {
   BuiltinProtocolId,
   PactOptions,
   PersonalAgentProtocol,
 } from './src/agents/protocol.js';
 export { pact, pactProtocol } from './src/agents/protocol.js';
+export {
+  type PersonalAgentRuntimeSource,
+  personalAgentExtensionRuntime,
+} from './src/agents/runtime.js';
 export type {
   AuditEvent,
   AuditEventType,
@@ -283,6 +240,10 @@ export type {
   AccountSecurityProps,
 } from './src/host/account_screen_props.js';
 export { ACCOUNT_SESSION_KEY } from './src/host/account_session_key.js';
+export {
+  signInAccountSession,
+  signOutAccountSession,
+} from './src/host/account_session_sign_in.js';
 // Organizations (multi-tenancy)
 export {
   ACTIVE_ORG_COOKIE,
@@ -407,6 +368,7 @@ export type {
   CustomMfaMethods,
 } from './src/host/custom_mfa.js';
 export { beginCustomMfa, customMfaViewProps, verifyCustomMfa } from './src/host/custom_mfa.js';
+export { sendAuthkitCodeEmail } from './src/host/default_mailer.js';
 export { normalizeEmailIdentifier } from './src/host/email_identifier.js';
 export type { ResolveGeo } from './src/host/geo.js';
 export { GEO_RESOLVE_TIMEOUT_MS, resolveGeoSafe } from './src/host/geo.js';
@@ -476,7 +438,6 @@ export {
 } from './src/host/otp_login.js';
 export type { PersistentRpOptions } from './src/host/persistent_rp_session.js';
 export { endRpSession } from './src/host/persistent_rp_session.js';
-export { POPPY_WEB_SESSION_KEY } from './src/host/poppy_session_key.js';
 export type { AuthThrottles, ThrottleMiddleware } from './src/host/rate_limit.js';
 export { createAuthThrottles } from './src/host/rate_limit.js';
 export type {
@@ -698,5 +659,5 @@ export {
 } from './src/provider/registration_policy.js';
 export { registerOidcRoutes } from './src/register_routes.js';
 export type { EnsureSchemaOptions, EnsureSchemaReport } from './src/schema/ensure.js';
-export { ensureAuthkitSchema } from './src/schema/ensure.js';
+export { ensureAuthkitSchema, ensureAuthkitTables } from './src/schema/ensure.js';
 export { stubsRoot } from './stubs/main.js';
