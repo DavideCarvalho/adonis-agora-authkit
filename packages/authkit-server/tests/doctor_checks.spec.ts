@@ -105,6 +105,20 @@ test.group('doctor checks', () => {
     assert.equal(f!.level, 'warn');
   });
 
+  test('admin on without authorize → warn; with authorize → ok', ({ assert }) => {
+    const open = checkAdmin(
+      baseInput({ authkitConfig: { admin: { enabled: true, roles: ['ADMIN'] } } }),
+    );
+    assert.equal(open!.level, 'warn');
+    assert.include(open!.message, 'admin.authorize');
+    const gated = checkAdmin(
+      baseInput({
+        authkitConfig: { admin: { enabled: true, roles: ['ADMIN'], authorize: () => true } },
+      }),
+    );
+    assert.equal(gated!.level, 'ok');
+  });
+
   test('webauthn rpId divergente do host do issuer vira warn', ({ assert }) => {
     const f = checkWebauthn(
       baseInput({

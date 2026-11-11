@@ -1,5 +1,6 @@
 import { test } from '@japa/runner';
 import {
+  authorizeByToken,
   type ConsoleAuthorizer,
   normalizeConsoleAuthorizeResult,
   resolveConsoleAuthorize,
@@ -114,5 +115,37 @@ test.group('resolveConsoleAuthorize', () => {
     });
     assert.deepEqual(await lazy(ctx), { allowed: false, status: 403 });
     assert.lengthOf(warnings, 3);
+  });
+});
+
+test.group('authorizeByToken', () => {
+  const withAuth = (value?: string) =>
+    ({ request: { header: (n: string) => (n === 'authorization' ? value : undefined) } }) as any;
+
+  test('allows the matching bearer token', ({ assert }) => {
+    const authorize = authorizeByToken({ token: 's3cret' });
+    assert.deepEqual(authorize(withAuth('Bearer s3cret')), { allowed: true });
+    assert.deepEqual(authorize(withAuth('bearer s3cret')), { allowed: true });
+  });
+
+  test('anything else is unauthenticated', ({ assert }) => {
+    const authorize = authorizeByToken({ token: 's3cret' });
+    const denied = { allowed: false, reason: 'unauthenticated' };
+    assert.deepEqual(authorize(withAuth('Bearer s3cre')), denied);
+    assert.deepEqual(authorize(withAuth('Bearer s3cretX')), denied);
+    assert.deepEqual(authorize(withAuth('s3cret')), denied);
+    assert.deepEqual(authorize(withAuth('Basic s3cret')), denied);
+    assert.deepEqual(authorize(withAuth(undefined)), denied);
+  });
+
+  test('an empty or missing token throws at config time', ({ assert }) => {
+    assert.throws(() => authorizeByToken({ token: '' }), /token/);
+    assert.throws(() => authorizeByToken({ token: undefined }), /token/);
+  });
+
+  test('is a ConsoleAuthorize the resolver accepts', async ({ assert }) => {
+    const check = resolveConsoleAuthorize(authorizeByToken({ token: 't' }));
+    assert.deepEqual(await check(withAuth('Bearer t')), { allowed: true });
+    assert.deepEqual(await check(withAuth()), { allowed: false, status: 401 });
   });
 });

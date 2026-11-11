@@ -99,7 +99,7 @@ const authServerConfig = defineConfig({
       'account/login', 'account/tokens', 'account/mfa',
     ],
   }),
-  admin: { enabled: true },    // enables the admin console (React SPA, pre-bundled in the package)
+  admin: { enabled: true, authorize: () => true }, // the admin console (React SPA); `authorize` is required in production
   adminApi: {
     enabled: true,
     apiKeys: [env.get('AUTHKIT_ADMIN_API_KEY')],

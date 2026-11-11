@@ -953,10 +953,10 @@ export interface AdminConfigInput {
    */
   impersonateAdmins?: boolean;
   /**
-   * Extra access check for the console, run after `roles` (both must pass), on the
-   * shell and on every `{prefix}/api/*` route. An inline function, an authorizer
-   * class (`@inject()` works) or a lazy import (`() => import('#policies/...')`).
-   * Omitted: `roles` alone decides.
+   * Access check for the console, run after `roles` (both must pass), on the shell
+   * and on every `{prefix}/api/*` route. An inline function, an authorizer class
+   * (`@inject()` works), a lazy import (`() => import('#policies/...')`) or
+   * `authorizeByToken({ token })`. Omitted: open outside production, 403 in production.
    */
   authorize?: ConsoleAuthorize;
 }

@@ -366,7 +366,7 @@ export function checkRateLimit(input: DoctorInput): Finding {
   return { level: 'ok', message: 'rate-limiting on and @adonisjs/limiter available.' };
 }
 
-/** admin.enabled mas sem roles → warn. Reporta o modo de UI ativo. */
+/** admin.enabled mas sem roles, ou sem `admin.authorize` → warn. Reporta o modo de UI ativo. */
 export function checkAdmin(input: DoctorInput): Finding | null {
   const admin = input.authkitConfig?.admin;
   if (!admin || admin.enabled !== true) return null;
@@ -376,6 +376,12 @@ export function checkAdmin(input: DoctorInput): Finding | null {
       level: 'warn',
       message:
         'admin console on, but no `admin.roles` — nobody will have access (the default ["ADMIN"] was not resolved here).',
+    };
+  }
+  if (!admin.authorize) {
+    return {
+      level: 'warn',
+      message: `admin console on for roles: ${roles.join(', ')}, but no \`admin.authorize\` — it is open outside production and denies every request in production. Set \`admin.authorize\` in config/authkit.ts.`,
     };
   }
   return {

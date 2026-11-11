@@ -310,10 +310,11 @@ the app refuses to boot unless `accountLoginUrl` (passed to `registerAuthHost` o
 The client id `authkit-console` is reserved for the consoles: the Admin API and
 `authkit:clients:create` reject it.
 
-## Restrict the admin console with `admin.authorize`
+## Set `admin.authorize` for the admin console in production
 
-The admin console takes a new optional `authorize`, the same one every `@adonis-agora` console
-takes. Nothing changes if you leave it out: `admin.roles` alone decides, as before.
+The admin console takes a new `authorize`, the same one every `@adonis-agora` console takes. It
+runs after `admin.roles`, and both must pass. **Without it, the console answers 403 to every
+request in production** (it stays open outside production), and the app logs a warning at boot.
 
 ```ts title="config/authkit.ts (before)"
 defineConfig({
@@ -322,19 +323,23 @@ defineConfig({
 })
 ```
 
-```ts title="config/authkit.ts (after, with an extra check)"
+```ts title="config/authkit.ts (after)"
 defineConfig({
   // …
   admin: {
     enabled: true,
     roles: ['ADMIN'],
-    authorize: () => import('#policies/console_access'),
+    // Any account with one of the roles, as before:
+    authorize: () => true,
+    // …or your own check:
+    // authorize: () => import('#policies/console_access'),
   },
 })
 ```
 
-`authorize` runs after the role check, and both must pass. See
-[Restricting access further](/docs/admin-console#restricting-access-further).
+A denial from `authorize` now renders a 403 page (401 for `reason: 'unauthenticated'`) instead
+of redirecting to `accountHome`. An account without one of the roles still goes to
+`accountHome`. See [Who can open the console](/docs/admin-console#who-can-open-the-console).
 
 ## Use `authkitClientGuard` for `ctx.auth`
 

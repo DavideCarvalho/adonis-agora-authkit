@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import type { HttpContext } from '@adonisjs/core/http';
 
 /**
@@ -100,5 +101,33 @@ export function resolveConsoleAuthorize(
       );
       return { allowed: false, status: 403 };
     }
+  };
+}
+
+/**
+ * A `ConsoleAuthorize` that lets in requests carrying `Authorization: Bearer <token>`.
+ * The comparison is timing-safe. Anything else is `{ allowed: false, reason: 'unauthenticated' }`.
+ * Throws when `token` is empty, so a missing env var fails at config time.
+ *
+ * ```ts
+ * authorize: authorizeByToken({ token: env.get('CONSOLE_TOKEN') })
+ * ```
+ */
+export function authorizeByToken(options: {
+  token: string | undefined | null;
+}): (ctx: HttpContext) => ConsoleAuthorizeResult {
+  const token = options?.token;
+  if (typeof token !== 'string' || token.length === 0) {
+    throw new Error('authorizeByToken: `token` is empty. Set it (e.g. env CONSOLE_TOKEN).');
+  }
+  const expected = createHash('sha256').update(token).digest();
+  return (ctx) => {
+    const header = ctx.request.header('authorization');
+    const match = typeof header === 'string' ? /^Bearer\s+(.+)$/i.exec(header.trim()) : null;
+    if (match) {
+      const given = createHash('sha256').update(match[1]!).digest();
+      if (timingSafeEqual(given, expected)) return { allowed: true };
+    }
+    return { allowed: false, reason: 'unauthenticated' };
   };
 }

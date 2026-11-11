@@ -1,4 +1,5 @@
 import type { Router } from '@adonisjs/core/http';
+import { getBootedApp } from '../../services/booted_app.js';
 import {
   type ConsoleAuthorize,
   type ConsoleAuthorizeDecision,
@@ -32,6 +33,7 @@ import {
   wasAuthHostAutoMounted,
 } from './auth_host_config.js';
 import type { PolicyRouteOption } from './config_locks.js';
+import { consoleDeniedPage } from './console_denied_page.js';
 import { CONSOLE_SSO_CALLBACK_PATH, CONSOLE_SSO_START_PATH } from './console_sso.js';
 import { endBridgedIdpSession, ensureConsoleSession } from './idp_session_bridge.js';
 import { POPPY_WEB_SESSION_KEY } from './poppy_session_key.js';
@@ -206,6 +208,8 @@ const accountGuard = async (ctx: any, next: () => Promise<void>) => {
  *      (senão → `accountHome(cfg)`, default /account/security — NÃO revela a
  *      existência do /admin, e cai numa tela que o host controla via `accountHome`;
  *      se a tela default estiver desmontada, aponte `config.accountHome` para uma montada).
+ *   3. `config.admin.authorize` liberando (403/401/redirect conforme o resultado). Omitido:
+ *      aberto fora de produção, 403 em produção.
  * As roles permitidas são resolvidas em runtime do `authkit.server` (config lazy).
  */
 export const adminGuard = async (ctx: any, next: () => Promise<void>) => {
@@ -247,24 +251,52 @@ export const adminGuard = async (ctx: any, next: () => Promise<void>) => {
     }
     return redirectExact(ctx.response, accountHome(cfg));
   }
-  // `admin.authorize`, after the roles: both must pass.
-  if (cfg.admin.authorize) {
-    const decision = await adminAuthorizeChecker(cfg.admin.authorize)(ctx);
-    if (!decision.allowed) {
-      if (wantsJson(ctx)) {
-        return decision.status === 401
-          ? ctx.response
-              .status(401)
-              .send({ error: { code: 'unauthenticated', message: 'Sign in to continue.' } })
-          : ctx.response
-              .status(403)
-              .send({ error: { code: 'forbidden', message: 'Access denied.' } });
-      }
-      return redirectExact(ctx.response, decision.redirectTo ?? accountHome(cfg));
-    }
-  }
+  // `admin.authorize`, after the roles: both must pass. Omitted, the console is open
+  // outside production and closed (403) in production.
+  const decision: ConsoleAuthorizeDecision = cfg.admin.authorize
+    ? await adminAuthorizeChecker(cfg.admin.authorize)(ctx)
+    : appInProduction()
+      ? { allowed: false, status: 403 }
+      : { allowed: true };
+  if (!decision.allowed) return consoleDenied(ctx, decision);
   return next();
 };
+
+/**
+ * Whether the app runs in production. Unknown (the provider did not register the
+ * app) counts as production, so an omitted `admin.authorize` fails closed.
+ */
+function appInProduction(): boolean {
+  try {
+    return getBootedApp().inProduction !== false;
+  } catch {
+    return true;
+  }
+}
+
+/** The response for an `admin.authorize` denial: same rules in every `@adonis-agora` console. */
+function consoleDenied(
+  ctx: any,
+  decision: Extract<ConsoleAuthorizeDecision, { allowed: false }>,
+): unknown {
+  const json = wantsJson(ctx);
+  if (decision.redirectTo) {
+    if (json) {
+      return ctx.response
+        .status(401)
+        .send({ error: 'unauthenticated', redirectTo: decision.redirectTo });
+    }
+    return redirectExact(ctx.response, decision.redirectTo);
+  }
+  if (decision.status === 401) {
+    if (json) return ctx.response.status(401).send({ error: 'unauthenticated' });
+    ctx.response.header('Content-Type', 'text/html; charset=utf-8');
+    return ctx.response.status(401).send(consoleDeniedPage(401));
+  }
+  if (json) return ctx.response.status(403).send({ error: 'forbidden' });
+  ctx.response.header('Content-Type', 'text/html; charset=utf-8');
+  return ctx.response.status(403).send(consoleDeniedPage(403));
+}
 
 /** One checker per configured `admin.authorize`, so a lazy import runs once. */
 const adminAuthorizeCheckers = new WeakMap<

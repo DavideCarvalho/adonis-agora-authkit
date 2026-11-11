@@ -1,4 +1,6 @@
 import { test } from '@japa/runner';
+import { setBootedApp } from '../../services/booted_app.js';
+import { authorizeByToken } from '../../src/console_authorize.js';
 import { adminGuard } from '../../src/host/register_auth_host.js';
 
 /**
@@ -15,6 +17,7 @@ function fakeCtx(opts: {
   requestUrl?: string;
   json?: boolean;
   authorize?: unknown;
+  headers?: Record<string, string>;
   resolveTokenRoles?: (
     account: { id: string; email: string; globalRoles?: string[] },
     context: unknown,
@@ -22,6 +25,7 @@ function fakeCtx(opts: {
 }) {
   const redirects: string[] = [];
   const sent: Array<{ status: number; body: unknown }> = [];
+  const headers: Record<string, string> = {};
   let status = 200;
   let notFoundCalled = false;
   const ctx = {
@@ -30,11 +34,16 @@ function fakeCtx(opts: {
       url: () => opts.requestUrl ?? '',
       parsedUrl: { search: '' },
       accepts: () => (opts.json ? 'json' : 'html'),
+      header: (name: string) => (opts.headers ?? {})[name.toLowerCase()],
     },
     response: {
       redirect: (to: string) => redirects.push(to),
       status(code: number) {
         status = code;
+        return this;
+      },
+      header(name: string, value: string) {
+        headers[name.toLowerCase()] = value;
         return this;
       },
       send: (body: unknown) => sent.push({ status, body }),
@@ -61,10 +70,16 @@ function fakeCtx(opts: {
             },
     },
   } as any;
-  return { ctx, redirects, sent, notFound: () => notFoundCalled };
+  return { ctx, redirects, sent, headers, notFound: () => notFoundCalled };
 }
 
-test.group('adminGuard', () => {
+test.group('adminGuard', (group) => {
+  // These cover the session and role checks; `admin.authorize` is omitted, so
+  // the app runs outside production (console open).
+  group.each.setup(() => {
+    setBootedApp({ inProduction: false } as any);
+    return () => setBootedApp(undefined as any);
+  });
   test('sem sessão → redireciona para /account/login', async ({ assert }) => {
     const { ctx, redirects } = fakeCtx({});
     let nextCalled = false;
@@ -186,8 +201,12 @@ test.group('adminGuard', () => {
   });
 });
 
-test.group('adminGuard | admin.authorize', () => {
+test.group('adminGuard | admin.authorize', (group) => {
   const admin = { id: 'u1', email: 'a@x.com', globalRoles: ['ADMIN'] };
+  group.each.setup(() => {
+    setBootedApp({ inProduction: true } as any);
+    return () => setBootedApp(undefined as any);
+  });
 
   async function run(opts: Parameters<typeof fakeCtx>[0]) {
     const out = fakeCtx({ sessionUserId: 'u1', account: admin, ...opts });
@@ -198,18 +217,34 @@ test.group('adminGuard | admin.authorize', () => {
     return { ...out, nextCalled };
   }
 
-  test('omitted → roles alone decide', async ({ assert }) => {
+  test('omitted, outside production → open', async ({ assert }) => {
+    setBootedApp({ inProduction: false } as any);
     const { nextCalled } = await run({});
     assert.isTrue(nextCalled);
   });
 
-  test('allowed → next()', async ({ assert }) => {
-    const { nextCalled, redirects } = await run({ authorize: async () => ({ allowed: true }) });
-    assert.isTrue(nextCalled);
-    assert.lengthOf(redirects, 0);
+  test('omitted, in production → 403 page and 403 JSON', async ({ assert }) => {
+    const page = await run({});
+    assert.isFalse(page.nextCalled);
+    assert.lengthOf(page.redirects, 0);
+    assert.equal(page.sent[0]?.status, 403);
+    assert.include(String(page.sent[0]?.body), 'Access denied');
+    assert.include(page.headers['content-type'] ?? '', 'text/html');
+    const api = await run({ json: true });
+    assert.isFalse(api.nextCalled);
+    assert.deepEqual(api.sent[0], { status: 403, body: { error: 'forbidden' } });
   });
 
-  test('runs after roles: not called for a non-admin', async ({ assert }) => {
+  test('omitted, app unknown → treated as production (403)', async ({ assert }) => {
+    setBootedApp(undefined as any);
+    const { nextCalled, sent } = await run({ json: true });
+    assert.isFalse(nextCalled);
+    assert.equal(sent[0]?.status, 403);
+  });
+
+  test('roles still run first: a non-admin goes to accountHome, authorize not called', async ({
+    assert,
+  }) => {
     let called = false;
     const { nextCalled, redirects } = await run({
       account: { id: 'u1', email: 'a@x.com', globalRoles: ['VIEWER'] },
@@ -223,32 +258,42 @@ test.group('adminGuard | admin.authorize', () => {
     assert.deepEqual(redirects, ['/account/security']);
   });
 
-  test('denied page navigation → accountHome', async ({ assert }) => {
-    const { nextCalled, redirects } = await run({ authorize: () => false });
-    assert.isFalse(nextCalled);
-    assert.deepEqual(redirects, ['/account/security']);
+  test('allowed → next(), also in production', async ({ assert }) => {
+    const { nextCalled, redirects } = await run({ authorize: async () => ({ allowed: true }) });
+    assert.isTrue(nextCalled);
+    assert.lengthOf(redirects, 0);
   });
 
-  test('denied JSON call → 403', async ({ assert }) => {
-    const { nextCalled, sent } = await run({ json: true, authorize: () => false });
-    assert.isFalse(nextCalled);
-    assert.equal(sent[0]?.status, 403);
+  test('false → 403 page on a navigation, 403 JSON on an API call', async ({ assert }) => {
+    const page = await run({ authorize: () => false });
+    assert.isFalse(page.nextCalled);
+    assert.lengthOf(page.redirects, 0);
+    assert.equal(page.sent[0]?.status, 403);
+    assert.include(String(page.sent[0]?.body), 'Access denied');
+    const api = await run({ json: true, authorize: () => ({ allowed: false }) });
+    assert.deepEqual(api.sent[0], { status: 403, body: { error: 'forbidden' } });
   });
 
-  test('unauthenticated JSON call → 401', async ({ assert }) => {
-    const { sent } = await run({
-      json: true,
-      authorize: () => ({ allowed: false, reason: 'unauthenticated' }),
-    });
-    assert.equal(sent[0]?.status, 401);
+  test("reason 'unauthenticated' → 401 page and 401 JSON", async ({ assert }) => {
+    const authorize = () => ({ allowed: false, reason: 'unauthenticated' }) as const;
+    const page = await run({ authorize });
+    assert.equal(page.sent[0]?.status, 401);
+    assert.include(String(page.sent[0]?.body), 'Sign in required');
+    const api = await run({ json: true, authorize });
+    assert.deepEqual(api.sent[0], { status: 401, body: { error: 'unauthenticated' } });
   });
 
-  test('redirectTo → 302 on a page, 401 on JSON', async ({ assert }) => {
+  test('redirectTo → 302 on a page, 401 JSON with redirectTo on an API call', async ({
+    assert,
+  }) => {
     const page = await run({ authorize: () => ({ redirectTo: '/step-up' }) });
     assert.deepEqual(page.redirects, ['/step-up']);
     const api = await run({ json: true, authorize: () => ({ redirectTo: '/step-up' }) });
     assert.lengthOf(api.redirects, 0);
-    assert.equal(api.sent[0]?.status, 401);
+    assert.deepEqual(api.sent[0], {
+      status: 401,
+      body: { error: 'unauthenticated', redirectTo: '/step-up' },
+    });
   });
 
   test('class form is built through the container', async ({ assert }) => {
@@ -261,14 +306,24 @@ test.group('adminGuard | admin.authorize', () => {
     assert.isTrue(nextCalled);
   });
 
-  test('a throwing authorize denies', async ({ assert }) => {
-    const { nextCalled, sent } = await run({
-      json: true,
-      authorize: () => {
-        throw new Error('boom');
-      },
-    });
-    assert.isFalse(nextCalled);
-    assert.equal(sent[0]?.status, 403);
+  test('a throwing authorize → 403', async ({ assert }) => {
+    const authorize = () => {
+      throw new Error('boom');
+    };
+    const api = await run({ json: true, authorize });
+    assert.isFalse(api.nextCalled);
+    assert.deepEqual(api.sent[0], { status: 403, body: { error: 'forbidden' } });
+    const page = await run({ authorize });
+    assert.equal(page.sent[0]?.status, 403);
+  });
+
+  test('authorizeByToken: the right bearer opens it, anything else is 401', async ({ assert }) => {
+    const authorize = authorizeByToken({ token: 's3cret' });
+    const ok = await run({ json: true, authorize, headers: { authorization: 'Bearer s3cret' } });
+    assert.isTrue(ok.nextCalled);
+    const wrong = await run({ json: true, authorize, headers: { authorization: 'Bearer nope' } });
+    assert.deepEqual(wrong.sent[0], { status: 401, body: { error: 'unauthenticated' } });
+    const none = await run({ json: true, authorize });
+    assert.equal(none.sent[0]?.status, 401);
   });
 });

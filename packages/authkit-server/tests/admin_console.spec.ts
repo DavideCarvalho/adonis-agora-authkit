@@ -341,7 +341,7 @@ test.group('registerAuthHost — console routes', () => {
 test.group('checkAdmin — doctor', () => {
   test('admin ligado → mensagem menciona a SPA', ({ assert }) => {
     const f = checkAdmin({
-      authkitConfig: { admin: { enabled: true, roles: ['ADMIN'] } } as any,
+      authkitConfig: { admin: { enabled: true, roles: ['ADMIN'], authorize: () => true } } as any,
     } as any);
     assert.equal(f!.level, 'ok');
     assert.include(f!.message, 'SPA');

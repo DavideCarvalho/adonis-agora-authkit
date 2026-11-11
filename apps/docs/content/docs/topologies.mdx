@@ -20,7 +20,7 @@ const authServerConfig = defineConfig({
   accountStore: lucidAccountStore(AuthUser),
   mountPath: '/oidc',
   render: inertiaRenderer({ prefix: 'authkit', views: ['login', 'consent', 'signup'] }),
-  admin: { enabled: true },
+  admin: { enabled: true, authorize: () => true },
   adminApi: { enabled: true, apiKeys: [env.get('AUTHKIT_ADMIN_API_KEY')] },
 })
 ```
@@ -58,7 +58,7 @@ const authServerConfig = defineConfig({
   accountStore: lucidAccountStore(AuthUser),
   mountPath: '/oidc',
   render: inertiaRenderer({ prefix: 'authkit', views: ['login', 'consent', 'signup'] }),
-  admin: { enabled: true },
+  admin: { enabled: true, authorize: () => true },
   adminApi: { enabled: true, apiKeys: [env.get('AUTHKIT_ADMIN_API_KEY')] },
 })
 ```

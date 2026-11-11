@@ -183,6 +183,7 @@ export type {
   ConsoleAuthorizer,
   ConsoleAuthorizerClass,
 } from './src/console_authorize.js';
+export { authorizeByToken } from './src/console_authorize.js';
 export type {
   AdminApiConfigInput,
   AdminConfigInput,
