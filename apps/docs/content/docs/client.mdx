@@ -646,31 +646,27 @@ export default class ImpersonationController {
 
 ## Gating an embedded dashboard
 
-Sibling libs that embed an admin console (`@adonis-agora/durable`, `@adonis-agora/media`,
-`@adonis-agora/agent`, `@adonis-agora/telescope`) each want the gate in a slightly different
-shape. `authkitDashboardAuthorize` and `authkitDashboardMiddleware` wrap the same
-`hasGlobalRole('ADMIN')` check as the two shapes those configs expect, so you don't hand-roll it
-per app:
+Every `@adonis-agora` console (durable, telescope, media, payments, agent) takes an `authorize`
+option. `authkitDashboardAuthorize()` is one ready to pass to any of them: the visitor must be
+signed in to authkit and hold the global role `ADMIN`.
 
 ```ts title="config/durable_dashboard.ts"
 import { authkitDashboardAuthorize } from "@adonis-agora/authkit-client";
 
 export default defineConfig({
-  authorize: authkitDashboardAuthorize(), // authorize: (ctx) => boolean
+  authorize: authkitDashboardAuthorize({ loginPath: "/login" }),
 });
 ```
 
-```ts title="config/media_dashboard.ts"
-import { authkitDashboardMiddleware } from "@adonis-agora/authkit-client";
+| Visitor | Answer |
+| --- | --- |
+| Not signed in | `401`, or a redirect to `loginPath` when set (API calls get `401` with `redirectTo`) |
+| Signed in without the role | `403` |
+| Signed in with the role | allowed |
 
-export default defineConfig({
-  middleware: authkitDashboardMiddleware(), // middleware: (ctx, next) => Promise<void>
-});
-```
-
-Pass `{ role: 'STAFF' }` if your host uses a different global role name for admin access. The
-underlying predicate, `isAuthkitAdmin(ctx, options?)`, is exported too if you need the boolean
-directly.
+Pass `{ role: 'STAFF' }` if your app uses another global role for admin access.
+`isAuthkitAdmin(ctx, options?)` gives the same check as a boolean, for use inside your own
+`authorize`.
 
 ## Endpoint discovery
 

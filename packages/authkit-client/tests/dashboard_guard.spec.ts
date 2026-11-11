@@ -2,11 +2,7 @@ import type { Identity } from '@adonis-agora/authkit-core';
 import type { HttpContext } from '@adonisjs/core/http';
 import { test } from '@japa/runner';
 import { Authenticator } from '../src/authenticator.js';
-import {
-  authkitDashboardAuthorize,
-  authkitDashboardMiddleware,
-  isAuthkitAdmin,
-} from '../src/host/dashboard_guard.js';
+import { authkitDashboardAuthorize, isAuthkitAdmin } from '../src/host/dashboard_guard.js';
 
 const adminIdentity: Identity = {
   userId: 'u1',
@@ -93,80 +89,40 @@ test.group('isAuthkitAdmin', () => {
 });
 
 test.group('authkitDashboardAuthorize', () => {
-  test('admin -> authorize(ctx) resolve true', async ({ assert }) => {
+  test('admin -> true', async ({ assert }) => {
     const { ctx } = fakeCtx(adminIdentity);
-    const authorize = authkitDashboardAuthorize();
-    assert.isTrue(await authorize(ctx));
+    assert.isTrue(await authkitDashboardAuthorize()(ctx));
   });
 
-  test('não-admin -> authorize(ctx) resolve false (o provider responde 403 sozinho)', async ({
-    assert,
-  }) => {
+  test('sessão sem a role -> false (403)', async ({ assert }) => {
     const { ctx } = fakeCtx(memberIdentity);
-    const authorize = authkitDashboardAuthorize();
-    assert.isFalse(await authorize(ctx));
+    assert.isFalse(await authkitDashboardAuthorize()(ctx));
   });
 
-  test('sem sessão -> authorize(ctx) resolve false', async ({ assert }) => {
+  test('sem sessão -> unauthenticated (401)', async ({ assert }) => {
     const { ctx } = fakeCtx(null);
-    const authorize = authkitDashboardAuthorize();
-    assert.isFalse(await authorize(ctx));
-  });
-});
-
-test.group('authkitDashboardMiddleware', () => {
-  test('admin -> chama next() e não toca em ctx.response', async ({ assert }) => {
-    const { ctx, response } = fakeCtx(adminIdentity);
-    const middleware = authkitDashboardMiddleware();
-    let nextCalled = false;
-
-    await middleware(ctx, async () => {
-      nextCalled = true;
+    assert.deepEqual(await authkitDashboardAuthorize()(ctx), {
+      allowed: false,
+      reason: 'unauthenticated',
     });
-
-    assert.isTrue(nextCalled);
-    assert.lengthOf(response.calls, 0);
   });
 
-  test('sessão sem a role -> 403 forbidden, next() NÃO chamado', async ({ assert }) => {
-    const { ctx, response } = fakeCtx(memberIdentity);
-    const middleware = authkitDashboardMiddleware();
-    let nextCalled = false;
-
-    await middleware(ctx, async () => {
-      nextCalled = true;
+  test('sem sessão + loginPath -> redirectTo', async ({ assert }) => {
+    const { ctx } = fakeCtx(null);
+    assert.deepEqual(await authkitDashboardAuthorize({ loginPath: '/login' })(ctx), {
+      redirectTo: '/login',
     });
-
-    assert.isFalse(nextCalled);
-    assert.lengthOf(response.calls, 1);
-    assert.equal(response.calls[0]?.method, 'forbidden');
   });
 
-  test('sem sessão -> 401 unauthorized, next() NÃO chamado', async ({ assert }) => {
-    const { ctx, response } = fakeCtx(null);
-    const middleware = authkitDashboardMiddleware();
-    let nextCalled = false;
-
-    await middleware(ctx, async () => {
-      nextCalled = true;
-    });
-
-    assert.isFalse(nextCalled);
-    assert.lengthOf(response.calls, 1);
-    assert.equal(response.calls[0]?.method, 'unauthorized');
+  test('loginPath não afeta quem está logado sem a role', async ({ assert }) => {
+    const { ctx } = fakeCtx(memberIdentity);
+    assert.isFalse(await authkitDashboardAuthorize({ loginPath: '/login' })(ctx));
   });
 
   test('role customizada via options.role', async ({ assert }) => {
     const staffIdentity: Identity = { ...memberIdentity, globalRoles: ['STAFF'] };
-    const { ctx, response } = fakeCtx(staffIdentity);
-    const middleware = authkitDashboardMiddleware({ role: 'STAFF' });
-    let nextCalled = false;
-
-    await middleware(ctx, async () => {
-      nextCalled = true;
-    });
-
-    assert.isTrue(nextCalled);
-    assert.lengthOf(response.calls, 0);
+    const { ctx } = fakeCtx(staffIdentity);
+    assert.isFalse(await authkitDashboardAuthorize()(ctx));
+    assert.isTrue(await authkitDashboardAuthorize({ role: 'STAFF' })(ctx));
   });
 });

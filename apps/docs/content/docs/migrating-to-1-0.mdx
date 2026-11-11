@@ -341,6 +341,29 @@ A denial from `authorize` now renders a 403 page (401 for `reason: 'unauthentica
 of redirecting to `accountHome`. An account without one of the roles still goes to
 `accountHome`. See [Who can open the console](/docs/admin-console#who-can-open-the-console).
 
+## Gate consoles with `authkitDashboardAuthorize`
+
+`authkitDashboardMiddleware` is removed: every `@adonis-agora` console now takes `authorize`, and
+a console gated only by `middleware` answers 403 in production. Use `authkitDashboardAuthorize`
+instead. A visitor without a session now gets `401` (or a redirect to `loginPath`) instead of
+`403`.
+
+```ts title="config/media_dashboard.ts (before)"
+import { authkitDashboardMiddleware } from "@adonis-agora/authkit-client";
+
+export default defineConfig({
+  middleware: authkitDashboardMiddleware(),
+});
+```
+
+```ts title="config/media_dashboard.ts (after)"
+import { authkitDashboardAuthorize } from "@adonis-agora/authkit-client";
+
+export default defineConfig({
+  authorize: authkitDashboardAuthorize({ loginPath: "/login" }),
+});
+```
+
 ## Use `authkitClientGuard` for `ctx.auth`
 
 `authkit_middleware` is removed, and `@adonisjs/auth` is now a **required** peer of
