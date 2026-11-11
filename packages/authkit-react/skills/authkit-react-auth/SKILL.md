@@ -120,7 +120,11 @@ Source: `packages/authkit-react/README.md` § 4.
 ### Pattern 3 — `AuthkitProvider` + ready components
 
 Wrap the app once to configure URLs/CSRF. The account components fetch through the
-Account API, so they also need `QueryClientProvider` + `AuthkitClientProvider`:
+Account API, so they also need `QueryClientProvider` + `AuthkitClientProvider`.
+`createAuthkitClient()` no longer reads `window.__AUTHKIT__`: pass `csrfToken`
+(and `baseUrl` when using `client.admin.*`) via `AuthkitClientProvider opts`
+— the `csrfToken` on `AuthkitProvider config` only covers `useCan`, not the
+typed client's mutations:
 
 ```tsx
 import '@adonis-agora/authkit-react/styles.css'
@@ -137,7 +141,7 @@ import {
 const queryClient = createAuthkitQueryClient()
 
 <QueryClientProvider client={queryClient}>
-  <AuthkitClientProvider>
+  <AuthkitClientProvider opts={{ csrfToken: page.props.csrfToken }}>
     <AuthkitProvider config={{ csrfToken: page.props.csrfToken }}>
       <UserButton />
       <UserProfile />
@@ -146,6 +150,9 @@ const queryClient = createAuthkitQueryClient()
   </AuthkitClientProvider>
 </QueryClientProvider>
 ```
+
+Admin screens also pass the admin base: `opts={{ baseUrl: '/admin/api', csrfToken }}`.
+Account-only screens work with the default `/account/api` base and need no `baseUrl`.
 
 Custom screens use the query options with `useQuery`/`useMutation`
 (`useMeQueryOptions`, `useAccountSessionsQueryOptions`, `useAppsQueryOptions`,
