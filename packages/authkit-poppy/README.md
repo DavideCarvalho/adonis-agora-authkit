@@ -5,8 +5,8 @@ The [Personal Agent Protocol ("Poppy")](https://personalagentprotocol.org/docs/s
 `Poppy-Session` agent sessions, Direct / Device / Mediated sign-in, DPoP, MCP tokens and browser
 sessions — as an extension of `@adonis-agora/authkit-server`.
 
-> **Experimental.** Poppy is a draft spec (this package targets Draft 0.3). The package stays on
-> 0.x and any minor can break; pin it with `~0.x.y`.
+> **Experimental.** Poppy is a draft spec. The package version follows the draft it implements:
+> `0.3.x` is Draft 0.3, and the next draft ships as a new minor. Pin it with `~0.3.0`.
 
 ```sh
 node ace add @adonis-agora/authkit-poppy

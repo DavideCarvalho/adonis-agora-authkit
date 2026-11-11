@@ -1,6 +1,8 @@
 # @adonis-agora/authkit-poppy
 
-## 0.1.0-rc.0
+## 0.3.0
+
+The package version follows the Poppy spec draft it implements: 0.3.x is Draft 0.3.
 
 ### Minor Changes
 

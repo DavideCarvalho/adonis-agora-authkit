@@ -9,9 +9,9 @@ The [Personal Agent Protocol ("Poppy")](https://personalagentprotocol.org/docs/s
 **Draft 0.3 still in development**. This implementation targets **Draft 0.3**, with no
 compatibility with earlier drafts (the spec allows that before 1.0), and tracks the
 spec as it evolves. It ships as its own package, **`@adonis-agora/authkit-poppy`**, which stays on
-**0.x**: its config, its exports (`verifyPoppyRequest`, `poppyAuth`, the global slots…) and the wire
-behaviour can change in any minor while the spec is a draft. Pin it with `~0.x.y` if you depend on
-it. `@adonis-agora/authkit-server` itself is unaffected: it only provides the
+**0.x**, and its version follows the spec draft it implements: `0.3.x` is Draft 0.3, and the next
+draft ships as a new minor. Its config, its exports (`verifyPoppyRequest`, `poppyAuth`, the global
+slots…) and the wire behaviour can change with each draft. Pin it with `~0.3.0`. `@adonis-agora/authkit-server` itself is unaffected: it only provides the
 [extension points](/docs/authkit/personal-agents#other-protocols-extensions) the package plugs into.
 </Callout>
 
