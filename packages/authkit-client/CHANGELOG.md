@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-client
 
+## 1.0.0-rc.1
+
+### Major Changes
+
+- [#451](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/451) [`1162aee`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/1162aeeee00d4706b8515d89e37f93d172cec44a) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `authkitDashboardMiddleware` is removed: every `@adonis-agora` console takes `authorize` now, so use `authkitDashboardAuthorize()` in its place. `authkitDashboardAuthorize` tells the two denials apart: a visitor without a session gets `401` (`{ allowed: false, reason: 'unauthenticated' }`) instead of `403`, and with the new `loginPath` option is sent to the app's login (`{ redirectTo }`). Signed in without the role is still `403`.
+
 ## 1.0.0-rc.0
 
 ### Major Changes
