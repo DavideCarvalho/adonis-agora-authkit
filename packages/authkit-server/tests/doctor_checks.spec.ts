@@ -9,6 +9,7 @@ import {
   checkAuthMethodsSetting,
   checkBotProtection,
   checkClients,
+  checkConsoleSignIn,
   checkIssuer,
   checkJwks,
   checkPasswordPolicy,
@@ -582,5 +583,46 @@ test.group('doctor — colunas do model do account store', () => {
     const all = findings.map((f) => f.message).join(' ');
     assert.notInclude(all, "'password'");
     assert.include(all, 'passwordResetToken');
+  });
+});
+
+test.group('doctor: entrada nos consoles', () => {
+  test('default (SSO): ok', ({ assert }) => {
+    const f = checkConsoleSignIn(
+      baseInput({ authkitConfig: { accountSession: { acceptIdpSession: true } } }),
+    );
+    assert.equal(f!.level, 'ok');
+  });
+
+  test('`acceptIdpSession: false`: warn', ({ assert }) => {
+    const f = checkConsoleSignIn(
+      baseInput({ authkitConfig: { accountSession: { acceptIdpSession: false } } }),
+    );
+    assert.equal(f!.level, 'warn');
+  });
+
+  test('`acceptIdpSession: false` + senha desligada: error', ({ assert }) => {
+    const f = checkConsoleSignIn(
+      baseInput({
+        authkitConfig: {
+          accountSession: { acceptIdpSession: false },
+          authMethods: { password: false },
+        },
+      }),
+    );
+    assert.equal(f!.level, 'error');
+  });
+
+  test('`acceptIdpSession: false` + senha desligada + `accountLoginUrl`: warn', ({ assert }) => {
+    const f = checkConsoleSignIn(
+      baseInput({
+        authkitConfig: {
+          accountSession: { acceptIdpSession: false },
+          authMethods: { password: false },
+          routes: { accountLoginUrl: '/login' },
+        },
+      }),
+    );
+    assert.equal(f!.level, 'warn');
   });
 });

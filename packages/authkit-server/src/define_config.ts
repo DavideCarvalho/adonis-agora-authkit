@@ -1526,8 +1526,16 @@ export interface AuthServerConfigInput {
    * expiração), e o "Sair" do console encerra também a sessão do IdP. Contas
    * desabilitadas não entram. Operações sensíveis continuam pedindo sudo.
    *
-   * Default `false`: o console só aceita a própria sessão (`POST /account/login`),
-   * como sempre.
+   * Default `true`: o console é mais um app do IdP. Sem sessão, `/account/*` e o
+   * console admin mandam o visitante para o login do IdP (`/auth/console/sso`,
+   * client interno `authkit-console`) e voltam com o console aberto. Um único
+   * login, como no Keycloak, Okta e Google; o que protege as operações
+   * sensíveis é o sudo, não um segundo login.
+   *
+   * `false`: o console só aceita a própria sessão (`POST /account/login`, por
+   * senha). Com `authMethods: { password: false }` isso deixa o console sem
+   * nenhum jeito de entrar, então o boot recusa a combinação, a menos que
+   * `routes.accountLoginUrl` aponte para um login do próprio host.
    */
   accountSession?: { acceptIdpSession?: boolean };
 }
@@ -1811,6 +1819,25 @@ export function defineConfig(config: AuthServerConfigInput) {
       );
     }
 
+    // Console sem porta de entrada: SSO desligado (`acceptIdpSession: false`) deixa
+    // só o login próprio do console, que é por senha; com a senha desligada
+    // (`authMethods: { password: false }`) ninguém consegue entrar em
+    // `/account/*` nem no console admin. Só passa se o host apontou o redirect de
+    // "faça login" para um login dele (`routes.accountLoginUrl`).
+    const routesOpt = typeof config.routes === 'object' ? config.routes : undefined;
+    if (
+      config.accountSession?.acceptIdpSession === false &&
+      config.authMethods?.password === false &&
+      !routesOpt?.accountLoginUrl
+    ) {
+      throw new Error(
+        'authkit: `accountSession.acceptIdpSession: false` com `authMethods: { password: false }` ' +
+          'deixa o console de conta e o console admin sem nenhum jeito de entrar (o login próprio ' +
+          'do console é por senha). Remova `acceptIdpSession: false` (o default entra pelo login ' +
+          'do IdP) ou aponte `routes.accountLoginUrl` para um login do seu app.',
+      );
+    }
+
     // BACKSTOP DE SUDO. Um host cujo `sudo.methods` não tem um único método
     // satisfazível por conta sem senha fica bricado para TODA operação sob
     // `requireSudo` — e hoje isso só se descobre quando um usuário não consegue
@@ -1956,7 +1983,7 @@ export function defineConfig(config: AuthServerConfigInput) {
       lockedRouteOptions: deriveLockedRouteOptions(config as Record<string, any>),
       // Opt-in: ausente = authkit nunca toca `ctx.auth` (comportamento de sempre).
       adonisAuth: config.adonisAuth,
-      accountSession: { acceptIdpSession: config.accountSession?.acceptIdpSession === true },
+      accountSession: { acceptIdpSession: config.accountSession?.acceptIdpSession !== false },
     };
   });
 }

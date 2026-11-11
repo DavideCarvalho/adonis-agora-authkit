@@ -27,7 +27,8 @@ import {
   wasAuthHostAutoMounted,
 } from './auth_host_config.js';
 import type { PolicyRouteOption } from './config_locks.js';
-import { ensureConsoleSession } from './idp_session_bridge.js';
+import { CONSOLE_SSO_CALLBACK_PATH, CONSOLE_SSO_START_PATH } from './console_sso.js';
+import { endBridgedIdpSession, ensureConsoleSession } from './idp_session_bridge.js';
 import { POPPY_WEB_SESSION_KEY } from './poppy_session_key.js';
 import { createAuthThrottles } from './rate_limit.js';
 import { redirectExact } from './redirect_exact.js';
@@ -96,7 +97,10 @@ async function checkAndRefreshIdle(ctx: any): Promise<boolean> {
     const lastSeen = ctx.session?.get(ACCOUNT_LAST_SEEN_KEY) as number | undefined;
     const now = Date.now();
     if (lastSeen !== undefined && now - lastSeen > idleMs) {
-      // Idle excedido: encerra a sessão.
+      // Idle excedido: encerra a sessão. Console aberto pela sessão do IdP (SSO):
+      // encerra também essa sessão, senão a ponte reabriria o console no próximo
+      // request e o idle timeout não teria efeito.
+      await endBridgedIdpSession(ctx);
       ctx.session?.forget(ACCOUNT_SESSION_KEY);
       ctx.session?.forget(ACCOUNT_LAST_SEEN_KEY);
       return true;
@@ -578,6 +582,7 @@ const C = {
   social: () => import('./controllers/social_controller.js'),
   patIntrospection: () => import('./controllers/pat_introspection_controller.js'),
   accountSession: () => import('./controllers/account_session_controller.js'),
+  consoleSso: () => import('./controllers/console_sso_controller.js'),
   accountTokens: () => import('./controllers/account_tokens_controller.js'),
   accountSecurity: () => import('./controllers/account_security_controller.js'),
   accountApps: () => import('./controllers/account_apps_controller.js'),
@@ -889,6 +894,14 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
   // Provider OIDC (wildcard + root) — o que registerOidcRoutes fazia.
   router.any(`${mount}/*`, [C.oidc]).as('authkit.oidc.wildcard');
   router.any(mount, [C.oidc]).as('authkit.oidc.root');
+
+  // Login do console pelo IdP (SSO; client interno `authkit-console`, ver
+  // `console_sso.ts`). Sempre montado: com `acceptIdpSession: false` o início só
+  // redireciona para o login próprio do console.
+  router.get(CONSOLE_SSO_START_PATH, [C.consoleSso, 'start']).as('authkit.console_sso.start');
+  router
+    .get(CONSOLE_SSO_CALLBACK_PATH, [C.consoleSso, 'callback'])
+    .as('authkit.console_sso.callback');
 
   // Interaction (login multi-step + consent + signup).
   // Cada rota passa por `keep(key, …)`: entra em `AuthHostRouteMap.routes`/`urls` e

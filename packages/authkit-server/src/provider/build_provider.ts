@@ -2,6 +2,7 @@ import * as oidc from 'oidc-provider';
 import { pickModelAdapterClass } from '../adapters/factory.js';
 import type { ResolvedServerConfig } from '../define_config.js';
 import { normalizeActiveOrg, readActiveOrgFromKoaCtx } from '../host/active_org_cookie.js';
+import { consoleSsoClientMetadata } from '../host/console_sso.js';
 import { findMcpResource, mcpAuthorizeMiddleware } from '../mcp/mcp_oauth.js';
 import { createDeviceSources } from './device_sources.js';
 import { createLogoutSources } from './logout_sources.js';
@@ -185,6 +186,11 @@ export function buildProvider(
       : {};
 
   const provider = new oidc.Provider(config.issuer, {
+    // Client interno do login do console pelo IdP (ver `host/console_sso.ts`).
+    // Estático: não passa pelo adapter, então não aparece no console de clients.
+    ...(config.accountSession?.acceptIdpSession
+      ? { clients: [consoleSsoClientMetadata(config.issuer)] }
+      : {}),
     // O ator (`act`, RFC 8693) dos access tokens de impersonation — ver
     // `impersonationExtraClaims` em `token_exchange.ts`. Sem isto o token trocado
     // não se distingue de um token do próprio alvo no resource server.

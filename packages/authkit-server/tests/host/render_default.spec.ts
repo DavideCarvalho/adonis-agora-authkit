@@ -62,7 +62,8 @@ test.group('render default (ITEM 3)', () => {
       session: { get: () => undefined },
       request: {
         csrfToken: 'csrf-tok',
-        qs: () => ({ return_to: undefined }),
+        // O default é entrar pelo IdP (redirect); o formulário de senha é o `?method=password`.
+        qs: () => ({ return_to: undefined, method: 'password' }),
         input: () => undefined,
       },
       response: { redirect: () => {} },

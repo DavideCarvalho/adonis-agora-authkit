@@ -121,6 +121,23 @@ test.group('AdminClientsService (CRUD de clients OIDC adapter-backed)', (group) 
     assert.deepEqual(found.metadata().redirect_uris, [`${issuer}/app/cb`]);
   });
 
+  test('o client_id do console (`authkit-console`) é reservado', async ({ assert, cleanup }) => {
+    const port = 9934;
+    const { issuer, service, server } = await startService(port, db);
+    cleanup(() => new Promise<void>((r) => server.close(() => r())));
+
+    const admin = new AdminClientsService(service);
+    const input = {
+      clientId: 'authkit-console',
+      redirectUris: [`${issuer}/app/cb`],
+      postLogoutRedirectUris: [],
+      grantTypes: ['authorization_code'],
+      tokenEndpointAuthMethod: 'none',
+    } as const;
+    await assert.rejects(() => admin.create(input), /reservado/);
+    await assert.rejects(() => admin.createWithSecret(input, undefined), /reservado/);
+  });
+
   test('update invalida o cache: find devolve a metadata NOVA', async ({ assert, cleanup }) => {
     const port = 9843;
     const { issuer, service, server } = await startService(port, db);

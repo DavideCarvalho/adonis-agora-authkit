@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type { EnumeratedClient, OidcAdapter } from '../adapters/adapter_contract.js';
 import type { OidcService } from '../provider/oidc_service.js';
 import { type ApplicationType, assertClientMetadata } from './client_metadata.js';
+import { CONSOLE_SSO_CLIENT_ID } from './console_sso.js';
 
 /** Métodos de autenticação no token endpoint suportados pelo formulário admin. */
 export type TokenEndpointAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none';
@@ -118,6 +119,7 @@ export class AdminClientsService {
    */
   async create(input: ClientInput): Promise<CreatedClient> {
     const clientId = (input.clientId ?? '').trim() || randomId();
+    assertNotReservedClientId(clientId);
     const confidential = !PUBLIC_AUTH_METHODS.has(input.tokenEndpointAuthMethod);
     const clientSecret = confidential ? randomId() : undefined;
     const payload = this.#buildPayload(clientId, input, clientSecret);
@@ -139,6 +141,7 @@ export class AdminClientsService {
     providedSecret: string | undefined,
   ): Promise<CreatedClient> {
     const clientId = (input.clientId ?? '').trim() || randomId();
+    assertNotReservedClientId(clientId);
     const confidential = !PUBLIC_AUTH_METHODS.has(input.tokenEndpointAuthMethod);
     const clientSecret = confidential ? (providedSecret ?? randomId()) : undefined;
     const payload = this.#buildPayload(clientId, input, clientSecret);
@@ -297,5 +300,12 @@ export class AdminClientsService {
         (p.backchannel_logout_session_required as boolean | undefined) ?? false;
     }
     return result;
+  }
+}
+
+/** O `client_id` do client interno do console (ver `console_sso.ts`) não pode ser cadastrado. */
+function assertNotReservedClientId(clientId: string): void {
+  if (clientId === CONSOLE_SSO_CLIENT_ID) {
+    throw new Error(`client_id "${clientId}" é reservado pelo authkit`);
   }
 }

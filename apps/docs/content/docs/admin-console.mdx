@@ -14,12 +14,10 @@ host sees no change in behaviour until it says so in `config/authkit.ts`.
 
 ## Enabling it
 
-<Callout type="warn">
-  The console and its API sign people in with the **account console session**
-  (`POST /account/login`, which takes a password). If your app turns password login off and
-  signs people in with magic links, codes, passkeys or social logins only, set
-  `accountSession: { acceptIdpSession: true }`: otherwise nobody can reach `/account/*` or
-  the admin console. See [Console session](/docs/console-session#single-sign-on-with-the-idp-session).
+<Callout type="info">
+  The console signs people in through the IdP login, the same one your apps use, so a user
+  already signed in to an app opens it directly. See
+  [Console session](/docs/console-session#single-sign-on-with-the-idp-session).
 </Callout>
 
 Turning the console on is a single decision, taken in `config/authkit.ts`:
@@ -306,8 +304,8 @@ whole group — the shell **and** every `{prefix}/api/*` endpoint. In order, it 
 
 1. `admin.enabled: true` — when the console is **disabled**, the guard responds with **404
    Not Found** (the routes simply don't exist as far as a caller can tell);
-2. an active **account session** (otherwise a redirect to the account login URL, default
-   `/account/login`, carrying a `return_to`);
+2. an active **account session**, or an IdP session it can open one from (otherwise a
+   redirect to the IdP login, carrying a `return_to`);
 3. a session that has not idled out — the account console's idle timeout applies here too,
    and an expired one redirects to login with `reason=idle`;
 4. the signed-in account having at least one of `admin.roles` (otherwise a redirect to the

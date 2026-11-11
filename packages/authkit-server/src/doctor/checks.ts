@@ -1036,6 +1036,45 @@ export function checkFirstPartyClients(input: DoctorInput): Finding | null {
 }
 
 /**
+ * Como se entra no console de conta e no console admin. O default é o login do
+ * IdP (SSO, `accountSession.acceptIdpSession`); desligado, o console só tem o
+ * login próprio por senha.
+ */
+export function checkConsoleSignIn(input: DoctorInput): Finding | null {
+  const cfg = input.authkitConfig;
+  if (!cfg) return null;
+  const sso = cfg.accountSession?.acceptIdpSession !== false;
+  const passwordOff = cfg.authMethods?.password === false;
+  const routes = typeof cfg.routes === 'object' && cfg.routes ? cfg.routes : undefined;
+  if (!sso && passwordOff && !routes?.accountLoginUrl) {
+    return {
+      level: 'error',
+      message:
+        'The account and admin consoles have no way to sign in: `accountSession.acceptIdpSession` ' +
+        'is false and password login is off (`authMethods: { password: false }`). Remove ' +
+        '`acceptIdpSession: false` so the consoles sign in through the IdP, or point ' +
+        '`routes.accountLoginUrl` at a login route of your app.',
+    };
+  }
+  if (!sso) {
+    return {
+      level: 'warn',
+      message:
+        'The consoles use their own password login (`accountSession.acceptIdpSession: false`): ' +
+        'users sign in twice, and passwordless accounts cannot open them. The default (SSO through ' +
+        'the IdP login) is recommended; sensitive operations still ask for sudo.',
+    };
+  }
+  return {
+    level: 'ok',
+    message:
+      'The consoles sign in through the IdP login (SSO). Sensitive operations ask for sudo. ' +
+      'Make sure admin accounts have MFA enrolled (or require it for everyone with ' +
+      '`mfa.requiredFactors`).',
+  };
+}
+
+/**
  * Finding da idade da chave de assinatura managed. `ageDays === null` (sem
  * keystore em arquivo/cofre) → no-op `ok`. Acima de `maxAgeDays` → `warn`.
  */
@@ -1112,6 +1151,8 @@ export function runAllChecks(input: DoctorInput): Finding[] {
   if (passkeyAutofill) findings.push(passkeyAutofill);
   const firstPartyClients = checkFirstPartyClients(input);
   if (firstPartyClients) findings.push(firstPartyClients);
+  const consoleSignIn = checkConsoleSignIn(input);
+  if (consoleSignIn) findings.push(consoleSignIn);
   return findings;
 }
 

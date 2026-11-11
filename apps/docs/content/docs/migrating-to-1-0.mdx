@@ -285,6 +285,30 @@ node ace authkit:clients:create --client-id=mobile --native --redirect-uri=com.a
 `backchannelLogoutSessionRequired` has no CLI flag: set it in the admin console or with
 `PATCH /api/authkit/v1/clients/:id` after creating the client.
 
+## Consoles sign in through the IdP login
+
+`accountSession.acceptIdpSession` now defaults to `true`. `/account/*` and the admin console
+send people without a console session to the IdP login, and open for anyone already signed
+in to one of your apps. `/account/login` redirects there too; the old password form is at
+`/account/login?method=password`.
+
+If you already set `accountSession: { acceptIdpSession: true }`, remove it.
+
+To keep the separate password login, opt out:
+
+```ts title="config/authkit.ts"
+defineConfig({
+  // …
+  accountSession: { acceptIdpSession: false },
+})
+```
+
+With `authMethods: { password: false }`, that opt-out leaves the consoles with no way in, so
+the app refuses to boot unless `routes.accountLoginUrl` points at a login route of yours.
+
+The client id `authkit-console` is reserved for the consoles: the Admin API and
+`authkit:clients:create` reject it.
+
 ## Use `authkitClientGuard` for `ctx.auth`
 
 `authkit_middleware` is removed, and `@adonisjs/auth` is now a **required** peer of
