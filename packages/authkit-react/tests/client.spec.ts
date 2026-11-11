@@ -50,6 +50,29 @@ test.group('AuthkitClient — URL construction', () => {
     assert.equal(calls[0].url, '/admin/api/users/user%2Fwith%2Fslashes');
   });
 
+  test('account.agents.list() / revoke() hit /account/api/agents', async ({ assert }) => {
+    const { calls, fetch: mockFetch } = captureFetch();
+    const client = createAuthkitClient({ csrfToken: 'tok', fetch: mockFetch });
+    await client.account.agents.list();
+    await client.account.agents.revoke('pgrant_1/x');
+    assert.equal(calls[0].url, '/account/api/agents');
+    assert.equal(calls[0].init.method, 'GET');
+    assert.equal(calls[1].url, '/account/api/agents/pgrant_1%2Fx');
+    assert.equal(calls[1].init.method, 'DELETE');
+    assert.equal((calls[1].init.headers as Record<string, string>)['X-CSRF-TOKEN'], 'tok');
+  });
+
+  test('without baseUrl, admin calls fail even when a window global exists', async ({ assert }) => {
+    const originalWindow = (globalThis as any).window;
+    (globalThis as any).window = { __AUTHKIT__: { endpoints: { api: '/admin/api' } } };
+    try {
+      const client = createAuthkitClient({ fetch: captureFetch().fetch });
+      await assert.rejects(() => client.admin.overview(), /baseUrl/);
+    } finally {
+      (globalThis as any).window = originalWindow;
+    }
+  });
+
   test('monta URL de account.me() com accountBaseUrl customizado', async ({ assert }) => {
     const { calls, fetch: mockFetch } = captureFetch();
     const client = createAuthkitClient({
@@ -100,7 +123,7 @@ test.group('AuthkitClient — CSRF injection', () => {
       csrfToken: 'my-token',
       fetch: mockFetch,
     });
-    await client.admin.users.update('123', { name: 'Ana' });
+    await client.admin.users.update('123', { globalRoles: ['ADMIN'] });
     const headers = calls[0].init.headers as Record<string, string>;
     assert.equal(headers['X-CSRF-TOKEN'], 'my-token');
   });

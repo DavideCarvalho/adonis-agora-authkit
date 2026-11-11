@@ -7,7 +7,7 @@ const ISSUER = { issuer: 'https://idp.example.com' };
 function clients(list: Array<{ clientId: string; clientSecret?: string; grants: string[] }>) {
   return list.map((c) => ({
     clientId: c.clientId,
-    grants: c.grants,
+    grantTypes: c.grants,
     confidential: c.clientSecret !== undefined,
   }));
 }

@@ -106,8 +106,12 @@ export const clientInputValidator = vine.compile(
     grantTypes: grantTypeArray.optional(),
     tokenEndpointAuthMethod: authMethod.optional(),
     // backchannel_logout_uri também precisa ser URI absoluta (L10).
-    backchannelLogoutUri: vine.string().trim().url(URL_OPTS).optional(),
+    // `null` (update) remove a URI.
+    backchannelLogoutUri: vine.string().trim().url(URL_OPTS).nullable().optional(),
     backchannelLogoutSessionRequired: vine.boolean().optional(),
+    // `null` (update) removes them.
+    clientName: vine.string().trim().maxLength(200).nullable().optional(),
+    logoUri: vine.string().trim().url(URL_OPTS).nullable().optional(),
   }),
 );
 
@@ -119,8 +123,10 @@ export type ClientInputFields = {
   postLogoutRedirectUris?: string[];
   grantTypes?: string[];
   tokenEndpointAuthMethod?: TokenEndpointAuthMethod;
-  backchannelLogoutUri?: string;
+  backchannelLogoutUri?: string | null;
   backchannelLogoutSessionRequired?: boolean;
+  clientName?: string | null;
+  logoUri?: string | null;
 };
 
 /**
@@ -140,6 +146,8 @@ export function clientCreateInput(v: ClientInputFields): ClientInput {
       v.tokenEndpointAuthMethod ?? (applicationType === 'native' ? 'none' : 'client_secret_basic'),
     backchannelLogoutUri: v.backchannelLogoutUri || undefined,
     backchannelLogoutSessionRequired: v.backchannelLogoutSessionRequired,
+    clientName: v.clientName || undefined,
+    logoUri: v.logoUri || undefined,
   };
 }
 
@@ -156,9 +164,11 @@ export function clientPartialInput(v: ClientInputFields): Partial<ClientInput> {
   if (v.tokenEndpointAuthMethod !== undefined)
     out.tokenEndpointAuthMethod = v.tokenEndpointAuthMethod;
   if (v.backchannelLogoutUri !== undefined)
-    out.backchannelLogoutUri = v.backchannelLogoutUri.trim() || undefined;
+    out.backchannelLogoutUri = v.backchannelLogoutUri?.trim() || null;
   if (v.backchannelLogoutSessionRequired !== undefined)
     out.backchannelLogoutSessionRequired = v.backchannelLogoutSessionRequired;
+  if (v.clientName !== undefined) out.clientName = v.clientName?.trim() || null;
+  if (v.logoUri !== undefined) out.logoUri = v.logoUri?.trim() || null;
   return out;
 }
 

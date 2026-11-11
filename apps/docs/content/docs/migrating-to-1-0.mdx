@@ -199,6 +199,49 @@ After:
 ```
 
 
+## Read `grantTypes` from client responses
+
+The admin clients API (console and Admin API) and the SDK's `clients.*` return `grantTypes`, the
+same name the requests use. They also return `clientName` and `logoUri`.
+
+Before:
+
+```ts
+const client = await authkit.clients.get('web')
+const canRefresh = client.grants.includes('refresh_token')
+```
+
+After:
+
+```ts
+const client = await authkit.clients.get('web')
+const canRefresh = client.grantTypes.includes('refresh_token')
+```
+
+## Pass `baseUrl` to `createAuthkitClient`
+
+The client no longer reads a `window.__AUTHKIT__` global. Pass the admin API base when you
+call `client.admin.*`, and the request's CSRF token for mutations:
+
+Before:
+
+```tsx
+<AuthkitClientProvider>
+  <AdminPage />
+</AuthkitClientProvider>
+```
+
+After:
+
+```tsx
+<AuthkitClientProvider opts={{ baseUrl: '/admin/api', csrfToken }}>
+  <AdminPage />
+</AuthkitClientProvider>
+```
+
+Anonymous requests to the admin and account JSON APIs now get `401` (or `403` without an
+admin role) instead of a redirect, so handle the status where you call them.
+
 ## Create OIDC clients outside `defineConfig`
 
 `defineConfig` no longer takes a `clients` list. Clients live in the adapter: create them in the

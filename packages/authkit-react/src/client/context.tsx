@@ -1,10 +1,10 @@
 /**
  * Contexto React que distribui o `AuthkitClient` para hooks de query/mutation.
  *
- * Uso mínimo (browser com window.__AUTHKIT__):
+ * Uso mínimo (Account API, base `/account/api`):
  * ```tsx
  * <QueryClientProvider client={queryClient}>
- *   <AuthkitClientProvider>
+ *   <AuthkitClientProvider opts={{ csrfToken }}>
  *     <App />
  *   </AuthkitClientProvider>
  * </QueryClientProvider>

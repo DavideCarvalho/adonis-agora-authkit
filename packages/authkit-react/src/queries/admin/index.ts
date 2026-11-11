@@ -31,6 +31,7 @@ import type {
   CreateOrgInput,
   CreateRoleInput,
   CreateUserInput,
+  DeletedResult,
   ImpersonationPanel,
   KeysRotateInput,
   KeysRotateResult,
@@ -41,6 +42,7 @@ import type {
   PersonalAgentRegistryResult,
   PersonalAgentsOverview,
   RegenerateSecretResult,
+  ResetPasswordResult,
   RevokeSessionsResult,
   RoleCatalogEntry,
   RoleListResult,
@@ -125,7 +127,7 @@ export function useDisableUserMutationOptions(id: string) {
   return {
     mutationKey: ['authkit', 'admin', 'users', id, 'disable'],
     mutationFn: () => client.admin.users.disable(id),
-  } satisfies UseMutationOptions<{ id: string; disabled: true }, AuthkitClientError, void>;
+  } satisfies UseMutationOptions<AdminUser, AuthkitClientError, void>;
 }
 
 export function useEnableUserMutationOptions(id: string) {
@@ -133,7 +135,7 @@ export function useEnableUserMutationOptions(id: string) {
   return {
     mutationKey: ['authkit', 'admin', 'users', id, 'enable'],
     mutationFn: () => client.admin.users.enable(id),
-  } satisfies UseMutationOptions<{ id: string; disabled: false }, AuthkitClientError, void>;
+  } satisfies UseMutationOptions<AdminUser, AuthkitClientError, void>;
 }
 
 export function useResetPasswordMutationOptions(id: string) {
@@ -141,7 +143,7 @@ export function useResetPasswordMutationOptions(id: string) {
   return {
     mutationKey: ['authkit', 'admin', 'users', id, 'reset-password'],
     mutationFn: () => client.admin.users.resetPassword(id),
-  } satisfies UseMutationOptions<{ id: string; sent: boolean }, AuthkitClientError, void>;
+  } satisfies UseMutationOptions<ResetPasswordResult, AuthkitClientError, void>;
 }
 
 export function useDeleteUserMutationOptions(id: string) {
@@ -149,7 +151,7 @@ export function useDeleteUserMutationOptions(id: string) {
   return {
     mutationKey: ['authkit', 'admin', 'users', id, 'delete'],
     mutationFn: () => client.admin.users.remove(id),
-  } satisfies UseMutationOptions<{ id: string; deleted: boolean }, AuthkitClientError, void>;
+  } satisfies UseMutationOptions<DeletedResult, AuthkitClientError, void>;
 }
 
 export function useRevokeUserSessionsMutationOptions(id: string) {
@@ -226,7 +228,7 @@ export function useDeleteClientMutationOptions(id: string) {
   return {
     mutationKey: ['authkit', 'admin', 'clients', id, 'delete'],
     mutationFn: () => client.admin.clients.remove(id),
-  } satisfies UseMutationOptions<{ clientId: string; deleted: boolean }, AuthkitClientError, void>;
+  } satisfies UseMutationOptions<DeletedResult, AuthkitClientError, void>;
 }
 
 export function useRegenerateClientSecretMutationOptions(id: string) {

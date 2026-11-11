@@ -14,6 +14,14 @@ host sees no change in behaviour until it says so in `config/authkit.ts`.
 
 ## Enabling it
 
+<Callout type="warn">
+  The console and its API sign people in with the **account console session**
+  (`POST /account/login`, which takes a password). If your app turns password login off and
+  signs people in with magic links, codes, passkeys or social logins only, set
+  `accountSession: { acceptIdpSession: true }`: otherwise nobody can reach `/account/*` or
+  the admin console. See [Console session](/docs/console-session#single-sign-on-with-the-idp-session).
+</Callout>
+
 Turning the console on is a single decision, taken in `config/authkit.ts`:
 
 ```ts title="config/authkit.ts"
@@ -208,10 +216,11 @@ check either way.
 ```ts title="app/middleware/authkit_admin_middleware.ts"
 import type { HttpContext } from '@adonisjs/core/http'
 import type { NextFn } from '@adonisjs/core/types/http'
-import { consoleLoginUrl, realAccountId } from '@adonis-agora/authkit-server'
+import { consoleLoginUrl, ensureConsoleSession, realAccountId } from '@adonis-agora/authkit-server'
 
 export default class AuthkitAdminMiddleware {
   async handle(ctx: HttpContext, next: NextFn) {
+    await ensureConsoleSession(ctx) // honours accountSession.acceptIdpSession
     const accountId = realAccountId(ctx) // the human, even while impersonating
     if (!accountId) return ctx.response.redirect(consoleLoginUrl(ctx.request.url()))
 
@@ -305,6 +314,11 @@ whole group — the shell **and** every `{prefix}/api/*` endpoint. In order, it 
    configured `accountHome` — default `/account/security` — so the existence of `/admin` is
    not leaked).
 
+A request that asks for JSON (`Accept: application/json`, as the React client sends) gets a
+status instead of a redirect: **401** without a session (or after the idle timeout) and **403**
+without an admin role. The account console's JSON API (`/account/api/*`) answers **401** the
+same way.
+
 Two details worth knowing. The `admin.enabled` check at step 1 is a genuine safety net, not
 a formality: routes are registered before the lazy config resolves, so the guard is the
 thing that makes a disabled console actually behave as if it were never mounted. And the
@@ -341,6 +355,7 @@ under `{prefix}/api/*`. All endpoints are protected by the `adminGuard`.
 | `POST {prefix}/api/sessions/revoke-all` | Revoke all sessions for an account |
 | `GET {prefix}/api/clients` | List adapter-stored OIDC clients |
 | `POST {prefix}/api/clients` | Create a dynamic client |
+| `GET {prefix}/api/clients/:id` | One client (`404` if unknown) |
 | `PATCH {prefix}/api/clients/:id` | Edit a dynamic client |
 | `DELETE {prefix}/api/clients/:id` | Delete a dynamic client |
 | `POST {prefix}/api/clients/:id/regenerate-secret` | Regenerate client secret |

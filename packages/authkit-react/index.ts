@@ -23,6 +23,8 @@ export {
 export type {
   // Account – Orgs (escrita headless)
   AcceptOrgInvitationResult,
+  AccountAgentGrant,
+  AccountAgentsResult,
   // Account – Apps
   AccountAppEntry,
   AccountAppsResult,
@@ -79,6 +81,7 @@ export type {
   // Admin – Overview
   DailyPoint,
   DeactivateOrgResult,
+  DeletedResult,
   EmailChangeResult,
   // Admin – Impersonation
   ImpersonationPanel,
@@ -116,6 +119,7 @@ export type {
   RemoveOrgMemberResult,
   RemovePasskeyResult,
   RequestEmailChangeInput,
+  ResetPasswordResult,
   RevokeAllResult,
   RevokeAppResult,
   RevokeOrgInvitationResult,
@@ -275,6 +279,7 @@ export { AuthContext, AuthProvider } from './src/provider.js';
 export {
   useAccountAcceptOrgInvitationMutationOptions,
   useAccountActivateOrgMutationOptions,
+  useAccountAgentsQueryOptions,
   // Orgs — ESCRITA (espelho JSON de /account/orgs, para telas do próprio host).
   // Prefixo `useAccount…` porque a superfície ADMIN exporta homônimos que agem
   // sobre qualquer org; estas agem sobre as orgs do usuário logado.
@@ -315,6 +320,7 @@ export {
   useRegenerateRecoveryCodesMutationOptions,
   useRegisterPasskeyMutationOptions,
   useRemovePasskeyMutationOptions,
+  useRevokeAccountAgentMutationOptions,
   useRevokeAppMutationOptions,
   useRevokeOtherSessionsMutationOptions,
   useRevokeSessionMutationOptions,

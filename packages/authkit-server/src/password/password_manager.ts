@@ -259,6 +259,11 @@ export class PasswordManager {
       needsRehash: (hashed: string) => boolean;
     },
   ): Promise<PasswordVerifyResult> {
+    // No password at all (a form posted with only the e-mail): a failed check,
+    // not a TypeError from the HMAC/hasher.
+    if (typeof plainPassword !== 'string' || plainPassword === '') {
+      return { ok: false, rehash: false };
+    }
     const peppers = resolvePeppers(this.pepper);
     const currentPepper = Array.isArray(this.pepper) ? this.pepper[0] : (this.pepper ?? '');
 

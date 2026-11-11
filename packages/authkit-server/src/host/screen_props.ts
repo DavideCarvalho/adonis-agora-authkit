@@ -249,7 +249,14 @@ export interface AccountAppsProps extends WithMessages {
   }> | null;
   /** Flash with the revoked app, or `null`. */
   revoked: string | null;
-  apps: Array<{ clientId: string; name: string; accessTokens: number; refreshTokens: number }>;
+  apps: Array<{
+    clientId: string;
+    name: string;
+    /** The client's registered `logo_uri`, or `null`. */
+    logoUrl: string | null;
+    accessTokens: number;
+    refreshTokens: number;
+  }>;
 }
 
 /** `account/tokens` — personal access tokens. */

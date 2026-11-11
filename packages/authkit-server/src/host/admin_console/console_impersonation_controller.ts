@@ -113,7 +113,7 @@ async function listRuntimeClients(service: {
     if (!clients.canList) return [];
     return (await clients.list()).map((c) => ({
       clientId: c.clientId,
-      grants: c.grants,
+      grantTypes: c.grantTypes,
       confidential: c.confidential,
     }));
   } catch {

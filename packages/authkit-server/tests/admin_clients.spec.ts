@@ -155,6 +155,32 @@ test.group('AdminClientsService (CRUD de clients OIDC adapter-backed)', (group) 
     );
   });
 
+  test('update: backchannelLogoutUri null removes it, undefined keeps it', async ({
+    assert,
+    cleanup,
+  }) => {
+    const port = 9849;
+    const { issuer, service, server } = await startService(port, db);
+    cleanup(() => new Promise<void>((r) => server.close(() => r())));
+
+    const admin = new AdminClientsService(service);
+    const created = await admin.create({
+      redirectUris: [`${issuer}/cb`],
+      postLogoutRedirectUris: [],
+      grantTypes: ['authorization_code'],
+      tokenEndpointAuthMethod: 'client_secret_basic',
+      backchannelLogoutUri: `${issuer}/bc`,
+    });
+
+    await admin.update(created.clientId, { redirectUris: [`${issuer}/cb2`] });
+    assert.equal((await admin.find(created.clientId))?.backchannelLogoutUri, `${issuer}/bc`);
+
+    await admin.update(created.clientId, { backchannelLogoutUri: null });
+    assert.isUndefined((await admin.find(created.clientId))?.backchannelLogoutUri);
+    const fresh = await (service.provider as any).Client.find(created.clientId);
+    assert.notProperty(fresh.metadata(), 'backchannel_logout_uri');
+  });
+
   test('regenerateSecret troca o secret preservando o resto da metadata', async ({
     assert,
     cleanup,

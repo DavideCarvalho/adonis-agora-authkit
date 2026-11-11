@@ -157,10 +157,12 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
     return {
       clientId: client.clientId,
       confidential: client.confidential,
-      grants: client.grants,
+      grantTypes: client.grantTypes,
       redirectUris: client.redirectUris,
       postLogoutRedirectUris: client.postLogoutRedirectUris,
       tokenEndpointAuthMethod: client.tokenEndpointAuthMethod,
+      clientName: client.clientName ?? null,
+      logoUri: client.logoUri ?? null,
     };
   }
 

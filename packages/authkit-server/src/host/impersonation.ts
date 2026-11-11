@@ -28,7 +28,7 @@ export interface ImpersonationPanel {
  */
 export interface ImpersonationClientLike {
   clientId: string;
-  grants?: string[];
+  grantTypes?: string[];
   /** Client confidencial: o curl sai com o placeholder do secret. */
   confidential?: boolean;
 }
@@ -49,7 +49,7 @@ export function buildImpersonationPanel(
   targetId: string,
   clients: readonly ImpersonationClientLike[],
 ): ImpersonationPanel | null {
-  const client = clients.find((c) => (c.grants ?? []).includes(TOKEN_EXCHANGE));
+  const client = clients.find((c) => (c.grantTypes ?? []).includes(TOKEN_EXCHANGE));
   if (!client) return null;
 
   const tokenEndpoint = `${cfg.issuer.replace(/\/+$/, '')}/token`;

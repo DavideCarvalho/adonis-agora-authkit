@@ -1,5 +1,5 @@
 import { test } from '@japa/runner';
-import { clientInputValidator } from '../../src/host/admin_validators.js';
+import { clientInputValidator, clientPartialInput } from '../../src/host/admin_validators.js';
 
 /**
  * Validadores de input de client OIDC — cobre os fixes de segurança:
@@ -98,5 +98,16 @@ test.group('clientInputValidator (security: M10 grants allowlist + L10 URLs)', (
       backchannelLogoutUri: 'https://app1/auth/backchannel-logout',
     });
     assert.equal(out.backchannelLogoutUri, 'https://app1/auth/backchannel-logout');
+  });
+
+  test('backchannelLogoutUri: null and an empty value clear it on update', async ({ assert }) => {
+    const cleared = clientPartialInput(
+      await clientInputValidator.validate({ backchannelLogoutUri: null }),
+    );
+    assert.deepEqual(cleared, { backchannelLogoutUri: null });
+    assert.notProperty(
+      clientPartialInput(await clientInputValidator.validate({})),
+      'backchannelLogoutUri',
+    );
   });
 });

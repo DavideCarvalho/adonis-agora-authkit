@@ -11,6 +11,12 @@ export default class AccountAuthMiddleware {
   async handle(ctx: HttpContext, next: NextFn) {
     // Sessão do console — ou, com `accountSession.acceptIdpSession`, a do IdP (SSO).
     if (!(await ensureConsoleSession(ctx))) {
+      // JSON callers get a status, not an HTML login page.
+      if (ctx.request?.accepts?.(['html', 'json']) === 'json') {
+        return ctx.response
+          .status(401)
+          .send({ error: { code: 'unauthenticated', message: 'Sign in to continue.' } });
+      }
       // Destino configurável (`accountLoginUrl`): default `/account/login`.
       return ctx.response.redirect(getAccountLoginUrl());
     }

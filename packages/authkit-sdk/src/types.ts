@@ -135,10 +135,14 @@ export interface RevokeSessionsResult {
 export interface AuthkitClient {
   clientId: string;
   confidential: boolean;
-  grants: string[];
+  grantTypes: string[];
   redirectUris: string[];
   postLogoutRedirectUris: string[];
   tokenEndpointAuthMethod: string;
+  /** Registered `client_name`, or `null`. */
+  clientName: string | null;
+  /** Registered `logo_uri`, or `null`. */
+  logoUri: string | null;
 }
 
 export interface ListClientsResult {

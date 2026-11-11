@@ -85,8 +85,20 @@ export function ClientsListContainer({
           {clients.map((c) => (
             <div key={c.clientId} className="panel" style={{ padding: '14px 16px' }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+                {c.logoUri && (
+                  <img
+                    src={c.logoUri}
+                    alt=""
+                    style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'contain' }}
+                  />
+                )}
                 <div style={{ flex: 1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    {c.clientName && (
+                      <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>
+                        {c.clientName}
+                      </span>
+                    )}
                     <span
                       style={{
                         fontFamily: 'var(--mono)',
@@ -102,7 +114,7 @@ export function ClientsListContainer({
                     </span>
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
-                    {c.grants.map((g) => (
+                    {c.grantTypes.map((g) => (
                       <span key={g} className="badge badge-muted">
                         {g}
                       </span>

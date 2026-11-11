@@ -468,7 +468,7 @@ the config-derived defaults. An empty login screen is never surfaced to users.
 
 **Effect on the UI / endpoints:**
 
-- `password: false` — the password input and submit button are removed from the login form.
+- `password: false` — the password input and submit button are removed from the login form. The account console logs in with a password too: set `accountSession: { acceptIdpSession: true }` so `/account/*` and the admin console accept the IdP session instead (see [Console session](/docs/console-session#single-sign-on-with-the-idp-session)).
 - `forgotPassword: false` (or auto-derived) — the "forgot my password" link is removed and
   the `GET /auth/forgot-password` + `POST /auth/forgot-password` endpoints return 404.
 - `magicLink: false` — the magic-link button is hidden and the magic-link endpoints are

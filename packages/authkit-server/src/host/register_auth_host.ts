@@ -149,18 +149,41 @@ function isPoppyBrowser(ctx: any): boolean {
   return typeof marker === 'object' && marker !== null && typeof marker.sessionId === 'string';
 }
 
+/**
+ * `true` when the caller wants JSON (an `Accept` that prefers `application/json`,
+ * as `fetch` from the React client sends): a JSON API answers it with a status,
+ * not with a redirect to an HTML login page.
+ */
+export function wantsJson(ctx: any): boolean {
+  try {
+    return ctx.request?.accepts?.(['html', 'json']) === 'json';
+  } catch {
+    return false;
+  }
+}
+
+/** 401 for a JSON caller, otherwise the redirect to the login. */
+function unauthenticated(ctx: any, redirectTo: string) {
+  if (wantsJson(ctx)) {
+    return ctx.response
+      .status(401)
+      .send({ error: { code: 'unauthenticated', message: 'Sign in to continue.' } });
+  }
+  return redirectExact(ctx.response, redirectTo);
+}
+
 const accountGuard = async (ctx: any, next: () => Promise<void>) => {
   // O navegador de um personal agent Poppy (§5) não entra no console de conta nem
   // nas telas de consentimento: a sessão é do agente, não do usuário.
   if (isPoppyBrowser(ctx)) return ctx.response.status(403).send('');
   // Sessão do console — ou, com `accountSession.acceptIdpSession`, a do IdP (SSO).
   if (!(await ensureConsoleSession(ctx))) {
-    return redirectExact(ctx.response, buildLoginRedirect(ctx));
+    return unauthenticated(ctx, buildLoginRedirect(ctx));
   }
   // Idle timeout: encerra e redireciona com query param de motivo.
   const idleExpired = await checkAndRefreshIdle(ctx);
   if (idleExpired) {
-    return redirectExact(ctx.response, buildLoginRedirect(ctx, 'reason=idle'));
+    return unauthenticated(ctx, buildLoginRedirect(ctx, 'reason=idle'));
   }
   return next();
 };
@@ -191,12 +214,12 @@ export const adminGuard = async (ctx: any, next: () => Promise<void>) => {
   const accountId = ctx.session?.get(ACCOUNT_SESSION_KEY) as string | undefined;
   if (!accountId) {
     // `/account/login` é sempre o login da conta — NÃO muda com o prefixo admin.
-    return redirectExact(ctx.response, buildLoginRedirect(ctx));
+    return unauthenticated(ctx, buildLoginRedirect(ctx));
   }
   // Idle timeout: também protege o console admin.
   const idleExpired = await checkAndRefreshIdle(ctx);
   if (idleExpired) {
-    return redirectExact(ctx.response, buildLoginRedirect(ctx, 'reason=idle'));
+    return unauthenticated(ctx, buildLoginRedirect(ctx, 'reason=idle'));
   }
   const allowed = cfg.admin.roles as string[];
   const account = await cfg.accountStore.findById(accountId);
@@ -208,6 +231,11 @@ export const adminGuard = async (ctx: any, next: () => Promise<void>) => {
   if (!isAdmin) {
     // Evita vazar a existência do console admin: redireciona para o accountHome
     // (sem mostrar a URL do admin).
+    if (wantsJson(ctx)) {
+      return ctx.response
+        .status(403)
+        .send({ error: { code: 'forbidden', message: 'Admin role required.' } });
+    }
     return ctx.response.redirect(accountHome(cfg));
   }
   return next();
@@ -1373,6 +1401,7 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
         // Clients OIDC.
         router.get(`${ap}/api/clients`, [C.consoleClients, 'index']);
         router.post(`${ap}/api/clients`, [C.consoleClients, 'store']);
+        router.get(`${ap}/api/clients/:id`, [C.consoleClients, 'show']);
         router.patch(`${ap}/api/clients/:id`, [C.consoleClients, 'update']);
         router.delete(`${ap}/api/clients/:id`, [C.consoleClients, 'destroy']);
         router.post(`${ap}/api/clients/:id/regenerate-secret`, [

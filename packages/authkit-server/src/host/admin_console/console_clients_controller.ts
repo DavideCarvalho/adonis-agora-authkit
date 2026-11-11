@@ -22,6 +22,7 @@ function invalidMetadata(ctx: HttpContext, err: ClientMetadataError) {
  *
  * GET    {prefix}/api/clients                 → lista clients dinâmicos
  * POST   {prefix}/api/clients                 → criar client (secret retornado UMA vez)
+ * GET    {prefix}/api/clients/:id             → um client (404 se não existir)
  * PATCH  {prefix}/api/clients/:id             → atualizar metadata
  * DELETE {prefix}/api/clients/:id             → remover client
  * POST   {prefix}/api/clients/:id/regenerate-secret → gerar novo secret
@@ -36,6 +37,14 @@ export default class ConsoleClientsController {
     }
     const clients = await svc.list();
     return { data: clients.map(clientDto), canList: true };
+  }
+
+  /** GET {prefix}/api/clients/:id */
+  async show(ctx: HttpContext) {
+    const service = await ctx.containerResolver.make('authkit.server');
+    const client = await new AdminClientsService(service).find(ctx.request.param('id'));
+    if (!client) return ctx.response.notFound(apiError('not_found', 'Client não encontrado.'));
+    return clientDto(client);
   }
 
   /** POST {prefix}/api/clients */

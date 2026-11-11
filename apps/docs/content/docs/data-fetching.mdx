@@ -68,14 +68,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
 You can bring your own `QueryClient` — the helper is purely optional.
 
-`AuthkitClientProvider` reads `window.__AUTHKIT__` (injected by the admin shell) to
-configure the base URLs and CSRF token automatically. In SSR or tests, pass an explicit
-client:
+`AuthkitClientProvider` takes the client's options (`opts`) or a ready `client`. Pass the
+request's CSRF token (for mutations) and, for `client.admin.*`, the admin API base:
 
 ```tsx
 import { createAuthkitClient, AuthkitClientProvider } from '@adonis-agora/authkit-react'
 
-const client = createAuthkitClient({ baseUrl: '/admin/api', csrfToken: 'test-token' })
+const client = createAuthkitClient({ baseUrl: '/admin/api', csrfToken })
 
 <AuthkitClientProvider client={client}>
   <App />
@@ -84,18 +83,17 @@ const client = createAuthkitClient({ baseUrl: '/admin/api', csrfToken: 'test-tok
 
 ## The typed client
 
-`createAuthkitClient(opts?)` returns a typed wrapper around `fetch`. It uses
-`window.__AUTHKIT__` for URLs and CSRF by default.
+`createAuthkitClient(opts?)` returns a typed wrapper around `fetch`.
 
 ```ts
 import { createAuthkitClient } from '@adonis-agora/authkit-react'
 
-// Browser — reads window.__AUTHKIT__ automatically
-const client = createAuthkitClient()
+// Account API only
+const client = createAuthkitClient({ csrfToken })
 
-// Explicit (SSR, tests, custom topologies)
+// Admin API too
 const client = createAuthkitClient({
-  baseUrl: '/admin/api',       // default: window.__AUTHKIT__.endpoints.api
+  baseUrl: '/admin/api',       // required for client.admin.*
   accountBaseUrl: '/account/api', // default: '/account/api'
   csrfToken: 'my-token',
   fetch: customFetch,          // optional — inject a mock in tests
@@ -113,17 +111,17 @@ const client = createAuthkitClient({
 | `admin.users.update(id, data)` | `PATCH /users/:id` | Partial update |
 | `admin.users.disable(id)` | `POST /users/:id/disable` | Blocks login |
 | `admin.users.enable(id)` | `POST /users/:id/enable` | Re-enables account |
-| `admin.users.resetPassword(id)` | `POST /users/:id/reset-password` | Sends email |
-| `admin.users.remove(id)` | `DELETE /users/:id` | Cascade delete |
+| `admin.users.resetPassword(id)` | `POST /users/:id/reset-password` | Sends email; `{ ok, email }` |
+| `admin.users.remove(id)` | `DELETE /users/:id` | Cascade delete; `{ ok, deleted }` |
 | `admin.users.getSessions(id)` | `GET /users/:id/sessions` | Active sessions |
 | `admin.users.revokeSessions(id)` | `POST /users/:id/revoke-sessions` | Revoke all |
 | `admin.sessions.list(accountId?)` | `GET /sessions` | All active sessions |
 | `admin.sessions.revokeAll(accountId?)` | `POST /sessions/revoke-all` | — |
 | `admin.clients.list()` | `GET /clients` | — |
-| `admin.clients.get(id)` | `GET /clients/:id` | — |
+| `admin.clients.get(id)` | `GET /clients/:id` | One client; `404` when unknown |
 | `admin.clients.create(data?)` | `POST /clients` | — |
 | `admin.clients.update(id, data?)` | `PATCH /clients/:id` | — |
-| `admin.clients.remove(id)` | `DELETE /clients/:id` | — |
+| `admin.clients.remove(id)` | `DELETE /clients/:id` | `{ ok, deleted }` |
 | `admin.clients.regenerateSecret(id)` | `POST /clients/:id/regenerate-secret` | Shown once |
 | `admin.roles.list()` | `GET /roles` | — |
 | `admin.roles.create(data)` | `POST /roles` | — |
@@ -147,8 +145,7 @@ const client = createAuthkitClient({
 | `admin.keys.status()` | `GET /keys` | Signing-key age, policy, next-rotation ETA |
 | `admin.keys.rotate(input?)` | `POST /keys/rotate` | `{ retire?, keep? }` |
 
-All methods under `admin.*` hit `{adminBase}/api/*` — the prefix is derived from
-`window.__AUTHKIT__.endpoints.api` or `opts.baseUrl`.
+All methods under `admin.*` hit `opts.baseUrl` (`{adminBase}/api`); without it they throw.
 
 ### Account surface — `client.account.*`
 
@@ -166,6 +163,8 @@ All methods under `admin.*` hit `{adminBase}/api/*` — the prefix is derived fr
 | `account.sessions.revokeAll()` | `POST /account/api/sessions/revoke-all` | Sign out of all devices, including the current one |
 | `account.apps.list()` | `GET /account/api/apps` | Authorized OAuth grants |
 | `account.apps.revoke(clientId)` | `DELETE /account/api/apps/:clientId` | — |
+| `account.agents.list()` | `GET /account/api/agents` | Personal agents with a delegation (`404` when the feature is off) |
+| `account.agents.revoke(grantId)` | `DELETE /account/api/agents/:id` | Revokes the delegation now |
 | `account.mfa()` | `GET /account/api/mfa` | TOTP + passkeys + recovery status |
 | `account.mfa.enroll()` | `POST /account/api/mfa/totp/enroll` | Requires sudo; returns secret + otpauth URI + QR data-URL |
 | `account.mfa.confirm(code)` | `POST /account/api/mfa/totp/confirm` | Turns MFA on; recovery codes returned once |
@@ -272,6 +271,7 @@ side is `{ page, size }`, matching `@adonis-agora/filter`.
 | `useSecurityQueryOptions()` | `authkitKeys.account.security()` | Security overview |
 | `useAccountSessionsQueryOptions()` | `authkitKeys.account.sessions()` | — |
 | `useAppsQueryOptions()` | `authkitKeys.account.apps()` | Authorized apps |
+| `useAccountAgentsQueryOptions()` | `authkitKeys.account.agents()` | Personal agents |
 | `useMfaQueryOptions()` | `authkitKeys.account.mfa()` | MFA status |
 | `usePasskeysQueryOptions()` | `authkitKeys.account.passkeys()` | — |
 | `useTokensQueryOptions()` | `authkitKeys.account.tokens()` | PATs |
@@ -337,6 +337,7 @@ full control.
 | `useRevokeOtherSessionsMutationOptions()` | `void` | — |
 | `useAccountRevokeAllSessionsMutationOptions()` | `void` | Sign out of all devices, including the current session |
 | `useRevokeAppMutationOptions()` | `string` (clientId) | — |
+| `useRevokeAccountAgentMutationOptions()` | `string` (grant id) | Invalidate `authkitKeys.account.agents()` |
 | `useRemovePasskeyMutationOptions()` | `string` (passkey id) | Requires sudo |
 | `useCreateTokenMutationOptions()` | `CreateTokenInput?` | Requires sudo; secret returned once |
 | `useRevokeTokenMutationOptions()` | `string` (token id) | Requires sudo |
@@ -664,7 +665,7 @@ const client = createAuthkitClient({
   baseUrl: 'http://localhost:3333/admin/api',
   csrfToken: 'test',
   fetch: vi.fn().mockResolvedValue(
-    new Response(JSON.stringify({ users: [], total: 0 }), { status: 200 })
+    new Response(JSON.stringify({ meta: { page: 1, size: 20, total: 0 }, data: [] }), { status: 200 })
   ),
 })
 ```

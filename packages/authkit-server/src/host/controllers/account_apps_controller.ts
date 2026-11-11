@@ -6,7 +6,7 @@ import { personalAgentsFor } from '../../agents/runtime.js';
 import { accountPath } from '../account_paths.js';
 import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
-import { clientDisplayNames } from '../client_names.js';
+import { clientDisplayInfo } from '../client_names.js';
 
 /**
  * Self-service de consentimento ("apps com acesso") no console de conta. Lista os
@@ -29,12 +29,12 @@ export default class AccountAppsController {
     const grantList = supported ? await sessions.listGrants(accountId) : [];
 
     // O nome que o client registrou; sem ele, o clientId.
-    const names = await clientDisplayNames(
+    const info = await clientDisplayInfo(
       service,
       grantList.map((g) => g.clientId).filter((id): id is string => !!id),
     );
     const nameOf = (clientId?: string): string =>
-      clientId ? (names.get(clientId) ?? clientId) : '';
+      clientId ? (info.get(clientId)?.name ?? clientId) : '';
 
     const revoked = ctx.session.flashMessages.get('appRevoked') as string | undefined;
 
@@ -78,6 +78,7 @@ export default class AccountAppsController {
         .map((g) => ({
           clientId: g.clientId as string,
           name: nameOf(g.clientId),
+          logoUrl: info.get(g.clientId as string)?.logoUrl ?? null,
           accessTokens: g.accessTokens,
           refreshTokens: g.refreshTokens,
         })),

@@ -24,6 +24,11 @@ Breaking changes (`@adonis-agora/authkit-server`):
 - `/account/orgs/json`, `/account/orgs/invitations/json` and `/account/orgs/:id/json` are removed; use `/account/api/orgs/*`.
 - `GET /account/api/apps` entries gain `name` and `logoUrl`.
 
+- The admin console reads its config from a `<script type="application/json" id="authkit-admin-config">` data block (CSP-safe) instead of an inline `window.__AUTHKIT__` script; the dev fallback is gone.
+- The admin client DTO returns `grantTypes` (was `grants`), plus `clientName` and `logoUri`, which the console and the Admin API can now set (`null` removes them, as it does `backchannelLogoutUri`). `GET {admin}/api/clients/:id` exists.
+- Anonymous JSON callers of the admin and account JSON APIs get `401` (and `403` without an admin role) instead of a redirect to the login page.
+- Fixes: the Redis adapter's `list()` honours the connection `keyPrefix` (sessions, apps and admin lists were empty); a password login posted without a password is an invalid-credentials answer, not a 500.
+
 Breaking changes (`@adonis-agora/authkit-core`):
 
 - `ClientConfig` and `ResolvedAuthServerConfig.clients` are removed.
@@ -39,7 +44,16 @@ Breaking changes (`@adonis-agora/authkit-client`):
 - `resolvers.jwt({ tokenSource: 'bearer' })` accepts `Authorization: DPoP <jwt>` with a valid `DPoP` proof for `cnf.jkt`-bound tokens, and refuses DPoP-bound tokens sent as `Bearer`.
 - `UnauthorizedAccessConstructor` is no longer exported, and `AuthkitClientGuard` no longer takes an exception class; it always throws `@adonisjs/auth`'s `E_UNAUTHORIZED_ACCESS`.
 
+Breaking changes (`@adonis-agora/authkit-sdk`):
+
+- `clients.*` return `grantTypes` (was `grants`), plus `clientName` and `logoUri`.
+
 Breaking changes (`@adonis-agora/authkit-react`):
+
+- `createAuthkitClient()` no longer reads `window.__AUTHKIT__`: pass `baseUrl` for `client.admin.*` and `csrfToken`.
+- Admin response types match the server: `users.remove` / `clients.remove` → `{ ok, deleted }`, `users.resetPassword` → `{ ok, email }`, `users.disable` / `enable` → the user, `SettingListResult.locked`; `AdminClient.grants` → `grantTypes` (+ `clientName`, `logoUri`); `UpdateUserInput` is `{ globalRoles? }`, `CreateUserInput` takes no `null`.
+- New: `client.account.agents.list()` / `revoke()`, `useAccountAgentsQueryOptions`, `useRevokeAccountAgentMutationOptions`.
+- Peers: `react` / `react-dom` `^19.0.0`, `@inertiajs/react` `^2.0.0 || ^3.0.0`.
 
 - `useProfile`, `useSessions`, `useAuthorizedApps`, `useOrganizations`, `useOrganization`, `useOrgInvitations`, `useSwitchOrganization` and their types are removed, with the `profile`, `sessions`, `apps`, `orgs` and `orgInvitations` keys of `endpoints`. Use the query options (`useMeQueryOptions`, `useAccountSessionsQueryOptions`, `useAppsQueryOptions`, `useAccountOrgsQueryOptions`, …).
 - `UserProfile`, `AuthorizedApps`, `OrganizationSwitcher` and `OrganizationProfile` need `QueryClientProvider` and `AuthkitClientProvider`.

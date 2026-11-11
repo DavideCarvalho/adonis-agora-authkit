@@ -100,4 +100,30 @@ test.group('RedisAdapter', () => {
     assert.equal(calls.get, 0);
     assert.isAtMost(calls.mget, calls.scan);
   });
+
+  test('list sees the artifacts on a connection with a keyPrefix', async ({ assert }) => {
+    const client = new RedisMock({ keyPrefix: 'entretextos:' });
+    const sessions = new RedisAdapter('Session', client as any, 'authkit');
+    await sessions.upsert('s1', { accountId: 'u1' }, 60);
+    await sessions.upsert('s2', { accountId: 'u2' }, 60);
+    await new RedisAdapter('Grant', client as any, 'authkit').upsert('g1', { other: true }, 60);
+
+    // Stored under the connection prefix, as ioredis writes them.
+    const raw = new RedisMock();
+    assert.isNotNull(await raw.get('entretextos:authkit:Session:s1'));
+
+    assert.deepEqual(await sessions.list(), [
+      { id: 's1', payload: { accountId: 'u1' } },
+      { id: 's2', payload: { accountId: 'u2' } },
+    ]);
+  });
+
+  test('list reads the keyPrefix of an AdonisJS connection (ioConnection)', async ({ assert }) => {
+    const io = new RedisMock({ keyPrefix: 'app:' });
+    // The AdonisJS RedisConnection proxies commands and keeps ioredis on `ioConnection`.
+    const adonisLike = Object.assign(Object.create(io), { ioConnection: io, options: undefined });
+    const clients = new RedisAdapter('Client', adonisLike, 'authkit');
+    await clients.upsert('web', { client_id: 'web' }, 0);
+    assert.deepEqual(await clients.list(), [{ id: 'web', payload: { client_id: 'web' } }]);
+  });
 });

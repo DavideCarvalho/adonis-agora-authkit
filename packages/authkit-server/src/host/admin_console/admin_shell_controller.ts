@@ -57,21 +57,37 @@ then restart the server.</p>
 
 // ─── Config injection ─────────────────────────────────────────────────────────
 
+/** Id of the JSON data block the SPA reads its config from. */
+export const ADMIN_CONFIG_ELEMENT_ID = 'authkit-admin-config';
+
 /**
- * Injects `window.__AUTHKIT__` into the HTML shell right after `<body>`.
+ * Serializes the config for an HTML data block: `<`, `>`, `&` and the JS line
+ * separators are escaped so no value can close the `<script>` element.
+ */
+export function serializeConfigBlock(config: Record<string, unknown>): string {
+  return JSON.stringify(config)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
+/**
+ * Embeds the config as a `<script type="application/json">` data block right
+ * after `<body>`. A data block is never executed, so a strict CSP
+ * (`script-src 'self' 'nonce-…'`) leaves it alone; the SPA parses it.
  * Also rewrites `/__AUTHKIT_BASE__/` → actual adminBase so all asset URLs
  * produced by Vite (base: '/__AUTHKIT_BASE__/') resolve correctly at runtime.
  */
-function prepareShell(html: string, config: Record<string, unknown>): string {
+export function prepareShell(html: string, config: Record<string, unknown>): string {
   const adminBase = config.adminBase as string;
 
   // 1. Rewrite the Vite placeholder base in ALL occurrences (src/href attributes).
-  //    Vite puts `/__AUTHKIT_BASE__/assets/foo.js` so we rewrite `/__AUTHKIT_BASE__/`
-  //    to `${adminBase}/` so asset URLs become `${adminBase}/assets/foo.js`.
   const rewritten = html.replaceAll('/__AUTHKIT_BASE__/', `${adminBase}/`);
 
-  // 2. Inject config script right after <body>.
-  const script = `<script>window.__AUTHKIT__=${JSON.stringify(config)};</script>`;
+  // 2. Inject the config data block right after <body>.
+  const script = `<script type="application/json" id="${ADMIN_CONFIG_ELEMENT_ID}">${serializeConfigBlock(config)}</script>`;
   const bodyIdx = rewritten.indexOf('<body');
   if (bodyIdx === -1) return script + rewritten;
   const closeIdx = rewritten.indexOf('>', bodyIdx);
@@ -108,7 +124,7 @@ const MIME: Record<string, string> = {
  * `serveAsset`  — serve arquivos estáticos do build (JS/CSS/fonts/images) com cache.
  *
  * O shell HTML é o index.html produzido pelo Vite build em `build/host/ui-dist/`.
- * O servidor injeta `window.__AUTHKIT__` e reescreve o placeholder de base dinâmica
+ * O servidor embute a config num data block JSON (`#authkit-admin-config`) e reescreve o placeholder de base dinâmica
  * `/__AUTHKIT_BASE__/` → `${adminBase}/assets/` para que todos os imports de assets
  * Vite resolvam corretamente independente do prefixo admin configurado.
  *

@@ -167,3 +167,16 @@ test.group('PasswordManager.assertAcceptable', () => {
     assert.isFalse(fetched);
   });
 });
+
+test.group('PasswordManager.verify without a password', () => {
+  test('a missing or empty password fails instead of throwing', async ({ assert }) => {
+    const pm = new PasswordManager({ pepper: 'p' });
+    const hooks = { nativeVerify: async () => true, needsRehash: () => false };
+    for (const plain of [undefined, null, '']) {
+      assert.deepEqual(await pm.verify('hash', plain as unknown as string, hooks), {
+        ok: false,
+        rehash: false,
+      });
+    }
+  });
+});

@@ -40,13 +40,15 @@ export function clientDto(client: AdminClient) {
   return {
     clientId: client.clientId,
     confidential: client.confidential,
-    grants: client.grants,
+    grantTypes: client.grantTypes,
     redirectUris: client.redirectUris,
     postLogoutRedirectUris: client.postLogoutRedirectUris,
     tokenEndpointAuthMethod: client.tokenEndpointAuthMethod,
     applicationType: client.applicationType,
     backchannelLogoutUri: client.backchannelLogoutUri ?? null,
     backchannelLogoutSessionRequired: client.backchannelLogoutSessionRequired ?? false,
+    clientName: client.clientName,
+    logoUri: client.logoUri,
   };
 }
 

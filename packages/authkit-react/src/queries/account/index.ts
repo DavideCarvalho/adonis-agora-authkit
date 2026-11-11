@@ -10,6 +10,7 @@ import { AuthkitClientError } from '../../client/client.js';
 import { useAuthkitClient } from '../../client/context.js';
 import type {
   AcceptOrgInvitationResult,
+  AccountAgentsResult,
   AccountAppsResult,
   AccountLoginMethodsResult,
   AccountMe,
@@ -197,6 +198,24 @@ export function useRevokeAppMutationOptions() {
     mutationKey: ['authkit', 'account', 'apps', 'revoke'],
     mutationFn: (clientId: string) => client.account.apps.revoke(clientId),
   } satisfies UseMutationOptions<RevokeAppResult, AuthkitClientError, string>;
+}
+
+/** Personal agents with a delegation on the account. */
+export function useAccountAgentsQueryOptions() {
+  const client = useAuthkitClient();
+  return {
+    queryKey: authkitKeys.account.agents(),
+    queryFn: () => client.account.agents.list(),
+  } satisfies UseQueryOptions<AccountAgentsResult, AuthkitClientError>;
+}
+
+/** Revokes a personal agent's delegation. Invalidate `authkitKeys.account.agents()`. */
+export function useRevokeAccountAgentMutationOptions() {
+  const client = useAuthkitClient();
+  return {
+    mutationKey: ['authkit', 'account', 'agents', 'revoke'],
+    mutationFn: (grantId: string) => client.account.agents.revoke(grantId),
+  } satisfies UseMutationOptions<{ ok: true }, AuthkitClientError, string>;
 }
 
 // ---------------------------------------------------------------------------
