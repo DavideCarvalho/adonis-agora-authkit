@@ -7,7 +7,7 @@ import { type LucidAccountStoreOptions, lucidAccountStore } from './lucid_accoun
 
 /** Models Lucid (compostos dos mixins do authkit) para montar os stores de uma vez. */
 export interface LucidStoresModels {
-  /** Model de `withAuthUser()` (+withCredentials/+withMfa). Obrigatório. */
+  /** Model de `withAuthUser()` (+withCredentials). Obrigatório. */
   account: any;
   /** Model de `withPersonalAccessToken()` — habilita o patStore. */
   pat?: any;

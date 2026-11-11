@@ -84,6 +84,25 @@ test.group('attemptPasswordLogin', (group) => {
     return () => __setLockoutLimiterLoaderForTests(undefined);
   });
 
+  test('no password posted → invalid credentials, the store is never asked', async ({ assert }) => {
+    let asked = false;
+    const cfg = makeCfg({
+      verify: async () => {
+        asked = true;
+        return null;
+      },
+    });
+    for (const password of [undefined, '', null]) {
+      const res = await attemptPasswordLogin(cfg, {
+        email: 'a@b.com',
+        password: password as unknown as string,
+        ip: null,
+      });
+      assert.deepEqual(res, { ok: false, locked: false });
+    }
+    assert.isFalse(asked);
+  });
+
   test('sucesso devolve { ok: true, account } e limpa falhas', async ({ assert }) => {
     const cfg = makeCfg({});
     const res = await attemptPasswordLogin(cfg, {

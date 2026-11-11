@@ -9,12 +9,12 @@ const authServerConfig = defineConfig({
   issuer: env.get('AUTHKIT_ISSUER'),
   adapter: adapters.redis({ connection: 'main' }),
   jwks: { source: 'managed', algorithm: 'RS256' },
-  clients: [
-    // registre seus clients OIDC aqui
-  ],
   ttl: { accessToken: '15m', refreshToken: '30d' },
   globalRolesClaim: 'roles',
   accountStore: lucidAccountStore(AuthUser),
+  // Clients são gerenciados em runtime via console admin (/admin/clients) ou
+  // Admin API, sem necessidade de redeploy.
+  // Use: node ace authkit:clients:create --redirect-uri=https://app/cb
   /**
    * Renderer Inertia/React: apenas as views listadas em "views" vão ao Inertia;
    * as demais (incluindo todas as telas admin/*) recaem silenciosamente no

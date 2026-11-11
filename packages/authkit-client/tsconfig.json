@@ -10,6 +10,8 @@
     "index.ts",
     "types.ts",
     "container_bindings.ts",
+    "auth.ts",
+    "authkit_context_middleware.ts",
     "src/**/*",
     "providers/**/*",
     "services/**/*",

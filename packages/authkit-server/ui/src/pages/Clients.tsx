@@ -24,6 +24,8 @@ interface FormState {
   applicationType: 'web' | 'native';
   backchannelLogoutUri: string;
   backchannelLogoutSessionRequired: boolean;
+  clientName: string;
+  logoUri: string;
 }
 
 function defaultForm(): FormState {
@@ -36,6 +38,8 @@ function defaultForm(): FormState {
     applicationType: 'web',
     backchannelLogoutUri: '',
     backchannelLogoutSessionRequired: false,
+    clientName: '',
+    logoUri: '',
   };
 }
 
@@ -69,11 +73,13 @@ export function Clients() {
       clientIdOverride: '',
       redirectUris: [...c.redirectUris],
       postLogoutRedirectUris: [...c.postLogoutRedirectUris],
-      grantTypes: [...c.grants],
+      grantTypes: [...c.grantTypes],
       tokenEndpointAuthMethod: c.tokenEndpointAuthMethod,
       applicationType: c.applicationType ?? 'web',
       backchannelLogoutUri: c.backchannelLogoutUri ?? '',
       backchannelLogoutSessionRequired: c.backchannelLogoutSessionRequired,
+      clientName: c.clientName ?? '',
+      logoUri: c.logoUri ?? '',
     });
     setRedirectInput('');
     setLogoutInput('');
@@ -124,6 +130,8 @@ export function Clients() {
         applicationType: formData.applicationType,
         backchannelLogoutUri: formData.backchannelLogoutUri || undefined,
         backchannelLogoutSessionRequired: formData.backchannelLogoutSessionRequired,
+        clientName: formData.clientName.trim() || undefined,
+        logoUri: formData.logoUri.trim() || undefined,
       };
       const r = await createMutation.mutateAsync(input);
       queryClient.invalidateQueries({ queryKey: authkitKeys.admin.clients() });
@@ -148,8 +156,11 @@ export function Clients() {
         grantTypes: formData.grantTypes,
         tokenEndpointAuthMethod: formData.tokenEndpointAuthMethod,
         applicationType: formData.applicationType,
-        backchannelLogoutUri: formData.backchannelLogoutUri || undefined,
+        // An emptied field clears the URI on the server.
+        backchannelLogoutUri: formData.backchannelLogoutUri.trim() || null,
         backchannelLogoutSessionRequired: formData.backchannelLogoutSessionRequired,
+        clientName: formData.clientName.trim() || null,
+        logoUri: formData.logoUri.trim() || null,
       });
       queryClient.invalidateQueries({ queryKey: authkitKeys.admin.clients() });
       toast.success('Client updated');
@@ -326,6 +337,26 @@ export function Clients() {
       </div>
 
       <div className="field">
+        <label>Name</label>
+        <input
+          className="input"
+          value={formData.clientName}
+          onChange={(e) => setFormData((f) => ({ ...f, clientName: e.target.value }))}
+          placeholder="Shown on consent and authorized-app screens"
+        />
+      </div>
+
+      <div className="field">
+        <label>Logo URL</label>
+        <input
+          className="input input-mono"
+          value={formData.logoUri}
+          onChange={(e) => setFormData((f) => ({ ...f, logoUri: e.target.value }))}
+          placeholder="https://app.example.com/logo.png"
+        />
+      </div>
+
+      <div className="field">
         <label>Backchannel Logout URI</label>
         <input
           className="input input-mono"
@@ -353,7 +384,7 @@ export function Clients() {
       <div className="page-header-row">
         <div>
           <div className="page-title">OAuth Clients</div>
-          <div className="page-sub">{clientsCount} dynamic clients</div>
+          <div className="page-sub">{clientsCount} clients</div>
         </div>
         <div className="page-actions">
           <button className="btn btn-primary" onClick={openCreate}>

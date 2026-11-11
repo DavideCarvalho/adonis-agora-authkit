@@ -33,7 +33,6 @@ async function makeService(acceptIdpSession: boolean, disabled: string[] = []) {
       issuer: ISSUER,
       adapter: adapters.redis({ connection: 'main' }),
       jwks: { source: 'managed', algorithm: 'RS256' },
-      clients: [],
       accountStore: fakeAccountStore({
         findById: async (id: string) =>
           id === 'ghost' ? null : ({ id, email: `${id}@x.com`, globalRoles: [] } as any),

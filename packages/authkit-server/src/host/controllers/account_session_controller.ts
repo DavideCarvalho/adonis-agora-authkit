@@ -1,3 +1,4 @@
+import type { ScreenRenderProps } from '../screen_props.js';
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import { accountHome } from '../account_home.js';
@@ -58,7 +59,7 @@ export default class AccountSessionController {
       returnTo,
     } satisfies Omit<AccountLoginProps, 'messages'>;
 
-    return render(ctx, 'account/login', props);
+    return render(ctx, 'account/login', props satisfies ScreenRenderProps<'account/login'>);
   }
 
   async login(ctx: HttpContext) {
@@ -101,7 +102,7 @@ export default class AccountSessionController {
             : translate(cfg.messages, 'errors.invalid_credentials'),
       } satisfies Omit<AccountLoginProps, 'messages'>;
 
-      return render(ctx, 'account/login', props);
+      return render(ctx, 'account/login', props satisfies ScreenRenderProps<'account/login'>);
     }
 
     const acc = result.account;

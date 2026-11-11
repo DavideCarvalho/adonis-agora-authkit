@@ -8,6 +8,7 @@ import type { AuthAccount } from '../../src/accounts/account_store.js';
 import { adapters, defineConfig } from '../../src/define_config.js';
 import InteractionController from '../../src/host/controllers/interaction_controller.js';
 import { OidcService } from '../../src/provider/oidc_service.js';
+import { withClients } from '../helpers/seed_clients.js';
 
 // ---------------------------------------------------------------------------
 // E2E harness — drives login → consent → token through the REAL host
@@ -195,11 +196,8 @@ async function startServer(opts: {
   } as any;
   const cfg = await configProvider.resolve(
     fakeApp,
-    defineConfig({
-      issuer: ISSUER,
-      adapter: adapters.redis({ connection: 'main' }),
-      jwks: { source: 'managed', algorithm: 'RS256' },
-      clients: [
+    withClients(
+      [
         {
           clientId: CLIENT_ID,
           clientSecret: CLIENT_SECRET,
@@ -213,24 +211,29 @@ async function startServer(opts: {
             : ['authorization_code', 'refresh_token'],
         },
       ],
-      accountStore: makeStore({ mfaEnabled: opts.mfaEnabled }),
-      ...(opts.omitBranding
-        ? {}
-        : {
-            branding: {
-              company: 'AuthKit Test',
-              clients: {},
-              default: { appName: 'Test', accent: '#000', accentSoft: '#111', tagline: 'tl' },
-              // No first-party clients → consent screen is shown (we drive it).
-              firstParty: [],
-            },
-          }),
-      render: recordingRenderer as any,
-      stepUp: { acrValues: ['urn:authkit:mfa'], mfaAcr: 'urn:authkit:mfa' },
-      deviceFlow: opts.deviceFlow ? { enabled: true } : undefined,
-      // trusted devices off so the step-up variant always challenges MFA.
-      trustedDevices: { enabled: false },
-    }),
+      defineConfig({
+        issuer: ISSUER,
+        adapter: adapters.redis({ connection: 'main' }),
+        jwks: { source: 'managed', algorithm: 'RS256' },
+        accountStore: makeStore({ mfaEnabled: opts.mfaEnabled }),
+        ...(opts.omitBranding
+          ? {}
+          : {
+              branding: {
+                company: 'AuthKit Test',
+                clients: {},
+                default: { appName: 'Test', accent: '#000', accentSoft: '#111', tagline: 'tl' },
+                // No first-party clients → consent screen is shown (we drive it).
+                firstParty: [],
+              },
+            }),
+        render: recordingRenderer as any,
+        stepUp: { acrValues: ['urn:authkit:mfa'], mfaAcr: 'urn:authkit:mfa' },
+        deviceFlow: opts.deviceFlow ? { enabled: true } : undefined,
+        // trusted devices off so the step-up variant always challenges MFA.
+        trustedDevices: { enabled: false },
+      }),
+    ),
   );
   const service = new OidcService(cfg!, APP_KEY);
   const controller = new InteractionController();

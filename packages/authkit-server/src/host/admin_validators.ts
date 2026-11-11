@@ -91,8 +91,7 @@ const grantTypeArray = vine.array(vine.enum(ALLOWED_GRANT_TYPES));
  * Input de client OIDC — serve create E update (PATCH). Tudo opcional: no create
  * o controller aplica defaults (ver {@link clientCreateInput}); no update os campos
  * ausentes (undefined) são preservados pelo `AdminClientsService.update` (merge,
- * ver {@link clientPartialInput}). `grants` é aceito como alias de `grantTypes`
- * (o DTO de saída usa `grants`).
+ * ver {@link clientPartialInput}).
  */
 export const clientInputValidator = vine.compile(
   vine.object({
@@ -105,11 +104,14 @@ export const clientInputValidator = vine.compile(
     postLogoutRedirectUris: redirectUriArray.optional(),
     // grant_types restrito à allowlist; `implicit` e desconhecidos viram 422 (M10).
     grantTypes: grantTypeArray.optional(),
-    grants: grantTypeArray.optional(),
     tokenEndpointAuthMethod: authMethod.optional(),
     // backchannel_logout_uri também precisa ser URI absoluta (L10).
-    backchannelLogoutUri: vine.string().trim().url(URL_OPTS).optional(),
+    // `null` (update) remove a URI.
+    backchannelLogoutUri: vine.string().trim().url(URL_OPTS).nullable().optional(),
     backchannelLogoutSessionRequired: vine.boolean().optional(),
+    // `null` (update) removes them.
+    clientName: vine.string().trim().maxLength(200).nullable().optional(),
+    logoUri: vine.string().trim().url(URL_OPTS).nullable().optional(),
   }),
 );
 
@@ -120,10 +122,11 @@ export type ClientInputFields = {
   redirectUris?: string[];
   postLogoutRedirectUris?: string[];
   grantTypes?: string[];
-  grants?: string[];
   tokenEndpointAuthMethod?: TokenEndpointAuthMethod;
-  backchannelLogoutUri?: string;
+  backchannelLogoutUri?: string | null;
   backchannelLogoutSessionRequired?: boolean;
+  clientName?: string | null;
+  logoUri?: string | null;
 };
 
 /**
@@ -138,11 +141,13 @@ export function clientCreateInput(v: ClientInputFields): ClientInput {
     applicationType,
     redirectUris: v.redirectUris ?? [],
     postLogoutRedirectUris: v.postLogoutRedirectUris ?? [],
-    grantTypes: v.grantTypes ?? v.grants ?? [],
+    grantTypes: v.grantTypes ?? [],
     tokenEndpointAuthMethod:
       v.tokenEndpointAuthMethod ?? (applicationType === 'native' ? 'none' : 'client_secret_basic'),
     backchannelLogoutUri: v.backchannelLogoutUri || undefined,
     backchannelLogoutSessionRequired: v.backchannelLogoutSessionRequired,
+    clientName: v.clientName || undefined,
+    logoUri: v.logoUri || undefined,
   };
 }
 
@@ -155,14 +160,15 @@ export function clientPartialInput(v: ClientInputFields): Partial<ClientInput> {
   if (v.applicationType !== undefined) out.applicationType = v.applicationType;
   if (v.redirectUris !== undefined) out.redirectUris = v.redirectUris;
   if (v.postLogoutRedirectUris !== undefined) out.postLogoutRedirectUris = v.postLogoutRedirectUris;
-  const grants = v.grantTypes ?? v.grants;
-  if (grants !== undefined) out.grantTypes = grants;
+  if (v.grantTypes !== undefined) out.grantTypes = v.grantTypes;
   if (v.tokenEndpointAuthMethod !== undefined)
     out.tokenEndpointAuthMethod = v.tokenEndpointAuthMethod;
   if (v.backchannelLogoutUri !== undefined)
-    out.backchannelLogoutUri = v.backchannelLogoutUri.trim() || undefined;
+    out.backchannelLogoutUri = v.backchannelLogoutUri?.trim() || null;
   if (v.backchannelLogoutSessionRequired !== undefined)
     out.backchannelLogoutSessionRequired = v.backchannelLogoutSessionRequired;
+  if (v.clientName !== undefined) out.clientName = v.clientName?.trim() || null;
+  if (v.logoUri !== undefined) out.logoUri = v.logoUri?.trim() || null;
   return out;
 }
 

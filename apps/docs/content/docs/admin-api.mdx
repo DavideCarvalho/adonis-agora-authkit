@@ -197,9 +197,8 @@ curl https://idp.example.com/api/authkit/v1/users/acc-42/sessions \
 
 ## Clients
 
-This is the **canonical path** for managing OIDC clients. The static `clients` field in
-`defineConfig` is deprecated — create all clients here (or in the admin console) so they
-are stored in the adapter/DB and manageable without a redeploy.
+Clients live in the OIDC adapter and are managed at runtime: create them here, in the admin
+console or with `node ace authkit:clients:create`. No redeploy is needed.
 
 Reuses the same `AdminClientsService` as the console. The **secret is returned once** on
 create and regenerate (it is never recoverable afterwards). Enumeration requires the
@@ -208,10 +207,10 @@ otherwise.
 
 | Method | Path | Body | Notes |
 | --- | --- | --- | --- |
-| `GET` | `/clients` | — | List persisted clients. |
-| `POST` | `/clients` | `{ clientId?, applicationType?, redirectUris, postLogoutRedirectUris?, grantTypes, tokenEndpointAuthMethod, backchannelLogoutUri?, backchannelLogoutSessionRequired? }` | Create; returns `clientSecret` (once) for confidential clients. `applicationType: 'native'` = [native app](/docs/native-apps) (public, RFC 8252 redirects); metadata that doesn't fit the type → `422 invalid_client_metadata`. |
+| `GET` | `/clients` | — | List persisted clients: `clientId`, `confidential`, `grantTypes`, `redirectUris`, `postLogoutRedirectUris`, `tokenEndpointAuthMethod`, `applicationType`, `backchannelLogoutUri`, `backchannelLogoutSessionRequired`, `clientName`, `logoUri`. |
+| `POST` | `/clients` | `{ clientId?, applicationType?, redirectUris, postLogoutRedirectUris?, grantTypes, tokenEndpointAuthMethod, backchannelLogoutUri?, backchannelLogoutSessionRequired?, clientName?, logoUri? }` | Create; returns `clientSecret` (once) for confidential clients. `applicationType: 'native'` = [native app](/docs/native-apps) (public, RFC 8252 redirects); metadata that doesn't fit the type → `422 invalid_client_metadata`. |
 | `GET` | `/clients/:id` | — | Single client (no secret). `404` if unknown. |
-| `PATCH` | `/clients/:id` | same as create body | Update metadata (including backchannel fields); preserves the secret. |
+| `PATCH` | `/clients/:id` | same as create body | Update metadata; fields left out keep their value, `null` removes `backchannelLogoutUri`, `clientName` or `logoUri`. Preserves the secret. |
 | `POST` | `/clients/:id/regenerate-secret` | — | New secret (once). `409` for public clients. |
 | `DELETE` | `/clients/:id` | — | Delete and evict the cache. |
 

@@ -79,7 +79,7 @@ test.group('defineConfig (server)', () => {
       jwks: { source: 'managed' },
       accountStore: fakeAccountStore(),
       mountPath: '/oidc',
-      render: inertiaRenderer({ prefix: 'authkit' }),
+      render: inertiaRenderer({ prefix: 'authkit', views: ['login'] }),
       branding: {
         company: 'C',
         clients: {},

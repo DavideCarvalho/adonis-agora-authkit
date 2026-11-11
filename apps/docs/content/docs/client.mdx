@@ -15,9 +15,20 @@ npm install @adonis-agora/authkit-client
 node ace configure @adonis-agora/authkit-client
 ```
 
-The configure command writes `config/authkit_client.ts`, registers the provider, registers
-`authkit_middleware` as a router-global middleware, and adds the four env validations
-(`AUTHKIT_ISSUER`, `AUTHKIT_CLIENT_ID`, `AUTHKIT_CLIENT_SECRET`, `AUTHKIT_REDIRECT_URI`).
+`@adonisjs/auth` is a required peer: `ctx.auth` is the `@adonisjs/auth` authenticator, backed
+by the AuthKit session through [`authkitClientGuard`](/docs/adonis-auth). The configure
+command:
+
+- installs `@adonisjs/auth` when the app does not depend on it (`--no-install` prints the
+  command instead);
+- writes `config/authkit_client.ts` and `config/auth.ts` (`authkitClientGuard` +
+  `sessionUserProvider` over `--model`, default `#models/user`; an existing `config/auth.ts` is
+  left alone and the guard to add is printed);
+- registers `@adonisjs/auth/auth_provider` and the client provider;
+- registers `initialize_auth_middleware` + `authkit_context_middleware` router-globally, and
+  publishes the named `auth` / `silentAuth` middleware;
+- adds the four env validations (`AUTHKIT_ISSUER`, `AUTHKIT_CLIENT_ID`,
+  `AUTHKIT_CLIENT_SECRET`, `AUTHKIT_REDIRECT_URI`).
 
 ```ts title="config/authkit_client.ts"
 import env from "#start/env";
@@ -77,7 +88,8 @@ three factories — see [Resolvers](/docs/resolvers) for the full option tables.
 - **`resolvers.jwt({ tokenSource?, jwksUri? })`** — for browser/user sessions. Validates
   the OIDC token **locally** against the IdP's JWKS (`${issuer}/jwks` by default),
   checking `issuer` and `audience` (your `clientId`). `tokenSource` is `'session'` by
-  default (the token from the login flow); `'bearer'` reads it from the request header.
+  default (the token from the login flow); `'bearer'` reads the `Authorization` header —
+  `Bearer <jwt>`, or `DPoP <jwt>` with its `DPoP` proof for sender-constrained tokens.
 - **`resolvers.pat({ introspectionUrl, introspectionSecret })`** — for machine-to-machine
   callers presenting a Personal Access Token. Validates by calling the IdP's introspection
   endpoint with the shared secret. See [PAT](/docs/personal-access-tokens).
@@ -98,6 +110,10 @@ resolver: resolvers.pat({
 // Opaque access token, introspected per request (immediate revocation)
 resolver: resolvers.opaque({ tokenSource: "session" });
 ```
+
+The `resolver` here is what `ctx.authkit` and the default guard use. API routes that present a
+token in the `Authorization` header get their own guard with its own resolver — see
+[API routes](/docs/adonis-auth#api-routes).
 
 ## The Identity
 
@@ -123,8 +139,10 @@ All three resolvers populate `profile.avatarUrl` (from `picture`) and `sessionId
 
 `resolveUser` is the seam between the IdP's claims and your domain. It receives the
 validated `Identity` and a small context object carrying the session's `accessToken`, and
-whatever it returns becomes the value of `ctx.auth.getUser()`. There are three ready-made
-shapes, and hand-writing your own is the fourth.
+whatever it returns is `ctx.auth.user` (and `ctx.authkit.getUser()`). There are three
+ready-made shapes, and hand-writing your own is the fourth. Without `resolveUser`, the guard
+asks its provider instead — see
+[choosing a user provider](/docs/adonis-auth#choosing-a-user-provider).
 
 ### `lucidMirror` — mirror the identity into a local table
 
@@ -147,7 +165,8 @@ resolveUser: lucidMirror(AppUser, {
 });
 ```
 
-On each resolution it reads the row with `Model.findBy(idColumn, identity.userId)`. When the
+Because the guard takes its user from `resolveUser`, a first login creates the row before
+`middleware.auth()` checks it. On each resolution it reads the row with `Model.findBy(idColumn, identity.userId)`. When the
 row exists and already holds every synced value, that row is used as is: one plain `SELECT`,
 no transaction. Otherwise — a missing row, a changed claim, or a synced value that is an
 object or array — it runs `Model.updateOrCreate({ [idColumn]: identity.userId }, { ...sync(identity) })`,
@@ -223,65 +242,43 @@ resolveUser: async (identity: Identity, { accessToken }) => {
 };
 ```
 
-Returning `null` is meaningful: `getUser()` yields `null` and
-[`getUserOrFail()`](#the-authenticator) throws.
+Returning `null` is meaningful: the guard falls back to its provider, and when that finds no
+user either the request is not authenticated.
 
 ## Middleware
 
-The client ships five middleware. Which ones you register depends on whether `ctx.auth`
-belongs to AuthKit or to `@adonisjs/auth` — see [Native @adonisjs/auth](/docs/adonis-auth)
-for the second path.
-
 | Module | Kind | Responsibility |
 | --- | --- | --- |
-| `authkit_middleware` | router-global | Refreshes the token set, puts an `Authenticator` on `ctx.auth`. |
-| `authkit_context_middleware` | router-global | Refreshes the token set, puts an `Authenticator` on `ctx.authkit`, leaves `ctx.auth` alone. |
+| `@adonisjs/auth/initialize_auth_middleware` | router-global | Creates `ctx.auth`. |
+| `authkit_context_middleware` | router-global | Refreshes the token set, puts the AuthKit `Authenticator` on `ctx.authkit`. |
 | `backchannel_revocation_middleware` | router-global | Drops the local session when the IdP revoked it out-of-band. |
-| `auth_middleware` | named | Requires a session; redirects anonymous hits to your login route. |
-| `silent_auth_middleware` | named | Resolves the session without requiring it. |
-
-### The global pair
-
-`authkit_middleware` is the one `node ace configure` registers. Per request it resolves the
-`authkit.client` manager, **proactively refreshes** the token set (`maybeRefresh` — see
-[Refresh Tokens](/docs/refresh-tokens)), and attaches the `Authenticator` to `ctx.auth`.
+| `#middleware/auth_middleware` | named `auth` | Requires a session (`ctx.auth.authenticateUsing`); redirects guests to `/auth/login`. |
+| `#middleware/silent_auth_middleware` | named `silentAuth` | Checks the session without requiring it (`ctx.auth.check()`). |
+| `require_org_middleware` | named | Requires an active organization. See [Organizations](/docs/organizations). |
 
 ```ts title="start/kernel.ts"
 router.use([
   () => import("@adonisjs/session/session_middleware"),
-  () => import("@adonis-agora/authkit-client/authkit_middleware"),
+  () => import("@adonisjs/auth/initialize_auth_middleware"),
+  () => import("@adonis-agora/authkit-client/authkit_context_middleware"),
   () => import("@adonis-agora/authkit-client/backchannel_revocation_middleware"),
 ]);
-```
 
-`authkit_context_middleware` is its sibling for hosts that hand `ctx.auth` to
-`@adonisjs/auth`. It performs the same refresh and resolution but memoizes the
-`Authenticator` on `ctx.authkit`, so the AuthKit-only surface (`getIdentity()`,
-`hasGlobalRole()`, `toSharedProps()`) stays reachable on every route — public ones
-included — while the framework owns `ctx.auth`.
-
-<Callout type="warn">
-  Register **one** of the two. Both together resolve the session twice into two different
-  objects, and the two would disagree the moment one of them refreshes the token set.
-</Callout>
-
-`backchannel_revocation_middleware` belongs **after** whichever of the two you chose (it
-needs the manager) and **before** your named auth middleware. It is a no-op unless
-`backchannelLogout: { store }` is configured — see
-[Back-Channel Logout](/docs/back-channel-logout).
-
-### The named pair
-
-`auth_middleware` requires a session on a browser route. It calls `ctx.auth.check()` and, on
-a miss, redirects instead of throwing — a 302 to a login screen is what a human wants, not a
-500:
-
-```ts title="start/kernel.ts"
 export const middleware = router.named({
-  auth: () => import("@adonis-agora/authkit-client/auth_middleware"),
-  silentAuth: () => import("@adonis-agora/authkit-client/silent_auth_middleware"),
+  auth: () => import("#middleware/auth_middleware"),
+  silentAuth: () => import("#middleware/silent_auth_middleware"),
 });
 ```
+
+`authkit_context_middleware` resolves the `authkit.client` manager, **proactively refreshes**
+the token set (`maybeRefresh` — see [Refresh Tokens](/docs/refresh-tokens)), and attaches the
+`Authenticator` to `ctx.authkit`. The guard reuses the same `Authenticator`, so the session is
+resolved once per request.
+
+`backchannel_revocation_middleware` belongs **after** `authkit_context_middleware` (it needs
+the manager) and **before** your named auth middleware. It is a no-op unless
+`backchannelLogout: { store }` is configured — see
+[Back-Channel Logout](/docs/back-channel-logout).
 
 ```ts title="start/routes.ts"
 router
@@ -289,16 +286,21 @@ router
     router.get("/dashboard", [DashboardController]);
     router.get("/settings", [SettingsController]);
   })
-  .use(middleware.auth({ redirectTo: "/auth/login" }));
+  .use(middleware.auth());
 
 // Marketing pages that render a "log in" or "your account" affordance:
 router.get("/", [HomeController]).use(middleware.silentAuth());
 ```
 
-`redirectTo` defaults to `/auth/login`, which is what
-[`registerOidcClient`](#the-login--callback--logout-flow) registers, so the option only
-matters when you moved the prefix. `silent_auth_middleware` takes no options: it resolves the
-session so the view can branch on it and never redirects.
+The redirect goes to `/auth/login`, which is what
+[`registerOidcClient`](#the-login--callback--logout-flow) registers; change `redirectTo` in
+`app/middleware/auth_middleware.ts` if you moved the prefix. API routes authenticated by a
+bearer token, DPoP or a PAT use their own guard — see
+[AdonisJS auth](/docs/adonis-auth#api-routes).
+
+When code that runs on every request reads `ctx.auth.user` (a Bouncer middleware, Inertia
+shared props on public pages), add `() => import('#middleware/silent_auth_middleware')` to
+`router.use` instead, after `authkit_context_middleware`. That costs one `check()` per request.
 
 Neither middleware does authorization. Role checks belong on the route, in a policy, or in
 `@adonis-agora/authz`.
@@ -486,91 +488,57 @@ The raw primitives — `generatePkce`, `buildAuthorizeUrl`, `exchangeCode`, `val
 and the standalone `createAuthorizationRequest` / `completeAuthorization` — stay exported for
 code that runs without the AdonisJS container.
 
-## The Authenticator
+## `ctx.auth` and `ctx.authkit`
 
-`ctx.auth` (or `ctx.authkit`, on the `@adonisjs/auth` path) is an `Authenticator`. It
-resolves the session **once** per request and memoizes both the identity and the user, so
-calling these repeatedly across a controller and its views costs nothing extra.
+`ctx.auth` is where controllers read the user:
 
-```ts
-const identity = await ctx.auth.getIdentity(); // Identity | null
-const identity = await ctx.auth.authenticate(); // Identity, throws when anonymous
-const signedIn = await ctx.auth.check(); // boolean, never throws
-const isAdmin = ctx.auth.hasGlobalRole("ADMIN"); // sync — resolve first
+```ts title="app/controllers/invoices_controller.ts"
+import type { HttpContext } from "@adonisjs/core/http";
+import Invoice from "#models/invoice";
 
-const user = await ctx.auth.getUser(); // TUser | null
-const user = await ctx.auth.getUserOrFail(); // TUser, throws when anonymous
-```
-
-The class is generic in your user type — `Authenticator<AppUser>` — so a host that pins the
-generic gets `AppUser | null` out of `getUser()` at every call site with no casts.
-
-### Typing `ctx.auth`
-
-There are two ways, and you take exactly one.
-
-Declare it yourself, parameterised over your model — this is what most apps want, and what
-[Getting started](/docs/getting-started) shows:
-
-```ts title="types/authkit.ts"
-import type { Authenticator } from '@adonis-agora/authkit-client'
-import type AppUser from '#models/app_user'
-
-declare module '@adonisjs/core/http' {
-  interface HttpContext {
-    auth: Authenticator<AppUser>
-  }
-}
-```
-
-Or opt into the library's own declaration, which leaves the generic at its `unknown`
-default:
-
-```ts title="anywhere in your app"
-import '@adonis-agora/authkit-client/types'
-```
-
-<Callout type="warn">
-  Never do both. `HttpContext.auth` declared twice with different types does not merge —
-  TypeScript keeps whichever declaration it reached first and raises the conflict on the
-  other, inside a `.d.ts`, where every AdonisJS app's `skipLibCheck` throws it away. The
-  symptom is silent and global: `getUser()` starts returning `unknown` everywhere, and
-  nothing points at the cause.
-
-  This is why importing a middleware never brings the declaration with it. Registering
-  `authkit_middleware` types the `authkit.client` container binding and nothing else —
-  what `ctx.auth` *is* stays your decision.
-</Callout>
-
-### `getUser()` versus `getUserOrFail()`
-
-The pair mirrors `getIdentity()` / `authenticate()`, one level up: `getIdentity()` gives you
-the IdP's claims, these give you *your* user.
-
-- **`getUser()`** is the honest answer: `null` when there is no session, and also `null` when
-  the session is valid but `resolveUser` produced nothing. Use it on routes that render for
-  visitors and members alike.
-- **`getUserOrFail()`** is fail-closed: it throws rather than hand you a `null` you might
-  forget to check. Use it on routes that already sit behind
-  [`auth_middleware`](#the-named-pair), where `null` would mean the route is misconfigured
-  rather than that a visitor arrived.
-
-```ts
 export default class InvoicesController {
-  // Behind middleware.auth() — a null user here is a bug, not a visitor.
+  // Behind middleware.auth()
   async index({ auth }: HttpContext) {
-    const user = await auth.getUserOrFail();
+    const user = auth.getUserOrFail();
     return Invoice.query().where("userId", user.id);
   }
 }
 ```
 
-<Callout type="warn">
-  `getUserOrFail()` throws a plain error, not an HTTP response. It is a guard rail against a
-  misconfigured route, **not** a replacement for the auth middleware: put the middleware in
-  front so anonymous visitors get a redirect and only genuine misconfiguration reaches the
-  throw.
-</Callout>
+`auth.user` is the user `resolveUser` returned (or the provider's, when there is no
+`resolveUser`). On routes without `middleware.auth()` or `middleware.silentAuth()`, call
+`await auth.check()` before reading it: `getUserOrFail()` is synchronous and throws until the
+request was authenticated.
+
+`ctx.authkit` is the AuthKit `Authenticator`, the companion for what only AuthKit knows. It
+resolves the session **once** per request and memoizes both the identity and the user:
+
+```ts
+const identity = await ctx.authkit.getIdentity(); // Identity | null — the OIDC claims
+const signedIn = await ctx.authkit.check(); // boolean, never throws
+const isAdmin = ctx.authkit.hasGlobalRole("ADMIN"); // sync — resolve first
+const user = await ctx.authkit.getUser(); // the resolveUser user, same object as auth.user
+const shared = await ctx.authkit.toSharedProps(); // props for @adonis-agora/authkit-react
+```
+
+It is present on every request, public routes included, and never throws on an anonymous one.
+
+### Typing the user
+
+`auth.user` is typed by the guard's provider. To type `ctx.authkit.getUser()` the same way,
+declare it once:
+
+```ts title="types/authkit.ts"
+import type AppUser from '#models/app_user'
+
+declare module '@adonis-agora/authkit-client' {
+  interface AuthkitUserType {
+    user: AppUser
+  }
+}
+```
+
+Without the declaration, `ctx.authkit.getUser()` returns `unknown`.
 
 ### `toSharedProps()`
 
@@ -583,7 +551,7 @@ import { defineConfig } from "@adonisjs/inertia";
 
 export default defineConfig({
   sharedData: {
-    auth: (ctx) => ctx.auth.toSharedProps(),
+    authkit: (ctx) => ctx.authkit.toSharedProps(),
   },
 });
 ```
@@ -868,7 +836,7 @@ Throws a `JWTVerifyError` (from `jose`) when the token is invalid. Calling this 
 ## Next
 
 <Cards>
-  <Card title="Native @adonisjs/auth" href="/docs/adonis-auth" description="Make ctx.auth.user, middleware.auth() and the Bouncer work over an AuthKit session." />
+  <Card title="AdonisJS auth" href="/docs/adonis-auth" description="The guard, user providers and API routes (bearer, DPoP, PAT)." />
   <Card title="Back-Channel Logout" href="/docs/back-channel-logout" description="Let the IdP terminate this RP's sessions out-of-band." />
   <Card title="Impersonation" href="/docs/impersonation" description="Operators acting as another user, safely." />
   <Card title="Resolvers" href="/docs/resolvers" description="jwt, pat and opaque in full detail." />

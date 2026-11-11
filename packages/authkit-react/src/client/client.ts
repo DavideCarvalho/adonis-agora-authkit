@@ -7,16 +7,17 @@
  *
  * Uso:
  * ```ts
- * // Lê window.__AUTHKIT__ automaticamente (SSR-safe com opts):
- * const client = createAuthkitClient()
+ * // Account API only (default base `/account/api`):
+ * const client = createAuthkitClient({ csrfToken })
  *
- * // Override explícito (útil em testes ou topologias custom):
- * const client = createAuthkitClient({ baseUrl: '/admin/api', csrfToken: 'x' })
+ * // Admin API too:
+ * const client = createAuthkitClient({ baseUrl: '/admin/api', csrfToken })
  * ```
  */
 
 import type {
   AcceptOrgInvitationResult,
+  AccountAgentsResult,
   AccountAppsResult,
   // Account
   AccountLoginMethodsResult,
@@ -54,6 +55,7 @@ import type {
   CreateTokenInput,
   CreateUserInput,
   DeactivateOrgResult,
+  DeletedResult,
   EmailChangeResult,
   ImpersonationPanel,
   InviteOrgMemberInput,
@@ -76,6 +78,7 @@ import type {
   RemoveOrgMemberResult,
   RemovePasskeyResult,
   RequestEmailChangeInput,
+  ResetPasswordResult,
   RevokeAllResult,
   RevokeAppResult,
   RevokeOrgInvitationResult,
@@ -135,7 +138,7 @@ export class AuthkitClientError extends Error {
 export interface AuthkitClientOptions {
   /**
    * URL base da Admin JSON API — sem trailing slash.
-   * Default: `${window.__AUTHKIT__.endpoints.api}` (= `${adminBase}/api`).
+   * Required for `client.admin.*` (e.g. `/admin/api`); account-only clients can omit it.
    */
   baseUrl?: string;
   /**
@@ -152,31 +155,11 @@ export interface AuthkitClientOptions {
   fetch?: typeof fetch;
 }
 
-// Declaração do global injetado pelo shell admin React.
-declare const __AUTHKIT__: {
-  adminBase: string;
-  csrfToken?: string;
-  locale?: string;
-  messages?: Record<string, string>;
-  currentUser?: unknown;
-  endpoints: { api: string };
-};
-
 // ---------------------------------------------------------------------------
 // Helpers internos
 // ---------------------------------------------------------------------------
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-
-function resolveWindow(): typeof __AUTHKIT__ | null {
-  try {
-    // SSR-safe: `window` pode não existir em Node.js
-    if (typeof window === 'undefined') return null;
-    return (window as any).__AUTHKIT__ ?? null;
-  } catch {
-    return null;
-  }
-}
 
 /** Constrói query string a partir de um objeto plano (ignora undefined/null). */
 function toQueryString(params: Record<string, unknown>): string {
@@ -199,16 +182,14 @@ class AuthkitClient {
   private readonly _fetch: typeof fetch;
 
   constructor(opts: AuthkitClientOptions = {}) {
-    const win = resolveWindow();
-
     // SSR-safe: o construtor NUNCA lança nem toca em window de forma fatal — o
     // tree React é montado durante o SSR sem disparar requests. A base admin é
     // resolvida preguiçosamente em `adminBase()`; se faltar (SSR sem baseUrl), só
     // lança quando uma chamada admin.* realmente acontece (client-side). Telas que
     // só usam account.* funcionam com `accountBaseUrl` (default '/account/api').
-    this._baseUrl = opts.baseUrl ?? win?.endpoints.api;
+    this._baseUrl = opts.baseUrl;
     this._accountBaseUrl = opts.accountBaseUrl ?? '/account/api';
-    this._csrfToken = opts.csrfToken ?? win?.csrfToken;
+    this._csrfToken = opts.csrfToken;
     // `globalThis.fetch` PRECISA ser chamado com `this === Window`. Guardá-lo como
     // método de instância e chamar via `this._fetch(...)` perde esse binding →
     // "Failed to execute 'fetch' on 'Window': Illegal invocation". Bind explícito.
@@ -287,8 +268,7 @@ class AuthkitClient {
   private b(path: string) {
     if (!this._baseUrl) {
       throw new Error(
-        '[AuthkitClient] admin base URL ausente: passe `baseUrl` em createAuthkitClient({ baseUrl }) ' +
-          'ou use o client onde window.__AUTHKIT__ está injetado (console admin). ' +
+        '[AuthkitClient] admin base URL ausente: passe `baseUrl` em createAuthkitClient({ baseUrl }). ' +
           'Telas que só usam client.account.* não precisam de baseUrl.',
       );
     }
@@ -319,22 +299,16 @@ class AuthkitClient {
         this.patch<AdminUser>(this.b(`/users/${encodeURIComponent(id)}`), data),
       /** POST {base}/users/:id/disable */
       disable: (id: string) =>
-        this.post<{ id: string; disabled: true }>(
-          this.b(`/users/${encodeURIComponent(id)}/disable`),
-        ),
+        this.post<AdminUser>(this.b(`/users/${encodeURIComponent(id)}/disable`)),
       /** POST {base}/users/:id/enable */
       enable: (id: string) =>
-        this.post<{ id: string; disabled: false }>(
-          this.b(`/users/${encodeURIComponent(id)}/enable`),
-        ),
+        this.post<AdminUser>(this.b(`/users/${encodeURIComponent(id)}/enable`)),
       /** POST {base}/users/:id/reset-password */
       resetPassword: (id: string) =>
-        this.post<{ id: string; sent: boolean }>(
-          this.b(`/users/${encodeURIComponent(id)}/reset-password`),
-        ),
+        this.post<ResetPasswordResult>(this.b(`/users/${encodeURIComponent(id)}/reset-password`)),
       /** DELETE {base}/users/:id */
       remove: (id: string) =>
-        this.delete<{ id: string; deleted: boolean }>(this.b(`/users/${encodeURIComponent(id)}`)),
+        this.delete<DeletedResult>(this.b(`/users/${encodeURIComponent(id)}`)),
       /** GET {base}/users/:id/sessions */
       getSessions: (id: string) =>
         this.get<UserSessionsResult>(this.b(`/users/${encodeURIComponent(id)}/sessions`)),
@@ -368,9 +342,7 @@ class AuthkitClient {
         this.patch<AdminClient>(this.b(`/clients/${encodeURIComponent(id)}`), data),
       /** DELETE {base}/clients/:id */
       remove: (id: string) =>
-        this.delete<{ clientId: string; deleted: boolean }>(
-          this.b(`/clients/${encodeURIComponent(id)}`),
-        ),
+        this.delete<DeletedResult>(this.b(`/clients/${encodeURIComponent(id)}`)),
       /** POST {base}/clients/:id/regenerate-secret */
       regenerateSecret: (id: string) =>
         this.post<RegenerateSecretResult>(
@@ -559,6 +531,15 @@ class AuthkitClient {
         this.delete<RevokeAppResult>(this.a(`/apps/${encodeURIComponent(clientId)}`)),
     },
 
+    /** Personal agents with a delegation on the account (404 when the feature is off). */
+    agents: {
+      /** GET /account/api/agents */
+      list: () => this.get<AccountAgentsResult>(this.a('/agents')),
+      /** DELETE /account/api/agents/:id — revokes the delegation now. */
+      revoke: (grantId: string) =>
+        this.delete<{ ok: true }>(this.a(`/agents/${encodeURIComponent(grantId)}`)),
+    },
+
     /**
      * Segundo fator. `mfa()` continua sendo a LEITURA do status
      * (`GET /account/api/mfa`) — assinatura preservada, ninguém quebra — e as
@@ -698,15 +679,11 @@ class AuthkitClient {
 /**
  * Cria um cliente tipado para as APIs do AuthKit.
  *
- * Em contextos browser sem opções, lê `window.__AUTHKIT__` para descobrir as
- * URLs base e o token CSRF. Em SSR ou testes, passe as opções explicitamente.
+ * Pass the admin API base (`baseUrl`) when you use `client.admin.*`, and the
+ * request's CSRF token for mutations.
  *
  * @example
  * ```ts
- * // Browser (Shell admin injeta window.__AUTHKIT__)
- * const client = createAuthkitClient()
- *
- * // Testes / SSR
  * const client = createAuthkitClient({
  *   baseUrl: '/admin/api',
  *   accountBaseUrl: '/account/api',

@@ -5,6 +5,7 @@ import RedisMock from 'ioredis-mock';
 import { adapters, defineConfig } from '../src/define_config.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { fakeAccountStore } from './bootstrap.js';
+import { withClients } from './helpers/seed_clients.js';
 
 const TOKEN_EXCHANGE = 'urn:ietf:params:oauth:grant-type:token-exchange';
 const ACCESS_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:access_token';
@@ -27,12 +28,8 @@ async function startIssuer(port: number, impersonateAdmins?: boolean) {
   } as any;
   const cfg = await configProvider.resolve(
     fakeApp,
-    defineConfig({
-      issuer,
-      adapter: adapters.redis({ connection: 'main' }),
-      jwks: { source: 'managed', algorithm: 'RS256' },
-      ...(impersonateAdmins === undefined ? {} : { admin: { enabled: false, impersonateAdmins } }),
-      clients: [
+    withClients(
+      [
         {
           clientId: 'app1',
           clientSecret: 's',
@@ -40,8 +37,16 @@ async function startIssuer(port: number, impersonateAdmins?: boolean) {
           grants: ['authorization_code', 'refresh_token', TOKEN_EXCHANGE],
         },
       ],
-      accountStore: fakeAccountStore({ findById: async (sub) => ACCOUNTS[sub] ?? null }),
-    }),
+      defineConfig({
+        issuer,
+        adapter: adapters.redis({ connection: 'main' }),
+        jwks: { source: 'managed', algorithm: 'RS256' },
+        ...(impersonateAdmins === undefined
+          ? {}
+          : { admin: { enabled: false, impersonateAdmins } }),
+        accountStore: fakeAccountStore({ findById: async (sub) => ACCOUNTS[sub] ?? null }),
+      }),
+    ),
   );
   const service = new OidcService(cfg as any, 'a'.repeat(32));
   const server: Server = createServer(service.callback);

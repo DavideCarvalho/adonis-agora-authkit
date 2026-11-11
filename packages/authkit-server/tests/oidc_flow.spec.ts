@@ -6,6 +6,7 @@ import RedisMock from 'ioredis-mock';
 import { adapters, defineConfig } from '../src/define_config.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { fakeAccountStore } from './bootstrap.js';
+import { withClients } from './helpers/seed_clients.js';
 
 const PORT = 9788;
 const ISSUER = `http://localhost:${PORT}`;
@@ -26,11 +27,8 @@ test.group('OIDC capabilities (e2e)', (group) => {
     } as any;
     const cfg = await configProvider.resolve(
       fakeApp,
-      defineConfig({
-        issuer: ISSUER,
-        adapter: adapters.redis({ connection: 'main' }),
-        jwks: { source: 'managed', algorithm: 'RS256' },
-        clients: [
+      withClients(
+        [
           {
             clientId: 'app1',
             clientSecret: 's',
@@ -38,8 +36,13 @@ test.group('OIDC capabilities (e2e)', (group) => {
             grants: ['authorization_code', 'refresh_token'],
           },
         ],
-        accountStore: fakeAccountStore(),
-      }),
+        defineConfig({
+          issuer: ISSUER,
+          adapter: adapters.redis({ connection: 'main' }),
+          jwks: { source: 'managed', algorithm: 'RS256' },
+          accountStore: fakeAccountStore(),
+        }),
+      ),
     );
     service = new OidcService(cfg!, 'a'.repeat(32));
     server = createServer(service.callback);

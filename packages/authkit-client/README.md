@@ -8,8 +8,16 @@ Authorization Server (`@adonis-agora/authkit-server`), validando o ID token loca
 node ace add @adonis-agora/authkit-client
 # ou: pnpm add @adonis-agora/authkit-client && node ace configure @adonis-agora/authkit-client
 ```
-O `configure` publica `config/authkit_client.ts`, o controller `app/controllers/oidc_session_controller.ts`
-(login/callback/logout) e registra o provider + o middleware `authkit_middleware`.
+`@adonisjs/auth` é peer obrigatório: `ctx.auth` é o autenticador do `@adonisjs/auth`, apoiado
+na sessão do AuthKit pelo `authkitClientGuard`. O `configure`:
+
+- instala `@adonisjs/auth` se o app ainda não depende dele (`--no-install` só imprime o comando);
+- publica `config/authkit_client.ts` e `config/auth.ts` (`authkitClientGuard` +
+  `sessionUserProvider` com `--model`, default `#models/user`; um `config/auth.ts` existente não é
+  tocado e o guard a adicionar é impresso);
+- publica `app/middleware/auth_middleware.ts` / `silent_auth_middleware.ts` (named `auth` e
+  `silentAuth`) e o controller `app/controllers/oidc_session_controller.ts`;
+- registra os providers e, no `router`, `initialize_auth_middleware` + `authkit_context_middleware`.
 
 ## Rotas de sessão
 
@@ -23,7 +31,6 @@ import { registerOidcClient } from '@adonis-agora/authkit-client'
 
 registerOidcClient(router, {
   prefix: '/auth',                                  // default
-  loginMiddleware: middleware.guest(),
   redirects: { byGlobalRole: { ADMIN: '/admin' }, default: '/' },
   afterLogin: async (ctx, identity) => undefined,   // retornar string redireciona
   postLogoutRedirect: '/',                          // default: origem do redirectUri + '/'
@@ -51,25 +58,52 @@ router.post('/auth/logout', [OidcSessionController, 'logout'])
 > `startSession`/`endSession` são os caminhos que mantêm a invariante.
 
 ## Uso por request
-`ctx.auth` é populado pelo `authkit_middleware`:
+Rotas usam `middleware.auth()` / `middleware.silentAuth()` e os controllers leem o usuário em
+`ctx.auth`:
 ```ts
-const identity = await ctx.auth.getIdentity()   // claims OIDC validadas (ou null)
-const user = await ctx.auth.getUser()            // model do app (via resolveUser)
-ctx.auth.hasGlobalRole('ADMIN')                  // síncrono, das claims (roles do token)
+// app/controllers/dashboard_controller.ts
+export default class DashboardController {
+  async handle({ auth, authkit, inertia }: HttpContext) {
+    const user = auth.getUserOrFail()                // atrás de middleware.auth()
+    const isAdmin = authkit.hasGlobalRole('ADMIN')   // síncrono, das claims do token
+    return inertia.render('dashboard', { user, isAdmin })
+  }
+}
 ```
+O guard pega o usuário do `resolveUser` (ex.: `lucidMirror`, que cria a linha no primeiro login)
+e cai no provider quando não há `resolveUser`. Sem tabela local de usuários, use
+`authkitIdentityProvider()` como provider: `ctx.auth.user` é a `Identity`.
+
+`ctx.authkit` (populado pelo `authkit_context_middleware`) traz o que só o AuthKit sabe — a
+`Identity` (`getIdentity()`), `hasGlobalRole`, a org ativa e `toSharedProps()` para o
+`@adonis-agora/authkit-react` — inclusive em rotas públicas.
 
 > **Autorização por app-role saiu do AuthKit.** O AuthKit só autentica e conhece as `globalRoles` do
 > token. Roles do app (numa tabela do domínio) e permissões são do `@adonis-agora/authz` — configure
-> o seam `resolveRoles` lá. Guard de rota por role vai pra authz/Bouncer, não para o `authkit_middleware`
+> o seam `resolveRoles` lá. Guard de rota por role vai pra authz/Bouncer, não para o `middleware.auth()`
 > (que só exige login).
 
 ## Resolução de sessão
 `resolvers.jwt({ tokenSource })` valida o **ID token** (JWT) por JWKS:
 - `tokenSource: 'session'` (default) — lê o token set do `@adonisjs/session`.
-- `tokenSource: 'bearer'` — lê do header `Authorization` (SPA/API).
+- `tokenSource: 'bearer'` — lê do header `Authorization` (SPA/API): `Bearer <jwt>` ou
+  `DPoP <jwt>` com a prova no header `DPoP` (token com `cnf.jkt` enviado como `Bearer` é recusado).
+
+Rotas de API ganham um guard próprio com `resolver`:
+```ts
+// config/auth.ts
+api: authkitClientGuard({
+  provider: authkitIdentityProvider(),
+  resolver: resolvers.jwt({ tokenSource: 'bearer' }), // ou resolvers.opaque/resolvers.pat
+}),
+```
+```ts
+// start/routes.ts
+router.group(() => { /* … */ }).prefix('/api').use(middleware.auth({ guards: ['api'] }))
+```
 
 ## Topologias de banco
-A identidade (`ctx.auth.identity`) sempre vem do **token validado** e independe da
+A identidade (`ctx.authkit.identity`) sempre vem do **token validado** e independe da
 topologia de banco. O que muda é como `resolveUser` obtém o model do app.
 
 ### Mesmo banco + schemas
@@ -102,8 +136,9 @@ Roles do app (a tabela de roles do próprio domínio) não passam mais pelo Auth
 `resolveRoles` do `@adonis-agora/authz`, que as une às `globalRoles` do token para decidir permissão.
 
 ## Ordem de middleware (importante)
-O middleware do `@adonisjs/session` DEVE rodar ANTES do `authkit_middleware` no stack `router`
-(o resolver lê o token da session). Garanta essa ordem em `start/kernel.ts`.
+No stack `router`: `@adonisjs/session` → `@adonisjs/auth/initialize_auth_middleware` →
+`authkit_context_middleware` (o resolver lê o token da session). O `configure` já registra nessa
+ordem.
 
 ## Observabilidade (opcional)
 O `Authenticator` registra métricas de resolução (`authkit.resolve.duration` e

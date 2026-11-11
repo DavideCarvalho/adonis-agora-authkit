@@ -23,6 +23,7 @@ import { adapters, defineConfig } from '../src/define_config.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { registerTokenExchange } from '../src/provider/token_exchange.js';
 import { fakeAccountStore as baseAccountStore } from './bootstrap.js';
+import { withClients } from './helpers/seed_clients.js';
 
 const TOKEN_EXCHANGE = 'urn:ietf:params:oauth:grant-type:token-exchange';
 const ACCESS_TOKEN_TYPE = 'urn:ietf:params:oauth:token-type:access_token';
@@ -238,11 +239,8 @@ test.group('token-exchange — o gate de status está WIRED no OidcService', (gr
     } as any;
     const cfg = await configProvider.resolve(
       fakeApp,
-      defineConfig({
-        issuer: WIRING_ISSUER,
-        adapter: adapters.redis({ connection: 'main' }),
-        jwks: { source: 'managed', algorithm: 'RS256' },
-        clients: [
+      withClients(
+        [
           {
             clientId: 'app1',
             clientSecret: 's',
@@ -250,22 +248,27 @@ test.group('token-exchange — o gate de status está WIRED no OidcService', (gr
             grants: ['authorization_code', 'refresh_token', TOKEN_EXCHANGE],
           },
         ],
-        accountStore: baseAccountStore({
-          findById: async (sub: string) => {
-            if (sub === 'admin-1')
-              return { id: sub, email: 'admin@x.com', globalRoles: ['ADMIN'], name: 'Admin' };
-            if (sub === 'disabled-1')
-              return { id: sub, email: 'd@x.com', globalRoles: ['USER'], name: 'Disabled' };
-            if (sub === 'healthy-1')
-              return { id: sub, email: 'h@x.com', globalRoles: ['USER'], name: 'Healthy' };
-            return null;
-          },
-          // AccountStatusCapability: a probe é `typeof store.disableAccount === 'function'`.
-          disableAccount: async () => {},
-          enableAccount: async () => {},
-          isDisabled: async (id: string) => id === 'disabled-1',
-        } as any),
-      }),
+        defineConfig({
+          issuer: WIRING_ISSUER,
+          adapter: adapters.redis({ connection: 'main' }),
+          jwks: { source: 'managed', algorithm: 'RS256' },
+          accountStore: baseAccountStore({
+            findById: async (sub: string) => {
+              if (sub === 'admin-1')
+                return { id: sub, email: 'admin@x.com', globalRoles: ['ADMIN'], name: 'Admin' };
+              if (sub === 'disabled-1')
+                return { id: sub, email: 'd@x.com', globalRoles: ['USER'], name: 'Disabled' };
+              if (sub === 'healthy-1')
+                return { id: sub, email: 'h@x.com', globalRoles: ['USER'], name: 'Healthy' };
+              return null;
+            },
+            // AccountStatusCapability: a probe é `typeof store.disableAccount === 'function'`.
+            disableAccount: async () => {},
+            enableAccount: async () => {},
+            isDisabled: async (id: string) => id === 'disabled-1',
+          } as any),
+        }),
+      ),
     );
     service = new OidcService(cfg as any, 'a'.repeat(32));
     server = createServer(service.callback);

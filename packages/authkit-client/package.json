@@ -6,7 +6,7 @@
   "author": "dudousxd",
   "repository": {
     "type": "git",
-    "url": "https://github.com/DavideCarvalho/adonis-agora-authkit.git",
+    "url": "git+https://github.com/DavideCarvalho/adonis-agora-authkit.git",
     "directory": "packages/authkit-client"
   },
   "homepage": "https://davidecarvalho.github.io/agora/docs/authkit",
@@ -33,7 +33,8 @@
   "files": [
     "build",
     "stubs",
-    "skills"
+    "skills",
+    "CHANGELOG.md"
   ],
   "exports": {
     ".": "./build/index.js",
@@ -41,14 +42,11 @@
     "./container_bindings": "./build/container_bindings.js",
     "./services/main": "./build/services/main.js",
     "./authkit_client_provider": "./build/providers/authkit_client_provider.js",
-    "./auth": "./build/src/host/authkit_client_guard.js",
+    "./auth": "./build/auth.js",
     "./dashboard_guard": "./build/src/host/dashboard_guard.js",
-    "./authkit_middleware": "./build/src/middleware/authkit_middleware.js",
-    "./authkit_context_middleware": "./build/src/middleware/authkit_context_middleware.js",
+    "./authkit_context_middleware": "./build/authkit_context_middleware.js",
     "./backchannel_revocation_middleware": "./build/src/middleware/backchannel_revocation_middleware.js",
-    "./auth_middleware": "./build/src/middleware/auth_middleware.js",
     "./require_org_middleware": "./build/src/middleware/require_org_middleware.js",
-    "./silent_auth_middleware": "./build/src/middleware/silent_auth_middleware.js",
     "./commands": "./build/commands/configure.js"
   },
   "adonisjs": {
@@ -69,16 +67,13 @@
     "test": "node --import=@poppinss/ts-exec bin/test.ts"
   },
   "peerDependencies": {
-    "@adonis-agora/resilience": ">=0.1.0 <1.0.0",
+    "@adonis-agora/resilience": ">=0.1.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0",
     "@adonisjs/auth": "catalog:adonisPeers",
     "@adonisjs/core": "catalog:adonisPeers",
     "@adonisjs/lucid": "catalog:adonisPeers",
     "@adonisjs/session": "catalog:adonisPeers"
   },
   "peerDependenciesMeta": {
-    "@adonisjs/auth": {
-      "optional": true
-    },
     "@adonisjs/lucid": {
       "optional": true
     },

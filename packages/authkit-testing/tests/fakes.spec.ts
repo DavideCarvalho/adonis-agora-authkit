@@ -35,6 +35,8 @@ test.group('fakeAuthenticator', () => {
   test('getUser retorna o user de domínio fornecido', async ({ assert }) => {
     const auth = fakeAuthenticator({ user: { id: 7, name: 'Z' } });
     assert.deepEqual(await auth.getUser(), { id: 7, name: 'Z' });
+    assert.isTrue(auth.resolvesUser);
+    assert.isFalse(fakeAuthenticator().resolvesUser);
   });
 
   test('stands in for a ctx.auth typed as the real Authenticator', async ({ assert }) => {

@@ -128,15 +128,42 @@ defineConfig({
   issuer: env.get('AUTHKIT_ISSUER'),
   adapter: adapters.database(),
   accountStore: lucidAccountStore(AuthUser),
-  render: inertiaRenderer(), // renders Inertia pages for /account/* and /auth/interaction/*
+  // `views` is required: only listed screens render as Inertia pages.
+  // Any other screen falls back to the built-in Edge view.
+  render: inertiaRenderer({ prefix: 'authkit', views: ['login', 'consent'] }),
 })
 ```
 
-Without any renderer, every `/account/*` and `/auth/interaction/*` request fails
-with an unexplained 500 (`render` is undefined).
+Every screen (login, signup, consent, MFA, `session-expired`, `throttled`,
+`agents/*`, `account/*`) renders through `render`, so any of them can be a host
+page. Type each page with `AuthkitScreenProps['<view>']` (it includes `messages`);
+the controllers are checked against the same types:
 
-Source: `src/define_config.ts` (`render` JSDoc), `index.ts` exports
-(`inertiaRenderer`, `edgeRenderer`).
+```tsx
+import type { AuthkitScreenProps } from '@adonis-agora/authkit-server'
+
+export default function SessionExpired({
+  loginUrl,
+  messages,
+}: AuthkitScreenProps['session-expired']) {
+  return <a href={loginUrl}>{messages['session_expired.login_link']}</a>
+}
+```
+
+- The page file must be `inertia/pages/<prefix>/<view>.tsx` with the view's
+  kebab-case name: Inertia resolves it by string, so a renamed file only fails at
+  runtime.
+- A screen of your own (a `render` wrapper that swaps `login` for an audience
+  variant, say) must be declared by augmenting `AuthkitScreenProps` in
+  `declare module '@adonis-agora/authkit-server'`; otherwise `views` rejects it.
+- Set `interactionRecovery: { redirectTo: '/auth/login' }` so `session-expired`
+  restarts the sign-in, not the account console's `/account/login`.
+- The admin console (`/admin`) is not themed: build a custom admin UI with the
+  admin query options of `@adonis-agora/authkit-react` instead. Account surfaces
+  inside the app use the React components or the account query options.
+
+Source: `src/host/screen_props.ts` (`AuthkitScreenProps`), `index.ts` exports
+(`inertiaRenderer`, `edgeRenderer`); docs page "Themed Screens".
 
 ### Pattern 4 — test flows without booting an IdP
 

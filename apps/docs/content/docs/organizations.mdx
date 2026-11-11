@@ -197,14 +197,24 @@ A **role change** does not revoke anything: the next refresh simply carries the 
 
 ## Consuming the tenant in a relying party
 
-On the client side (`@adonis-agora/authkit-client`) the org claims are promoted to
-first-class fields on the resolved `Identity` — you do not have to reach into `identity.raw`:
+On the client side (`@adonis-agora/authkit-client`) the user comes from `ctx.auth` as usual,
+and the active organization is AuthKit-only data, on `ctx.authkit`. The org claims are promoted
+to first-class fields on the resolved `Identity` — you do not have to reach into
+`identity.raw`:
 
-```ts
-const identity = await ctx.auth.getIdentity()
-identity.orgId    // 'org-9'  | null
-identity.orgSlug  // 'acme'   | null
-identity.orgRole  // 'owner'  | null
+```ts title="app/controllers/projects_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import Project from '#models/project'
+
+export default class ProjectsController {
+  // Behind middleware.auth() and middleware.requireOrg()
+  async index({ auth, authkit }: HttpContext) {
+    const user = auth.getUserOrFail()
+    const identity = await authkit.getIdentity()
+    // identity.orgId 'org-9', identity.orgSlug 'acme', identity.orgRole 'owner' (or null)
+    return Project.query().where('orgId', identity!.orgId!).where('memberId', user.id)
+  }
+}
 ```
 
 The derivation also accepts the tenant claims other IdPs emit (`active_organization_id`,
@@ -230,7 +240,7 @@ falls back to the **global** scope, which is the worst place to land by accident
 
 ```ts title="start/kernel.ts"
 export const middleware = router.named({
-  auth: () => import('@adonis-agora/authkit-client/auth_middleware'),
+  auth: () => import('#middleware/auth_middleware'),
   requireOrg: () => import('@adonis-agora/authkit-client/require_org_middleware'),
 })
 ```
@@ -435,43 +445,53 @@ See [SDK](/docs/sdk) for the full type table.
 
 ## React
 
-`@adonis-agora/authkit-react` ships four hooks and two pre-built components for
-organizations. They fetch data from the JSON endpoints the host kit exposes (`/account/orgs/json`,
-`/account/orgs/invitations/json`, `/account/orgs/:id/json`) and POST mutations via the
-standard account routes.
+`@adonis-agora/authkit-react` reads organizations through the Account API
+(`/account/api/orgs/*`) with TanStack Query options, and ships two pre-built components on top
+of them. Both need `QueryClientProvider` + `AuthkitClientProvider` (see
+[Typed Client & TanStack Query](/docs/data-fetching#provider-setup)).
 
-### Hooks
+### Query and mutation options
 
-```tsx
+```tsx title="inertia/pages/account/orgs.tsx"
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  useOrganizations,
-  useOrganization,
-  useSwitchOrganization,
-  useOrgInvitations,
+  authkitKeys,
+  useAccountActivateOrgMutationOptions,
+  useAccountOrgInvitationsQueryOptions,
+  useAccountOrgsQueryOptions,
 } from '@adonis-agora/authkit-react'
 
-// List the current user's organizations + pending inbound invitations
-const orgs = useOrganizations()
-// orgs.data: OrgEntry[]   (id, name, slug, logoUrl, role, isActive)
-// orgs.invitations: OrgInvitationEntry[]
-// orgs.loading, orgs.error
-// orgs.actions.create({ name, slug }), orgs.actions.leave(orgId), orgs.actions.accept(token)
+export default function Orgs() {
+  const qc = useQueryClient()
+  const orgs = useQuery(useAccountOrgsQueryOptions()) // data: { supported, activeOrgId, orgs }
+  const invitations = useQuery(useAccountOrgInvitationsQueryOptions())
+  const activate = useMutation({
+    ...useAccountActivateOrgMutationOptions(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: authkitKeys.account.orgs() }),
+  })
 
-// Detail of one organization (members + active invitations)
-const org = useOrganization(orgId)
-// org.data: ActiveOrgDetail   (includes members: OrgMemberEntry[])
-// org.actions.invite({ email, role }), org.actions.removeMember(accountId), org.actions.revokeInvitation(invId)
-
-// Switch the active organization
-const switcher = useSwitchOrganization()
-// switcher.activate(orgId), switcher.deactivate()
-// switcher.loading
-
-// Pending invitations for the current user
-const invitations = useOrgInvitations()
-// invitations.data: OrgInvitationEntry[]
-// invitations.actions.accept(token), invitations.actions.refetch()
+  return (
+    <ul>
+      {orgs.data?.orgs.map((org) => (
+        <li key={org.id}>
+          {org.name} ({org.role})
+          {!org.isActive && <button onClick={() => activate.mutate(org.id)}>Switch</button>}
+        </li>
+      ))}
+    </ul>
+  )
+}
 ```
+
+| Need | Options |
+| --- | --- |
+| List orgs + active org | `useAccountOrgsQueryOptions()` |
+| Org detail + members | `useAccountOrgQueryOptions(orgId)` |
+| Pending invitations | `useAccountOrgInvitationsQueryOptions()` |
+| Create / leave | `useAccountCreateOrgMutationOptions()`, `useAccountLeaveOrgMutationOptions()` |
+| Switch | `useAccountActivateOrgMutationOptions()`, `useAccountDeactivateOrgMutationOptions()` |
+| Members and invites | `useAccountInviteOrgMemberMutationOptions()`, `useAccountRemoveOrgMemberMutationOptions()`, `useAccountUpdateOrgMemberRoleMutationOptions()`, `useAccountRevokeOrgInvitationMutationOptions()` |
+| Accept an invitation | `useAccountAcceptOrgInvitationMutationOptions()` |
 
 ### Components
 

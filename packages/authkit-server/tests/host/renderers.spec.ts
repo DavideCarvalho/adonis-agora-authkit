@@ -21,7 +21,7 @@ function makeCtx() {
 test.group('renderers', () => {
   test('inertiaRenderer chama ctx.inertia.render com prefixo + messages', async ({ assert }) => {
     const { ctx, inertiaCalls } = makeCtx();
-    await inertiaRenderer({ prefix: 'authkit' })(ctx, 'login', { uid: 'x' });
+    await inertiaRenderer({ prefix: 'authkit', views: ['login'] })(ctx, 'login', { uid: 'x' });
     assert.equal(inertiaCalls[0][0], 'authkit/login');
     assert.equal(inertiaCalls[0][1].uid, 'x');
     // Sem container/serviço, cai no default pt-BR embutido como shared prop.
@@ -75,18 +75,5 @@ test.group('renderers', () => {
     await inertiaRenderer({ prefix: 'authkit', views: ['login'] })(ctx, 'maintenance', {});
     assert.lengthOf(inertiaCalls, 0);
     assert.equal(edgeCalls[0][0], 'authkit::maintenance');
-  });
-
-  // ───────────────────────────────────────────────────────────────────────────
-  // Back-compat: sem `views` → tudo vai ao Inertia (exceto admin/*).
-  // ───────────────────────────────────────────────────────────────────────────
-
-  test('inertiaRenderer sem views: comportamento legado — view não-admin vai ao Inertia', async ({
-    assert,
-  }) => {
-    const { ctx, inertiaCalls, edgeCalls } = makeCtx();
-    await inertiaRenderer({ prefix: 'authkit' })(ctx, 'account/security', {});
-    assert.equal(inertiaCalls[0][0], 'authkit/account/security');
-    assert.lengthOf(edgeCalls, 0);
   });
 });

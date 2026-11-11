@@ -61,15 +61,14 @@ export interface AdminUserListResult {
 
 export interface CreateUserInput {
   email: string;
-  name?: string | null;
-  password?: string | null;
+  name?: string;
+  password?: string;
   invite?: boolean;
 }
 
+/** The console's user update sets the global roles; name and avatar are the user's own. */
 export interface UpdateUserInput {
   globalRoles?: string[];
-  name?: string | null;
-  avatarUrl?: string | null;
 }
 
 export interface AdminSessionEntry {
@@ -124,7 +123,7 @@ export interface AdminSessionListResult {
 export interface AdminClient {
   clientId: string;
   confidential: boolean;
-  grants: string[];
+  grantTypes: string[];
   redirectUris: string[];
   postLogoutRedirectUris: string[];
   tokenEndpointAuthMethod: string;
@@ -132,6 +131,10 @@ export interface AdminClient {
   applicationType?: 'web' | 'native';
   backchannelLogoutUri: string | null;
   backchannelLogoutSessionRequired: boolean;
+  /** Registered `client_name`, or `null`. */
+  clientName: string | null;
+  /** Registered `logo_uri`, or `null`. */
+  logoUri: string | null;
 }
 
 export interface AdminClientListResult {
@@ -159,9 +162,19 @@ export interface CreateClientInput {
   applicationType?: 'web' | 'native';
   backchannelLogoutUri?: string;
   backchannelLogoutSessionRequired?: boolean;
+  clientName?: string;
+  logoUri?: string;
 }
 
-export type UpdateClientInput = CreateClientInput;
+/** Like {@link CreateClientInput}; `null` removes `backchannelLogoutUri`, `clientName` or `logoUri`. */
+export type UpdateClientInput = Omit<
+  CreateClientInput,
+  'backchannelLogoutUri' | 'clientName' | 'logoUri'
+> & {
+  backchannelLogoutUri?: string | null;
+  clientName?: string | null;
+  logoUri?: string | null;
+};
 
 // ---------------------------------------------------------------------------
 // Admin – Roles
@@ -284,6 +297,20 @@ export interface SettingEntry {
 
 export interface SettingListResult {
   data: SettingEntry[];
+  /** Keys locked by `defineConfig` (read-only at runtime). */
+  locked: string[];
+}
+
+/** Response of a delete (`users.remove`, `clients.remove`). */
+export interface DeletedResult {
+  ok: true;
+  deleted: string;
+}
+
+/** Response of `users.resetPassword`: the reset e-mail went to `email`. */
+export interface ResetPasswordResult {
+  ok: true;
+  email: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -465,6 +492,10 @@ export interface RevokeAllResult {
 
 export interface AccountAppEntry {
   clientId: string;
+  /** The client's registered `client_name`, or its `clientId`. */
+  name: string;
+  /** The client's registered `logo_uri`, or `null`. */
+  logoUrl: string | null;
   accessTokens: number;
   refreshTokens: number;
 }
@@ -472,6 +503,27 @@ export interface AccountAppEntry {
 export interface AccountAppsResult {
   supported: boolean;
   apps: AccountAppEntry[];
+}
+
+// ---------------------------------------------------------------------------
+// Account – Personal agents
+// ---------------------------------------------------------------------------
+
+/** A personal agent's live delegation on the account (`GET /account/api/agents`). */
+export interface AccountAgentGrant {
+  id: string;
+  clientId: string;
+  /** Which personal-agent protocol granted it. */
+  protocol: 'pact' | 'poppy';
+  scopes: Array<{ id: string; description: string }>;
+  /** ISO dates, as the JSON API serializes them. */
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+}
+
+export interface AccountAgentsResult {
+  agents: AccountAgentGrant[];
 }
 
 export interface RevokeAppResult {

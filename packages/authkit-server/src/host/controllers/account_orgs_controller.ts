@@ -1,3 +1,4 @@
+import type { ScreenRenderProps } from '../screen_props.js';
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import { supportsOrganizations } from '../../accounts/account_store.js';
@@ -33,15 +34,13 @@ export default class AccountOrgsController {
     const service = await ctx.containerResolver.make('authkit.server');
     const cfg = service.config;
     const store = cfg.accountStore;
-    const messages = cfg.messages;
 
     if (!supportsOrganizations(store)) {
       return cfg.render
         ? cfg.render(ctx, 'account/orgs', {
             supported: false,
-            messages,
             csrfToken: ctx.request.csrfToken,
-          })
+          } satisfies ScreenRenderProps<'account/orgs'>)
         : response.notFound();
     }
 
@@ -80,11 +79,12 @@ export default class AccountOrgsController {
       pendingInvitations: invitationsWithOrg,
       allowSelfCreate: policy.allowSelfCreate,
       availableRoles: policy.roles,
-      messages,
       csrfToken: ctx.request.csrfToken,
     };
 
-    return cfg.render ? cfg.render(ctx, 'account/orgs', props) : response.notFound();
+    return cfg.render
+      ? cfg.render(ctx, 'account/orgs', props satisfies ScreenRenderProps<'account/orgs'>)
+      : response.notFound();
   }
 
   /** POST /account/orgs — criar nova org (requer allowSelfCreate). */
@@ -304,12 +304,14 @@ export default class AccountOrgsController {
     const props = {
       invitation,
       token: params.token,
-      messages: cfg.messages,
       csrfToken: ctx.request.csrfToken,
     };
 
     return cfg.render
-      ? cfg.render(ctx, 'account/orgs', { ...props, subview: 'accept-invitation' })
+      ? cfg.render(ctx, 'account/orgs', {
+          ...props,
+          subview: 'accept-invitation',
+        } satisfies ScreenRenderProps<'account/orgs'>)
       : response.notFound();
   }
 
@@ -402,128 +404,5 @@ export default class AccountOrgsController {
       metadata: { orgId: params.id, invitationId: params.invId },
     });
     return response.redirect(accountPath('orgs'));
-  }
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // JSON endpoints — consumed by @adonis-agora/authkit-react hooks.
-  // ──────────────────────────────────────────────────────────────────────────
-
-  /**
-   * GET /account/orgs/json — lista as orgs do usuário logado com papel + se ativa.
-   * Usado pelo hook `useOrganizations()`.
-   */
-  async listJson(ctx: HttpContext) {
-    const { session, response, request } = ctx;
-    const service = await ctx.containerResolver.make('authkit.server');
-    const cfg = service.config;
-    const store = cfg.accountStore;
-
-    if (!supportsOrganizations(store)) return { supported: false, orgs: [], activeOrgId: null };
-
-    const accountId = session.get(ACCOUNT_SESSION_KEY) as string;
-    if (!accountId) return response.unauthorized({ message: 'Not authenticated.' });
-
-    const orgs = await store.listOrgsForAccount(accountId);
-
-    const activeOrgRaw = request.cookie(ACTIVE_ORG_COOKIE);
-    const activeOrgId = activeOrgRaw ? activeOrgRaw.split('\t')[0] : null;
-
-    return {
-      supported: true,
-      activeOrgId,
-      orgs: orgs.map((org) => ({
-        id: org.id,
-        name: org.name,
-        slug: org.slug,
-        logoUrl: org.logoUrl ?? null,
-        role: org.role,
-        isActive: org.id === activeOrgId,
-      })),
-    };
-  }
-
-  /**
-   * GET /account/orgs/:id/json — detalhes da org ativa (para uso pelo hook `useOrganization()`).
-   * Só retorna se o usuário é membro.
-   */
-  async showJson(ctx: HttpContext) {
-    const { session, response, params } = ctx;
-    const service = await ctx.containerResolver.make('authkit.server');
-    const cfg = service.config;
-    const store = cfg.accountStore;
-
-    if (!supportsOrganizations(store)) return response.notFound({ message: 'Not supported.' });
-
-    const accountId = session.get(ACCOUNT_SESSION_KEY) as string;
-    if (!accountId) return response.unauthorized({ message: 'Not authenticated.' });
-
-    const membership = await store.getOrgMembership!(params.id, accountId);
-    if (!membership)
-      return response.notFound({ message: 'Organization not found or not a member.' });
-
-    const org = await store.findOrgById!(params.id);
-    if (!org) return response.notFound({ message: 'Organization not found.' });
-
-    const canManage = membership.role === 'owner' || membership.role === 'admin';
-    const members = canManage ? await store.listOrgMembers!(params.id) : [];
-    const enrichedMembers = await Promise.all(
-      members.map(async (m) => {
-        const account = await store.findById(m.accountId);
-        return {
-          accountId: m.accountId,
-          email: account?.email ?? null,
-          role: m.role,
-          joinedAt: m.joinedAt,
-        };
-      }),
-    );
-
-    return {
-      id: org.id,
-      name: org.name,
-      slug: org.slug,
-      logoUrl: org.logoUrl ?? null,
-      role: membership.role,
-      canManage,
-      members: enrichedMembers,
-    };
-  }
-
-  /**
-   * GET /account/orgs/invitations/json — lista convites pendentes pro e-mail do usuário logado.
-   * Usado pelo hook `useOrgInvitations()`.
-   */
-  async listInvitationsJson(ctx: HttpContext) {
-    const { session, response } = ctx;
-    const service = await ctx.containerResolver.make('authkit.server');
-    const cfg = service.config;
-    const store = cfg.accountStore;
-
-    if (!supportsOrganizations(store)) return { invitations: [] };
-
-    const accountId = session.get(ACCOUNT_SESSION_KEY) as string;
-    if (!accountId) return response.unauthorized({ message: 'Not authenticated.' });
-
-    const account = await store.findById(accountId);
-    if (!account) return response.unauthorized({ message: 'Not authenticated.' });
-
-    const invitations = await store.listPendingInvitationsForEmail!(account.email);
-    const enriched = await Promise.all(
-      invitations.map(async (inv) => {
-        const org = await store.findOrgById!(inv.organizationId);
-        return {
-          id: inv.id,
-          organizationId: inv.organizationId,
-          orgName: org?.name ?? inv.organizationId,
-          orgSlug: org?.slug ?? inv.organizationId,
-          email: inv.email,
-          role: inv.role,
-          expiresAt: inv.expiresAt,
-          createdAt: inv.createdAt,
-        };
-      }),
-    );
-
-    return { invitations: enriched };
   }
 }

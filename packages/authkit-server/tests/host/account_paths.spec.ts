@@ -26,13 +26,17 @@ import {
   resetAccountPaths,
   setAccountPaths,
 } from '../../src/host/account_paths.js';
-import { sudoContextFrom } from '../../src/host/controllers/account_confirm_controller.js';
 import { sendNewLoginEmail } from '../../src/host/default_mailer.js';
 import { DEFAULT_MESSAGES, translate } from '../../src/host/i18n.js';
 import { ACCOUNT_SESSION_KEY } from '../../src/host/middleware/account_auth.js';
 import { registerAuthHost } from '../../src/host/register_auth_host.js';
 import { magicLink } from '../../src/host/sudo/methods/magic_link.js';
-import { completeSudo, fail, setMountedSudoMethods } from '../../src/host/sudo/runtime.js';
+import {
+  completeSudo,
+  fail,
+  setMountedSudoMethods,
+  sudoContextFrom,
+} from '../../src/host/sudo/runtime.js';
 import { requireSudo, SUDO_SESSION_KEY } from '../../src/host/sudo_mode.js';
 
 // ─── helpers ──────────────────────────────────────────────────────────────

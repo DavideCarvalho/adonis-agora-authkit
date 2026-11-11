@@ -12,7 +12,6 @@ import { buildProviderIdentity } from './lucid_store/provider_identity.js';
 import {
   type AccountSecretEncrypter,
   defaultWebauthnCeremonies,
-  hasTable,
   type LucidStoreContext,
   type WebauthnCeremonies,
 } from './lucid_store/shared.js';
@@ -278,7 +277,7 @@ export interface LucidAccountStoreOptions {
 
 /**
  * Implementação default do {@link AccountStore} sobre um model Lucid composto
- * de `withAuthUser()` + `withCredentials()` (+ opcionalmente `withMfa()`). O
+ * de `withAuthUser()` + `withCredentials()`. O
  * model carrega `connection`/`table` (app-específico) e, por convenção, uma
  * coluna `fullName` (mapeada de `name`).
  *
@@ -289,11 +288,8 @@ export interface LucidAccountStoreOptions {
  * Organizations também é montada por padrão (models default da lib) e só some
  * com `organizationModels: false`.
  *
- * @remarks Para capabilities que dependem de tabelas opcionais (ex.:
- *   `auth_password_history`), use {@link lucidAccountStoreAsync} que probe o DB
- *   e monta o store já com as capabilities detectadas, sem a necessidade de
- *   fornecer um model separado. A versão síncrona (`lucidAccountStore`) é mantida
- *   por back-compat — capabilities de tabela ficam AUSENTES nela.
+ * O histórico de senhas usa a tabela lib-owned `auth_password_history` (criada
+ * pelo `ensureAuthkitSchema`) pela conexão do próprio model, como o MFA.
  */
 /**
  * Nome da tabela da conta, para o metadado `accountTable` do store.
@@ -534,71 +530,15 @@ export function lucidAccountStore(
     __model: Model,
   } as AccountStore;
 
-  // Histórico de senhas: capability-probed via tabela `auth_password_history`.
-  // A versão síncrona não pode fazer o probe de DB, então a capability fica
-  // AUSENTE aqui. Use `lucidAccountStoreAsync` para probe automático, OU injete
-  // o `passwordHistoryDb` nas options para montagem síncrona com DB explícito.
-  const passwordHistoryDb = (options as any).passwordHistoryDb;
-  if (passwordHistoryDb) {
-    Object.assign(store, buildPasswordHistory(ctx, passwordHistoryDb));
-  }
+  // Histórico de senhas: tabela lib-owned `auth_password_history`, pela conexão
+  // do model (resolvida a cada uso, como no MFA).
+  Object.assign(
+    store,
+    buildPasswordHistory(ctx, {
+      query: () => Model.query().client.query(),
+      table: (name: string) => Model.query().client.table(name),
+    }),
+  );
 
   return store;
-}
-
-/**
- * Options estendidas para uso em testes ou quando o DB é injetado diretamente
- * para o probe de histórico de senhas. Uso interno/avançado.
- */
-export interface LucidAccountStoreAsyncOptions extends LucidAccountStoreOptions {
-  /**
-   * Instância de DB Lucid. Quando fornecida, o factory faz o probe da tabela
-   * `auth_password_history` e monta a capability automaticamente.
-   */
-  db?: any;
-}
-
-/**
- * Versão assíncrona do {@link lucidAccountStore} que faz o probe de DB para
- * detectar tabelas opcionais (`auth_password_history`) e monta as capabilities
- * correspondentes. Use esta versão quando o `db` está disponível no momento do
- * boot (ex.: no `register_auth_host.ts` ou no `app/providers/auth_provider.ts`).
- */
-export async function lucidAccountStoreAsync(
-  Model: any,
-  options: LucidAccountStoreAsyncOptions = {},
-): Promise<AccountStore> {
-  const { db, ...rest } = options;
-  const base = lucidAccountStore(Model, rest);
-
-  if (db) {
-    // Probe da tabela auth_password_history.
-    const historyPresent = await hasTable(db, 'auth_password_history');
-    if (historyPresent) {
-      const ctx: LucidStoreContext = {
-        Model,
-        mfaIssuer: options.mfaIssuer ?? 'AuthKit',
-        recoveryCodeCount: options.recoveryCodeCount ?? 8,
-        passwords: new PasswordManager(options.password, {
-          logger: options.logger,
-          fetchImpl: options.pwnedFetch,
-        }),
-        audit: options.audit,
-        sealSecret: (s) => s,
-        openSecret: (s) => s ?? null,
-        toAccount: (row: any) => ({
-          // Ver a nota em `toAccount` acima: `sub` precisa ser string.
-          id: String(row.id),
-          email: row.email,
-          ...(row.phone && row.phoneVerifiedAt ? { phone: row.phone } : {}),
-          globalRoles: row.globalRoles ?? [],
-          name: row.fullName ?? undefined,
-          avatarUrl: row.avatarUrl ?? undefined,
-        }),
-      };
-      Object.assign(base, buildPasswordHistory(ctx, db));
-    }
-  }
-
-  return base;
 }

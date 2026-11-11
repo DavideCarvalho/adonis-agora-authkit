@@ -146,12 +146,23 @@ export class RedisAdapter implements OidcAdapter {
    */
   async list(): Promise<EnumeratedArtifact[]> {
     const prefix = `${this.prefix}:${this.name}:`;
+    // A connection `keyPrefix` (ioredis) is added to every key a command takes,
+    // but NOT to a SCAN `MATCH` pattern, and SCAN returns the stored (prefixed)
+    // keys. So match with it and strip it before `MGET`, which adds it again.
+    const keyPrefix = this.#connectionKeyPrefix();
     const result: EnumeratedArtifact[] = [];
     let cursor = '0';
     do {
-      const [next, keys] = await this.redis.scan(cursor, 'MATCH', `${prefix}*`, 'COUNT', 1000);
+      const [next, stored] = await this.redis.scan(
+        cursor,
+        'MATCH',
+        `${keyPrefix}${prefix}*`,
+        'COUNT',
+        1000,
+      );
       cursor = next;
-      if (keys.length === 0) continue;
+      if (stored.length === 0) continue;
+      const keys = stored.map((key) => key.slice(keyPrefix.length));
       const values = await this.redis.mget(...keys);
       keys.forEach((key, i) => {
         const data = values[i];
@@ -164,5 +175,14 @@ export class RedisAdapter implements OidcAdapter {
     } while (cursor !== '0');
     result.sort((a, b) => a.id.localeCompare(b.id));
     return result;
+  }
+
+  /** The `keyPrefix` of the ioredis connection (or of the AdonisJS connection wrapping it). */
+  #connectionKeyPrefix(): string {
+    const client = this.redis as unknown as {
+      options?: { keyPrefix?: string };
+      ioConnection?: { options?: { keyPrefix?: string } };
+    };
+    return client.options?.keyPrefix ?? client.ioConnection?.options?.keyPrefix ?? '';
   }
 }

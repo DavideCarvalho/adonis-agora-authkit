@@ -30,6 +30,7 @@
     "settings",
     "config-locks",
     "customizing-auth",
+    "themed-screens",
     "security",
     "---Frontend---",
     "react",
@@ -54,6 +55,7 @@
     "agora-integration",
     "observability",
     "reference",
+    "migrating-to-1-0",
     "changelog"
   ]
 }

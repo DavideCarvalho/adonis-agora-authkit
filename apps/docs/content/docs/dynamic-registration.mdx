@@ -4,10 +4,10 @@ title: Dynamic Client Registration
 description: RFC 7591/7592 — register OIDC clients at runtime.
 ---
 
-By default AuthKit's clients are the static list in `defineConfig`. With **Dynamic Client
-Registration** (RFC 7591) enabled, the provider also exposes a registration endpoint, and
-clients created there are **persisted by the same adapter** used for the other OIDC
-artifacts — so dynamic clients coexist with the static ones.
+AuthKit's clients live in the OIDC adapter, created through the admin console, the Admin API
+or `node ace authkit:clients:create`. With **Dynamic Client Registration** (RFC 7591) enabled,
+the provider also exposes a registration endpoint, and clients created there are **persisted
+by the same adapter** — so they sit next to the ones you created yourself.
 
 ## Enabling it
 
@@ -127,6 +127,5 @@ a `registration_access_token` and `registration_client_uri` to manage the client
 ## Persistence & the admin console
 
 Dynamically-registered clients are stored through the **same** OIDC adapter as the rest of
-the provider state, so they survive restarts. They do **not** appear in the
-[admin console](/docs/admin-console)'s client list (which reflects the static config); when
-dynamic registration is on, the admin clients page surfaces a notice to that effect.
+the provider state, so they survive restarts, and they are listed in the
+[admin console](/docs/admin-console)'s client page with the others.

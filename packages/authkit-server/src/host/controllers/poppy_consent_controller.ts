@@ -1,3 +1,4 @@
+import type { ScreenRenderProps } from '../screen_props.js';
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import { personalAgentsFor } from '../../agents/runtime.js';
@@ -39,14 +40,18 @@ export default class PoppyConsentController {
         request: null,
         account: null,
         error: 'agents.consent.impersonating',
-      });
+      } satisfies ScreenRenderProps<'agents/consent'>);
     }
     const accountId = ctx.session.get(ACCOUNT_SESSION_KEY) as string;
     const outcome = await poppy.startAuthorization(ctx.request.qs(), accountId);
     if (outcome.kind === 'redirect') return redirectExact(ctx.response, outcome.url);
     if (outcome.kind === 'error') {
       ctx.response.status(400);
-      return render(ctx, 'agents/done', { status: 'invalid', agentName: null, scopes: [] });
+      return render(ctx, 'agents/done', {
+        status: 'invalid',
+        agentName: null,
+        scopes: [],
+      } satisfies ScreenRenderProps<'agents/done'>);
     }
     const account = await service.config.accountStore.findById(accountId);
     return render(ctx, 'agents/consent', {
@@ -61,7 +66,7 @@ export default class PoppyConsentController {
       },
       account: { email: account?.email ?? null },
       error: null,
-    });
+    } satisfies ScreenRenderProps<'agents/consent'>);
   }
 
   /** POST {prefix}/oauth/authorize — `request_id`, `decision=allow|deny`, `scope[]`. */
@@ -74,7 +79,11 @@ export default class PoppyConsentController {
     const cfg = service.config;
     const render = cfg.render!;
     if (impersonationState(ctx).active) {
-      return render(ctx, 'agents/done', { status: 'expired', agentName: null, scopes: [] });
+      return render(ctx, 'agents/done', {
+        status: 'expired',
+        agentName: null,
+        scopes: [],
+      } satisfies ScreenRenderProps<'agents/done'>);
     }
     const accountId = ctx.session.get(ACCOUNT_SESSION_KEY) as string;
     const decided = await poppy.decideAuthorization({
@@ -84,7 +93,11 @@ export default class PoppyConsentController {
       scopes: chosenScopes(ctx),
     });
     if (!decided) {
-      return render(ctx, 'agents/done', { status: 'expired', agentName: null, scopes: [] });
+      return render(ctx, 'agents/done', {
+        status: 'expired',
+        agentName: null,
+        scopes: [],
+      } satisfies ScreenRenderProps<'agents/done'>);
     }
     await cfg.audit?.record({
       type: decided.approved ? 'agent.delegation_approved' : 'agent.delegation_denied',
@@ -112,13 +125,20 @@ export default class PoppyConsentController {
       error: null,
     };
     if (impersonationState(ctx).active) {
-      return render(ctx, 'agents/consent', { ...base, error: 'agents.consent.impersonating' });
+      return render(ctx, 'agents/consent', {
+        ...base,
+        error: 'agents.consent.impersonating',
+      } satisfies ScreenRenderProps<'agents/consent'>);
     }
     const input: unknown = ctx.request.input('user_code');
-    if (!input) return render(ctx, 'agents/consent', base);
+    if (!input)
+      return render(ctx, 'agents/consent', base satisfies ScreenRenderProps<'agents/consent'>);
     const pending = await poppy.pendingDevice(input);
     if (!pending) {
-      return render(ctx, 'agents/consent', { ...base, error: 'agents.consent.invalid_code' });
+      return render(ctx, 'agents/consent', {
+        ...base,
+        error: 'agents.consent.invalid_code',
+      } satisfies ScreenRenderProps<'agents/consent'>);
     }
     const accountId = ctx.session.get(ACCOUNT_SESSION_KEY) as string;
     const account = await service.config.accountStore.findById(accountId);
@@ -131,7 +151,7 @@ export default class PoppyConsentController {
         scopes: pending.scopes,
       },
       account: { email: account?.email ?? null },
-    });
+    } satisfies ScreenRenderProps<'agents/consent'>);
   }
 
   /** POST {prefix}/device — `user_code`, `decision`, `scope[]`. */
@@ -144,7 +164,11 @@ export default class PoppyConsentController {
     const cfg = service.config;
     const render = cfg.render!;
     if (impersonationState(ctx).active) {
-      return render(ctx, 'agents/done', { status: 'expired', agentName: null, scopes: [] });
+      return render(ctx, 'agents/done', {
+        status: 'expired',
+        agentName: null,
+        scopes: [],
+      } satisfies ScreenRenderProps<'agents/done'>);
     }
     const accountId = ctx.session.get(ACCOUNT_SESSION_KEY) as string;
     const userCode = String(ctx.request.input('user_code') ?? '');
@@ -156,7 +180,11 @@ export default class PoppyConsentController {
       scopes: chosenScopes(ctx),
     });
     if (!decided || !pending) {
-      return render(ctx, 'agents/done', { status: 'expired', agentName: null, scopes: [] });
+      return render(ctx, 'agents/done', {
+        status: 'expired',
+        agentName: null,
+        scopes: [],
+      } satisfies ScreenRenderProps<'agents/done'>);
     }
     await cfg.audit?.record({
       type: decided.approved ? 'agent.delegation_approved' : 'agent.delegation_denied',
@@ -169,6 +197,6 @@ export default class PoppyConsentController {
       status: decided.approved ? 'approved' : 'denied',
       agentName: pending.agentName,
       scopes: decided.approved ? poppy.describe(decided.approved) : [],
-    });
+    } satisfies ScreenRenderProps<'agents/done'>);
   }
 }

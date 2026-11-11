@@ -22,14 +22,13 @@ import { sha256Hex } from '../../src/accounts/lucid_store/token_hash.js';
 import type { AuditEvent } from '../../src/audit/audit_sink.js';
 import { withAuthUser } from '../../src/mixins/with_auth_user.js';
 import { withCredentials } from '../../src/mixins/with_credentials.js';
-import { withMfa } from '../../src/mixins/with_mfa.js';
 import { withProviderIdentity } from '../../src/mixins/with_provider_identity.js';
 import { withWebauthnCredential } from '../../src/mixins/with_webauthn_credential.js';
 import { PasswordPolicyError } from '../../src/password/password_manager.js';
 import type { FetchLike } from '../../src/password/pwned.js';
 import { createTestDatabase } from '../bootstrap.js';
 
-class TestAccount extends compose(BaseModel, withAuthUser(), withCredentials(), withMfa()) {
+class TestAccount extends compose(BaseModel, withAuthUser(), withCredentials()) {
   static table = 'users';
   static selfAssignPrimaryKey = true;
   @column({ isPrimary: true })
@@ -602,7 +601,7 @@ test.group('lucidAccountStore', (group) => {
     assert,
   }) => {
     // Model mínimo SEM a coluna email_verified_at → a capacidade não é montada.
-    class NoVerifyAccount extends compose(BaseModel, withAuthUser(), withCredentials(), withMfa()) {
+    class NoVerifyAccount extends compose(BaseModel, withAuthUser(), withCredentials()) {
       static table = 'users';
       static selfAssignPrimaryKey = true;
       @column({ isPrimary: true })

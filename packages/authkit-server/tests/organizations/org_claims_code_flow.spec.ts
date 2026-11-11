@@ -35,6 +35,7 @@ import { adapters, defineConfig } from '../../src/define_config.js';
 import { ACTIVE_ORG_COOKIE, encodeActiveOrgCookie } from '../../src/host/active_org_cookie.js';
 import { OidcService } from '../../src/provider/oidc_service.js';
 import { fakeAccountStore } from '../bootstrap.js';
+import { withClients } from '../helpers/seed_clients.js';
 
 const CLIENT_ID = 'app1';
 const CLIENT_SECRET = 's';
@@ -122,11 +123,8 @@ async function startServer(
   } as any;
   const cfg = await configProvider.resolve<ResolvedServerConfig>(
     fakeApp,
-    defineConfig({
-      issuer,
-      adapter: adapters.redis({ connection: 'main' }),
-      jwks: { source: 'managed', algorithm: 'RS256' },
-      clients: [
+    withClients(
+      [
         {
           clientId: CLIENT_ID,
           clientSecret: CLIENT_SECRET,
@@ -134,10 +132,15 @@ async function startServer(
           grants: ['authorization_code', 'refresh_token'],
         },
       ],
-      // Explicit first-party: org_* are bound to the `roles` scope and this gate.
-      firstPartyClients: [CLIENT_ID],
-      accountStore: opts.accountStore ?? storeWithOrgs(),
-    }),
+      defineConfig({
+        issuer,
+        adapter: adapters.redis({ connection: 'main' }),
+        jwks: { source: 'managed', algorithm: 'RS256' },
+        // Explicit first-party: org_* are bound to the `roles` scope and this gate.
+        firstPartyClients: [CLIENT_ID],
+        accountStore: opts.accountStore ?? storeWithOrgs(),
+      }),
+    ),
   );
   service = new OidcService(cfg!, 'a'.repeat(32));
   return { service, issuer, server };

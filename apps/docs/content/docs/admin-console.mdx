@@ -14,6 +14,14 @@ host sees no change in behaviour until it says so in `config/authkit.ts`.
 
 ## Enabling it
 
+<Callout type="warn">
+  The console and its API sign people in with the **account console session**
+  (`POST /account/login`, which takes a password). If your app turns password login off and
+  signs people in with magic links, codes, passkeys or social logins only, set
+  `accountSession: { acceptIdpSession: true }`: otherwise nobody can reach `/account/*` or
+  the admin console. See [Console session](/docs/console-session#single-sign-on-with-the-idp-session).
+</Callout>
+
 Turning the console on is a single decision, taken in `config/authkit.ts`:
 
 ```ts title="config/authkit.ts"
@@ -182,9 +190,118 @@ What that buys you, and what you can rely on:
   JSON API are all live regardless, so backend work does not need the front end built.
 </Callout>
 
+## Building your own admin UI
+
+The built-in console is a neutral operator console: it takes no theme, brand or locale from
+your product, and that is deliberate. When a product needs an admin area in its own design,
+build it on the same JSON API the console uses, with the admin query options of
+`@adonis-agora/authkit-react`.
+
+**The data.** The console's API lives under `{prefix}/api/*` (`/admin/api` by default) and is
+what your page calls. It needs `admin.enabled: true`: with the console disabled, the API
+answers 404 too. Keep the built-in console for operators, or move it with the
+[admin prefix](#configurable-admin-prefix).
+
+**Auth and CSRF.** The calls are same-origin `fetch`es from a page of the IdP app, so they
+carry the account-console session cookie, and the admin guard checks it and `admin.roles` on
+every request. Mutations need the CSRF token as `X-CSRF-TOKEN`: pass the request's token to
+`createAuthkitClient`. A page on another origin cannot use this API; use the
+[Admin API](/docs/admin-api) from your server instead.
+
+**The page.** Gate the route with the account session and the admin roles, then render an
+Inertia page. The middleware below reads the account's stored global roles; if your roles come
+from `resolveTokenRoles`, check them the same way you mint them. The API enforces the real
+check either way.
+
+```ts title="app/middleware/authkit_admin_middleware.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import type { NextFn } from '@adonisjs/core/types/http'
+import { consoleLoginUrl, ensureConsoleSession, realAccountId } from '@adonis-agora/authkit-server'
+
+export default class AuthkitAdminMiddleware {
+  async handle(ctx: HttpContext, next: NextFn) {
+    await ensureConsoleSession(ctx) // honours accountSession.acceptIdpSession
+    const accountId = realAccountId(ctx) // the human, even while impersonating
+    if (!accountId) return ctx.response.redirect(consoleLoginUrl(ctx.request.url()))
+
+    const { config } = await ctx.containerResolver.make('authkit.server')
+    const account = await config.accountStore.findById(accountId)
+    const isAdmin = account?.globalRoles.some((role) => config.admin.roles.includes(role))
+    if (!isAdmin) return ctx.response.forbidden()
+
+    return next()
+  }
+}
+```
+
+```ts title="start/routes.ts"
+router
+  .get('/backoffice/users', ({ inertia, request }) =>
+    inertia.render('backoffice/users', { csrfToken: request.csrfToken })
+  )
+  .use(middleware.authkitAdmin())
+```
+
+```tsx title="inertia/pages/backoffice/users.tsx"
+import { QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  AuthkitClientProvider,
+  authkitKeys,
+  createAuthkitClient,
+  createAuthkitQueryClient,
+  useDisableUserMutationOptions,
+  useUsersQueryOptions,
+} from '@adonis-agora/authkit-react'
+import { useState } from 'react'
+
+function DisableButton({ id }: { id: string }) {
+  const queryClient = useQueryClient()
+  const disable = useMutation({
+    ...useDisableUserMutationOptions(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: authkitKeys.admin.users() }),
+  })
+  return (
+    <button disabled={disable.isPending} onClick={() => disable.mutate()}>
+      Disable
+    </button>
+  )
+}
+
+function Users() {
+  const { data } = useQuery(useUsersQueryOptions({ page: 1 }))
+  return (
+    <ul>
+      {data?.data.map((user) => (
+        <li key={user.id}>
+          {user.email} <DisableButton id={user.id} />
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+export default function UsersPage({ csrfToken }: { csrfToken: string }) {
+  const [queryClient] = useState(() => createAuthkitQueryClient())
+  const [client] = useState(() => createAuthkitClient({ baseUrl: '/admin/api', csrfToken }))
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthkitClientProvider client={client}>
+        <Users />
+      </AuthkitClientProvider>
+    </QueryClientProvider>
+  )
+}
+```
+
+The options cover users, sessions, clients, roles, organizations (members and invitations),
+the audit log, runtime settings, impersonation, signing keys and personal agents: see the
+catalog in [Typed Client & TanStack Query](/docs/data-fetching#admin-query-hooks). The HTTP
+contract is in [Admin API](/docs/admin-api). For end-user surfaces (profile, sessions,
+organizations, authorized apps) use the [components](/docs/components) instead.
+
 ## The guard
 
-The `adminGuard` (exported, if you want to reuse it on routes of your own) protects the
+The admin guard protects the
 whole group — the shell **and** every `{prefix}/api/*` endpoint. In order, it requires:
 
 1. `admin.enabled: true` — when the console is **disabled**, the guard responds with **404
@@ -196,6 +313,11 @@ whole group — the shell **and** every `{prefix}/api/*` endpoint. In order, it 
 4. the signed-in account having at least one of `admin.roles` (otherwise a redirect to the
    configured `accountHome` — default `/account/security` — so the existence of `/admin` is
    not leaked).
+
+A request that asks for JSON (`Accept: application/json`, as the React client sends) gets a
+status instead of a redirect: **401** without a session (or after the idle timeout) and **403**
+without an admin role. The account console's JSON API (`/account/api/*`) answers **401** the
+same way.
 
 Two details worth knowing. The `admin.enabled` check at step 1 is a genuine safety net, not
 a formality: routes are registered before the lazy config resolves, so the guard is the
@@ -233,6 +355,7 @@ under `{prefix}/api/*`. All endpoints are protected by the `adminGuard`.
 | `POST {prefix}/api/sessions/revoke-all` | Revoke all sessions for an account |
 | `GET {prefix}/api/clients` | List adapter-stored OIDC clients |
 | `POST {prefix}/api/clients` | Create a dynamic client |
+| `GET {prefix}/api/clients/:id` | One client (`404` if unknown) |
 | `PATCH {prefix}/api/clients/:id` | Edit a dynamic client |
 | `DELETE {prefix}/api/clients/:id` | Delete a dynamic client |
 | `POST {prefix}/api/clients/:id/regenerate-secret` | Regenerate client secret |
@@ -411,14 +534,13 @@ node ace authkit:settings:set admin_impersonation '{"enabled":false}'
 A third condition is structural rather than configurable: the panel needs a client carrying
 the `urn:ietf:params:oauth:grant-type:token-exchange` grant to build its example against. It
 looks for one among the clients your OIDC adapter holds — the ones created through the
-[Client CRUD](#client-crud) page, the Admin API or `authkit:clients:create` — and falls back
-to any static clients still declared on the config. When no client anywhere carries the
+[Client CRUD](#client-crud) page, the Admin API or `authkit:clients:create`. When no client carries the
 grant, the endpoint answers 404 with `no_token_exchange_client`: there is no exchange to
 describe. Give an existing client the grant, or create one, and the panel appears.
 
 <Callout type="info">
-  An adapter that cannot enumerate its clients leaves only the config fallback. Every
-  adapter this library ships can enumerate; a custom adapter without a `list` method cannot,
+  The panel needs an adapter that can enumerate its clients. Every adapter this library
+  ships can; a custom adapter without a `list` method cannot,
   and the panel will report `no_token_exchange_client` on such a host even though the
   exchange itself works fine — the grant runs against any adapter-stored client that carries
   it, enumerable or not.
@@ -462,11 +584,9 @@ accounts with an "account disabled" message, even with a correct password.
 
 ## Client CRUD
 
-Clients are meant to be managed at runtime rather than declared in a config file. Create
-them from this console, the [Admin REST API](/docs/admin-api#clients), or the
-`authkit:clients:create` command (see [Reference](/docs/reference#authkitclientscreate)) —
-no redeploy needed. `defineConfig` does accept a `clients` array, but it is an internal
-seam for tests and one-off migrations, not the production path.
+Clients are managed at runtime. Create them from this console, the
+[Admin REST API](/docs/admin-api#clients), or the `authkit:clients:create` command (see
+[Reference](/docs/reference#authkitclientscreate)) — no redeploy needed.
 
 The clients page lists all **adapter-stored** clients created via the
 console or [Dynamic Registration](/docs/dynamic-registration). Adapter-stored clients are

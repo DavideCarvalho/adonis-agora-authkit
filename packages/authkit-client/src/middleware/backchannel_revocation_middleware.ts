@@ -11,7 +11,7 @@ import type { NextFn } from '@adonisjs/core/types/http';
  *
  * No-op quando `backchannelLogout.store` não está configurado em `config/authkit_client.ts`.
  *
- * Ordem no kernel: DEPOIS do `authkit_middleware` (depende do `authkit.client`
+ * Ordem no kernel: DEPOIS do `authkit_context_middleware` (depende do `authkit.client`
  * resolvido), antes dos named middlewares de auth.
  */
 export default class BackchannelRevocationMiddleware {

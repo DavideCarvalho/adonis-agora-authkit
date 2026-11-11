@@ -439,7 +439,6 @@ export const DEFAULT_MESSAGES = {
   'admin.clients.redirect_uris': 'Redirects: {uris}',
   'admin.clients.dynamic_notice':
     'Dynamic client registration (RFC 7591) is on — clients registered via /reg are persisted in the adapter and appear in the dynamic section below.',
-  'admin.clients.static_section': 'Static clients (config)',
   'admin.clients.dynamic_section': 'Dynamic clients (adapter)',
   'admin.clients.dynamic_empty': 'No dynamic clients persisted.',
   'admin.clients.dynamic_not_supported':
@@ -476,9 +475,6 @@ export const DEFAULT_MESSAGES = {
   'admin.clients.field_backchannel_session_required': 'Require sid in logout_token',
   'admin.clients.field_backchannel_session_required_help':
     'When checked, the IdP includes the session ID (sid) in every logout_token sent to this client.',
-  'admin.clients.static_deprecated_notice':
-    'These clients are defined statically in config and are deprecated. ' +
-    'Migrate them to the adapter/DB with:',
 
   // Console admin — organizations.
   'admin.orgs.page_title': 'Organizations',
@@ -1528,7 +1524,6 @@ export const PT_BR_MESSAGES = {
   'admin.clients.redirect_uris': 'Redirects: {uris}',
   'admin.clients.dynamic_notice':
     'O registro dinâmico de clients (RFC 7591) está ligado — clients registrados via /reg são persistidos no adapter e aparecem na seção dinâmica abaixo.',
-  'admin.clients.static_section': 'Clients estáticos (config)',
   'admin.clients.dynamic_section': 'Clients dinâmicos (adapter)',
   'admin.clients.dynamic_empty': 'Nenhum client dinâmico persistido.',
   'admin.clients.dynamic_not_supported':
@@ -1565,9 +1560,6 @@ export const PT_BR_MESSAGES = {
   'admin.clients.field_backchannel_session_required': 'Exigir sid no logout_token',
   'admin.clients.field_backchannel_session_required_help':
     'Quando marcado, o IdP inclui o session ID (sid) em cada logout_token enviado a este client.',
-  'admin.clients.static_deprecated_notice':
-    'Estes clients estão definidos estaticamente no config e estão depreciados. ' +
-    'Migre-os para o adapter/DB com:',
 
   // Console admin — auditoria.
   'admin.audit.page_title': 'Auditoria',

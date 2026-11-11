@@ -587,7 +587,6 @@ store expects:
   It does **not** declare a primary key or generate one — see below.
 - **`withCredentials`** — email verification + password-reset token plumbing.
 - **`withPersonalAccessToken`** — relation/helpers for [PAT](/docs/personal-access-tokens).
-- **`withMfa`** — TOTP secret, `mfaEnabledAt`, and recovery codes for [MFA](/docs/mfa).
 - **`withAuditLog`** — typed `AuditEventType` columns for an audit-log model.
 
 None of the mixins declare an `id` column or a `fullName` column, and both are required:
@@ -617,13 +616,12 @@ ace configure` only scaffolds the columns the minimal `AuthUser` needs.
 import { randomUUID } from 'node:crypto'
 import { BaseModel, beforeCreate, column } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
-import { withAuthUser, withCredentials, withMfa } from '@adonis-agora/authkit-server'
+import { withAuthUser, withCredentials } from '@adonis-agora/authkit-server'
 
 export default class AuthUser extends compose(
   BaseModel,
   withAuthUser(),
-  withCredentials(),
-  withMfa()
+  withCredentials()
 ) {
   static selfAssignPrimaryKey = true
 

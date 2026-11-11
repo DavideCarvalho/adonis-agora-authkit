@@ -1,7 +1,6 @@
 import type {
   AccessTokenFormat,
   AccessTokensConfig,
-  ClientConfig,
   JwksConfig,
   KeystoreStoreConfig,
   ObservabilityConfig,
@@ -42,6 +41,7 @@ import {
 } from './host/otp_login.js';
 import type { AuthHostOptions } from './host/register_auth_host.js';
 import { edgeRenderer } from './host/renderers/edge_renderer.js';
+import type { AuthkitScreenRenderer } from './host/screen_props.js';
 import { warnUnsatisfiableSudoConfig } from './host/sudo/satisfiability.js';
 import type { SudoMethod } from './host/sudo/types.js';
 import {
@@ -447,8 +447,8 @@ export function resolveNotifications(): ResolvedNotificationsConfig {
  *
  * Quando habilitado, o oidc-provider expõe o endpoint de registro (`/reg`) e os
  * clients criados ali são PERSISTIDOS pelo MESMO adapter usado para os demais
- * artefatos OIDC. Assim, clients dinâmicos coexistem com os `clients` estáticos
- * da config e ficam disponíveis para uma futura UI admin que gerencia clients no DB.
+ * artefatos OIDC, junto dos clients criados pelo console admin, pela Admin API e
+ * pelo `node ace authkit:clients:create`.
  */
 export interface DynamicRegistrationConfigInput {
   /** Liga o endpoint de registro dinâmico. Default: false (comportamento atual). */
@@ -1182,13 +1182,6 @@ export interface AuthServerConfigInput {
     adapter?: AdapterFactory;
   };
   /**
-   * Clientes OIDC pré-carregados no provider ao subir. Útil para testes e
-   * migrações pontuais. Para uso em produção, gerencie clients via console admin
-   * ou Admin API (`node ace authkit:clients:create`).
-   * @internal
-   */
-  clients?: ClientConfig[];
-  /**
    * Config de JWKS, ou `'auto'` (recomendado p/ deploys efêmeros): se a env
    * `AUTHKIT_JWKS` (JSON `{"keys":[...]}`) estiver presente, usa-a inline
    * (`source: 'jwks'`) — sobrevive a restarts/deploys; senão cai no managed
@@ -1552,7 +1545,6 @@ export interface ResolvedServerConfig {
    * `session.adapter` no input é a MESMA classe do `AdapterClass`.
    */
   SessionAdapterClass: OidcAdapterClass;
-  clients: ClientConfig[];
   jwks: { keys: Record<string, any>[] };
   /**
    * Eco do `jwks` de INPUT (source/store/algorithm) — o `jwks` resolvido acima é o
@@ -1587,7 +1579,8 @@ export interface ResolvedServerConfig {
   mountPath: string;
   /** Destino default pós-confirmação do console (sudo mode) e demais fallbacks de conta. Default: '/account/security'. */
   accountHome?: string;
-  render?: AuthHostRenderer;
+  /** O renderer das telas, tipado por view (ver `AuthkitScreenProps`). */
+  render?: AuthkitScreenRenderer;
   /** Recuperação de sessão de interaction perdida resolvida (default `{ mode: 'screen' }`). */
   interactionRecovery: ResolvedInteractionRecoveryConfig;
   /** Branding resolvido: sempre presente (default neutro quando o host não declara `branding`). */
@@ -1848,7 +1841,6 @@ export function defineConfig(config: AuthServerConfigInput) {
       issuer: config.issuer,
       AdapterClass,
       SessionAdapterClass,
-      clients: config.clients ?? [],
       jwks: jwks as { keys: Record<string, any>[] },
       jwksConfig,
       ttl: {
@@ -1880,7 +1872,9 @@ export function defineConfig(config: AuthServerConfigInput) {
       // importa `edge.js` eagerly, então é seguro construir mesmo em hosts
       // sem o peer opcional instalado (só quebraria se a request realmente
       // chegasse sem Edge configurado, exatamente como hoje).
-      render: config.render ?? edgeRenderer(),
+      // O renderer do host recebe `(ctx, view, props)`; aqui ele é tipado por view para que
+      // os controllers não possam divergir de `AuthkitScreenProps`.
+      render: (config.render ?? edgeRenderer()) as AuthkitScreenRenderer,
       // Recuperação de sessão de interaction perdida: default gracioso 'screen'
       // (tela themeável `session-expired`); 'redirect' opt-in para 302 ao login.
       interactionRecovery: {

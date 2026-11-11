@@ -24,7 +24,6 @@ async function resolved(extra: Record<string, unknown>) {
       issuer: ISSUER,
       adapter: adapters.redis({ connection: 'main' }),
       jwks: { source: 'managed', algorithm: 'RS256' },
-      clients: [],
       accountStore: fakeAccountStore(),
       ...extra,
     } as any),

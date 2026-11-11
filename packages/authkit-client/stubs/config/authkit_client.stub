@@ -10,7 +10,8 @@ const authkitClientConfig = defineConfig({
   clientSecret: env.get('AUTHKIT_CLIENT_SECRET'),
   redirectUri: env.get('AUTHKIT_REDIRECT_URI'),
   resolver: resolvers.jwt({ tokenSource: 'session' }),
-  // resolveUser: async (identity) => User.find(identity.userId),
+  // Creates/updates the local user on each login; ctx.auth.user is this user.
+  // resolveUser: lucidMirror(User, { sync: (identity) => ({ email: identity.email }) }),
   // Roles do app? Configure resolveRoles no @adonis-agora/authz (não aqui — o AuthKit só autentica).
 })
 

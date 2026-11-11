@@ -8,7 +8,7 @@ import { BaseModel, beforeCreate, column } from '@adonisjs/lucid/orm';
  *
  * Covers:
  *   - Console routes: shell + JSON API registration.
- *   - Shell serving: injects window.__AUTHKIT__ with adminBase, csrfToken, locale, messages, currentUser, endpoints.
+ *   - Shell serving: embeds the #authkit-admin-config JSON data block with adminBase, csrfToken, locale, messages, currentUser, endpoints.
  *   - JSON endpoints shape (overview, users CRUD, sessions, clients, roles, orgs, audit, settings, impersonation).
  *   - adminGuard barrier: endpoints return non-ok when guard rejects (exercised via controller unit tests).
  *   - Capability-absent 404s (orgs, audit, settings when not supported).
@@ -23,6 +23,10 @@ import { adapters, defineConfig, resolveAdmin } from '../src/define_config.js';
 import { checkAdmin } from '../src/doctor/checks.js';
 import { ACCOUNT_SESSION_KEY } from '../src/host/account_session_key.js';
 import { AdminUsersService } from '../src/host/admin_api/admin_users_service.js';
+import {
+  prepareShell,
+  serializeConfigBlock,
+} from '../src/host/admin_console/admin_shell_controller.js';
 import ConsoleAuditController from '../src/host/admin_console/console_audit_controller.js';
 import ConsoleClientsController from '../src/host/admin_console/console_clients_controller.js';
 import ConsoleImpersonationController from '../src/host/admin_console/console_impersonation_controller.js';
@@ -40,6 +44,7 @@ import { withPersonalAccessToken } from '../src/mixins/with_personal_access_toke
 import { lucidPatStore } from '../src/pat/lucid_pat_store.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { createTestDatabase } from './bootstrap.js';
+import { withClients } from './helpers/seed_clients.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -238,11 +243,8 @@ async function startService(port: number, db: any, extra: Partial<AuthServerConf
   const fakeApp = { container: { make: async () => db } } as any;
   const cfg = await configProvider.resolve(
     fakeApp,
-    defineConfig({
-      issuer,
-      adapter: adapters.database({}),
-      jwks: { source: 'managed', algorithm: 'RS256' },
-      clients: [
+    withClients(
+      [
         {
           clientId: 'c1',
           clientSecret: 's',
@@ -250,12 +252,17 @@ async function startService(port: number, db: any, extra: Partial<AuthServerConf
           grants: ['authorization_code', 'refresh_token'],
         },
       ],
-      accountStore: memoryAccountStore(),
-      patStore: lucidPatStore(TestPat),
-      audit: memoryAuditSink(),
-      mail: { onPasswordReset: async () => {} },
-      ...extra,
-    }),
+      defineConfig({
+        issuer,
+        adapter: adapters.database({}),
+        jwks: { source: 'managed', algorithm: 'RS256' },
+        accountStore: memoryAccountStore(),
+        patStore: lucidPatStore(TestPat),
+        audit: memoryAuditSink(),
+        mail: { onPasswordReset: async () => {} },
+        ...extra,
+      }),
+    ),
   );
   const service = new OidcService(cfg!, 'a'.repeat(32));
   const server: Server = createServer(service.callback);
@@ -348,31 +355,56 @@ test.group('checkAdmin — doctor', () => {
   });
 });
 
-test.group('AdminShellController — injectConfig', () => {
-  test('injeta window.__AUTHKIT__ no HTML', ({ assert }) => {
-    // Testa a função de injeção indiretamente via output esperado.
-    // Usamos o controller diretamente e verificamos o HTML gerado.
-    // Como o readFile usa import.meta.url, testamos apenas o helper de injeção.
-    // O controller exporta a lógica via serve(), que depende de containerResolver.
-    // Aqui validamos a lógica de injeção a partir da spec.
-    const html = '<!doctype html><html><body><div id="app"></div></body></html>';
-    // Simula injectConfig inline.
-    const config = {
-      adminBase: '/admin',
-      csrfToken: 'tok',
-      locale: 'en',
-      messages: {},
-      currentUser: null,
-      endpoints: { api: '/admin/api' },
-    };
-    const script = `<script>window.__AUTHKIT__=${JSON.stringify(config)};</script>`;
-    const bodyIdx = html.indexOf('<body');
-    const closeIdx = html.indexOf('>', bodyIdx);
-    const injected = html.slice(0, closeIdx + 1) + script + html.slice(closeIdx + 1);
-    assert.include(injected, 'window.__AUTHKIT__');
-    assert.include(injected, '"adminBase":"/admin"');
-    assert.include(injected, '"csrfToken":"tok"');
-    assert.include(injected, '"endpoints":{"api":"/admin/api"}');
+test.group('AdminShellController — config data block', () => {
+  const config = {
+    adminBase: '/admin',
+    csrfToken: 'tok',
+    locale: 'en',
+    messages: { 'x.y': '</script><script>alert(1)</script>' },
+    currentUser: null,
+    endpoints: { api: '/admin/api' },
+  };
+
+  /** Every `<script>` the browser would EXECUTE: inline, not a data block, no `src`. */
+  function executableInlineScripts(html: string): string[] {
+    return [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)]
+      .filter(([, attrs]) => !/\bsrc=/.test(attrs) && !/type="application\/json"/.test(attrs))
+      .map(([tag]) => tag);
+  }
+
+  test('embeds the config as a JSON data block, with no executable inline script', ({ assert }) => {
+    const html =
+      '<!doctype html><html><head><script type="module" src="/__AUTHKIT_BASE__/assets/main.js"></script></head><body><div id="root"></div></body></html>';
+    const out = prepareShell(html, config);
+
+    // A strict CSP (`script-src 'self' 'nonce-…'`) only blocks EXECUTABLE inline
+    // scripts; the data block is never executed and the bundle is same-origin.
+    assert.deepEqual(executableInlineScripts(out), []);
+    assert.notInclude(out, 'window.__AUTHKIT__');
+    assert.include(out, '<script type="module" src="/admin/assets/main.js">');
+
+    const block =
+      /<script type="application\/json" id="authkit-admin-config">([\s\S]*?)<\/script>/.exec(out);
+    assert.isNotNull(block);
+    assert.deepEqual(JSON.parse(block![1]), config);
+  });
+
+  test('the built SPA shell has no executable inline script', async ({ assert }) => {
+    const dist = new URL('../build/src/host/ui-dist/index.html', import.meta.url);
+    const { readFile } = await import('node:fs/promises');
+    const raw = await readFile(dist, 'utf8').catch(() => null);
+    if (!raw) return assert.isTrue(true, 'build the package to check the real shell');
+    assert.deepEqual(executableInlineScripts(prepareShell(raw, config)), []);
+  });
+
+  test('a value cannot close the data block', ({ assert }) => {
+    const serialized = serializeConfigBlock(config);
+    assert.notInclude(serialized, '</script>');
+    assert.notInclude(serialized, '<');
+    assert.deepEqual(JSON.parse(serialized), config);
+    // The whole shell holds exactly one closing tag for the block.
+    const out = prepareShell('<body></body>', config);
+    assert.lengthOf(out.match(/<\/script>/g) ?? [], 1);
   });
 });
 
@@ -836,6 +868,59 @@ test.group('Console JSON API — controller unit tests', (group) => {
     assert.isString(result.clientId);
     // secret é retornado apenas no create
     assert.isString(result.clientSecret);
+  });
+
+  test('GET /api/clients/:id → the client with grantTypes, name and logo; 404 when unknown', async ({
+    assert,
+  }) => {
+    const ctrl = new ConsoleClientsController();
+    const created: any = await ctrl.store(
+      fakeCtx({
+        service,
+        inputs: {
+          redirectUris: ['https://myapp.com/cb'],
+          postLogoutRedirectUris: [],
+          grantTypes: ['authorization_code'],
+          tokenEndpointAuthMethod: 'client_secret_basic',
+          clientName: 'My App',
+          logoUri: 'https://myapp.com/logo.png',
+        },
+      }).ctx,
+    );
+
+    const shown: any = await ctrl.show(fakeCtx({ service, params: { id: created.clientId } }).ctx);
+    assert.equal(shown.clientId, created.clientId);
+    assert.deepEqual(shown.grantTypes, ['authorization_code']);
+    assert.notProperty(shown, 'grants');
+    assert.equal(shown.clientName, 'My App');
+    assert.equal(shown.logoUri, 'https://myapp.com/logo.png');
+
+    // An update without them keeps them; null removes them.
+    await ctrl.update(
+      fakeCtx({
+        service,
+        params: { id: created.clientId },
+        inputs: { grantTypes: ['authorization_code'] },
+      }).ctx,
+    );
+    const kept: any = await ctrl.show(fakeCtx({ service, params: { id: created.clientId } }).ctx);
+    assert.equal(kept.clientName, 'My App');
+    await ctrl.update(
+      fakeCtx({
+        service,
+        params: { id: created.clientId },
+        inputs: { clientName: null, logoUri: null },
+      }).ctx,
+    );
+    const cleared: any = await ctrl.show(
+      fakeCtx({ service, params: { id: created.clientId } }).ctx,
+    );
+    assert.isNull(cleared.clientName);
+    assert.isNull(cleared.logoUri);
+
+    const { ctx, captured } = fakeCtx({ service, params: { id: 'ghost-client' } });
+    await ctrl.show(ctx);
+    assert.equal(captured.status(), 404);
   });
 
   test('DELETE /api/clients/:id inexistente → 404', async ({ assert }) => {

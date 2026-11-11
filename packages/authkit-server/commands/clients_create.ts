@@ -74,6 +74,12 @@ export default class AuthkitClientsCreate extends BaseCommand {
   })
   declare backchannelLogoutUri?: string;
 
+  @flags.string({
+    description:
+      'Usa este client_secret em vez de gerar um (client confidencial). Útil para manter o secret que os RPs já usam.',
+  })
+  declare clientSecret?: string;
+
   @flags.boolean({
     description: 'Output em JSON machine-readable (inclui clientId e clientSecret).',
   })
@@ -99,10 +105,18 @@ export default class AuthkitClientsCreate extends BaseCommand {
     const applicationType = this.native ? ('native' as const) : ('web' as const);
     const tokenEndpointAuthMethod = isPublic ? ('none' as const) : ('client_secret_basic' as const);
 
+    if (isPublic && this.clientSecret) {
+      this.logger.logError(
+        '❌ --client-secret não se aplica a um client público (--public/--native).',
+      );
+      this.exitCode = 1;
+      return;
+    }
+
     const { ClientMetadataError } = await import('../src/host/client_metadata.js');
     let created: Awaited<ReturnType<typeof svc.create>>;
     try {
-      created = await svc.create({
+      const input = {
         clientId: this.clientId,
         applicationType,
         redirectUris,
@@ -110,7 +124,10 @@ export default class AuthkitClientsCreate extends BaseCommand {
         grantTypes,
         tokenEndpointAuthMethod,
         backchannelLogoutUri: this.backchannelLogoutUri,
-      });
+      };
+      created = this.clientSecret
+        ? await svc.createWithSecret(input, this.clientSecret)
+        : await svc.create(input);
     } catch (err) {
       if (err instanceof ClientMetadataError) {
         this.logger.logError(`❌ ${err.message}`);

@@ -11,6 +11,7 @@ import RedisMock from 'ioredis-mock';
 import { buildAuthorizeUrl, generatePkce } from '../src/oidc_login.js';
 import { resolvers } from '../src/resolvers/factory.js';
 import { resolverContext } from './helpers/resolvers.js';
+import { seedClient } from './helpers/seed_client.js';
 
 const PORT = 9820;
 const ISSUER = `http://localhost:${PORT}`;
@@ -27,14 +28,6 @@ test.group('client ↔ server (e2e)', (group) => {
         issuer: ISSUER,
         adapter: adapters.redis({ connection: 'main' }),
         jwks: { source: 'managed' },
-        clients: [
-          {
-            clientId: 'app1',
-            clientSecret: 's',
-            redirectUris: [`${ISSUER}/cb`],
-            grants: ['authorization_code', 'refresh_token'],
-          },
-        ],
         // `findAccount` NÃO é mais uma chave de input: o contrato primário de
         // identidade é o `accountStore`, e o resolved config deriva
         // `findAccount: (sub) => accountStore.findById(sub)` (define_config.ts).
@@ -60,6 +53,11 @@ test.group('client ↔ server (e2e)', (group) => {
         },
       }),
     );
+    await seedClient(cfg!, {
+      clientId: 'app1',
+      clientSecret: 's',
+      redirectUris: [`${ISSUER}/cb`],
+    });
     const service = new OidcService(cfg!, 'a'.repeat(32));
     server = createServer(service.callback);
     await new Promise<void>((r) => server.listen(PORT, r));

@@ -1,0 +1,534 @@
+---
+icon: ArrowUpCircle
+title: Migrating to 1.0
+description: The breaking changes in AuthKit 1.0 and how to update your app.
+---
+
+Every `@adonis-agora/authkit-*` package moves to **1.0.0**. Most apps upgrade by bumping the
+versions; the changes below only affect apps that use one of the APIs listed.
+
+## Requirements
+
+- **Node.js 24 or newer.** Every package declares `"engines": { "node": ">=24" }` and is tested
+  on Node 24 and 26.
+- **`@adonisjs/auth`** is a required peer of `@adonis-agora/authkit-client` — see
+  [Use `authkitClientGuard` for `ctx.auth`](#use-authkitclientguard-for-ctxauth).
+- The `@adonis-agora/*` peers (`durable`, `media`, `telescope`, `resilience`,
+  `authkit-server`) accept both their 0.x and 1.x lines, so you can upgrade them in any order.
+
+```sh
+pnpm add @adonis-agora/authkit-server@^1.0.0 @adonis-agora/authkit-client@^1.0.0
+```
+
+## Drop `withMfa()` from your model
+
+`lucidAccountStore` keeps the MFA state (TOTP secret, recovery codes) in its own `auth_mfa`
+table, so the model needs no MFA mixin. `withMfa` is no longer exported: remove it from the
+import and from `compose(...)`. Nothing else changes and no migration is needed.
+
+Before:
+
+```ts title="app/models/auth_user.ts"
+import { compose } from '@adonisjs/core/helpers'
+import { BaseModel } from '@adonisjs/lucid/orm'
+import { withAuthUser, withCredentials, withMfa } from '@adonis-agora/authkit-server'
+
+export default class AuthUser extends compose(
+  BaseModel,
+  withAuthUser(),
+  withCredentials(),
+  withMfa()
+) {}
+```
+
+After:
+
+```ts title="app/models/auth_user.ts"
+import { compose } from '@adonisjs/core/helpers'
+import { BaseModel } from '@adonisjs/lucid/orm'
+import { withAuthUser, withCredentials } from '@adonis-agora/authkit-server'
+
+export default class AuthUser extends compose(BaseModel, withAuthUser(), withCredentials()) {}
+```
+
+## Grant sudo with `completeSudo`
+
+`markSudo` is no longer exported. To grant sudo from your own handler (for example the
+callback of an `oidcStepUp()` confirmation), build the context with `sudoContextFrom` and call
+`completeSudo`. It stamps the grace window, writes the `sudo.confirmed` audit event, remembers
+the method and redirects to the validated `return_to`.
+
+Before:
+
+```ts title="app/controllers/step_up_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import { markSudo } from '@adonis-agora/authkit-server'
+
+export default class StepUpController {
+  async callback(ctx: HttpContext) {
+    // … validate the step-up grant
+    markSudo(ctx)
+    return ctx.response.redirect('/account/security')
+  }
+}
+```
+
+After:
+
+```ts title="app/controllers/step_up_controller.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import { completeSudo, failSudo, sudoContextFrom } from '@adonis-agora/authkit-server'
+
+export default class StepUpController {
+  async callback(ctx: HttpContext) {
+    const c = await sudoContextFrom(ctx)
+    const grant = await exchangeAndValidate(ctx)
+    if (!grant) return failSudo(c, 'account.confirm.error')
+
+    return completeSudo(c, 'oidc-step-up')
+  }
+}
+```
+
+To check whether the current request already holds sudo, keep using `isSudoActive` or
+`requireSudo`. See [Console session & sudo mode](/docs/console-session).
+
+## Send email-change confirmations with `onEmailChangeConfirm`
+
+When a user changes their email address, the confirmation link goes through
+`mail.onEmailChangeConfirm`. If that hook is not set, AuthKit sends its built-in confirmation
+email. `onEmailVerification` is only used for verifying the address at signup and no longer
+receives email-change confirmations.
+
+If you relied on `onEmailVerification` for both, add `onEmailChangeConfirm`.
+
+Before:
+
+```ts title="config/authkit.ts"
+import mail from '@adonisjs/mail/services/main'
+
+defineConfig({
+  // …
+  mail: {
+    // Also received the email-change confirmation link.
+    onEmailVerification: async ({ email, verifyUrl }) => {
+      await mail.send((m) => m.to(email).subject('Confirm your email').text(verifyUrl))
+    },
+  },
+})
+```
+
+After:
+
+```ts title="config/authkit.ts"
+import mail from '@adonisjs/mail/services/main'
+
+defineConfig({
+  // …
+  mail: {
+    onEmailVerification: async ({ email, verifyUrl }) => {
+      await mail.send((m) => m.to(email).subject('Confirm your email').text(verifyUrl))
+    },
+    onEmailChangeConfirm: async ({ email, confirmUrl }) => {
+      await mail.send((m) => m.to(email).subject('Confirm your new email').text(confirmUrl))
+    },
+  },
+})
+```
+
+See [Compliance](/docs/compliance) for the full email-change flow.
+
+## List your React pages in `inertiaRenderer({ views })`
+
+`views` is required. Screens listed there render through Inertia; every other screen uses the
+built-in Edge view. List the pages you have under `inertia/pages/<prefix>/`.
+
+Before:
+
+```ts title="config/authkit.ts"
+defineConfig({
+  // …
+  render: inertiaRenderer({ prefix: 'authkit' }),
+})
+```
+
+After:
+
+```ts title="config/authkit.ts"
+defineConfig({
+  // …
+  render: inertiaRenderer({
+    prefix: 'authkit',
+    views: ['login', 'consent', 'signup', 'forgot', 'reset', 'verify-email', 'mfa-challenge'],
+  }),
+})
+```
+
+`views` (and `AuthkitScreen`) accept only the screens AuthKit renders; a name that is not a
+screen fails `tsc`. If your `render` serves a screen of your own, declare it by augmenting
+`AuthkitScreenProps`:
+
+```ts title="types/authkit_screens.d.ts"
+import type { LoginProps } from '@adonis-agora/authkit-server'
+
+declare module '@adonis-agora/authkit-server' {
+  interface AuthkitScreenProps {
+    'professional-login': LoginProps
+  }
+}
+```
+
+Type each page with `AuthkitScreenProps['<view>']` instead of copying the
+shape from the Edge templates; see [Themed Screens](/docs/themed-screens).
+
+## Send `grantTypes` to the Admin API
+
+`POST` and `PATCH` on `/api/authkit/v1/clients` (and the admin console form) read the grants from `grantTypes` only.
+A `grants` field in the request body is ignored. Responses keep returning `grants`.
+
+Before:
+
+```json
+{ "redirectUris": ["https://app.acme.com/auth/callback"], "grants": ["authorization_code", "refresh_token"] }
+```
+
+After:
+
+```json
+{ "redirectUris": ["https://app.acme.com/auth/callback"], "grantTypes": ["authorization_code", "refresh_token"] }
+```
+
+
+## Read `grantTypes` from client responses
+
+The admin clients API (console and Admin API) and the SDK's `clients.*` return `grantTypes`, the
+same name the requests use. They also return `clientName` and `logoUri`.
+
+Before:
+
+```ts
+const client = await authkit.clients.get('web')
+const canRefresh = client.grants.includes('refresh_token')
+```
+
+After:
+
+```ts
+const client = await authkit.clients.get('web')
+const canRefresh = client.grantTypes.includes('refresh_token')
+```
+
+## Pass `baseUrl` to `createAuthkitClient`
+
+The client no longer reads a `window.__AUTHKIT__` global. Pass the admin API base when you
+call `client.admin.*`, and the request's CSRF token for mutations:
+
+Before:
+
+```tsx
+<AuthkitClientProvider>
+  <AdminPage />
+</AuthkitClientProvider>
+```
+
+After:
+
+```tsx
+<AuthkitClientProvider opts={{ baseUrl: '/admin/api', csrfToken }}>
+  <AdminPage />
+</AuthkitClientProvider>
+```
+
+Anonymous requests to the admin and account JSON APIs now get `401` (or `403` without an
+admin role) instead of a redirect, so handle the status where you call them.
+
+## Create OIDC clients outside `defineConfig`
+
+`defineConfig` no longer takes a `clients` list. Clients live in the adapter: create them in the
+admin console, through the Admin API (`POST /api/authkit/v1/clients`), or with
+`node ace authkit:clients:create`. The command's `--client-secret` keeps the secret your relying
+parties already use.
+
+Before:
+
+```ts title="config/authkit.ts"
+defineConfig({
+  // …
+  clients: [
+    {
+      clientId: 'web',
+      clientSecret: env.get('WEB_CLIENT_SECRET'),
+      redirectUris: ['https://app.acme.com/auth/callback'],
+      postLogoutRedirectUris: ['https://app.acme.com/'],
+      grants: ['authorization_code', 'refresh_token'],
+      backchannelLogoutUri: 'https://app.acme.com/auth/backchannel-logout',
+    },
+    { clientId: 'mobile', applicationType: 'native', redirectUris: ['com.acme.app:/oauth'] },
+  ],
+})
+```
+
+After, once per environment:
+
+```sh
+node ace authkit:clients:create \
+  --client-id=web \
+  --client-secret="$WEB_CLIENT_SECRET" \
+  --redirect-uri=https://app.acme.com/auth/callback \
+  --post-logout-uri=https://app.acme.com/ \
+  --grant=authorization_code --grant=refresh_token \
+  --backchannel-logout-uri=https://app.acme.com/auth/backchannel-logout
+
+node ace authkit:clients:create --client-id=mobile --native --redirect-uri=com.acme.app:/oauth
+```
+
+`backchannelLogoutSessionRequired` has no CLI flag: set it in the admin console or with
+`PATCH /api/authkit/v1/clients/:id` after creating the client.
+
+## Use `authkitClientGuard` for `ctx.auth`
+
+`authkit_middleware` is removed, and `@adonisjs/auth` is now a **required** peer of
+`@adonis-agora/authkit-client`. `ctx.auth` is the `@adonisjs/auth` authenticator, backed by the
+AuthKit session through `authkitClientGuard`; `authkit_context_middleware` puts the AuthKit-only
+data (identity, global roles, active organization, shared props) on `ctx.authkit`.
+
+Install `@adonisjs/auth` and re-run the configure command. It writes `config/auth.ts` (or, when
+you already have one, prints the guard to add), registers the provider and the middleware, and
+publishes the named `auth` / `silentAuth` middleware:
+
+```sh
+npm i @adonisjs/auth
+node ace configure @adonis-agora/authkit-client --model=#models/app_user
+```
+
+Then remove `authkit_middleware` from `start/kernel.ts`. authkit-client's own `auth` and
+`silentAuth` middleware are removed too; point the named middleware at the files the configure
+command publishes:
+
+| Removed | Replacement |
+| --- | --- |
+| `@adonis-agora/authkit-client/auth_middleware` | `#middleware/auth_middleware` (`middleware.auth()`, which calls `ctx.auth.authenticateUsing()`) |
+| `@adonis-agora/authkit-client/silent_auth_middleware` | `#middleware/silent_auth_middleware` (the AdonisJS starter's, which calls `ctx.auth.check()`) |
+
+`middleware.auth()` takes `{ guards: [...] }`, not `{ redirectTo }`: the redirect target is the
+`redirectTo` property of `app/middleware/auth_middleware.ts` (`/auth/login` by default).
+`requireOrg` stays in authkit-client.
+
+Before:
+
+```ts title="start/kernel.ts"
+router.use([
+  () => import('@adonisjs/session/session_middleware'),
+  () => import('@adonis-agora/authkit-client/authkit_middleware'),
+  () => import('@adonis-agora/authkit-client/backchannel_revocation_middleware'),
+])
+
+export const middleware = router.named({
+  auth: () => import('@adonis-agora/authkit-client/auth_middleware'),
+  silentAuth: () => import('@adonis-agora/authkit-client/silent_auth_middleware'),
+})
+```
+
+After:
+
+```ts title="start/kernel.ts"
+router.use([
+  () => import('@adonisjs/session/session_middleware'),
+  () => import('@adonisjs/auth/initialize_auth_middleware'),
+  () => import('@adonis-agora/authkit-client/authkit_context_middleware'),
+  () => import('@adonis-agora/authkit-client/backchannel_revocation_middleware'),
+])
+
+export const middleware = router.named({
+  auth: () => import('#middleware/auth_middleware'),
+  silentAuth: () => import('#middleware/silent_auth_middleware'),
+})
+```
+
+```ts title="config/auth.ts"
+import { defineConfig } from '@adonisjs/auth'
+import { sessionUserProvider } from '@adonisjs/auth/session'
+import type { InferAuthenticators } from '@adonisjs/auth/types'
+import { authkitClientGuard } from '@adonis-agora/authkit-client/auth'
+
+const authConfig = defineConfig({
+  default: 'web',
+  guards: {
+    web: authkitClientGuard({
+      provider: sessionUserProvider({ model: () => import('#models/app_user') }),
+    }),
+  },
+})
+
+export default authConfig
+
+declare module '@adonisjs/auth/types' {
+  interface Authenticators extends InferAuthenticators<typeof authConfig> {}
+}
+```
+
+The guard takes its user from your `resolveUser` first, so `lucidMirror` still provisions the row
+on a first login and `ctx.auth.user` carries what it preloaded. An app with no local user table
+uses `authkitIdentityProvider()` as the provider, and `ctx.auth.user` is the AuthKit identity.
+See [AdonisJS auth](/docs/adonis-auth#choosing-a-user-provider). API routes that read a bearer
+token or a PAT get their own guard with a `resolver` — see
+[API routes](/docs/adonis-auth#api-routes).
+
+`UnauthorizedAccessConstructor` is no longer exported, and `new AuthkitClientGuard(...)` no longer
+takes an exception class: the guard always throws `@adonisjs/auth`'s `E_UNAUTHORIZED_ACCESS`.
+
+### What changes in controllers
+
+| Old client `ctx.auth` | `ctx.auth` now |
+| --- | --- |
+| `await auth.getUser()` (nullable) | `auth.user`, after `middleware.auth()`, `middleware.silentAuth()` or `auth.check()` |
+| `await auth.getUserOrFail()` | `auth.getUserOrFail()`: synchronous, and it throws unless `authenticate()` or `check()` already ran |
+| `auth.getIdentity()`, `auth.hasGlobalRole()`, `auth.toSharedProps()` | the same methods on `ctx.authkit` |
+| `await auth.authenticate()` returning the `Identity` | `await auth.authenticate()` returning the user; the identity is `await ctx.authkit.getIdentity()` |
+
+Put routes that read `auth.user` behind `middleware.auth()`, and routes that also serve guests
+behind `middleware.silentAuth()`.
+
+Before:
+
+```ts title="app/controllers/courses_controller.ts"
+export default class CoursesController {
+  async index({ auth, inertia }: HttpContext) {
+    const user = await auth.getUserOrFail()
+    return inertia.render('courses/index', { isAdmin: auth.hasGlobalRole('ADMIN'), user })
+  }
+}
+```
+
+After:
+
+```ts title="start/routes.ts"
+router.get('/courses', [CoursesController, 'index']).use(middleware.auth())
+```
+
+```ts title="app/controllers/courses_controller.ts"
+export default class CoursesController {
+  async index({ auth, authkit, inertia }: HttpContext) {
+    const user = auth.getUserOrFail()
+    return inertia.render('courses/index', { isAdmin: authkit.hasGlobalRole('ADMIN'), user })
+  }
+}
+```
+
+### `ctx.auth.user` outside `middleware.auth()`
+
+Code that runs on every request and reads `ctx.auth.user` — a Bouncer middleware, Inertia shared
+props on public pages, a console mounted by another library — sees `undefined` unless something
+called `auth.check()` first. Run the starter's silent-auth middleware globally, in `router.use`,
+instead of only as a named middleware:
+
+```ts title="start/kernel.ts"
+router.use([
+  () => import('@adonisjs/session/session_middleware'),
+  () => import('@adonisjs/auth/initialize_auth_middleware'),
+  () => import('@adonis-agora/authkit-client/authkit_context_middleware'),
+  () => import('#middleware/silent_auth_middleware'),
+])
+```
+
+It costs one `check()` per request (resolving the session and the user); later calls in the
+same request reuse the result. `@adonis-agora/authz`'s `authorizeByRoles` and `requireRole` call
+`ctx.auth.check()` themselves, so consoles gated through authz work without it.
+
+The Inertia shared prop for `@adonis-agora/authkit-react` reads `ctx.authkit.toSharedProps()`.
+Type `ctx.authkit.getUser()` once instead of augmenting `HttpContext.auth`:
+
+```ts title="types/authkit.ts"
+import type AppUser from '#models/app_user'
+
+declare module '@adonis-agora/authkit-client' {
+  interface AuthkitUserType {
+    user: AppUser
+  }
+}
+```
+
+The type checker catches most call sites, but not those typed `any` or cast (`ctx.auth as any`,
+`(auth as SomeType)`, helpers taking `auth: any`), which compile and then fail at runtime.
+`await auth.getUserOrFail()` also still compiles. Search for them before deploying:
+
+```sh
+grep -rnE "auth\.(getUser|getIdentity|hasGlobalRole|toSharedProps|identity)\b" app start
+grep -rnE "auth as |auth: any|\(auth\)" app start
+grep -rnE "await (ctx\.)?auth\.getUserOrFail\(" app start
+```
+
+## Load account data with the query options
+
+`useProfile`, `useSessions`, `useAuthorizedApps`, `useOrganizations`, `useOrganization`,
+`useOrgInvitations` and `useSwitchOrganization` are removed, along with the `profile`,
+`sessions`, `apps`, `orgs` and `orgInvitations` keys of `AuthkitProvider`'s `endpoints`. Use the
+TanStack Query options, which read the Account API (`/account/api/*`). The `/account/orgs/json`,
+`/account/orgs/invitations/json` and `/account/orgs/:id/json` routes are gone too.
+
+Before:
+
+```tsx title="inertia/pages/account/profile.tsx"
+import { useProfile, useSessions } from '@adonis-agora/authkit-react'
+
+export default function Profile() {
+  const { data: user, actions } = useProfile()
+  const { data: sessions } = useSessions()
+  return <ProfileForm user={user} sessions={sessions} onSave={actions.update} />
+}
+```
+
+After:
+
+```tsx title="inertia/pages/account/profile.tsx"
+import { useMutation, useQuery } from '@tanstack/react-query'
+import {
+  useAccountSessionsQueryOptions,
+  useMeQueryOptions,
+  useUpdateProfileMutationOptions,
+} from '@adonis-agora/authkit-react'
+
+export default function Profile() {
+  const { data: me } = useQuery(useMeQueryOptions())
+  const { data: sessions } = useQuery(useAccountSessionsQueryOptions())
+  const update = useMutation(useUpdateProfileMutationOptions())
+  return <ProfileForm user={me} sessions={sessions?.sessions} onSave={update.mutate} />
+}
+```
+
+| Removed | Use |
+| --- | --- |
+| `useProfile()` | `useMeQueryOptions()`, `useUpdateProfileMutationOptions()` |
+| `useSessions()` | `useAccountSessionsQueryOptions()`, `useRevokeSessionMutationOptions()` |
+| `useAuthorizedApps()` | `useAppsQueryOptions()`, `useRevokeAppMutationOptions()` |
+| `useOrganizations()` / `useOrganization(id)` / `useOrgInvitations()` | `useAccountOrgsQueryOptions()` and the other `useAccountOrg*` options |
+| `useSwitchOrganization()` | `useAccountActivateOrgMutationOptions()`, `useAccountDeactivateOrgMutationOptions()` |
+
+`UserProfile`, `AuthorizedApps`, `OrganizationSwitcher` and `OrganizationProfile` load through
+the same options, so wrap your app in `QueryClientProvider` and `AuthkitClientProvider`:
+
+```tsx title="inertia/app/app.tsx"
+import { QueryClientProvider } from '@tanstack/react-query'
+import {
+  AuthkitClientProvider,
+  AuthkitProvider,
+  createAuthkitQueryClient,
+} from '@adonis-agora/authkit-react'
+
+const queryClient = createAuthkitQueryClient()
+
+createInertiaApp({
+  // …
+  setup({ el, App, props }) {
+    createRoot(el).render(
+      <QueryClientProvider client={queryClient}>
+        <AuthkitClientProvider>
+          <AuthkitProvider>
+            <App {...props} />
+          </AuthkitProvider>
+        </AuthkitClientProvider>
+      </QueryClientProvider>,
+    )
+  },
+})
+```

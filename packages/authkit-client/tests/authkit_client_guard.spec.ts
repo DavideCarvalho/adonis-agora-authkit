@@ -3,9 +3,8 @@ import { errors as authErrors, Authenticator as FrameworkAuthenticator } from '@
 import type { HttpContext } from '@adonisjs/core/http';
 import { test } from '@japa/runner';
 import { Authenticator } from '../src/authenticator.js';
-import { authkitClientGuard } from '../src/host/authkit_client_guard.js';
+import { authkitClientGuard, authkitIdentityProvider } from '../src/host/authkit_client_guard.js';
 import AuthkitContextMiddleware from '../src/middleware/authkit_context_middleware.js';
-import AuthkitMiddleware from '../src/middleware/authkit_middleware.js';
 
 const SET_SLOT = Symbol.for('@agora/context:set');
 
@@ -80,14 +79,14 @@ async function bootGuard(options: {
   identity: Identity | null;
   users?: Record<string, { id: string; name: string }>;
   resolveUser?: ResolveUser;
+  provider?: unknown;
 }) {
   const manager = fakeManager({ identity: options.identity, resolveUser: options.resolveUser });
   const { ctx, resolved } = fakeCtx(manager);
   const provider = fakeProvider(options.users ?? { u1: { id: 'u1', name: 'Ana (banco local)' } });
-  const factory = await authkitClientGuard({ provider: provider as never }).resolver(
-    'web',
-    {} as never,
-  );
+  const factory = await authkitClientGuard({
+    provider: (options.provider ?? provider) as never,
+  }).resolver('web', {} as never);
   const auth = new FrameworkAuthenticator(ctx, {
     default: 'web',
     guards: { web: factory },
@@ -176,19 +175,88 @@ test.group('authkitClientGuard', () => {
     assert.strictEqual(auth.use('web').authkit, authkit);
   });
 
-  test('provider + resolveUser: o provider manda em ctx.auth.user; resolveUser só alimenta ctx.authkit', async ({
+  test('primeiro login: resolveUser provisiona o usuário que o provider ainda não tem', async ({
     assert,
   }) => {
+    // Banco local vazio: só o resolveUser (ex.: lucidMirror) sabe criar a linha.
+    const created: Record<string, { id: string; name: string }> = {};
+    const { auth, provider } = await bootGuard({
+      identity,
+      users: created,
+      resolveUser: async (i) => {
+        created[i.userId] = { id: i.userId, name: 'Ana (espelho novo)' };
+        return created[i.userId];
+      },
+    });
+
+    assert.isTrue(await auth.check());
+    assert.deepEqual(auth.user, { id: 'u1', name: 'Ana (espelho novo)' });
+    assert.deepEqual(provider.lookups, [], 'the provider is not needed when resolveUser answers');
+  });
+
+  test('o que o resolveUser enriqueceu aparece em ctx.auth.user, na MESMA instância de ctx.authkit', async ({
+    assert,
+  }) => {
+    class AppUser {
+      constructor(
+        public id: string,
+        public roles: string[],
+      ) {}
+      hasRole(role: string) {
+        return this.roles.includes(role);
+      }
+    }
     const { auth, ctx } = await bootGuard({
       identity,
-      resolveUser: async () => ({ id: 'u1', name: 'via resolveUser' }),
+      resolveUser: async (i) => new AppUser(i.userId, ['advisor']),
     });
 
     await auth.authenticate();
 
-    assert.deepEqual(auth.user, { id: 'u1', name: 'Ana (banco local)' });
+    const user = auth.user as unknown as AppUser;
+    assert.instanceOf(user, AppUser);
+    assert.isTrue(user.hasRole('advisor'));
     const authkit = (ctx as unknown as { authkit: Authenticator }).authkit;
-    assert.deepEqual(await authkit.getUser(), { id: 'u1', name: 'via resolveUser' });
+    assert.strictEqual(await authkit.getUser(), user);
+  });
+
+  test('resolveUser sem usuário → cai no provider', async ({ assert }) => {
+    const { auth, provider } = await bootGuard({ identity, resolveUser: async () => null });
+
+    await auth.authenticate();
+
+    assert.deepEqual(auth.user, { id: 'u1', name: 'Ana (banco local)' });
+    assert.deepEqual(provider.lookups, ['u1']);
+  });
+
+  test('resolveUser e provider sem usuário → E_UNAUTHORIZED_ACCESS', async ({ assert }) => {
+    const { auth } = await bootGuard({ identity, users: {}, resolveUser: async () => null });
+
+    assert.isFalse(await auth.check());
+  });
+});
+
+test.group('authkitClientGuard + authkitIdentityProvider', () => {
+  test('sem banco: ctx.auth.user é a Identity do authkit', async ({ assert }) => {
+    const { auth } = await bootGuard({ identity, provider: authkitIdentityProvider() });
+
+    assert.strictEqual(await auth.authenticate(), identity);
+    assert.strictEqual(auth.user, identity);
+  });
+
+  test('com resolveUser, o usuário dele vence a Identity', async ({ assert }) => {
+    const { auth } = await bootGuard({
+      identity,
+      provider: authkitIdentityProvider(),
+      resolveUser: async () => ({ id: 'u1', name: 'via resolveUser' }),
+    });
+
+    assert.deepEqual(await auth.authenticate(), { id: 'u1', name: 'via resolveUser' });
+  });
+
+  test('sem sessão → não autentica', async ({ assert }) => {
+    const { auth } = await bootGuard({ identity: null, provider: authkitIdentityProvider() });
+    assert.isFalse(await auth.check());
   });
 });
 
@@ -214,57 +282,5 @@ test.group('AuthkitContextMiddleware', () => {
 
     assert.equal(manager.calls.createAuthenticator, 1);
     assert.equal(manager.calls.maybeRefresh, 1);
-  });
-});
-
-/**
- * A GARANTIA DE COMPATIBILIDADE (plano, passo 3): sem guard configurado, o
- * `authkit_middleware` continua sendo o dono de `ctx.auth` e a superfície do
- * `Authenticator` do authkit segue idêntica. Este teste NÃO depende do guard —
- * é ele que prova que a adição do guard não mexeu no caminho default.
- */
-test.group('compatibilidade: sem guard configurado', () => {
-  test('authkit_middleware continua colocando o Authenticator do authkit em ctx.auth', async ({
-    assert,
-  }) => {
-    const manager = fakeManager({
-      identity,
-      resolveUser: async () => ({ id: 'u1', name: 'via resolveUser' }),
-    });
-    const { ctx } = fakeCtx(manager);
-
-    let nextCalled = false;
-    await new AuthkitMiddleware().handle(ctx, async () => {
-      nextCalled = true;
-    });
-
-    assert.isTrue(nextCalled);
-    const auth = (ctx as unknown as { auth: Authenticator }).auth;
-    assert.instanceOf(auth, Authenticator);
-    assert.equal(manager.calls.maybeRefresh, 1);
-
-    // superfície histórica, intacta
-    assert.equal((await auth.getIdentity())?.userId, 'u1');
-    assert.equal((await auth.authenticate()).email, 'ana@example.com');
-    assert.isTrue(await auth.check());
-    assert.isTrue(auth.hasGlobalRole('ADMIN'));
-    assert.isFalse(auth.hasGlobalRole('STAFF'));
-    assert.deepEqual(await auth.getUser(), { id: 'u1', name: 'via resolveUser' });
-    assert.deepEqual(await auth.getUserOrFail(), { id: 'u1', name: 'via resolveUser' });
-
-    // o middleware default NÃO passa a mexer em ctx.authkit
-    assert.isUndefined((ctx as unknown as { authkit?: unknown }).authkit);
-  });
-
-  test('authkit_middleware sem sessão: check() false e authenticate() lança o erro histórico', async ({
-    assert,
-  }) => {
-    const manager = fakeManager({ identity: null });
-    const { ctx } = fakeCtx(manager);
-    await new AuthkitMiddleware().handle(ctx, async () => {});
-
-    const auth = (ctx as unknown as { auth: Authenticator }).auth;
-    assert.isFalse(await auth.check());
-    await assert.rejects(() => auth.authenticate(), 'Not authenticated');
   });
 });

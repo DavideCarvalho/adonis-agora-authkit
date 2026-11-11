@@ -12,7 +12,6 @@ description: The full defineConfig option tables for server and client.
 | --- | --- | --- | --- |
 | `issuer` | `string` | — | Public provider URL; must end with `mountPath`. |
 | `adapter` | `AdapterFactory` | — | Storage adapter, e.g. `adapters.database({ connection })`. |
-| `clients` | `ClientConfig[]` | — | Internal/test use only. Create clients via the admin console, Admin API (`node ace authkit:clients:create`), or [Dynamic Registration](/docs/dynamic-registration). |
 | `jwks` | `JwksConfig` | — | `{ source: 'managed' \| 'jwks', algorithm?, rotationDays?, keys? }`. |
 | `ttl` | `TtlConfig` | see below | Token/session lifetimes; accepts `'15m'`, `'30d'`, or seconds. **Declaring this key locks the `token_ttl` setting.** |
 | `globalRolesClaim` | `string` | `'roles'` | Claim name where global roles are emitted. |
@@ -24,7 +23,7 @@ description: The full defineConfig option tables for server and client.
 | `mountPath` | `string` | `'/oidc'` | Where the host kit mounts the OIDC routes. |
 | `routes` | `boolean \| AuthHostOptions` | absent (no auto-mount) | Mount the host kit from the config instead of calling `registerAuthHost` in `start/routes.ts`. `true` mounts with config defaults, an object supplies **structural** defaults (`accountRoutes`, `account`, `accountLoginUrl`, `mountPath`). Calling `registerAuthHost` afterwards throws — see [Host Kit](/docs/host-kit#mounting-the-host). |
 | `accountHome` | `string` | `'/account/security'` | Default destination for the account area: post-login at `/account/login` (without `return_to`), e-mail confirmations, and non-admin redirects away from the console. Point it at your app's home to land users straight in the product. |
-| `render` | `AuthHostRenderer` | `edgeRenderer` | `inertiaRenderer` to render the screens as Inertia pages, or `edgeRenderer` for the bundled Edge templates. |
+| `render` | `AuthHostRenderer` | `edgeRenderer` | `inertiaRenderer` to render the screens as Inertia pages, or `edgeRenderer` for the bundled Edge templates. See [Themed Screens](/docs/themed-screens). |
 | `interactionRecovery` | `{ mode?: 'screen' \| 'redirect'; redirectTo?: string }` | `{ mode: 'screen' }` | What happens when the OIDC interaction session is lost or expired: render the themeable `session-expired` screen, or 302 to the login. See [Host Kit](/docs/host-kit#recovering-a-lost-interaction-session). |
 | `branding` | `BrandingConfig` | — | Per-client theming. Its `firstParty` list is also read as a fallback allowlist for the authorization claims, but prefer `firstPartyClients` for that — an authorization decision should not live in a theming block. |
 | `firstPartyClients` | `string[]` | — (no allowlist) | Which clients receive the authorization claims (`<globalRolesClaim>`, `org_id`, `org_slug`, `org_role`). Omit it and **every registered client is first-party** — the claims are still gated by client registration and by the client asking for `scope=roles`. Declare it to restrict them to your own apps; an explicitly empty list means nobody. See [Customizing auth](/docs/customizing-auth#the-roles-claim). |
@@ -87,17 +86,6 @@ description: The full defineConfig option tables for server and client.
 | `idToken` | `900` (15m) |
 | `session` | `604800` (7d) |
 
-### `ClientConfig`
-
-| Field | Type | Notes |
-| --- | --- | --- |
-| `clientId` | `string` | — |
-| `clientSecret` | `string?` | Omit for public clients. |
-| `redirectUris` | `string[]` | Allowed authorization redirect URIs. |
-| `postLogoutRedirectUris` | `string[]?` | For RP-initiated logout. |
-| `grants` | `string[]?` | e.g. `authorization_code`, `refresh_token`, `urn:ietf:params:oauth:grant-type:token-exchange`. |
-| `tokenEndpointAuthMethod` | `'client_secret_basic' \| 'client_secret_post' \| 'none'` | `'none'` for public/SPA + PKCE. |
-
 ### `RateLimitConfigInput`
 
 Infrastructure fields only. Bucket policy (`login`, `introspection`) is managed via the `rate_limit` runtime setting.
@@ -133,7 +121,7 @@ Infrastructure fields only. Bucket policy (`login`, `introspection`) is managed 
 
 | Factory | Config | Notes |
 | --- | --- | --- |
-| `resolvers.jwt` | `{ tokenSource?, jwksUri? }` | Local JWKS validation; `tokenSource` defaults to `'session'`, `jwksUri` to the discovered `jwks_uri`. |
+| `resolvers.jwt` | `{ tokenSource?, jwksUri? }` | Local JWKS validation; `tokenSource` defaults to `'session'`, `jwksUri` to the discovered `jwks_uri`. `'bearer'` reads `Authorization: Bearer <jwt>` and `Authorization: DPoP <jwt>` with its `DPoP` proof; a DPoP-bound token (`cnf.jkt`) sent as `Bearer` is refused. |
 | `resolvers.pat` | `{ introspectionUrl, introspectionSecret }` | Validates PATs via the IdP introspection endpoint. |
 | `resolvers.opaque` | `{ tokenSource?, introspectionUrl?, cacheTtlMs? }` | Per-request introspection of opaque access tokens (immediate revocation). Requires a confidential client. |
 
@@ -142,9 +130,10 @@ Infrastructure fields only. Bucket policy (`login`, `introspection`) is managed 
 | Export | Purpose |
 | --- | --- |
 | `registerOidcClient(router, options)` | Registers `/auth/login`, the callback, `/auth/logout` and the back-channel endpoint in one call, with PKCE, state, and role-based post-login redirects. The path most relying parties want — see [Client](/docs/client#the-login--callback--logout-flow). |
-| `authkitClientGuard` / `AuthkitClientGuard` | `@adonisjs/auth` guard backed by the AuthKit session, so `ctx.auth.user` and `middleware.auth()` work natively. See [AdonisJS Auth integration](/docs/adonis-auth). |
+| `authkitClientGuard({ provider, resolver? })` / `AuthkitClientGuard` | `@adonisjs/auth` guard backed by the AuthKit session (also on the `/auth` subpath), so `ctx.auth.user`, `middleware.auth()` and Bouncer work natively. The user comes from `resolveUser` first, then the provider. `resolver` replaces the configured resolver for this guard only — bearer JWT/DPoP, opaque or PAT API routes. See [AdonisJS auth](/docs/adonis-auth). |
+| `authkitIdentityProvider()` / `IdentityUserProviderContract` | A user provider with no database: `ctx.auth.user` is the AuthKit `Identity`. See [Choosing a user provider](/docs/adonis-auth#choosing-a-user-provider). |
 | `getAuthkit(ctx)` | Read the request's `Authenticator` without going through the container. |
-| `AuthkitContextMiddleware` | Populates the per-request identity. |
+| `AuthkitContextMiddleware` | `authkit_context_middleware`: refreshes the token set and puts the `Authenticator` on `ctx.authkit`. |
 | `lucidMirror(options)` | A `resolveUser` that mirrors the IdP identity into a Lucid model. |
 | `createUserinfoResolver(options)` | Builds a `resolveUser` that fetches the OP's `userinfo` endpoint. |
 | `conventionEndpoints(issuer)` | The endpoint map by convention, skipping discovery. |
@@ -282,7 +271,7 @@ Commands provided by `@adonis-agora/authkit-server`:
 | `node ace authkit:users:import --file <path> [--dry-run]` | Bulk-import users from a JSON array or NDJSON file, preserving hashes as-is for lazy rehash on login. |
 | `node ace authkit:users:normalize-emails [--apply]` | Migrate stored addresses to the normalized identity form (`trim` + `toLowerCase`). Reports by default; `--apply` writes, refusing to touch accounts involved in a collision. **Required upgrade step** from 0.70 or earlier — see [below](#authkitusersnormalize-emails). |
 | `node ace authkit:keys:rotate [--keep=N] [--retire] [--dry-run]` | Rotate signing keys in a managed keystore file; keeps a grace-period window of N previous keys (default 2). |
-| `node ace authkit:clients:create --redirect-uri=<uri> [--client-id] [--public] [--grant] [--post-logout-uri] [--backchannel-logout-uri] [--json]` | Create an OIDC client in the adapter/DB at runtime. For confidential clients a secret is generated and printed **once** — save it immediately. See [below](#authkitclientscreate). |
+| `node ace authkit:clients:create --redirect-uri=<uri> [--client-id] [--public] [--grant] [--post-logout-uri] [--backchannel-logout-uri] [--client-secret] [--json]` | Create an OIDC client in the adapter/DB at runtime. For confidential clients a secret is generated and printed **once** — save it immediately. See [below](#authkitclientscreate). |
 | `node ace authkit:settings:list [--json]` | List all runtime settings currently persisted in the `auth_settings` table. |
 | `node ace authkit:settings:get <key> [--json]` | Get a specific setting by key. Prints `null` if the key is not set (lib default applies). |
 | `node ace authkit:settings:set <key> <json> [--json]` | Upsert a setting. Validates shape for known keys. Audits `settings.updated` with `updatedBy: 'cli'`. |
@@ -300,8 +289,8 @@ it covers is switched off — an opt-in feature you never enabled is not a findi
 | --- | --- |
 | `checkConfigResolves` | `config('authkit')` resolves at all. |
 | `checkIssuer` | `issuer` is a valid URL and its pathname matches `mountPath`. |
-| `checkClients` | No static `clients` in the config — clients are runtime-only, via the console or the Admin API. |
-| `checkAdapterVolatility` | The adapter persists. Because clients live only at runtime, a volatile adapter (in-memory, Redis without persistence) silently loses them on restart. |
+| `checkClients` | Reminds that clients live in the adapter, managed via the console, the Admin API or `authkit:clients:create`. |
+| `checkAdapterVolatility` | The adapter persists. Because clients live in the adapter, a volatile adapter (in-memory, Redis without persistence) silently loses them on restart. |
 | `checkAccountStore` | The store is present, and which capabilities it implements. |
 | `checkSession` | `@adonisjs/session` is configured; warns about the cookie store with large token sets. |
 | `checkShield` | The CSRF exceptions Shield needs for `mountPath`. |
@@ -390,6 +379,7 @@ node ace authkit:clients:create \
 | `--grant=<type>` | Grant type (repeatable). Default: `authorization_code` + `refresh_token`. |
 | `--post-logout-uri=<uri>` | Post-logout redirect URI (repeatable). |
 | `--backchannel-logout-uri=<uri>` | OIDC Back-Channel Logout endpoint of the RP. |
+| `--client-secret=<secret>` | Use this secret instead of generating one (confidential clients only). Keeps the secret your RPs already use. |
 | `--json` | Print the result as JSON (includes `clientId` and `clientSecret` for confidential clients). |
 
 For confidential clients a `clientSecret` is generated and printed **exactly once** — store
@@ -399,6 +389,16 @@ or HTTP interface.
 ## Server backend helpers — `@adonis-agora/authkit-server`
 
 Helpers for use inside AdonisJS controllers, middleware, and route callbacks.
+
+### Screens and their props
+
+| Export | Purpose |
+| --- | --- |
+| `inertiaRenderer({ prefix, views })` / `edgeRenderer()` | The `render` functions. `views` lists the screens you have React pages for. |
+| `AuthkitScreen` | Union of every screen name. |
+| `AuthkitScreenProps` | Props of each screen, by name: `AuthkitScreenProps['session-expired']`. |
+| `LoginProps`, `SignupProps`, `ConsentProps`, `ForgotProps`, `ResetProps`, `VerifyEmailProps`, `MfaChallengeProps`, `OtpUnlockProps`, `MaintenanceProps`, `SessionExpiredProps`, `ThrottledProps`, `AgentsConsentProps`, `AgentsDoneProps`, `ConsentRequestParams`, `AccountLoginProps`, `AccountSecurityProps`, `AccountMfaProps`, `AccountConfirmProps`, `AccountEmailConfirmedProps`, `AccountTokensProps`, `AccountAppsProps`, `AccountOrgsProps` | The per-screen types (the same as the map's entries). |
+| `ScreenRenderProps<View>` | A screen's props without `messages`, as a custom renderer receives them. |
 
 ### Console session
 
@@ -418,7 +418,6 @@ See [Console session & sudo mode](/docs/console-session) for recipes.
 | --- | --- |
 | `requireSudo(ctx, settings)` | Returns `true` when the caller already holds sudo, and otherwise returns a redirect to the confirmation screen with a `return_to`. Guard with `if (gate !== true) return gate`. Both arguments are required: `settings` is a `SettingsCapability` or `null`, and `null` means "no runtime settings here", so `SUDO_MODE_DEFAULTS` applies. Fail-safe — a settings error lets the request through. |
 | `isSudoActive(ctx, graceMinutes)` | Pure boolean check — `true` when the step-up timestamp is within the grace window **and** belongs to the account currently signed in. |
-| `markSudo(ctx)` | Stamps the step-up timestamp, bound to the current account. Deprecated as a way to *grant* sudo — it records no `sudo.confirmed` audit event, no remembered method and no redirect. Use `completeSudo(sudoContextFrom(ctx), methodId)` instead. |
 | `SUDO_SESSION_KEY` | Raw session key for the timestamp. |
 | `SUDO_ACCOUNT_SESSION_KEY` | Raw session key for the account the grace was earned by — checked before the grace window, so a sudo grant cannot survive a switch to another account. |
 | `SUDO_MODE_DEFAULTS` | `{ enabled: true, graceMinutes: 15 }` |
@@ -432,7 +431,7 @@ The methods offered on the confirmation screen are pluggable. Read
 | Export | Purpose |
 | --- | --- |
 | `sudoMethods` | The built-in method factories: `password()`, `passkey()`, `magicLink()`, `oidcStepUp()`. |
-| `completeSudo(context)` | Grant sudo from your own handler. Required for `oidcStepUp()`, which registers no routes — your callback validates the grant, so your callback has to grant the sudo. Doing it with `markSudo` instead loses the `sudo.confirmed` audit event, the remembered method, and the `return_to` redirect. |
+| `completeSudo(context)` | Grant sudo from your own handler. Required for `oidcStepUp()`, which registers no routes — your callback validates the grant, so your callback has to grant the sudo. |
 | `failSudo(context, reason)` | Record a failed confirmation attempt. |
 | `sudoContextFrom(ctx)` | Build the `SudoContext` the two functions above take. Use it — assembling the context by hand means validating `return_to` by hand, which is an open redirect waiting to happen. |
 | `LAST_METHOD_SESSION_KEY` | Raw session key for the last method used successfully, which is promoted to the top of the screen. |
@@ -469,7 +468,7 @@ See [Native apps](/docs/native-apps) for the bearer guard.
 
 | Export | Purpose |
 | --- | --- |
-| `ApplicationType` | `'web' \| 'native'` — `ClientConfig.applicationType` / Admin API `applicationType`. |
+| `ApplicationType` | `'web' \| 'native'` — the Admin API / `AdminClientsService` `applicationType`. |
 | `redirectUriProblem(uri, type?)` | Why a redirect URI is invalid for a client type, or `null`. |
 | `assertClientMetadata(input)` / `ClientMetadataError` | The type-aware checks `AdminClientsService` runs before persisting a client (the Admin API maps the error to `422 invalid_client_metadata`). |
 
@@ -580,7 +579,7 @@ Full export list. For usage and examples see
 <Callout type="info">
   AuthKit authenticates and carries **global** roles. Per-application authorization —
   app-local roles and permissions — belongs to `@adonis-agora/authz`, and reaches React
-  through `useCan` / `CanPermission`. There is no `hasAppRole` on `ctx.auth` and no
+  through `useCan` / `CanPermission`. There is no `hasAppRole` on `ctx.authkit` and no
   app-role helper in this package.
 </Callout>
 
@@ -590,18 +589,11 @@ Full export list. For usage and examples see
 | --- | --- |
 | `useSignIn` / `useSignOut` | OIDC redirect |
 | `useUser` | Alias over `useAuth` |
-| `useProfile` | `{ data, loading, error, actions: { update } }` |
-| `useSessions` | `{ data, loading, error, actions: { revoke, refetch } }` |
-| `useAuthorizedApps` | `{ data, loading, error, actions: { revoke } }` |
-| `useOrganizations` | `{ data, loading, error, activeOrgId, supported, actions }` |
-| `useOrganization(orgId)` | Org detail + members |
-| `useSwitchOrganization` | `{ activate(orgId), deactivate() }` |
-| `useOrgInvitations` | `{ data, loading, error, actions: { accept } }` |
 | `usePasswordStrength(password, opts?)` | `{ score: 0–4, feedback }`; `heuristicScorer` is the default scorer and can be swapped |
 | `usePasskeyAutofill(opts)` | WebAuthn conditional mediation |
 | `usePasskeyLogin(opts)` | Passkey sign-in for a custom login screen |
 | `usePasskeyAssertion(opts)` / `usePasskeyRegistration(opts)` | The assertion and registration ceremonies as hooks |
-| `useResource` / `jsonRequest` | The generic JSON primitive every headless hook is built on |
+| `jsonRequest` | JSON fetch helper (credentials, CSRF header, throws on non-2xx) for your own endpoints |
 
 ### Passkeys — the three tiers
 
@@ -648,7 +640,7 @@ and the function when your screen owns its state machine. See
 `useUserSessionsQueryOptions`, `useSessionsQueryOptions`, `useClientsQueryOptions`,
 `useClientQueryOptions`, `useRolesQueryOptions`, `useOrgsQueryOptions`, `useOrgQueryOptions`,
 `useAuditQueryOptions`, `useSettingsQueryOptions`, `useImpersonationQueryOptions`,
-`useKeysQueryOptions`.
+`useKeysQueryOptions`, `usePersonalAgentsQueryOptions`, `usePersonalAgentConnectionsQueryOptions`.
 
 ### Admin mutation hooks
 
@@ -662,13 +654,15 @@ and the function when your screen owns its state machine. See
 `useAddOrgMemberMutationOptions`, `useRemoveOrgMemberMutationOptions`, `useUpdateOrgMemberRoleMutationOptions`,
 `useCreateOrgInvitationMutationOptions`, `useRevokeOrgInvitationMutationOptions`,
 `useSetSettingMutationOptions`, `useRemoveSettingMutationOptions`,
-`useRotateKeysMutationOptions`.
+`useRotateKeysMutationOptions`, `useRevokePersonalAgentConnectionMutationOptions`,
+`useSetPersonalAgentStatusMutationOptions`, `useRemovePersonalAgentEntryMutationOptions`.
 
 ### Account query hooks
 
 `useMeQueryOptions`, `useSecurityQueryOptions`, `useAccountSessionsQueryOptions`,
 `useAppsQueryOptions`, `useMfaQueryOptions`, `usePasskeysQueryOptions`, `useTokensQueryOptions`,
-`useAccountOrgsQueryOptions`, `useAccountOrgQueryOptions`, `useAccountOrgInvitationsQueryOptions`.
+`useAccountOrgsQueryOptions`, `useAccountOrgQueryOptions`, `useAccountOrgInvitationsQueryOptions`,
+`useAccountAgentsQueryOptions`.
 
 ### Account mutation hooks
 
@@ -676,5 +670,5 @@ and the function when your screen owns its state machine. See
 `useEmailChangeMutationOptions`, `useCancelEmailChangeMutationOptions`,
 `useRevokeSessionMutationOptions`, `useRevokeOtherSessionsMutationOptions`,
 `useAccountRevokeAllSessionsMutationOptions`,
-`useRevokeAppMutationOptions`, `useRemovePasskeyMutationOptions`,
+`useRevokeAppMutationOptions`, `useRevokeAccountAgentMutationOptions`, `useRemovePasskeyMutationOptions`,
 `useCreateTokenMutationOptions`, `useRevokeTokenMutationOptions`.

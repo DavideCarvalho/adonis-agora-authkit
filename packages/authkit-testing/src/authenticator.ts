@@ -2,7 +2,7 @@ import type { Identity } from '@adonis-agora/authkit-core';
 import { createTestIdentity } from './identity.js';
 
 /**
- * Superfície pública do `Authenticator` do client (o que `ctx.auth` expõe).
+ * Superfície pública do `Authenticator` do client (o que `ctx.authkit` expõe).
  * Reproduzida aqui para não acoplar o pacote de testing ao client em runtime.
  */
 export interface FakeAuthenticatorLike {
@@ -11,6 +11,8 @@ export interface FakeAuthenticatorLike {
   authenticate(): Promise<Identity>;
   check(): Promise<boolean>;
   hasGlobalRole(role: string): boolean;
+  /** `true` when a `user` was given: `authkitClientGuard` then uses it for `ctx.auth.user`. */
+  readonly resolvesUser: boolean;
   getUser(): Promise<unknown>;
   getUserOrFail(): Promise<unknown>;
   toSharedProps(): Promise<{ user: unknown; globalRoles: string[] } | null>;
@@ -25,7 +27,7 @@ export interface FakeAuthenticatorOptions {
 
 /**
  * Cria um objeto que satisfaz a superfície do `Authenticator` do client para
- * injetar em `ctx.auth` em testes de controller — sem resolver tokens de verdade.
+ * injetar em `ctx.authkit` em testes de controller — sem resolver tokens de verdade.
  */
 export function fakeAuthenticator(options: FakeAuthenticatorOptions = {}): FakeAuthenticatorLike {
   const identity: Identity | null =
@@ -49,6 +51,7 @@ export function fakeAuthenticator(options: FakeAuthenticatorOptions = {}): FakeA
     hasGlobalRole(role: string) {
       return identity?.globalRoles.includes(role) ?? false;
     },
+    resolvesUser: 'user' in options,
     async getUser() {
       if (!identity) return null;
       return user;

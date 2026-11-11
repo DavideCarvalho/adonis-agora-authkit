@@ -13,6 +13,7 @@ import { withAuthUser } from '../../src/mixins/with_auth_user.js';
 import { withCredentials } from '../../src/mixins/with_credentials.js';
 import { OidcService } from '../../src/provider/oidc_service.js';
 import { createTestDatabase } from '../bootstrap.js';
+import { withClients } from '../helpers/seed_clients.js';
 
 class Account extends compose(BaseModel, withAuthUser(), withCredentials()) {
   static table = 'users';
@@ -124,11 +125,8 @@ async function startService(port: number, db: any) {
   });
   const cfg = await configProvider.resolve(
     fakeApp,
-    defineConfig({
-      issuer,
-      adapter: adapters.database({}),
-      jwks: { source: 'managed', algorithm: 'RS256' },
-      clients: [
+    withClients(
+      [
         {
           clientId: 'c1',
           clientSecret: 's',
@@ -136,8 +134,13 @@ async function startService(port: number, db: any) {
           grants: ['authorization_code'],
         },
       ],
-      accountStore: store,
-    }),
+      defineConfig({
+        issuer,
+        adapter: adapters.database({}),
+        jwks: { source: 'managed', algorithm: 'RS256' },
+        accountStore: store,
+      }),
+    ),
   );
   const service = new OidcService(cfg!, 'a'.repeat(32));
   const server: Server = createServer(service.callback);

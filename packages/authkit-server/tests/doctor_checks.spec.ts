@@ -27,7 +27,6 @@ function baseInput(overrides: Partial<DoctorInput> = {}): DoctorInput {
     authkitConfig: {
       issuer: 'https://idp.test/oidc',
       mountPath: '/oidc',
-      clients: [{ client_id: 'a', redirectUris: ['https://app/cb'] }],
       accountStore: { findById: () => {}, verifyCredentials: () => {} },
       jwks: { source: 'managed', store: 'tmp/jwks.json' },
     },
@@ -51,7 +50,7 @@ test.group('doctor checks', () => {
   test('issuer pathname != mountPath gera warn', ({ assert }) => {
     const findings = checkIssuer(
       baseInput({
-        authkitConfig: { issuer: 'https://idp.test/auth', mountPath: '/oidc', clients: [] },
+        authkitConfig: { issuer: 'https://idp.test/auth', mountPath: '/oidc' },
       }),
     );
     assert.isTrue(findings.some((f) => f.level === 'warn'));
@@ -60,7 +59,7 @@ test.group('doctor checks', () => {
   test('issuer inválido vira erro', ({ assert }) => {
     const findings = checkIssuer(
       baseInput({
-        authkitConfig: { issuer: 'not a url', mountPath: '/oidc', clients: [] },
+        authkitConfig: { issuer: 'not a url', mountPath: '/oidc' },
       }),
     );
     assert.equal(findings[0].level, 'error');
@@ -69,7 +68,7 @@ test.group('doctor checks', () => {
   test('checkClients: sempre ok (clients são 100% runtime)', ({ assert }) => {
     const f = checkClients(
       baseInput({
-        authkitConfig: { clients: [] },
+        authkitConfig: {},
       }),
     );
     assert.equal(f.level, 'ok');
@@ -303,7 +302,6 @@ test.group('doctor checks', () => {
         authkitConfig: {
           issuer: 'https://idp.test/oidc',
           mountPath: '/oidc',
-          clients: [{ redirectUris: ['https://app/cb'] }],
           accountStore: { findById: () => {}, verifyCredentials: () => {} },
           botProtection: { verify: async () => true },
         },
@@ -328,7 +326,7 @@ test.group('doctor checks', () => {
   // --- clients: sempre runtime ---
 
   test('checkClients: ok (clients são 100% runtime)', ({ assert }) => {
-    const f = checkClients(baseInput({ authkitConfig: { clients: [] } }));
+    const f = checkClients(baseInput({ authkitConfig: {} }));
     assert.equal(f.level, 'ok');
     assert.include(f.message, 'runtime');
   });
@@ -339,9 +337,7 @@ test.group('doctor checks', () => {
   });
 
   test('config sem clients não produz erros no runAllChecks', ({ assert }) => {
-    const findings = runAllChecks(
-      baseInput({ authkitConfig: { ...baseInput().authkitConfig, clients: [] } }),
-    );
+    const findings = runAllChecks(baseInput({ authkitConfig: { ...baseInput().authkitConfig } }));
     assert.isFalse(hasErrors(findings));
   });
 
@@ -356,7 +352,7 @@ test.group('doctor checks', () => {
     };
     const f = checkAdapterVolatility(
       baseInput({
-        authkitConfig: { clients: [], AdapterClass: SubAdapter },
+        authkitConfig: { AdapterClass: SubAdapter },
         __adapterClasses: { DatabaseAdapter },
       }),
     );
@@ -368,7 +364,7 @@ test.group('doctor checks', () => {
     class CustomAdapter {}
     const f = checkAdapterVolatility(
       baseInput({
-        authkitConfig: { clients: [], AdapterClass: CustomAdapter },
+        authkitConfig: { AdapterClass: CustomAdapter },
       }),
     );
     assert.equal(f!.level, 'warn');
@@ -380,7 +376,6 @@ test.group('doctor checks', () => {
     const f = checkAdapterVolatility(
       baseInput({
         authkitConfig: {
-          clients: [],
           AdapterClass: CustomAdapter,
         },
       }),
@@ -393,7 +388,7 @@ test.group('doctor checks', () => {
   test('checkAdapterVolatility: sem AdapterClass → null (silencioso)', ({ assert }) => {
     const f = checkAdapterVolatility(
       baseInput({
-        authkitConfig: { clients: [] },
+        authkitConfig: {},
       }),
     );
     assert.isNull(f);

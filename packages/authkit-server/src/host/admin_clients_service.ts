@@ -25,8 +25,13 @@ export interface ClientInput {
   /**
    * Endpoint de OIDC Back-Channel Logout do RP. Quando definido, o IdP envia um
    * `logout_token` para esta URI ao encerrar a sessão/grant do usuário (RFC 7644).
+   * Num update, `null` remove a URI; ausente (`undefined`) preserva a atual.
    */
-  backchannelLogoutUri?: string;
+  backchannelLogoutUri?: string | null;
+  /** `client_name`: the name people see on consent and authorized-app screens. `null` removes it. */
+  clientName?: string | null;
+  /** `logo_uri`: the client's logo URL. `null` removes it. */
+  logoUri?: string | null;
   /**
    * Quando `true`, exige que o `logout_token` inclua a claim `sid`. Ignorado quando
    * `backchannelLogoutUri` não está definido.
@@ -38,7 +43,7 @@ export interface ClientInput {
 export interface AdminClient {
   clientId: string;
   confidential: boolean;
-  grants: string[];
+  grantTypes: string[];
   redirectUris: string[];
   postLogoutRedirectUris: string[];
   tokenEndpointAuthMethod: string;
@@ -48,6 +53,10 @@ export interface AdminClient {
   backchannelLogoutUri?: string;
   /** Exige sid no logout_token (opcional). */
   backchannelLogoutSessionRequired?: boolean;
+  /** `client_name` registrado, ou `null`. */
+  clientName: string | null;
+  /** `logo_uri` registrado, ou `null`. */
+  logoUri: string | null;
 }
 
 /** Resultado de uma criação: o client + o secret em claro (mostrado UMA vez). */
@@ -119,9 +128,8 @@ export class AdminClientsService {
   }
 
   /**
-   * Cria um client PRESERVANDO um `clientSecret` fornecido externamente (em vez de
-   * gerar um aleatório). Útil para migração de clients estáticos do config, onde o
-   * secret original deve ser preservado para não quebrar apps já configurados.
+   * Cria um client com um `clientSecret` fornecido externamente (em vez de gerar
+   * um aleatório) — ex.: para manter o secret que os RPs já usam.
    *
    * Para clients públicos (auth method `none`), `providedSecret` é ignorado.
    * Lança se o `clientId` já existir no adapter — chame `find` antes.
@@ -165,10 +173,20 @@ export class AdminClientsService {
       applicationType:
         input.applicationType ?? (existing.application_type as ApplicationType) ?? 'web',
       backchannelLogoutUri:
-        input.backchannelLogoutUri ?? (existing.backchannel_logout_uri as string | undefined),
+        input.backchannelLogoutUri === null
+          ? undefined
+          : (input.backchannelLogoutUri ?? (existing.backchannel_logout_uri as string | undefined)),
       backchannelLogoutSessionRequired:
         input.backchannelLogoutSessionRequired ??
         (existing.backchannel_logout_session_required as boolean | undefined),
+      clientName:
+        input.clientName === null
+          ? undefined
+          : (input.clientName ?? (existing.client_name as string | undefined)),
+      logoUri:
+        input.logoUri === null
+          ? undefined
+          : (input.logoUri ?? (existing.logo_uri as string | undefined)),
     };
 
     const confidential = !PUBLIC_AUTH_METHODS.has(merged.tokenEndpointAuthMethod);
@@ -247,6 +265,8 @@ export class AdminClientsService {
     // Só grava a chave quando nativo: um client web continua com o payload de
     // sempre (sem `application_type` o oidc-provider assume `web`).
     if (input.applicationType === 'native') payload.application_type = 'native';
+    if (input.clientName) payload.client_name = input.clientName;
+    if (input.logoUri) payload.logo_uri = input.logoUri;
     if (input.backchannelLogoutUri) {
       payload.backchannel_logout_uri = input.backchannelLogoutUri;
       if (input.backchannelLogoutSessionRequired !== undefined) {
@@ -263,11 +283,13 @@ export class AdminClientsService {
     const result: AdminClient = {
       clientId: row.clientId,
       confidential: !!p.client_secret,
-      grants: (p.grant_types as string[]) ?? ['authorization_code', 'refresh_token'],
+      grantTypes: (p.grant_types as string[]) ?? ['authorization_code', 'refresh_token'],
       redirectUris: (p.redirect_uris as string[]) ?? [],
       postLogoutRedirectUris: (p.post_logout_redirect_uris as string[]) ?? [],
       tokenEndpointAuthMethod: authMethod,
       applicationType: p.application_type === 'native' ? 'native' : 'web',
+      clientName: typeof p.client_name === 'string' && p.client_name ? p.client_name : null,
+      logoUri: typeof p.logo_uri === 'string' && p.logo_uri ? p.logo_uri : null,
     };
     if (p.backchannel_logout_uri) {
       result.backchannelLogoutUri = p.backchannel_logout_uri as string;

@@ -5,6 +5,7 @@ import RedisMock from 'ioredis-mock';
 import { adapters, defineConfig } from '../src/define_config.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { fakeAccountStore } from './bootstrap.js';
+import { withClients } from './helpers/seed_clients.js';
 
 const IAT = 'iat_secret';
 
@@ -23,11 +24,8 @@ async function startService(
   } as any;
   const cfg = await configProvider.resolve(
     fakeApp,
-    defineConfig({
-      issuer,
-      adapter: adapters.redis({ connection: 'main' }),
-      jwks: { source: 'managed', algorithm: 'RS256' },
-      clients: [
+    withClients(
+      [
         {
           clientId: 'app1',
           clientSecret: 's',
@@ -35,9 +33,14 @@ async function startService(
           grants: ['authorization_code', 'refresh_token'],
         },
       ],
-      accountStore: fakeAccountStore(),
-      ...(dynReg ? { dynamicRegistration: dynReg } : {}),
-    }),
+      defineConfig({
+        issuer,
+        adapter: adapters.redis({ connection: 'main' }),
+        jwks: { source: 'managed', algorithm: 'RS256' },
+        accountStore: fakeAccountStore(),
+        ...(dynReg ? { dynamicRegistration: dynReg } : {}),
+      }),
+    ),
   );
   const service = new OidcService(cfg!, 'a'.repeat(32));
   const server: Server = createServer(service.callback);

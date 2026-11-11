@@ -59,6 +59,7 @@ export const authkitKeys = {
     security: () => ['authkit', 'account', 'security'] as const,
     sessions: () => ['authkit', 'account', 'sessions'] as const,
     apps: () => ['authkit', 'account', 'apps'] as const,
+    agents: () => ['authkit', 'account', 'agents'] as const,
     mfa: () => ['authkit', 'account', 'mfa'] as const,
     passkeys: () => ['authkit', 'account', 'passkeys'] as const,
     tokens: () => ['authkit', 'account', 'tokens'] as const,

@@ -20,7 +20,7 @@ export interface AuthkitProviderProps {
  * injeta o estado de auth (caso não use as shared props do Inertia).
  *
  * ```tsx
- * <AuthkitProvider config={{ loginUrl: '/login', endpoints: { apps: '/api/apps' } }}>
+ * <AuthkitProvider config={{ loginUrl: '/login', endpoints: { can: '/api/authz/can' } }}>
  *   <App />
  * </AuthkitProvider>
  * ```

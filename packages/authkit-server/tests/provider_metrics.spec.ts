@@ -5,6 +5,7 @@ import RedisMock from 'ioredis-mock';
 import { adapters, defineConfig, OidcService } from '../index.js';
 import { OtelRecorder } from '../src/observability/otel_recorder.js';
 import { fakeAccountStore } from './bootstrap.js';
+import { withClients } from './helpers/seed_clients.js';
 
 test.group('provider metrics wiring', () => {
   test('um evento real do provider incrementa o counter', async ({ assert }) => {
@@ -13,15 +14,15 @@ test.group('provider metrics wiring', () => {
     } as any;
     const cfg = await configProvider.resolve(
       fakeApp,
-      defineConfig({
-        issuer: 'http://localhost:9899',
-        adapter: adapters.redis({ connection: 'main' }),
-        jwks: { source: 'managed' },
-        clients: [
-          { clientId: 'app1', clientSecret: 's', redirectUris: ['http://localhost:9899/cb'] },
-        ],
-        accountStore: fakeAccountStore(),
-      }),
+      withClients(
+        [{ clientId: 'app1', clientSecret: 's', redirectUris: ['http://localhost:9899/cb'] }],
+        defineConfig({
+          issuer: 'http://localhost:9899',
+          adapter: adapters.redis({ connection: 'main' }),
+          jwks: { source: 'managed' },
+          accountStore: fakeAccountStore(),
+        }),
+      ),
     );
     const recorder = await OtelRecorder.create('test');
     const service = new OidcService(cfg!, 'a'.repeat(32), recorder);

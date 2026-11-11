@@ -86,13 +86,12 @@ export function checkIssuer(input: DoctorInput): Finding[] {
 }
 
 /**
- * Clients: verifica que não há clients estáticos no config (clients são 100%
- * runtime via console admin / Admin API).
+ * Clients: vivem no adapter, gerenciados pelo console admin / Admin API /
+ * `node ace authkit:clients:create`.
  */
 export function checkClients(input: DoctorInput): Finding {
   const cfg = input.authkitConfig;
   if (!cfg) return { level: 'error', message: 'no config to validate clients.' };
-  // clients sempre é [] no config resolvido — info apenas.
   return {
     level: 'ok',
     message:
@@ -101,8 +100,7 @@ export function checkClients(input: DoctorInput): Finding {
 }
 
 /**
- * Aviso de adapter volátil. Como clients são 100% runtime (sem config estático),
- * um adapter volátil (Redis sem persistência, in-memory) pode perder os clients
+ * Aviso de adapter volátil. Como os clients vivem no adapter, um adapter volátil (Redis sem persistência, in-memory) pode perder os clients
  * num restart sem aviso prévio.
  *
  * Detecção de volatilidade: o `AdapterClass` é inspecionado estruturalmente:
@@ -140,9 +138,9 @@ export function checkAdapterVolatility(input: DoctorInput): Finding | null {
   return {
     level: 'warn',
     message:
-      'No static clients in config: if the OIDC adapter is volatile (Redis without AOF/RDB, in-memory, etc.), ' +
+      'Clients live in the OIDC adapter: if it is volatile (Redis without AOF/RDB, in-memory, etc.), ' +
       'clients managed via console/API will be lost on restart. ' +
-      'Use a persistent adapter (DatabaseAdapter) or keep static clients as a fallback.',
+      'Use a persistent adapter (DatabaseAdapter).',
   };
 }
 

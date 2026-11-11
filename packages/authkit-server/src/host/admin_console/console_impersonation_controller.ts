@@ -65,11 +65,7 @@ export default class ConsoleImpersonationController {
       return ctx.response.notFound(apiError('not_found', 'Usuário não encontrado.'));
     }
 
-    // Clients de RUNTIME. `cfg.clients` é sempre `[]` num host real — clients
-    // vivem no adapter, criados pelo console/Admin API/`authkit:clients:create`.
-    // Ler só o config fazia o painel devolver 404 SEMPRE, que é por que o botão
-    // do console nunca funcionou. O fallback para o config cobre hosts legados
-    // com clients estáticos e adapters que não enumeram.
+    // Clients vivem no adapter, criados pelo console/Admin API/`authkit:clients:create`.
     const panel = buildImpersonationPanel(cfg, targetId, await listRuntimeClients(service));
     if (!panel) {
       return ctx.response.notFound(
@@ -107,8 +103,7 @@ export default class ConsoleImpersonationController {
 
 /**
  * Clients persistidos que podem hospedar o token-exchange. Best-effort: um
- * adapter sem `list` (ou que falhe) devolve lista vazia e o
- * `buildImpersonationPanel` cai no `cfg.clients`.
+ * adapter sem `list` (ou que falhe) devolve lista vazia e o painel responde 404.
  */
 async function listRuntimeClients(service: {
   config: unknown;
@@ -118,7 +113,7 @@ async function listRuntimeClients(service: {
     if (!clients.canList) return [];
     return (await clients.list()).map((c) => ({
       clientId: c.clientId,
-      grants: c.grants,
+      grantTypes: c.grantTypes,
       confidential: c.confidential,
     }));
   } catch {

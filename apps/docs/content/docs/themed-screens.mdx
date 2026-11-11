@@ -1,0 +1,178 @@
+---
+icon: Palette
+title: Themed Screens
+description: Replace any AuthKit screen with your own React page, typed with the exact props it receives.
+---
+
+Every screen AuthKit shows — login, signup, consent, MFA, session expired, rate limited, the
+account console, the personal-agent consent — is rendered through the `render` function of
+`config/authkit.ts`. With `inertiaRenderer`, any of them can be your own React page; the ones
+you don't list keep the built-in Edge view.
+
+## List the pages you own
+
+```ts title="config/authkit.ts"
+import { defineConfig, inertiaRenderer } from '@adonis-agora/authkit-server'
+
+export default defineConfig({
+  // …
+  render: inertiaRenderer({
+    prefix: 'authkit',
+    views: ['login', 'signup', 'consent', 'mfa-challenge', 'session-expired'],
+  }),
+})
+```
+
+`views` is an allowlist. A listed screen renders `inertia/pages/authkit/<view>.tsx`; every
+other screen renders the built-in Edge view. `views` only accepts real screen names
+(`AuthkitScreen`), so a typo fails `tsc`.
+
+<Callout type="warn">
+  `inertia.render('authkit/<view>')` is resolved by your Inertia page glob, by file name. The
+  file must be named exactly like the view, in kebab-case: `session-expired.tsx`,
+  `mfa-challenge.tsx`, `account/email-confirmed.tsx`. Renaming the file breaks the screen at
+  runtime, not at build time.
+</Callout>
+
+## Type each page with its props
+
+`AuthkitScreenProps['<view>']` is the exact shape a page receives, including `messages` (the
+i18n catalog for the request's locale). The library's own controllers are checked against the
+same types, so the props cannot drift from what the page declares.
+
+```tsx title="inertia/pages/authkit/session-expired.tsx"
+import type { AuthkitScreenProps } from '@adonis-agora/authkit-server'
+import AuthShell from '../../components/auth_shell'
+
+type Props = AuthkitScreenProps['session-expired']
+
+export default function SessionExpired({ loginUrl, brand, messages }: Props) {
+  return (
+    <AuthShell brand={brand}>
+      <h1>{messages['session_expired.title']}</h1>
+      <p>{messages['session_expired.body']}</p>
+      <a href={loginUrl}>{messages['session_expired.login_link']}</a>
+    </AuthShell>
+  )
+}
+```
+
+| View | Props type | What it carries |
+| --- | --- | --- |
+| `login` | `LoginProps` | `uid`, `csrfToken`, `brand`, `step` (`identifier` / `password` / `password_expired`), `email`, `account`, `error`, `authMethods`, `magicLinkAvailable`, `otpEnabled`, `passkeyFirstAvailable`, `lastUsedLoginMethod`, `botProtection`, `rememberEnabled`, `rememberDays`, `magicLinkSent`, `magicChannel`, `otpError`, `registrationEnabled` |
+| `signup` | `SignupProps` | `uid`, `csrfToken`, `brand`, `error`, `registrationDisabled`, `registrationDisabledMessage`, `passwordlessSignup`, `botProtection`, `magicLinkSent`, `otpEnabled` |
+| `consent` | `ConsentProps` | `uid`, `csrfToken`, `brand`, `params` (`ConsentRequestParams`: `client_id`, plus `redirect_uri`, `response_type`, `scope`, `state`, `prompt`, `nonce`, `code_challenge(_method)` when the request has them), `clientName`, `scopes` |
+| `forgot` | `ForgotProps` | `csrfToken`, `error`, `botProtection`, `sent` |
+| `reset` | `ResetProps` | `token`, `csrfToken`, `error`, `done` |
+| `verify-email` | `VerifyEmailProps` | `verified` |
+| `mfa-challenge` | `MfaChallengeProps` | `uid`, `csrfToken`, `brand`, `error`, `totpAvailable`, `passkeyAvailable`, `noEnrollment`, `otpLocked`, `trustedDevicesEnabled`, `trustedDeviceDays`, `customMfaMethods`, `completedMfaMethods`, `requiredMfaFactors` |
+| `otp-unlock` | `OtpUnlockProps` | `ok`, `expired` |
+| `maintenance` | `MaintenanceProps` | `uid`, `csrfToken`, `brand`, `message`, `adminLoginAllowed`, `adminLoginNote` |
+| `session-expired` | `SessionExpiredProps` | `loginUrl`, `brand` |
+| `throttled` | `ThrottledProps` | `brand`, `retryAfter`, `retryUrl` |
+| `agents/consent` | `AgentsConsentProps` | `csrfToken`, `action`, `request` (`userCode`, `agentName`, `agentOrigin`, `logoUri`, `scopes`, `hidden`), `account`, `error` |
+| `agents/done` | `AgentsDoneProps` | `status`, `agentName`, `scopes` |
+| `account/login` | `AccountLoginProps` | `csrfToken`, `returnTo`, `error` |
+| `account/security` | `AccountSecurityProps` | profile, password, e-mail, sessions, export and deletion state |
+| `account/mfa` | `AccountMfaProps` | `enabled`, `recoveryCodes`, `passkeys`, the enroll step |
+| `account/confirm` | `AccountConfirmProps` | `returnTo`, `methods`, `preferredId`, `error`, `notice` |
+| `account/email-confirmed` | `AccountEmailConfirmedProps` | `ok` |
+| `account/tokens` | `AccountTokensProps` | `createdToken`, `tokens` |
+| `account/apps` | `AccountAppsProps` | `supported`, `apps`, `agents`, `revoked` |
+| `account/orgs` | `AccountOrgsProps` | `orgs`, `pendingInvitations`, `allowSelfCreate`, `availableRoles`; with `subview: 'accept-invitation'`, `invitation` and `token` |
+
+Every type is exported from `@adonis-agora/authkit-server`, along with `AuthkitScreen` (the
+union of view names) and `AuthkitScreenProps` (the map above).
+
+## Add screens of your own
+
+AuthKit only renders its own screen names. A screen of your own is reached when your `render`
+picks it, typically to swap a library screen for a variant: a second login page for another
+audience, say. Wrap the renderer and choose the view per request:
+
+```ts title="config/authkit.ts"
+import { defineConfig, inertiaRenderer } from '@adonis-agora/authkit-server'
+import { isProfessionalLogin } from '#auth/login_audience'
+
+const pages = inertiaRenderer({ prefix: 'authkit', views: ['login', 'professional-login'] })
+
+export default defineConfig({
+  // …
+  render: (ctx, view, props) =>
+    pages(ctx, view === 'login' && isProfessionalLogin(ctx) ? 'professional-login' : view, props),
+})
+```
+
+Declare the screen and its props once, by augmenting `AuthkitScreenProps`. `views`,
+`AuthkitScreen` and `AuthkitScreenProps['professional-login']` then accept it, while any other
+unknown name still fails `tsc`:
+
+```ts title="types/authkit_screens.d.ts"
+import type { LoginProps } from '@adonis-agora/authkit-server'
+
+declare module '@adonis-agora/authkit-server' {
+  interface AuthkitScreenProps {
+    'professional-login': LoginProps
+  }
+}
+```
+
+The page is `inertia/pages/authkit/professional-login.tsx`, typed with
+`AuthkitScreenProps['professional-login']`. A page your own controller renders with
+`inertia.render()` does not go through AuthKit and needs none of this.
+
+## Send expired interactions back to your login
+
+When an OIDC interaction expires, the `session-expired` screen links to
+`interactionRecovery.redirectTo`. Point it at the route that starts a fresh sign-in in your
+app — `/auth/login` from `registerOidcClient` — not the account console's `/account/login`,
+which signs the user into the console instead of sending them back to the client:
+
+```ts title="config/authkit.ts"
+defineConfig({
+  // …
+  interactionRecovery: { mode: 'screen', redirectTo: '/auth/login' },
+})
+```
+
+## Test that every listed page exists
+
+A page missing from disk only fails when someone hits that screen. Keep `views` in one
+exported constant and check it against the files:
+
+```ts title="config/authkit.ts"
+import type { AuthkitScreen } from '@adonis-agora/authkit-server'
+
+export const authkitViews = [
+  'login',
+  'signup',
+  'consent',
+  'mfa-challenge',
+  'session-expired',
+] as const satisfies readonly AuthkitScreen[]
+
+// render: inertiaRenderer({ prefix: 'authkit', views: authkitViews }),
+```
+
+```ts title="tests/unit/authkit_pages.spec.ts"
+import { existsSync } from 'node:fs'
+import { test } from '@japa/runner'
+import app from '@adonisjs/core/services/app'
+import { authkitViews } from '#config/authkit'
+
+test('every AuthkitScreen in views has a page', ({ assert }) => {
+  const missing = authkitViews.filter(
+    (view) => !existsSync(app.makePath('inertia/pages/authkit', `${view}.tsx`))
+  )
+  assert.deepEqual(missing, [])
+})
+```
+
+## What is not themed
+
+- **The admin console** (`/admin`) is a neutral operator console, the same for every product,
+  and takes no theme or brand. Build your own admin UI when you need one: see
+  [Building your own admin UI](/docs/admin-console#building-your-own-admin-ui).
+- **Account surfaces inside your app** (profile, sessions, organizations, authorized apps) are
+  better built with the [React components](/docs/components) or the account query options in
+  [Typed Client & TanStack Query](/docs/data-fetching) than by theming `account/*`.

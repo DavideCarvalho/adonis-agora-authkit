@@ -1,10 +1,7 @@
 import { BaseModel, column } from '@adonisjs/lucid/orm';
 import { test } from '@japa/runner';
 import { DateTime } from 'luxon';
-import {
-  lucidAccountStore,
-  lucidAccountStoreAsync,
-} from '../../src/accounts/lucid_account_store.js';
+import { lucidAccountStore } from '../../src/accounts/lucid_account_store.js';
 import { createTestDatabase } from '../bootstrap.js';
 
 class PhoneAccount extends BaseModel {
@@ -31,7 +28,7 @@ test.group('Lucid verified phone identity', (group) => {
     await db.manager.closeAll();
   });
 
-  for (const factory of [lucidAccountStore, lucidAccountStoreAsync]) {
+  for (const factory of [lucidAccountStore]) {
     test(`${factory.name} exposes only a verified phone`, async ({ assert }) => {
       await PhoneAccount.create({
         id: 'verified',

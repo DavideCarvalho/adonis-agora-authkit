@@ -1,3 +1,4 @@
+import type { ScreenRenderProps } from '../screen_props.js';
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import {
@@ -11,7 +12,7 @@ import { AccountDeletionService } from '../account_deletion_service.js';
 import { AccountExportService } from '../account_export_service.js';
 import { getAccountLoginUrl } from '../account_login_url.js';
 import { accountPath } from '../account_paths.js';
-import type { AccountEmailConfirmedProps, AccountSecurityProps } from '../account_screen_props.js';
+import type { AccountSecurityProps } from '../account_screen_props.js';
 import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
 import { syncAdonisAuthLogout } from '../adonis_auth_sync.js';
@@ -121,7 +122,7 @@ export default class AccountSecurityController {
       deleteError: ctx.session.flashMessages.get('deleteError') ?? null,
     } satisfies Omit<AccountSecurityProps, 'messages'>;
 
-    return render(ctx, 'account/security', props);
+    return render(ctx, 'account/security', props satisfies ScreenRenderProps<'account/security'>);
   }
 
   /**
@@ -507,20 +508,13 @@ export default class AccountSecurityController {
     const origin = authkitOrigin(cfg);
     const confirmUrl = `${origin}${accountPath('emailConfirm')}?token=${encodeURIComponent(issued.token)}`;
 
-    // 1. Link de confirmação → NOVO e-mail (hook onEmailChangeConfirm > onEmailVerification > default).
+    // 1. Link de confirmação → NOVO e-mail (hook onEmailChangeConfirm > default).
     if (cfg.mail?.onEmailChangeConfirm) {
       await cfg.mail.onEmailChangeConfirm({
         email: newEmail,
         confirmUrl,
         token: issued.token,
         oldEmail: account?.email ?? '',
-      });
-    } else if (cfg.mail?.onEmailVerification) {
-      // Retrocompat: hook legado onEmailVerification (ainda funciona como override).
-      await cfg.mail.onEmailVerification({
-        email: newEmail,
-        verifyUrl: confirmUrl,
-        token: issued.token,
       });
     } else {
       await sendEmailChangeConfirmationEmail(ctx, {
@@ -605,10 +599,9 @@ export default class AccountSecurityController {
     const render = cfg.render!;
 
     if (!supportsAccountSecurity(store)) {
-      return render(ctx, 'account/email-confirmed', { ok: false } satisfies Omit<
-        AccountEmailConfirmedProps,
-        'messages'
-      >);
+      return render(ctx, 'account/email-confirmed', {
+        ok: false,
+      } satisfies ScreenRenderProps<'account/email-confirmed'>);
     }
 
     const token = ctx.request.qs().token ?? '';
@@ -654,9 +647,8 @@ export default class AccountSecurityController {
         cfg,
       );
     }
-    return render(ctx, 'account/email-confirmed', { ok: result.ok } satisfies Omit<
-      AccountEmailConfirmedProps,
-      'messages'
-    >);
+    return render(ctx, 'account/email-confirmed', {
+      ok: result.ok,
+    } satisfies ScreenRenderProps<'account/email-confirmed'>);
   }
 }

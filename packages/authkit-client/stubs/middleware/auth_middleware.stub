@@ -1,0 +1,25 @@
+{{{
+  exports({ to: app.middlewarePath('auth_middleware.ts') })
+}}}
+import type { HttpContext } from '@adonisjs/core/http'
+import type { NextFn } from '@adonisjs/core/types/http'
+import type { Authenticators } from '@adonisjs/auth/types'
+
+/**
+ * Denies access to unauthenticated requests and sends them to the AuthKit
+ * login route registered by registerOidcClient(router).
+ */
+export default class AuthMiddleware {
+  redirectTo = '/auth/login'
+
+  async handle(
+    ctx: HttpContext,
+    next: NextFn,
+    options: {
+      guards?: (keyof Authenticators)[]
+    } = {}
+  ) {
+    await ctx.auth.authenticateUsing(options.guards, { loginRoute: this.redirectTo })
+    return next()
+  }
+}

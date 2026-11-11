@@ -1,7 +1,13 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createElement, useState } from 'react';
+import type { AccountOrgEntry } from '../client/types.js';
 import { useAuthkitConfig } from '../config.js';
-import { type OrgEntry, useOrganizations } from '../hooks/use_organizations.js';
-import { useSwitchOrganization } from '../hooks/use_switch_organization.js';
+import {
+  useAccountActivateOrgMutationOptions,
+  useAccountDeactivateOrgMutationOptions,
+  useAccountOrgsQueryOptions,
+} from '../queries/account/index.js';
+import { authkitKeys } from '../queries/keys.js';
 import { useAuth } from '../use_auth.js';
 
 export interface OrganizationSwitcherProps {
@@ -12,20 +18,37 @@ export interface OrganizationSwitcherProps {
 
 /**
  * Dropdown estilo Clerk: mostra a org ativa (ou conta pessoal), lista as orgs
- * do usuário e permite trocar. SSR-safe.
+ * do usuário e permite trocar. SSR-safe. Requer `AuthkitClientProvider` +
+ * `QueryClientProvider`.
  */
 function OrganizationSwitcherInner({
   personalAccountLabel = 'Conta pessoal',
   className,
 }: OrganizationSwitcherProps) {
   const { isAuthenticated } = useAuth();
-  const { data: orgs, activeOrgId, supported } = useOrganizations();
-  const { activate, deactivate, loading: switching } = useSwitchOrganization();
+  const qc = useQueryClient();
+  const query = useQuery({ ...useAccountOrgsQueryOptions(), enabled: isAuthenticated });
+  const onSwitched = () =>
+    Promise.all([
+      qc.invalidateQueries({ queryKey: authkitKeys.account.orgs() }),
+      qc.invalidateQueries({ queryKey: authkitKeys.account.me() }),
+    ]);
+  const activate = useMutation({
+    ...useAccountActivateOrgMutationOptions(),
+    onSuccess: onSwitched,
+  });
+  const deactivate = useMutation({
+    ...useAccountDeactivateOrgMutationOptions(),
+    onSuccess: onSwitched,
+  });
   const [open, setOpen] = useState(false);
 
-  if (!isAuthenticated || !supported) return null;
+  if (!isAuthenticated || !query.data?.supported) return null;
+  const orgs = query.data.orgs;
+  const activeOrgId = query.data.activeOrgId;
+  const switching = activate.isPending || deactivate.isPending;
 
-  const activeOrg = orgs?.find((o) => o.id === activeOrgId) ?? null;
+  const activeOrg = orgs.find((o) => o.id === activeOrgId) ?? null;
   const label = activeOrg ? activeOrg.name : personalAccountLabel;
 
   const trigger = createElement(
@@ -65,7 +88,7 @@ function OrganizationSwitcherInner({
             'aria-selected': !activeOrgId,
             onClick: async () => {
               setOpen(false);
-              if (activeOrgId) await deactivate();
+              if (activeOrgId) await deactivate.mutateAsync();
             },
           },
           createElement(
@@ -75,7 +98,7 @@ function OrganizationSwitcherInner({
           ),
         ),
         // Orgs
-        ...(orgs ?? []).map((org: OrgEntry) =>
+        ...orgs.map((org: AccountOrgEntry) =>
           createElement(
             'button',
             {
@@ -91,7 +114,7 @@ function OrganizationSwitcherInner({
               'aria-selected': org.isActive,
               onClick: async () => {
                 setOpen(false);
-                if (!org.isActive) await activate(org.id);
+                if (!org.isActive) await activate.mutateAsync(org.id);
               },
             },
             createElement('span', { className: 'authkit-orgswitcher__item-name' }, org.name),

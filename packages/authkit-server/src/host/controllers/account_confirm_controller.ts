@@ -8,6 +8,7 @@
  * A tela está atrás do `accountGuard` (requer sessão de conta ativa).
  */
 
+import type { ScreenRenderProps } from '../screen_props.js';
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import type { AccountConfirmProps } from '../account_screen_props.js';
@@ -18,13 +19,6 @@ import {
   resolveAvailableMethods,
   sudoContextFrom,
 } from '../sudo/runtime.js';
-
-/**
- * Reexport de compatibilidade. O construtor canônico do `SudoContext` vive em
- * `sudo/runtime.ts` (é runtime do SPI, não detalhe da tela); este caminho
- * antigo segue valendo para quem já o importava.
- */
-export { sudoContextFrom };
 
 export default class AccountConfirmController {
   async show(ctx: HttpContext) {
@@ -71,6 +65,10 @@ export default class AccountConfirmController {
       preferredId: ctx.session.get(LAST_METHOD_SESSION_KEY) ?? null,
     } satisfies Omit<AccountConfirmProps, 'messages'>;
 
-    return c.cfg.render!(ctx, 'account/confirm', props);
+    return c.cfg.render!(
+      ctx,
+      'account/confirm',
+      props satisfies ScreenRenderProps<'account/confirm'>,
+    );
   }
 }

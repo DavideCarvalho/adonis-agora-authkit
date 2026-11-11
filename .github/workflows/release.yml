@@ -76,6 +76,8 @@ jobs:
         run: pnpm -r build
       - name: Import smoke (packaging)
         run: node scripts/import-smoke.mjs
+      - name: Check packages (publint, attw)
+        run: pnpm check:package
       - name: Check committed host CSS
         run: pnpm --filter @adonis-agora/authkit-server check:host-css
       - name: Check committed WebAuthn bundle
@@ -267,6 +269,16 @@ jobs:
       # versions, or tag git, so the eventual real release (the next push to main) is untouched
       # and still produces clean semver. Use it to try unreleased work: `pnpm add <pkg>@beta`.
       - uses: actions/checkout@v7.0.1
+
+      # `changeset version --snapshot` refuses to run in pre mode. While `.changeset/pre.json`
+      # exists, the prereleases published by the release job (under the pre tag) take this
+      # job's place.
+      - name: Refuse in pre mode
+        run: |
+          if [ -f .changeset/pre.json ]; then
+            echo "::error::Changesets is in pre mode (.changeset/pre.json): snapshots are unavailable until 'changeset pre exit'."
+            exit 1
+          fi
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6.1.1

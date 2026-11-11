@@ -145,7 +145,7 @@ test.group('impersonation | atribuição do restore', () => {
       session.put('authkit', ADMIN);
       await manager.impersonate(ctx, 'target-1');
 
-      // O token do alvo está a expirar → o authkit_middleware renova a cada request.
+      // O token do alvo está a expirar → o authkit_context_middleware renova a cada request.
       const current = session.get('authkit') as TokenSet;
       session.put('authkit', { ...current, refreshToken: 'target-rt', expiresAt: Date.now() });
       await manager.maybeRefresh(ctx);

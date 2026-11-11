@@ -6,7 +6,7 @@
   "author": "dudousxd",
   "repository": {
     "type": "git",
-    "url": "https://github.com/DavideCarvalho/adonis-agora-authkit.git",
+    "url": "git+https://github.com/DavideCarvalho/adonis-agora-authkit.git",
     "directory": "packages/authkit-server"
   },
   "homepage": "https://davidecarvalho.github.io/agora/docs/authkit",
@@ -35,7 +35,8 @@
   "files": [
     "build",
     "stubs",
-    "skills"
+    "skills",
+    "CHANGELOG.md"
   ],
   "exports": {
     ".": "./build/index.js",
@@ -72,9 +73,9 @@
     "build:host-css": "node scripts/build_host_css.mjs"
   },
   "peerDependencies": {
-    "@adonis-agora/durable": ">=0.7.0 <1.0.0",
-    "@adonis-agora/media": ">=0.5.0 <1.0.0",
-    "@adonis-agora/telescope": ">=0.1.0 <1.0.0",
+    "@adonis-agora/durable": ">=0.7.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0",
+    "@adonis-agora/media": ">=0.5.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0",
+    "@adonis-agora/telescope": ">=0.1.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0",
     "@adonisjs/ally": "catalog:adonisPeers",
     "@adonisjs/auth": "catalog:adonisPeers",
     "@adonisjs/core": "catalog:adonisPeers",

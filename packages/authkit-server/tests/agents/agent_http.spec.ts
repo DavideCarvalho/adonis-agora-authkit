@@ -128,7 +128,6 @@ async function setup() {
       issuer: ISSUER,
       adapter: adapters.redis({ connection: 'main' }),
       jwks: { source: 'managed', algorithm: 'ES256' },
-      clients: [],
       accountStore: {
         findById: async (id: string) =>
           id === ACCOUNT_ID ? { id, email: 'jane@example.com', globalRoles: [] } : null,
@@ -196,7 +195,6 @@ test.group('personal agents — boot', () => {
             issuer: ISSUER,
             adapter: adapters.redis({ connection: 'main' }),
             jwks: { source: 'managed', algorithm: 'EdDSA' },
-            clients: [],
             accountStore: { findById: async () => null } as any,
             personalAgents: {
               audience: AUDIENCE,
@@ -222,7 +220,6 @@ test.group('personal agents — prefixo', () => {
             issuer: ISSUER,
             adapter: adapters.redis({ connection: 'main' }),
             jwks: { source: 'managed', algorithm: 'RS256' },
-            clients: [],
             accountStore: { findById: async () => null } as any,
             personalAgents: { audience: AUDIENCE, prefix: '/oidc/agents' },
           }),

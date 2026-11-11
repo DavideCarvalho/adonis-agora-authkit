@@ -145,8 +145,8 @@ defineConfig({
 });
 ```
 
-If `onEmailChangeConfirm` is absent, AuthKit falls back to `onEmailVerification` (if set),
-and then to the built-in development-mode logger. Configure at least one mail transport for
+If `onEmailChangeConfirm` is absent, AuthKit sends its built-in confirmation email,
+which the development-mode logger prints when no mailer is configured. Configure a mail transport for
 production use.
 
 ### Account-store capabilities

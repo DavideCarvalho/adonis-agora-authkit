@@ -6,9 +6,10 @@ description: >-
   { user, globalRoles }), useAuth() semantics (never throws; AuthProvider context
   precedence), role helpers hasGlobalRole/hasAnyGlobalRole/hasAllGlobalRoles,
   Authenticated/Guest gating components with fallback, AuthkitProvider config
-  ({ csrfToken, endpoints, idp }) with headless hooks (useSignIn, useSignOut,
-  useProfile, useSessions, useAuthorizedApps) and ready components (SignInButton,
-  UserButton, UserProfile, AuthorizedApps), and the idp:'external' degradation rule.
+  ({ csrfToken, endpoints, idp }) with headless hooks (useSignIn, useSignOut),
+  account data via query options (useMeQueryOptions, useAccountSessionsQueryOptions,
+  useAppsQueryOptions) and ready components (SignInButton, UserButton, UserProfile,
+  AuthorizedApps), and the idp:'external' degradation rule.
   Use when wiring the auth shared prop, gating UI by roles, adding sign-in/out
   buttons or account components, or debugging an always-unauthenticated React app.
 license: MIT
@@ -42,11 +43,11 @@ import { defineConfig } from '@adonisjs/inertia'
 export default defineConfig({
   sharedData: {
     authkit: async (ctx) => {
-      const auth = ctx.authkit // your Authenticator instance
-      const user = await auth.getUser() // same shape as identityToUser/resolveUser
+      const authkit = ctx.authkit // your Authenticator instance
+      const user = await authkit.getUser() // same shape as identityToUser/resolveUser
       return {
         user: user ?? null,
-        globalRoles: auth.identity?.globalRoles ?? [],
+        globalRoles: authkit.identity?.globalRoles ?? [],
       }
     },
   },
@@ -118,28 +119,44 @@ Source: `packages/authkit-react/README.md` § 4.
 
 ### Pattern 3 — `AuthkitProvider` + ready components
 
-Wrap the app once to configure URLs/CSRF, then use headless hooks and prebuilt
-components that talk to the host-kit's JSON endpoints:
+Wrap the app once to configure URLs/CSRF. The account components fetch through the
+Account API, so they also need `QueryClientProvider` + `AuthkitClientProvider`.
+`createAuthkitClient()` no longer reads `window.__AUTHKIT__`: pass `csrfToken`
+(and `baseUrl` when using `client.admin.*`) via `AuthkitClientProvider opts`
+— the `csrfToken` on `AuthkitProvider config` only covers `useCan`, not the
+typed client's mutations:
 
 ```tsx
 import '@adonis-agora/authkit-react/styles.css'
+import { QueryClientProvider } from '@tanstack/react-query'
 import {
+  AuthkitClientProvider,
   AuthkitProvider,
-  useSignIn, useSignOut,
-  UserButton, UserProfile, AuthorizedApps,
+  createAuthkitQueryClient,
+  AuthorizedApps,
+  UserButton,
+  UserProfile,
 } from '@adonis-agora/authkit-react'
 
-<AuthkitProvider config={{ csrfToken: page.props.csrfToken }}>
-  <UserButton />
-  <UserProfile />
-  <AuthorizedApps />
-</AuthkitProvider>
+const queryClient = createAuthkitQueryClient()
+
+<QueryClientProvider client={queryClient}>
+  <AuthkitClientProvider opts={{ csrfToken: page.props.csrfToken }}>
+    <AuthkitProvider config={{ csrfToken: page.props.csrfToken }}>
+      <UserButton />
+      <UserProfile />
+      <AuthorizedApps />
+    </AuthkitProvider>
+  </AuthkitClientProvider>
+</QueryClientProvider>
 ```
 
-Endpoint defaults point at real host-kit routes (`/auth/login`, `/account/logout`,
-`/account/security/profile`, `/account/apps`, …). In a *client-app* topology point
-them at local routes that redirect/proxy to the IdP; theming via CSS vars
-`--authkit-*`.
+Admin screens also pass the admin base: `opts={{ baseUrl: '/admin/api', csrfToken }}`.
+Account-only screens work with the default `/account/api` base and need no `baseUrl`.
+
+Custom screens use the query options with `useQuery`/`useMutation`
+(`useMeQueryOptions`, `useAccountSessionsQueryOptions`, `useAppsQueryOptions`,
+`useAccountOrgsQueryOptions`, …). Theming via CSS vars `--authkit-*`.
 
 Source: `packages/authkit-react/README.md` § 5, `src/config.ts` (`DEFAULT_CONFIG`,
 `AuthkitConfig`).
@@ -172,10 +189,10 @@ export default defineConfig({ sharedData: {} })
 // Correct — share { user, globalRoles } under the `authkit` key
 sharedData: {
   authkit: async (ctx) => {
-    const auth = ctx.authkit
+    const authkit = ctx.authkit
     return {
-      user: (await auth.getUser()) ?? null,
-      globalRoles: auth.identity?.globalRoles ?? [],
+      user: (await authkit.getUser()) ?? null,
+      globalRoles: authkit.identity?.globalRoles ?? [],
     }
   },
 }

@@ -1,27 +1,14 @@
 /**
- * Importing this package's middleware must NOT inject `HttpContext.auth` into a
- * consumer's type program.
+ * This package must NOT declare `HttpContext.auth` anywhere.
  *
- * `Authenticator` is generic, and most apps declare `auth: Authenticator<AppUser>`
- * so `getUser()` returns their user model. Two declarations of the same property
- * with different types do not merge — TypeScript keeps whichever it reached
- * FIRST and reports the conflict on the other, inside a `.d.ts`, where
- * `skipLibCheck` (on in every AdonisJS app) silently discards it. In a real app
- * the library's file is reached first, so the app's declaration loses and
- * `auth.getUser()` collapses to `unknown` across the entire codebase.
- *
- * That is not hypothetical: a release that added `import '../../types.js'` to the
- * middleware took one consumer app from 24 type errors to 351 and another from 0
- * to 105, and forced them to pin an exact old version.
- *
- * So `types.ts` — which carries the `HttpContext.auth` augmentation — must stay
- * reachable ONLY through the `./types` subpath a host opts into. The container
- * bindings live in `container_bindings.ts` precisely so the provider and the
- * middleware can pull those in without dragging `auth` along.
+ * `ctx.auth` belongs to `@adonisjs/auth` (and to the app, which types it for its
+ * own user model). Two declarations of the same property with different types do
+ * not merge, and `skipLibCheck` hides the conflict: whichever file TypeScript
+ * reaches first wins, and `auth.user` silently changes type across the app.
+ * AuthKit's own surface lives on `ctx.authkit`.
  *
  * This spec walks the emitted declaration graph, because the emitted `.d.ts` is
- * what a consumer actually compiles against — the monorepo's own typecheck has
- * every file in one program and cannot see the difference.
+ * what a consumer actually compiles against.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -32,8 +19,7 @@ import { test } from '@japa/runner';
 const PKG = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BUILD = join(PKG, 'build');
 
-/** The augmentation a host must opt into, and the module that carries it. */
-const OPT_IN_MODULE = join(BUILD, 'types.d.ts');
+const TYPES_MODULE = join(BUILD, 'types.d.ts');
 
 function declarationFileFor(exportTarget: string): string {
   return join(PKG, exportTarget).replace(/\.js$/, '.d.ts');
@@ -68,13 +54,12 @@ function reachableFrom(entry: string): Set<string> {
   return seen;
 }
 
-/** Consumer entrypoints, from the exports map, minus the opt-in subpath itself. */
+/** Consumer entrypoints, from the exports map. */
 function consumerEntrypoints(): Array<{ subpath: string; declaration: string }> {
   const manifest = JSON.parse(readFileSync(join(PKG, 'package.json'), 'utf8')) as {
     exports: Record<string, string>;
   };
   return Object.entries(manifest.exports)
-    .filter(([subpath]) => subpath !== './types')
     .map(([subpath, target]) => ({ subpath, declaration: declarationFileFor(target) }))
     .filter((entry) => existsSync(entry.declaration));
 }
@@ -82,38 +67,24 @@ function consumerEntrypoints(): Array<{ subpath: string; declaration: string }> 
 test.group('module augmentation isolation', () => {
   test('the build output is present, so the checks below are not vacuous', ({ assert }) => {
     assert.isTrue(
-      existsSync(OPT_IN_MODULE),
+      existsSync(TYPES_MODULE),
       'run `pnpm --filter @adonis-agora/authkit-client build` first — this spec reads build/',
     );
     assert.isAbove(consumerEntrypoints().length, 5, 'the exports map scan found almost nothing');
   });
 
-  test('types.d.ts is the only module declaring HttpContext.auth', ({ assert }) => {
-    // A second one would reintroduce the collision from somewhere new.
-    const declaring = [...reachableFrom(join(BUILD, 'index.d.ts')), OPT_IN_MODULE].filter(
-      (file) => {
-        const source = readFileSync(file, 'utf8');
-        return /declare module '@adonisjs\/core\/http'[\s\S]{0,400}?\bauth\s*:/.test(source);
-      },
+  test('no shipped module declares HttpContext.auth', ({ assert }) => {
+    const declaring = [
+      ...new Set(consumerEntrypoints().flatMap((e) => [...reachableFrom(e.declaration)])),
+    ].filter((file) =>
+      /declare module '@adonisjs\/core\/http'[\s\S]{0,400}?\bauth\s*:/.test(
+        readFileSync(file, 'utf8'),
+      ),
     );
 
     assert.deepEqual(
       declaring.map((f) => relative(PKG, f)),
-      ['build/types.d.ts'],
-    );
-  });
-
-  test('no consumer entrypoint reaches the HttpContext.auth augmentation', ({ assert }) => {
-    const leaking = consumerEntrypoints()
-      .filter((entry) => reachableFrom(entry.declaration).has(OPT_IN_MODULE))
-      .map((entry) => entry.subpath)
-      .sort();
-
-    assert.deepEqual(
-      leaking,
       [],
-      'these subpaths drag `HttpContext.auth` into every consumer that imports them — ' +
-        'import `container_bindings.js` instead of `types.js`',
     );
   });
 
@@ -135,10 +106,9 @@ test.group('module augmentation isolation', () => {
     assert.deepEqual(offenders, []);
   });
 
-  test('the middleware still carries the container bindings', ({ assert }) => {
-    // The other half of the split: separating the two must not cost the binding,
-    // or `containerResolver.make('authkit.client')` goes untyped for consumers.
-    const middleware = declarationFileFor('./build/src/middleware/authkit_middleware.js');
+  test('the context middleware carries the container bindings', ({ assert }) => {
+    // Without it `containerResolver.make('authkit.client')` goes untyped for consumers.
+    const middleware = declarationFileFor('./build/authkit_context_middleware.js');
     const reachable = [...reachableFrom(middleware)];
     const declaresBinding = reachable.some((file) =>
       /declare module '@adonisjs\/core\/types'[\s\S]{0,400}?'authkit\.client'/.test(

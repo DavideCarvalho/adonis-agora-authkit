@@ -1,27 +1,11 @@
 import { createContext, useContext } from 'react';
 
 /**
- * Endpoints JSON que os hooks de dados (`useProfile`, `useSessions`,
- * `useAuthorizedApps`, passkeys) consultam.
- *
- * Os defaults apontam para as rotas reais do host-kit
- * (`@adonis-agora/authkit-server`). Numa topologia de *client app*
- * (o app não é o IdP), aponte-os para rotas locais do app que
- * redirecionam/proxiam para o IdP.
+ * Endpoints JSON consultados pelos hooks que não passam pelo client tipado
+ * (`useCan`). Os dados de conta (perfil, sessões, apps, orgs) vêm do
+ * `AuthkitClient` via query options.
  */
 export interface AuthkitEndpoints {
-  /** GET retorna o usuário; POST atualiza o perfil. Default: `/account/security/profile` */
-  profile: string;
-  /** GET lista sessões/dispositivos confiáveis. Default: `/account/security` */
-  sessions: string;
-  /** GET lista apps autorizados; revoke em `${apps}/:clientId/revoke`. Default: `/account/apps` */
-  apps: string;
-  /** GET lista passkeys. Default: `/account/mfa/passkeys` */
-  passkeys: string;
-  /** GET lista orgs do usuário (JSON). Default: `/account/orgs/json` */
-  orgs: string;
-  /** GET lista convites pendentes para o e-mail do usuário (JSON). Default: `/account/orgs/invitations/json` */
-  orgInvitations: string;
   /**
    * POST consulta a Authz se o usuário pode uma permissão sobre um recurso.
    * Contrato: `{ permission, resource? }` → `{ allowed }`. Default: `/authz/can`.
@@ -89,12 +73,6 @@ export const DEFAULT_CONFIG: ResolvedAuthkitConfig = {
   logoutUrl: '/account/logout',
   profileUrl: '/account/security',
   endpoints: {
-    profile: '/account/security/profile',
-    sessions: '/account/security',
-    apps: '/account/apps',
-    passkeys: '/account/mfa/passkeys',
-    orgs: '/account/orgs/json',
-    orgInvitations: '/account/orgs/invitations/json',
     can: '/authz/can',
   },
 };
@@ -109,12 +87,6 @@ export function resolveConfig(config?: AuthkitConfig): ResolvedAuthkitConfig {
     logoutUrl: config?.logoutUrl ?? DEFAULT_CONFIG.logoutUrl,
     profileUrl: config?.profileUrl ?? DEFAULT_CONFIG.profileUrl,
     endpoints: {
-      profile: config?.endpoints?.profile ?? DEFAULT_CONFIG.endpoints.profile,
-      sessions: config?.endpoints?.sessions ?? DEFAULT_CONFIG.endpoints.sessions,
-      apps: config?.endpoints?.apps ?? DEFAULT_CONFIG.endpoints.apps,
-      passkeys: config?.endpoints?.passkeys ?? DEFAULT_CONFIG.endpoints.passkeys,
-      orgs: config?.endpoints?.orgs ?? DEFAULT_CONFIG.endpoints.orgs,
-      orgInvitations: config?.endpoints?.orgInvitations ?? DEFAULT_CONFIG.endpoints.orgInvitations,
       can: config?.endpoints?.can ?? config?.canPath ?? DEFAULT_CONFIG.endpoints.can,
     },
     csrfToken: config?.csrfToken,

@@ -13,8 +13,7 @@ export interface UseCanResult {
   loading: boolean;
   /**
    * Erro da última checagem, se a requisição falhou. Permanece `null` em
-   * caso de negação legítima (`allowed:false`). Simétrico com
-   * `ResourceState<T>.error`. A decisão continua *fail-closed*:
+   * caso de negação legítima (`allowed:false`). A decisão continua *fail-closed*:
    * `allowed` é `false` quando há erro.
    */
   error?: Error;

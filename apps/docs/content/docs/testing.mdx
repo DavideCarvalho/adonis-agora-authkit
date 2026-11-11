@@ -1,12 +1,12 @@
 ---
 icon: FlaskConical
 title: Testing
-description: Test auth flows in your host app without booting an IdP — mint real signed ID tokens with a local JWKS, fake ctx.auth, fake the account store, and build valid identities.
+description: Test auth flows in your host app without booting an IdP — mint real signed ID tokens with a local JWKS, fake ctx.authkit, fake the account store, and build valid identities.
 ---
 
 `@adonis-agora/authkit-testing` gives **host apps** the helpers they need to test
 authentication end-to-end without standing up a real Identity Provider. It can mint
-**real** RS256-signed ID tokens validated by an in-process JWKS, fake the `ctx.auth`
+**real** RS256-signed ID tokens validated by an in-process JWKS, fake the `ctx.authkit`
 authenticator for controller tests, fake the account store, and build valid `Identity`
 objects. It carries no runtime dependency on the server or client packages — the surfaces
 it fakes are reproduced structurally — so it stays a lightweight dev dependency.
@@ -52,7 +52,7 @@ most often to feed [`fakeAuthenticator`](#fakeauthenticator) below.
 ## `fakeAuthenticator(options?)`
 
 Builds an object that satisfies the client's `Authenticator` surface — the whole of what
-`ctx.auth` exposes — so controller tests can inject a logged-in (or anonymous) user without
+`ctx.authkit` exposes — so controller tests can inject a logged-in (or anonymous) user without
 resolving real tokens.
 
 | Option | Type | Default | Description |
@@ -61,7 +61,7 @@ resolving real tokens.
 | `user` | `unknown` | the identity | The domain user returned by `getUser()`. |
 
 Everything the fake does follows from one piece of state — whether an identity is present.
-That single switch decides all eight members of the surface, which is what makes an
+That single switch decides the members of the surface, which is what makes an
 anonymous request a one-word change in a test. The returned object is typed as
 `FakeAuthenticatorLike`:
 
@@ -75,6 +75,7 @@ anonymous request a one-word change in a test. The returned object is typed as
 | `getUser()` | resolves the `user` option (the identity by default) | resolves `null` |
 | `getUserOrFail()` | resolves the `user` | **throws** |
 | `toSharedProps()` | `{ user, globalRoles }` | `null` |
+| `resolvesUser` | `true` when you passed `user` | same |
 
 Two of those deserve their own note, because they are the fail-closed and the
 frontend-facing halves of the surface:
@@ -107,15 +108,42 @@ import { fakeAuthenticator, createTestIdentity } from '@adonis-agora/authkit-tes
 import { ShowProfileController } from '#controllers/show_profile_controller'
 
 test('returns the current user profile', async ({ assert }) => {
-  const auth = fakeAuthenticator({
+  const authkit = fakeAuthenticator({
     identity: createTestIdentity({ email: 'jane@acme.dev', globalRoles: ['ADMIN'] }),
   })
 
-  const ctx = { auth } as any // your HttpContext test double
+  const ctx = { authkit } as any // your HttpContext test double
   const result = await new ShowProfileController().handle(ctx)
 
   assert.equal(result.email, 'jane@acme.dev')
-  assert.isTrue(auth.hasGlobalRole('ADMIN'))
+  assert.isTrue(authkit.hasGlobalRole('ADMIN'))
+})
+```
+
+### Controllers that read `ctx.auth`
+
+`authkitClientGuard` reads the request's `ctx.authkit`, so the same fake drives `ctx.auth` too:
+when you pass `user`, `ctx.auth.user` is that user; without it, the guard asks its provider by
+the identity's `userId`. Set the fake on the context before the guard runs:
+
+```ts
+import { test } from '@japa/runner'
+import app from '@adonisjs/core/services/app'
+import testUtils from '@adonisjs/core/services/test_utils'
+import { fakeAuthenticator, createTestIdentity } from '@adonis-agora/authkit-testing'
+import InvoicesController from '#controllers/invoices_controller'
+import { UserFactory } from '#database/factories/user_factory'
+
+test('lists the invoices of the signed-in user', async ({ assert }) => {
+  const user = await UserFactory.create()
+  const ctx = await testUtils.createHttpContext()
+  ctx.authkit = fakeAuthenticator({ identity: createTestIdentity({ userId: user.id }), user }) as any
+  ctx.auth = (await app.container.make('auth.manager')).createAuthenticator(ctx)
+
+  await ctx.auth.authenticate()
+  const invoices = await new InvoicesController().index(ctx)
+
+  assert.isTrue(invoices.every((invoice) => invoice.userId === user.id))
 })
 ```
 
@@ -265,7 +293,7 @@ generated for you.
 | Export | Kind | Purpose |
 | --- | --- | --- |
 | `createTestIdentity` | function | Build a valid `Identity` with overrides. |
-| `fakeAuthenticator` | function | Fake `ctx.auth` for controller tests. |
+| `fakeAuthenticator` | function | Fake `ctx.authkit` for controller tests. |
 | `fakeAccountStore` | function | Capability-aware fake `AccountStore`. |
 | `mintTestIdToken` | function | Real RS256 JWT + validating JWKS. |
 | `generateTestKeyPair` | function | Extractable RS256 keypair with a stable `kid`. |

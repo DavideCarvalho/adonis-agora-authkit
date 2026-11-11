@@ -32,7 +32,7 @@ client and what it asks for, and is connected.
   `dynamicRegistration` you declare yourself takes precedence.
 - **Refresh tokens for those clients.** A client registered with the `refresh_token` grant gets
   `offline_access` and `prompt=consent` on its authorize, so the user consents once and stays
-  connected. Static clients and clients created in the console or CLI are untouched — only clients
+  connected. Clients created in the console, the Admin API or the CLI are untouched — only clients
   registered through `/reg` carry `client_id_issued_at`.
 - **Tokens bound to your MCP server.** The `resource` a client names must be one of yours, and the
   token carries it as `aud`. Your servers come from `mcp.resources` and from **runtime

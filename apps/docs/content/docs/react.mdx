@@ -1,7 +1,7 @@
 ---
 icon: Component
 title: React (Frontend)
-description: useAuth, gating components, permission checks, headless hooks, and the passkey tiers of @adonis-agora/authkit-react.
+description: useAuth, gating components, permission checks, account data, and the passkey tiers of @adonis-agora/authkit-react.
 ---
 
 `@adonis-agora/authkit-react` is the frontend SDK for AuthKit. It exports three orthogonal
@@ -10,15 +10,15 @@ layers:
 | Layer                                   | What it does                                                                                                            |
 | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | **Auth state**                          | `useAuth()`, gating components (`Authenticated`, `Guest`, `CanPermission`), pure role helpers                            |
-| **Headless hooks**                      | `useProfile()`, `useSessions()`, `useOrganizations()`, the passkey hooks … — plain `useState`/`useEffect`, no React Query |
-| **Typed client + TanStack Query hooks** | `createAuthkitClient()`, `useUsersQueryOptions()`, `useMutation(useCreateUserMutationOptions())` … — for management screens |
+| **Headless hooks**                      | `useSignIn()`, `useSignOut()`, `usePasswordStrength()`, the passkey hooks …                                               |
+| **Typed client + TanStack Query hooks** | `createAuthkitClient()`, `useMeQueryOptions()`, `useAccountOrgsQueryOptions()`, `useUsersQueryOptions()` … — account and admin data |
 
 The first two layers are covered here. The typed client and TanStack hooks have their own
 page: **[Typed Client & TanStack Query](/docs/data-fetching)**.
 
 The package does **not** authenticate. It consumes the auth state the AdonisJS host already
 resolved (via [`@adonis-agora/authkit-client`](/docs/client)) and shared as an Inertia
-shared-prop, and it talks to JSON endpoints the host exposes.
+shared-prop, and it reads account data through the host's Account API (`/account/api/*`).
 
 ## Install
 
@@ -41,15 +41,16 @@ import { defineConfig } from "@adonisjs/inertia";
 
 export default defineConfig({
   sharedData: {
-    // `ctx.auth` is the Authenticator installed by authkit_middleware
-    authkit: (ctx) => ctx.auth.toSharedProps(),
+    // ctx.authkit carries the AuthKit-only data next to ctx.auth
+    authkit: (ctx) => ctx.authkit.toSharedProps(),
   },
 });
 ```
 
 `toSharedProps()` resolves the session and returns `{ user, globalRoles }` — where `user` is
-whatever your `resolveUser` produced and `globalRoles` are the roles carried in the validated
-OIDC claims. **It returns `null` when there is no session**, because for an anonymous request
+whatever your `resolveUser` produced (the same object as `ctx.auth.user` on the server) and
+`globalRoles` are the roles carried in the validated OIDC claims. Your controllers keep reading
+the user from `ctx.auth`; the shared prop is how the same session reaches React. **It returns `null` when there is no session**, because for an anonymous request
 there is nothing to share.
 
 `useAuth()` treats a missing or `null` prop as "not authenticated" and never throws, so the
@@ -60,7 +61,7 @@ quiet), collapse `null` into an empty state yourself:
 ```ts title="config/inertia.ts"
 sharedData: {
   authkit: async (ctx) =>
-    (await ctx.auth.toSharedProps()) ?? { user: null, globalRoles: [] },
+    (await ctx.authkit.toSharedProps()) ?? { user: null, globalRoles: [] },
 },
 ```
 
@@ -255,10 +256,9 @@ the raw context value.
 
 ## 5. AuthkitProvider (config)
 
-Wrap your app once to configure the URLs and JSON endpoints the headless hooks and the
-pre-built components use. Every field is optional — the defaults point at the **host-kit's
-real routes**. In a _client-app_ topology (the app is not the IdP), point these at local app
-routes that redirect or proxy to the IdP.
+Wrap your app once to configure the URLs the components and hooks use. Every field is
+optional — the defaults point at the **host-kit's real routes**. In a _client-app_ topology (the
+app is not the IdP), point these at local app routes that redirect or proxy to the IdP.
 
 ```tsx
 import { AuthkitProvider } from "@adonis-agora/authkit-react";
@@ -268,16 +268,10 @@ import { AuthkitProvider } from "@adonis-agora/authkit-react";
     loginUrl: "/auth/login", // default
     logoutUrl: "/account/logout", // default
     profileUrl: "/account/security", // default
-    csrfToken: page.props.csrfToken, // sent as X-CSRF-TOKEN on JSON mutations
+    csrfToken: page.props.csrfToken, // sent as X-CSRF-TOKEN on JSON requests
     idp: "authkit", // default; 'external' for a third-party IdP
     endpoints: {
-      profile: "/account/security/profile", // GET user / POST update
-      sessions: "/account/security", // GET sessions / trusted devices
-      apps: "/account/apps", // GET apps; revoke at `${apps}/:clientId/revoke`
-      passkeys: "/account/mfa/passkeys", // GET passkeys
-      orgs: "/account/orgs/json", // GET the user's organizations
-      orgInvitations: "/account/orgs/invitations/json", // GET pending invitations
-      can: "/authz/can", // POST permission check
+      can: "/authz/can", // POST permission check (useCan / CanPermission)
     },
   }}
 >
@@ -285,9 +279,7 @@ import { AuthkitProvider } from "@adonis-agora/authkit-react";
 </AuthkitProvider>;
 ```
 
-Overrides are merged one level deep: passing a single `endpoints.orgs` keeps the defaults for
-the other six. `canPath` is a shorthand for `endpoints.can`; if you pass both, `endpoints.can`
-wins.
+`canPath` is a shorthand for `endpoints.can`; if you pass both, `endpoints.can` wins.
 
 `AuthkitProvider` also accepts an optional `value` prop that injects the auth state directly
 (same shape as `AuthProvider`), for apps that do not use Inertia shared props.
@@ -326,25 +318,12 @@ function CustomLoginLink() {
 }
 ```
 
-## 6. Headless hooks
+## 6. Headless hooks and account data
 
-Composable hooks with no UI and no `@tanstack/react-query` dependency (plain `useState`/
-`useEffect`). Data hooks share one shape: `{ data, loading, error, actions }`.
+The headless hooks have no UI:
 
 ```tsx
-import {
-  useSignIn,
-  useSignOut,
-  useUser,
-  useProfile,
-  useSessions,
-  useAuthorizedApps,
-  useOrganizations,
-  useOrganization,
-  useSwitchOrganization,
-  useOrgInvitations,
-  usePasswordStrength,
-} from "@adonis-agora/authkit-react";
+import { useSignIn, useSignOut, useUser } from "@adonis-agora/authkit-react";
 
 // OIDC is redirect-based — these navigate the browser.
 const { signIn } = useSignIn();
@@ -355,31 +334,50 @@ const { signOut } = useSignOut();
 signOut({ returnTo: "/" });
 
 const { user, isAuthenticated } = useUser(); // alias over useAuth
-
-const profile = useProfile();
-await profile.actions.update({ name: "New name" });
-
-const sessions = useSessions();
-await sessions.actions.revoke(sessionId);
-await sessions.actions.refetch();
-
-const apps = useAuthorizedApps();
-await apps.actions.revoke(clientId);
-
-// Organizations (multi-tenancy) — see Organizations for the full API
-const { data: orgs, activeOrgId, supported } = useOrganizations();
-const org = useOrganization(activeOrgId); // pass null to skip fetching
-const sw = useSwitchOrganization();
-await sw.activate(orgId);
-await sw.deactivate();
-
-const invitations = useOrgInvitations();
-await invitations.actions.accept(token);
 ```
 
-The data hooks fetch JSON against the endpoints configured in `AuthkitProvider`, with
-`credentials: 'same-origin'` and the optional `X-CSRF-TOKEN` header. They only fetch inside an
-effect, so they are SSR-safe.
+Account data (profile, sessions, authorized apps, organizations, invitations) comes from the
+Account API through TanStack Query options. Wrap the app once with `QueryClientProvider` and
+`AuthkitClientProvider`, then pass the options to `useQuery` / `useMutation`:
+
+```tsx title="inertia/pages/account/sessions.tsx"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  authkitKeys,
+  useAccountSessionsQueryOptions,
+  useMeQueryOptions,
+  useRevokeSessionMutationOptions,
+} from "@adonis-agora/authkit-react";
+
+export default function Sessions() {
+  const qc = useQueryClient();
+  const me = useQuery(useMeQueryOptions());
+  const sessions = useQuery(useAccountSessionsQueryOptions());
+  const revoke = useMutation({
+    ...useRevokeSessionMutationOptions(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: authkitKeys.account.sessions() }),
+  });
+
+  if (sessions.isLoading) return <p>Loading…</p>;
+  return (
+    <section>
+      <h1>Sessions of {me.data?.email}</h1>
+      {/* render sessions.data, call revoke.mutate(id) */}
+    </section>
+  );
+}
+```
+
+| Data | Query options | Mutations |
+| --- | --- | --- |
+| Profile | `useMeQueryOptions()` | `useUpdateProfileMutationOptions()` |
+| Sessions | `useAccountSessionsQueryOptions()` | `useRevokeSessionMutationOptions()`, `useRevokeOtherSessionsMutationOptions()` |
+| Authorized apps | `useAppsQueryOptions()` | `useRevokeAppMutationOptions()` |
+| Organizations | `useAccountOrgsQueryOptions()`, `useAccountOrgQueryOptions(id)` | `useAccountActivateOrgMutationOptions()`, `useAccountDeactivateOrgMutationOptions()`, `useAccountLeaveOrgMutationOptions()`, … |
+| Invitations | `useAccountOrgInvitationsQueryOptions()` | `useAccountAcceptOrgInvitationMutationOptions()` |
+
+The full list, the provider setup and the query keys are on
+**[Typed Client & TanStack Query](/docs/data-fetching)**.
 
 ### Password strength
 
@@ -418,16 +416,9 @@ function PasswordField({ password }: { password: string }) {
 The [`PasswordStrengthMeter`](/docs/components#passwordstrengthmeter) component takes the same
 `scorer` prop and does the hook call for you.
 
-### Building your own data hook
-
-Every headless data hook above is `useResource` plus a few actions built on `jsonRequest`.
-Both are exported, so a screen with an endpoint AuthKit does not know about does not need a
-different fetching style. See
-[Building your own hook with useResource](/docs/data-fetching#building-your-own-hook-with-useresource).
-
 ## 7. Pre-built components
 
-The kit also ships small, accessible, themeable components built on the hooks above —
+The kit also ships small, accessible, themeable components —
 `SignInButton`, `SignOutButton`, `UserButton`, `UserProfile`, `AuthorizedApps`, `Avatar`,
 `PasswordStrengthMeter`, `OrganizationSwitcher`, `OrganizationProfile`, `InteractionForm`,
 `MagicLinkButton`, `OAuthButton`, `PasskeyButton`, `CanPermission`, and `KeyRotation` — with

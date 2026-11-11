@@ -2,6 +2,7 @@ import { Exception } from '@adonisjs/core/exceptions';
 import type { HttpContext } from '@adonisjs/core/http';
 import { getAccountLoginUrl } from './account_login_url.js';
 import { brandFor } from './branding.js';
+import type { ScreenRenderProps } from './screen_props.js';
 
 /**
  * Recuperação graciosa da sessão de interaction OIDC perdida.
@@ -87,16 +88,17 @@ export async function recoverLostInteraction(ctx: HttpContext): Promise<unknown>
 
   // mode === 'screen': tela themeável. Brand best-effort — a sessão perdida não
   // carrega o client_id, então usamos o brand default (sem cliente).
-  const render = cfg.render as
-    | ((ctx: HttpContext, view: string, props: Record<string, unknown>) => unknown)
-    | undefined;
+  const render = cfg.render;
   const brand = cfg.branding ? brandFor(cfg.branding, undefined, undefined) : undefined;
   if (!render) {
     // Sem renderer configurado — degrada para redirect (nunca 500).
     return ctx.response.redirect(loginUrl);
   }
   ctx.response.status(400);
-  const body = await render(ctx, 'session-expired', { loginUrl, brand });
+  const body = await render(ctx, 'session-expired', {
+    loginUrl,
+    brand,
+  } satisfies ScreenRenderProps<'session-expired'>);
   // ESCREVE o body na resposta. Diferente do dispatch normal de rota — onde o
   // `useReturnValue`/`canWriteResponseBody` do http-server envia o valor
   // retornado — o caminho de exception handler DESCARTA o retorno de

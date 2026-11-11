@@ -10,7 +10,7 @@
  *
  * All four `@adonis-agora/*` peers in this repo were simultaneously unsatisfiable
  * against the current release of the package they name. The shape that survives a
- * minor bump is `>=X.Y.0 <1.0.0`, with the floor chosen from what the code
+ * minor bump is `>=X.Y.0 <2.0.0`, with the floor chosen from what the code
  * actually needs.
  *
  * This guard is deliberately scoped to `@adonis-agora/*`. A caret on a 1.x
@@ -78,7 +78,7 @@ test.group('@adonis-agora peer ranges', () => {
     assert.deepEqual(
       offenders,
       [],
-      'a caret below 1.0.0 stops at the next minor, so these go stale on the peer\'s next release — use ">=X.Y.0 <1.0.0"',
+      'a caret below 1.0.0 stops at the next minor, so these go stale on the peer\'s next release — use ">=X.Y.0 <2.0.0"',
     );
   });
 });

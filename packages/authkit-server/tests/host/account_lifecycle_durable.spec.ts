@@ -20,17 +20,17 @@ import {
 import { withAuditLog } from '../../src/mixins/with_audit_log.js';
 import { withAuthUser } from '../../src/mixins/with_auth_user.js';
 import { withCredentials } from '../../src/mixins/with_credentials.js';
-import { withMfa } from '../../src/mixins/with_mfa.js';
 import { withPersonalAccessToken } from '../../src/mixins/with_personal_access_token.js';
 import { withProviderIdentity } from '../../src/mixins/with_provider_identity.js';
 import { withWebauthnCredential } from '../../src/mixins/with_webauthn_credential.js';
 import { lucidPatStore } from '../../src/pat/lucid_pat_store.js';
 import { OidcService } from '../../src/provider/oidc_service.js';
 import { createTestDatabase } from '../bootstrap.js';
+import { withClients } from '../helpers/seed_clients.js';
 
 // ---- Models (Acme app) ----
 
-class Account extends compose(BaseModel, withAuthUser(), withCredentials(), withMfa()) {
+class Account extends compose(BaseModel, withAuthUser(), withCredentials()) {
   static table = 'users';
   static selfAssignPrimaryKey = true;
   @column({ isPrimary: true })
@@ -232,11 +232,8 @@ async function startService(port: number, db: any, opts?: { durable?: boolean })
   });
   const cfg = await configProvider.resolve(
     fakeApp,
-    defineConfig({
-      issuer,
-      adapter: adapters.database({}),
-      jwks: { source: 'managed', algorithm: 'RS256' },
-      clients: [
+    withClients(
+      [
         {
           clientId: 'acme-web',
           clientSecret: 's',
@@ -244,11 +241,16 @@ async function startService(port: number, db: any, opts?: { durable?: boolean })
           grants: ['authorization_code', 'refresh_token'],
         },
       ],
-      accountStore: store,
-      patStore: lucidPatStore(Pat),
-      audit: lucidAuditSink(AuditLog),
-      accountLifecycle: opts?.durable ? { durable: true } : undefined,
-    }),
+      defineConfig({
+        issuer,
+        adapter: adapters.database({}),
+        jwks: { source: 'managed', algorithm: 'RS256' },
+        accountStore: store,
+        patStore: lucidPatStore(Pat),
+        audit: lucidAuditSink(AuditLog),
+        accountLifecycle: opts?.durable ? { durable: true } : undefined,
+      }),
+    ),
   );
   const service = new OidcService(cfg!, 'a'.repeat(32));
   const server: Server = createServer(service.callback);

@@ -9,7 +9,7 @@ import type {
 
 /**
  * Contexto mínimo para o builder de organizations. Recebe os três models direto
- * (já construídos pelo lucidAccountStore após o hasTable probing).
+ * (já construídos pelo lucidAccountStore).
  */
 export interface OrgStoreContext {
   OrgModel: any;

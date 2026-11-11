@@ -1,7 +1,7 @@
 ---
 icon: Database
 title: Typed Client & TanStack Query
-description: useResource, createAuthkitClient, AuthkitClientProvider, query/mutation hooks, query keys, and error handling for the admin and account APIs.
+description: createAuthkitClient, AuthkitClientProvider, query/mutation hooks, query keys, and error handling for the admin and account APIs.
 ---
 
 `@adonis-agora/authkit-react` ships a **typed HTTP client** and a full set of
@@ -32,76 +32,6 @@ is for **management screens** (admin UIs, account pages) that need rich, reactiv
 ```bash
 pnpm add @adonis-agora/authkit-react @tanstack/react-query
 ```
-
-## Building your own hook with useResource
-
-Before the typed client, there is a smaller escape hatch. Every headless hook in
-[`@adonis-agora/authkit-react`](/docs/react#6-headless-hooks) — `useProfile`, `useSessions`,
-`useOrganizations`, and the rest — is `useResource` plus a couple of actions built on
-`jsonRequest`. Both are exported, so a screen that needs an endpoint AuthKit knows nothing
-about does not have to switch fetching styles (or pull in React Query for one list).
-
-```ts
-function useResource<T>(url: string, csrfToken?: string): {
-  data: T | null
-  loading: boolean
-  error: Error | null
-  refetch: () => Promise<void>
-}
-
-function jsonRequest<T>(url: string, init?: RequestInit & { csrfToken?: string }): Promise<T>
-```
-
-`jsonRequest` is the one-shot primitive: it always sends `credentials: 'same-origin'` and
-`Accept: application/json`, adds `Content-Type: application/json` when there is a body and
-`X-CSRF-TOKEN` when you pass `csrfToken`, throws an `Error` on any non-2xx response (using the
-server's `message` field when the error body has one), and resolves to `null` on an empty
-`204`. `useResource` wraps it in a GET-on-mount effect: it only fetches inside the effect, so
-it is SSR-safe, and it refetches whenever the URL or the token changes.
-
-Building your own hook is then mostly naming things:
-
-```ts title="app/hooks/use_api_keys.ts"
-import { useCallback } from 'react'
-import { jsonRequest, useResource, useAuthkitConfig } from '@adonis-agora/authkit-react'
-
-interface ApiKey {
-  id: string
-  label: string
-  createdAt: string
-}
-
-export function useApiKeys() {
-  const { csrfToken } = useAuthkitConfig()
-  const { data, loading, error, refetch } = useResource<ApiKey[]>('/api/keys', csrfToken)
-
-  const revoke = useCallback(
-    async (id: string) => {
-      await jsonRequest(`/api/keys/${encodeURIComponent(id)}`, {
-        method: 'DELETE',
-        csrfToken,
-      })
-      await refetch()
-    },
-    [csrfToken, refetch],
-  )
-
-  return { data, loading, error, actions: { refetch, revoke } }
-}
-```
-
-Two details worth copying from the built-in hooks: read `csrfToken` from
-`useAuthkitConfig()` instead of threading it through props, and return mutations under an
-`actions` object so the hook keeps the `{ data, loading, error, actions }` shape the rest of
-the kit uses. When a mutation needs to be reflected in the UI, `await refetch()` after it —
-there is no cache to invalidate at this layer, which is exactly the trade-off you accept for
-not needing a `QueryClient`.
-
-<Callout type="info">
-  Reach for the typed client and the TanStack hooks below when a screen has many interlocking
-  queries, needs shared caching across components, or wants optimistic updates. Reach for
-  `useResource` when a screen needs one list and a refresh.
-</Callout>
 
 ## Provider setup
 
@@ -138,14 +68,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
 You can bring your own `QueryClient` — the helper is purely optional.
 
-`AuthkitClientProvider` reads `window.__AUTHKIT__` (injected by the admin shell) to
-configure the base URLs and CSRF token automatically. In SSR or tests, pass an explicit
-client:
+`AuthkitClientProvider` takes the client's options (`opts`) or a ready `client`. Pass the
+request's CSRF token (for mutations) and, for `client.admin.*`, the admin API base:
 
 ```tsx
 import { createAuthkitClient, AuthkitClientProvider } from '@adonis-agora/authkit-react'
 
-const client = createAuthkitClient({ baseUrl: '/admin/api', csrfToken: 'test-token' })
+const client = createAuthkitClient({ baseUrl: '/admin/api', csrfToken })
 
 <AuthkitClientProvider client={client}>
   <App />
@@ -154,18 +83,17 @@ const client = createAuthkitClient({ baseUrl: '/admin/api', csrfToken: 'test-tok
 
 ## The typed client
 
-`createAuthkitClient(opts?)` returns a typed wrapper around `fetch`. It uses
-`window.__AUTHKIT__` for URLs and CSRF by default.
+`createAuthkitClient(opts?)` returns a typed wrapper around `fetch`.
 
 ```ts
 import { createAuthkitClient } from '@adonis-agora/authkit-react'
 
-// Browser — reads window.__AUTHKIT__ automatically
-const client = createAuthkitClient()
+// Account API only
+const client = createAuthkitClient({ csrfToken })
 
-// Explicit (SSR, tests, custom topologies)
+// Admin API too
 const client = createAuthkitClient({
-  baseUrl: '/admin/api',       // default: window.__AUTHKIT__.endpoints.api
+  baseUrl: '/admin/api',       // required for client.admin.*
   accountBaseUrl: '/account/api', // default: '/account/api'
   csrfToken: 'my-token',
   fetch: customFetch,          // optional — inject a mock in tests
@@ -183,17 +111,17 @@ const client = createAuthkitClient({
 | `admin.users.update(id, data)` | `PATCH /users/:id` | Partial update |
 | `admin.users.disable(id)` | `POST /users/:id/disable` | Blocks login |
 | `admin.users.enable(id)` | `POST /users/:id/enable` | Re-enables account |
-| `admin.users.resetPassword(id)` | `POST /users/:id/reset-password` | Sends email |
-| `admin.users.remove(id)` | `DELETE /users/:id` | Cascade delete |
+| `admin.users.resetPassword(id)` | `POST /users/:id/reset-password` | Sends email; `{ ok, email }` |
+| `admin.users.remove(id)` | `DELETE /users/:id` | Cascade delete; `{ ok, deleted }` |
 | `admin.users.getSessions(id)` | `GET /users/:id/sessions` | Active sessions |
 | `admin.users.revokeSessions(id)` | `POST /users/:id/revoke-sessions` | Revoke all |
 | `admin.sessions.list(accountId?)` | `GET /sessions` | All active sessions |
 | `admin.sessions.revokeAll(accountId?)` | `POST /sessions/revoke-all` | — |
 | `admin.clients.list()` | `GET /clients` | — |
-| `admin.clients.get(id)` | `GET /clients/:id` | — |
+| `admin.clients.get(id)` | `GET /clients/:id` | One client; `404` when unknown |
 | `admin.clients.create(data?)` | `POST /clients` | — |
 | `admin.clients.update(id, data?)` | `PATCH /clients/:id` | — |
-| `admin.clients.remove(id)` | `DELETE /clients/:id` | — |
+| `admin.clients.remove(id)` | `DELETE /clients/:id` | `{ ok, deleted }` |
 | `admin.clients.regenerateSecret(id)` | `POST /clients/:id/regenerate-secret` | Shown once |
 | `admin.roles.list()` | `GET /roles` | — |
 | `admin.roles.create(data)` | `POST /roles` | — |
@@ -217,8 +145,7 @@ const client = createAuthkitClient({
 | `admin.keys.status()` | `GET /keys` | Signing-key age, policy, next-rotation ETA |
 | `admin.keys.rotate(input?)` | `POST /keys/rotate` | `{ retire?, keep? }` |
 
-All methods under `admin.*` hit `{adminBase}/api/*` — the prefix is derived from
-`window.__AUTHKIT__.endpoints.api` or `opts.baseUrl`.
+All methods under `admin.*` hit `opts.baseUrl` (`{adminBase}/api`); without it they throw.
 
 ### Account surface — `client.account.*`
 
@@ -236,6 +163,8 @@ All methods under `admin.*` hit `{adminBase}/api/*` — the prefix is derived fr
 | `account.sessions.revokeAll()` | `POST /account/api/sessions/revoke-all` | Sign out of all devices, including the current one |
 | `account.apps.list()` | `GET /account/api/apps` | Authorized OAuth grants |
 | `account.apps.revoke(clientId)` | `DELETE /account/api/apps/:clientId` | — |
+| `account.agents.list()` | `GET /account/api/agents` | Personal agents with a delegation (`404` when the feature is off) |
+| `account.agents.revoke(grantId)` | `DELETE /account/api/agents/:id` | Revokes the delegation now |
 | `account.mfa()` | `GET /account/api/mfa` | TOTP + passkeys + recovery status |
 | `account.mfa.enroll()` | `POST /account/api/mfa/totp/enroll` | Requires sudo; returns secret + otpauth URI + QR data-URL |
 | `account.mfa.confirm(code)` | `POST /account/api/mfa/totp/confirm` | Turns MFA on; recovery codes returned once |
@@ -331,6 +260,8 @@ side is `{ page, size }`, matching `@adonis-agora/filter`.
 | `useSettingsQueryOptions(orgId?)` | `authkitKeys.admin.settings(orgId)` | `orgId` scopes to one org; omitted/`null` = global |
 | `useImpersonationQueryOptions(userId)` | `authkitKeys.admin.impersonation(userId)` | — |
 | `useKeysQueryOptions()` | `authkitKeys.admin.keys()` | Signing-key status |
+| `usePersonalAgentsQueryOptions()` | `authkitKeys.admin.personalAgents()` | Personal agents overview |
+| `usePersonalAgentConnectionsQueryOptions(params?)` | `authkitKeys.admin.personalAgentConnections(params)` | Agent connections (grants) |
 
 ### Account query hooks
 
@@ -340,6 +271,7 @@ side is `{ page, size }`, matching `@adonis-agora/filter`.
 | `useSecurityQueryOptions()` | `authkitKeys.account.security()` | Security overview |
 | `useAccountSessionsQueryOptions()` | `authkitKeys.account.sessions()` | — |
 | `useAppsQueryOptions()` | `authkitKeys.account.apps()` | Authorized apps |
+| `useAccountAgentsQueryOptions()` | `authkitKeys.account.agents()` | Personal agents |
 | `useMfaQueryOptions()` | `authkitKeys.account.mfa()` | MFA status |
 | `usePasskeysQueryOptions()` | `authkitKeys.account.passkeys()` | — |
 | `useTokensQueryOptions()` | `authkitKeys.account.tokens()` | PATs |
@@ -389,6 +321,9 @@ full control.
 | `useSetSettingMutationOptions(orgId?)` | `{ key: string; value: unknown }` | `orgId` writes in the org scope |
 | `useRemoveSettingMutationOptions(orgId?)` | `string` (key) | Resets to lib default |
 | `useRotateKeysMutationOptions()` | `KeysRotateInput?` | `{ retire?, keep? }` |
+| `useRevokePersonalAgentConnectionMutationOptions()` | `string` (grant id) | — |
+| `useSetPersonalAgentStatusMutationOptions()` | `PersonalAgentRegistryInput` | Registers or blocks an agent |
+| `useRemovePersonalAgentEntryMutationOptions()` | `string` (entry id) | Removes a registry entry |
 
 ### Account mutation hooks
 
@@ -402,6 +337,7 @@ full control.
 | `useRevokeOtherSessionsMutationOptions()` | `void` | — |
 | `useAccountRevokeAllSessionsMutationOptions()` | `void` | Sign out of all devices, including the current session |
 | `useRevokeAppMutationOptions()` | `string` (clientId) | — |
+| `useRevokeAccountAgentMutationOptions()` | `string` (grant id) | Invalidate `authkitKeys.account.agents()` |
 | `useRemovePasskeyMutationOptions()` | `string` (passkey id) | Requires sudo |
 | `useCreateTokenMutationOptions()` | `CreateTokenInput?` | Requires sudo; secret returned once |
 | `useRevokeTokenMutationOptions()` | `string` (token id) | Requires sudo |
@@ -729,7 +665,7 @@ const client = createAuthkitClient({
   baseUrl: 'http://localhost:3333/admin/api',
   csrfToken: 'test',
   fetch: vi.fn().mockResolvedValue(
-    new Response(JSON.stringify({ users: [], total: 0 }), { status: 200 })
+    new Response(JSON.stringify({ meta: { page: 1, size: 20, total: 0 }, data: [] }), { status: 200 })
   ),
 })
 ```
@@ -800,3 +736,31 @@ the admin hooks internally — it is the canonical reference implementation. If 
 building a custom admin interface or embedding management panels in your app, use the same
 hooks the console does. See [Admin Console](/docs/admin-console) for the full route
 table and how to mount it.
+
+## Your own endpoints with jsonRequest
+
+`jsonRequest` is exported for endpoints AuthKit knows nothing about. It always sends
+`credentials: 'same-origin'` and `Accept: application/json`, adds `Content-Type:
+application/json` when there is a body and `X-CSRF-TOKEN` when you pass `csrfToken`, throws an
+`Error` on any non-2xx response (using the server's `message` field when there is one), and
+resolves to `null` on an empty `204`. Pair it with `useQuery` like any other fetcher:
+
+```tsx title="inertia/pages/settings/api_keys.tsx"
+import { useQuery } from '@tanstack/react-query'
+import { jsonRequest, useAuthkitConfig } from '@adonis-agora/authkit-react'
+
+interface ApiKey {
+  id: string
+  label: string
+}
+
+export default function ApiKeys() {
+  const { csrfToken } = useAuthkitConfig()
+  const keys = useQuery({
+    queryKey: ['api-keys'],
+    queryFn: () => jsonRequest<ApiKey[]>('/api/keys', { csrfToken }),
+  })
+  return <ul>{keys.data?.map((k) => <li key={k.id}>{k.label}</li>)}</ul>
+}
+```
+

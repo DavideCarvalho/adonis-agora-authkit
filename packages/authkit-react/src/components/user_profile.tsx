@@ -1,6 +1,8 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { createElement, type FormEvent, useState } from 'react';
 import { useAuthkitConfig } from '../config.js';
-import { useProfile } from '../hooks/use_profile.js';
+import { useUpdateProfileMutationOptions } from '../queries/account/index.js';
+import { authkitKeys } from '../queries/keys.js';
 import { useAuth } from '../use_auth.js';
 import { Avatar } from './avatar.js';
 
@@ -9,19 +11,24 @@ export interface UserProfileProps {
 }
 
 /**
- * Card de perfil (avatar + nome + email) com formulário de edição que faz
- * POST no endpoint `profile` configurado. Renderiza nada quando não autenticado.
+ * Card de perfil (avatar + nome + email) com formulário de edição do nome.
+ * Renderiza nada quando não autenticado. Requer `AuthkitClientProvider` +
+ * `QueryClientProvider`.
  */
 function UserProfileInner({ className }: UserProfileProps) {
   const { user, isAuthenticated } = useAuth();
-  const { actions, loading, error } = useProfile();
+  const qc = useQueryClient();
+  const update = useMutation({
+    ...useUpdateProfileMutationOptions(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: authkitKeys.account.me() }),
+  });
   const [name, setName] = useState(user?.name ?? '');
 
   if (!isAuthenticated || !user) return null;
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    void actions.update({ name });
+    update.mutate({ name });
   };
 
   return createElement(
@@ -52,17 +59,17 @@ function UserProfileInner({ className }: UserProfileProps) {
         value: name,
         onChange: (e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value),
       }),
-      error
-        ? createElement('p', { className: 'authkit-error', role: 'alert' }, error.message)
+      update.error
+        ? createElement('p', { className: 'authkit-error', role: 'alert' }, update.error.message)
         : null,
       createElement(
         'button',
         {
           type: 'submit',
           className: 'authkit-button authkit-button--primary',
-          disabled: loading,
+          disabled: update.isPending,
         },
-        loading ? 'Salvando…' : 'Salvar',
+        update.isPending ? 'Salvando…' : 'Salvar',
       ),
     ),
   );

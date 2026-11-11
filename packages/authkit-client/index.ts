@@ -46,14 +46,19 @@ export {
   dpopJwkThumbprint,
   generateDpopKeyPair,
 } from './src/dpop.js';
-export type { UnauthorizedAccessConstructor } from './src/host/authkit_client_guard.js';
-export { AuthkitClientGuard, authkitClientGuard } from './src/host/authkit_client_guard.js';
+export type { IdentityUserProviderContract } from './src/host/authkit_client_guard.js';
+export {
+  AuthkitClientGuard,
+  authkitClientGuard,
+  authkitIdentityProvider,
+} from './src/host/authkit_client_guard.js';
 export type { DashboardGuardOptions } from './src/host/dashboard_guard.js';
 export {
   authkitDashboardAuthorize,
   authkitDashboardMiddleware,
   isAuthkitAdmin,
 } from './src/host/dashboard_guard.js';
+export type { AuthkitUser, AuthkitUserType } from './src/host/request_authenticator.js';
 export { getAuthkit } from './src/host/request_authenticator.js';
 export type { ResiliencePolicy } from './src/http/resilient_fetch.js';
 export { resilientFetch } from './src/http/resilient_fetch.js';

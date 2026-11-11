@@ -134,14 +134,14 @@ you can keep a side effect (an audit row, a cache bust) alongside the built-in b
 ```ts title="start/kernel.ts"
 router.use([
   () => import('@adonisjs/session/session_middleware'),
-  () => import('@adonis-agora/authkit-client/authkit_middleware'),
+  () => import('@adonisjs/auth/initialize_auth_middleware'),
+  () => import('@adonis-agora/authkit-client/authkit_context_middleware'),
   () => import('@adonis-agora/authkit-client/backchannel_revocation_middleware'),
 ])
 ```
 
 Order matters: it must run **after** the middleware that resolves the AuthKit manager
-(`authkit_middleware`, or `authkit_context_middleware` on the
-[`@adonisjs/auth` path](/docs/adonis-auth)) and **before** any named auth middleware, so a
+(`authkit_context_middleware`) and **before** any named auth middleware, so a
 revoked session is already gone by the time a route decides whether to let the request
 through. Without `backchannelLogout: { store }` configured the middleware is a no-op, so it
 is safe to register unconditionally.

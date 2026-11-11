@@ -23,6 +23,7 @@ import { magicLink } from '../../src/host/sudo/methods/magic_link.js';
 import { passkey } from '../../src/host/sudo/methods/passkey.js';
 import { password } from '../../src/host/sudo/methods/password.js';
 import { fakeAccountStore } from '../bootstrap.js';
+import { withClients } from '../helpers/seed_clients.js';
 
 /**
  * Router falso mínimo. Espelha o de `register_auth_host.spec.ts`; os métodos de
@@ -441,16 +442,18 @@ test.group('R3b — a costura config → travas → registerAuthHost', (group) =
     } as any;
     const config = (await configProvider.resolve(
       fakeApp,
-      defineConfig({
-        issuer: 'https://seam.test',
-        adapter: adapters.redis({ connection: 'main' }),
-        jwks: { source: 'managed', algorithm: 'RS256' },
-        clients: [{ clientId: 'app1', clientSecret: 's', redirectUris: ['https://seam.test/cb'] }],
-        accountStore: fakeAccountStore(),
-        // A ÚNICA chave de POLÍTICA declarada no arquivo — e declarada como
-        // DESLIGADA, o oposto do que o argumento vai pedir.
-        admin: { enabled: false },
-      }),
+      withClients(
+        [{ clientId: 'app1', clientSecret: 's', redirectUris: ['https://seam.test/cb'] }],
+        defineConfig({
+          issuer: 'https://seam.test',
+          adapter: adapters.redis({ connection: 'main' }),
+          jwks: { source: 'managed', algorithm: 'RS256' },
+          accountStore: fakeAccountStore(),
+          // A ÚNICA chave de POLÍTICA declarada no arquivo — e declarada como
+          // DESLIGADA, o oposto do que o argumento vai pedir.
+          admin: { enabled: false },
+        }),
+      ),
     )) as any;
 
     // Elo 1 — o produtor roda de fato DENTRO do `defineConfig`.

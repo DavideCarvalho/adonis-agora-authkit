@@ -131,20 +131,6 @@ export function hashesEqual(a: string, b: string): boolean {
 }
 
 /**
- * Indica se o model Lucid tem sua tabela registrada no adapter do DB (runtime probe).
- * Usado para detectar tabelas opcionais como auth_organizations/members/invitations.
- * Mais robusto do que checar colunas: detecta a presença da tabela inteira.
- * Em testes, as tabelas existem se foram criadas na migration do teste.
- */
-export async function hasTable(db: any, tableName: string): Promise<boolean> {
-  try {
-    return await db.connection().schema.hasTable(tableName);
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Estado de MFA (lido de `auth_mfa`). Forma normalizada usada pela {@link MfaCapability}:
  *  - `mfaEnabledAt` em EPOCH MS (ou null) — o trusted-device compara contra isso.
  *  - `recoveryCodes` já desserializado (array de hashes) — o repo cuida do JSON.

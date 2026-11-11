@@ -2,16 +2,16 @@
 name: authkit-rp-client
 description: >-
   Integrate an AdonisJS app as an OpenID Connect relying party with
-  @adonis-agora/authkit-client. Covers defineConfig({ issuer, clientId, redirectUri,
-  resolver }), resolvers.jwt({ tokenSource }) / resolvers.pat / resolvers.opaque,
-  resolveUser topologies (identityToUser, createUserinfoResolver, local Lucid model),
-  the authkit_middleware + @adonisjs/session ordering rule, ctx.auth
-  (getIdentity/getUser/hasGlobalRole), registerOidcClient(router, { prefix, redirects,
-  afterLogin, loginMiddleware }), backchannelLogout: { store } +
-  BackchannelRevocationMiddleware, AUTHKIT_REDIRECT_URI, and why app-role gating
-  belongs to @adonis-agora/authz instead. Use when wiring a client app to the IdP,
-  fixing null identity, choosing a user-resolution topology, or adding back-channel
-  logout.
+  @adonis-agora/authkit-client. Covers defineConfig, resolvers.jwt / pat / opaque,
+  resolveUser (lucidMirror, identityToUser, createUserinfoResolver), ctx.auth via the
+  required @adonisjs/auth peer (authkitClientGuard with sessionUserProvider or
+  authkitIdentityProvider, middleware.auth(), auth.user), API guards with
+  authkitClientGuard({ resolver }) for bearer JWT, DPoP, opaque and PAT, the session ->
+  initialize_auth -> authkit_context_middleware ordering rule, ctx.authkit
+  (getIdentity/hasGlobalRole/toSharedProps), registerOidcClient, backchannelLogout:
+  { store }, and why app-role gating belongs to @adonis-agora/authz. Use when wiring a
+  client app to the IdP, fixing a null identity or a first-login loop, choosing a user
+  provider, protecting API routes, or adding back-channel logout.
 license: MIT
 metadata:
   type: core
@@ -29,10 +29,15 @@ sources:
 
 `@adonis-agora/authkit-client` makes an AdonisJS app consume an OIDC provider (the
 AuthKit IdP or any other) with session-based auth: PKCE authorization-code login,
-locally-validated ID tokens (JWKS), typed `ctx.auth` per request. `configure`
-publishes `config/authkit_client.ts` and registers the provider + middleware; the
-login/callback/logout routes come from `registerOidcClient(router)`. (`configure` also
-publishes an `OidcSessionController` stub, only for apps that must customise the flow.)
+locally-validated ID tokens (JWKS). `ctx.auth` is `@adonisjs/auth` (a required peer)
+backed by the AuthKit session through `authkitClientGuard`; `ctx.authkit` carries the
+AuthKit-only data. `configure` installs `@adonisjs/auth` if missing, publishes
+`config/authkit_client.ts`, `config/auth.ts` (guard + `sessionUserProvider`, `--model`,
+default `#models/user`; an existing file is left alone) and the named `auth` /
+`silentAuth` middleware, and registers the providers plus `initialize_auth_middleware` and
+`authkit_context_middleware`; the login/callback/logout routes come from
+`registerOidcClient(router)`. (`configure` also publishes an `OidcSessionController` stub,
+only for apps that must customise the flow.)
 
 ## Setup
 
@@ -43,7 +48,8 @@ node ace add @adonis-agora/authkit-client
 ```ts
 // config/authkit_client.ts
 import env from '#start/env'
-import { defineConfig, resolvers } from '@adonis-agora/authkit-client'
+import { defineConfig, lucidMirror, resolvers } from '@adonis-agora/authkit-client'
+import AppUser from '#models/app_user'
 
 const authkitClientConfig = defineConfig({
   issuer: env.get('AUTHKIT_ISSUER'),
@@ -51,9 +57,27 @@ const authkitClientConfig = defineConfig({
   clientSecret: env.get('AUTHKIT_CLIENT_SECRET'),
   redirectUri: env.get('AUTHKIT_REDIRECT_URI'), // must point at the callback route
   resolver: resolvers.jwt({ tokenSource: 'session' }),
+  // Creates the local row on first login; ctx.auth.user is this user.
+  resolveUser: lucidMirror(AppUser, { sync: (i) => ({ email: i.email }) }),
 })
 
 export default authkitClientConfig
+```
+
+```ts
+// config/auth.ts (written by configure)
+import { defineConfig } from '@adonisjs/auth'
+import { sessionUserProvider } from '@adonisjs/auth/session'
+import { authkitClientGuard } from '@adonis-agora/authkit-client/auth'
+
+export default defineConfig({
+  default: 'web',
+  guards: {
+    web: authkitClientGuard({
+      provider: sessionUserProvider({ model: () => import('#models/app_user') }),
+    }),
+  },
+})
 ```
 
 ```ts
@@ -74,26 +98,48 @@ Source: `packages/authkit-client/README.md`, `stubs/config/authkit_client.stub`.
 
 ## Core patterns
 
-### Pattern 1 — `ctx.auth` per request
-
-The `authkit_middleware` populates `ctx.auth`; identity comes from the validated
-token, the user from your `resolveUser`:
+### Pattern 1 — `ctx.auth` per request, `ctx.authkit` for AuthKit-only data
 
 ```ts
-router.get('/me', async ({ auth }) => {
-  const identity = await auth.getIdentity() // validated OIDC claims, or null
-  const user = await auth.getUser()         // app model via resolveUser
-  const isAdmin = auth.hasGlobalRole('ADMIN') // sync — reads token claims
-  return { identity, user, isAdmin }
-})
+// app/controllers/me_controller.ts
+export default class MeController {
+  async handle({ auth, authkit }: HttpContext) {
+    const user = auth.getUserOrFail()             // the resolveUser user (sync, behind auth)
+    const identity = await authkit.getIdentity()  // validated OIDC claims
+    const isAdmin = authkit.hasGlobalRole('ADMIN') // sync — reads token claims
+    return { user, identity, isAdmin }
+  }
+}
+
+// start/routes.ts
+router.get('/me', [MeController]).use(middleware.auth())
 ```
 
-`getIdentity()` resolves once per request and memoizes; `authenticate()` throws when
-anonymous; `check()` returns a boolean. `identity` (getter) is only populated after
-the first async call — prefer `getIdentity()`.
+The guard's user comes from `resolveUser` first (so `lucidMirror` provisions on first
+login; `ctx.auth.user` is the same object as `await ctx.authkit.getUser()`), then from the
+provider. No local user table: `provider: authkitIdentityProvider()` makes `ctx.auth.user`
+the `Identity`. `auth.getUserOrFail()` is synchronous and throws unless
+`middleware.auth()`/`middleware.silentAuth()`/`auth.check()` ran.
 
 Source: `packages/authkit-client/README.md` § Uso por request,
-`src/authenticator.ts` (`Authenticator`).
+`src/host/authkit_client_guard.ts`.
+
+### Pattern 1b — API routes (bearer JWT, DPoP, opaque, PAT)
+
+```ts
+// config/auth.ts
+api: authkitClientGuard({
+  provider: authkitIdentityProvider(),
+  resolver: resolvers.jwt({ tokenSource: 'bearer' }), // Bearer <jwt> or DPoP <jwt> + DPoP proof
+}),
+
+// start/routes.ts
+router.group(() => { /* … */ }).prefix('/api').use(middleware.auth({ guards: ['api'] }))
+```
+
+`resolver` replaces the configured resolver for that guard only; `resolvers.opaque({
+tokenSource: 'bearer' })` and `resolvers.pat({ introspectionUrl, introspectionSecret })`
+work the same way. A DPoP-bound token (`cnf.jkt`) sent as `Bearer` is refused.
 
 ### Pattern 2 — `resolveUser` per database topology
 
@@ -124,11 +170,9 @@ RP-initiated logout and role-based redirects in one call:
 
 ```ts
 import router from '@adonisjs/core/services/router'
-import middleware from '#start/kernel'
 import { registerOidcClient } from '@adonis-agora/authkit-client'
 
 registerOidcClient(router, {
-  loginMiddleware: middleware.guest(),
   redirects: { byGlobalRole: { ADMIN: '/admin' }, default: '/' },
   // prefix defaults to /auth → /auth/login, /auth/callback, /auth/logout
   // backchannelLogout defaults to true → also registers POST /auth/backchannel-logout
@@ -162,16 +206,23 @@ Source: `src/define_config.ts` (`BackchannelLogoutInput`), README.
 
 ## Common mistakes
 
-### HIGH — Session middleware running after `authkit_middleware`
+### HIGH — Session middleware running after `authkit_context_middleware`
 
 ```ts
 // Wrong — resolver reads an empty session; every request looks anonymous
-router.use([middleware.authkit(), middleware.session()])
+router.use([
+  () => import('@adonis-agora/authkit-client/authkit_context_middleware'),
+  () => import('@adonisjs/session/session_middleware'),
+])
 ```
 
 ```ts
-// Correct — @adonisjs/session MUST run BEFORE the authkit middleware
-router.use([middleware.session(), middleware.authkit()])
+// Correct — session, then initialize_auth, then the AuthKit context middleware
+router.use([
+  () => import('@adonisjs/session/session_middleware'),
+  () => import('@adonisjs/auth/initialize_auth_middleware'),
+  () => import('@adonis-agora/authkit-client/authkit_context_middleware'),
+])
 ```
 
 With `resolvers.jwt({ tokenSource: 'session' })` (the default) the resolver reads
@@ -185,20 +236,20 @@ Source: `packages/authkit-client/README.md` § Ordem de middleware (importante).
 
 ```ts
 // Wrong — expecting authkit to resolve app roles/permissions
-if (auth.hasGlobalRole('ADMIN')) { /* app-role check? */ }
+if (authkit.hasGlobalRole('ADMIN')) { /* app-role check? */ }
 const can = await authkit.checkPermission(user, 'posts.edit') // does not exist
 ```
 
 ```ts
 // Correct — AuthKit authenticates + exposes token globalRoles; authz decides access
-if (auth.hasGlobalRole('ADMIN')) { /* global role from the token claims */ }
+if (authkit.hasGlobalRole('ADMIN')) { /* global role from the token claims */ }
 // App roles/permissions: configure resolveRoles in @adonis-agora/authz
-// and enforce with authz/Bouncer route guards, not authkit_middleware.
+// and enforce with authz/Bouncer route guards, not middleware.auth().
 ```
 
 AuthKit only authenticates and knows the `globalRoles` claim; app roles (domain
 tables) and permissions were deliberately moved out to `@adonis-agora/authz`.
-The `authkit_middleware` only enforces login.
+`middleware.auth()` only enforces login.
 
 Source: `packages/authkit-client/README.md` callout ("Autorização por app-role saiu
 do AuthKit"), `stubs/config/authkit_client.stub` comment.
@@ -227,21 +278,25 @@ token's `exp`, and the cache holds at most 10,000 tokens per resolver.
 
 Source: `src/resolvers/factory.ts` (`resolvers.opaque` throw), README.
 
-### MEDIUM — Bearer resolver in a browser session app (or vice versa)
+### MEDIUM — API routes on the session guard
 
 ```ts
-// Wrong — SPA/API app still using the default session source
-resolver: resolvers.jwt() // tokenSource defaults to 'session'
+// Wrong — the web guard reads the OIDC session; a Bearer header is ignored
+router.group(() => { /* … */ }).prefix('/api').use(middleware.auth())
 ```
 
 ```ts
-// Correct — pick the source matching the transport
-resolver: resolvers.jwt({ tokenSource: 'bearer' }) // reads Authorization header
+// Correct — an API guard with its own resolver
+api: authkitClientGuard({
+  provider: authkitIdentityProvider(),
+  resolver: resolvers.jwt({ tokenSource: 'bearer' }),
+}),
+router.group(() => { /* … */ }).prefix('/api').use(middleware.auth({ guards: ['api'] }))
 ```
 
-`tokenSource` decides where the ID token is read from: `'session'` (default, cookie
-apps) vs `'bearer'` (`Authorization` header for SPA/API callers). The mismatched
-source yields a silent `null` identity, not an error.
+`tokenSource` decides where the token is read from: `'session'` (default, cookie
+apps) vs `'bearer'` (`Authorization` header). The mismatched source yields a silent
+`null` identity (a 401 / redirect), not an error.
 
 Source: `packages/authkit-client/README.md` § Resolução de sessão,
 `src/resolvers/factory.ts` (`JwtResolverFactoryConfig`).

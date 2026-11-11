@@ -28,7 +28,7 @@
  *   GET  /account/api/orgs/invitations     → convites pendentes
  */
 
-import { clientDisplayNames } from '../client_names.js';
+import { clientDisplayInfo } from '../client_names.js';
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import {
@@ -505,12 +505,6 @@ export default class AccountApiController {
         token: issued.token,
         oldEmail: account?.email ?? '',
       });
-    } else if (cfg.mail?.onEmailVerification) {
-      await cfg.mail.onEmailVerification({
-        email: newEmail,
-        verifyUrl: confirmUrl,
-        token: issued.token,
-      });
     } else {
       await sendEmailChangeConfirmationEmail(ctx, { email: newEmail, confirmUrl });
     }
@@ -732,7 +726,7 @@ export default class AccountApiController {
     }
 
     const grants = await adminSessions.listGrants(userId);
-    const names = await clientDisplayNames(
+    const info = await clientDisplayInfo(
       service,
       grants.map((g) => g.clientId).filter((id): id is string => !!id),
     );
@@ -743,7 +737,8 @@ export default class AccountApiController {
         .filter((g) => !!g.clientId)
         .map((g) => ({
           clientId: g.clientId as string,
-          name: names.get(g.clientId as string) ?? (g.clientId as string),
+          name: info.get(g.clientId as string)?.name ?? (g.clientId as string),
+          logoUrl: info.get(g.clientId as string)?.logoUrl ?? null,
           accessTokens: g.accessTokens,
           refreshTokens: g.refreshTokens,
         })),
@@ -1177,7 +1172,7 @@ export default class AccountApiController {
 
   // ─── GET /account/api/orgs ───────────────────────────────────────────────
 
-  /** Lista orgs do usuário logado. Alias consolidado dos /account/orgs/json existentes. */
+  /** Lista orgs do usuário logado. */
   async listOrgs(ctx: HttpContext) {
     const service = await ctx.containerResolver.make('authkit.server');
     const cfg = service.config;

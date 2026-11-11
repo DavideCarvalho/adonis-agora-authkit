@@ -6,7 +6,7 @@
   "author": "dudousxd",
   "repository": {
     "type": "git",
-    "url": "https://github.com/DavideCarvalho/adonis-agora-authkit.git",
+    "url": "git+https://github.com/DavideCarvalho/adonis-agora-authkit.git",
     "directory": "packages/authkit-sdk"
   },
   "homepage": "https://davidecarvalho.github.io/agora/docs/authkit",
@@ -28,7 +28,8 @@
   "main": "./build/index.js",
   "types": "./build/index.d.ts",
   "files": [
-    "build"
+    "build",
+    "CHANGELOG.md"
   ],
   "exports": {
     ".": "./build/index.js",
@@ -43,7 +44,7 @@
     "test": "node --import=@poppinss/ts-exec bin/test.ts"
   },
   "peerDependencies": {
-    "@adonis-agora/authkit-server": ">=0.10.0 <1.0.0",
+    "@adonis-agora/authkit-server": ">=0.10.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0",
     "@adonisjs/core": "catalog:adonisPeers"
   },
   "peerDependenciesMeta": {

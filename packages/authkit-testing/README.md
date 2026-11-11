@@ -2,7 +2,7 @@
 
 Test helpers so **host apps** built on AuthKit can test auth flows without booting
 an IdP. Mint real signed ID tokens validated by a local JWKS, fake the
-`ctx.auth` authenticator, fake an account store, and build valid identities.
+`ctx.authkit` authenticator, fake an account store, and build valid identities.
 
 ```sh
 pnpm add -D @adonis-agora/authkit-testing
@@ -58,16 +58,19 @@ raw public JWKS object with `jwksFromKey(key)` / `testJwks(key)`.
 ### `fakeAuthenticator({ identity?, user? })`
 
 Object satisfying the client's `Authenticator` surface, for injecting into
-`ctx.auth` in controller tests. O AuthKit só autentica — autorização por role é
+`ctx.authkit` in controller tests. O AuthKit só autentica — autorização por role é
 do `@adonis-agora/authz`, então o fake expõe só `hasGlobalRole` (roles do token).
+O `authkitClientGuard` lê o `ctx.authkit` da request, então o mesmo fake também autentica
+`ctx.auth`: com `user`, `ctx.auth.user` é esse usuário; sem `user`, o guard pede ao provider pelo
+`userId` da identidade.
 
 ```ts
 import { fakeAuthenticator } from '@adonis-agora/authkit-testing'
 
-const auth = fakeAuthenticator({
+const authkit = fakeAuthenticator({
   identity: createTestIdentity({ globalRoles: ['ADMIN'] }),
 })
-auth.hasGlobalRole('ADMIN') // true
+authkit.hasGlobalRole('ADMIN') // true
 ```
 
 Pass `identity: null` to simulate an anonymous request.

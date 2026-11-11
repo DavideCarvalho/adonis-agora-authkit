@@ -40,6 +40,12 @@ After login, `return_to` sends the user back to `/reports`.
 
 ## Single sign-on with the IdP session
 
+<Callout type="warn">
+  Apps that turn password login off (`authMethods.password: false`, magic link / code /
+  passkey / social only) **need** `acceptIdpSession: true`. The console's own login takes a
+  password, so without it `/account/*` and the admin console are unreachable.
+</Callout>
+
 The console session and the **IdP session** are different things. The IdP session is the
 one `oidc-provider` creates when the user completes the login interaction of `/oidc/auth`
 (password, magic link, OTP, passkey, social) — it is what gives SSO across your OIDC
@@ -326,8 +332,7 @@ import { sudoContextFrom, completeSudo, failSudo } from '@adonis-agora/authkit-s
   refuses when the account could not be loaded, stamps the mark bound to the account, records
   the method so the screen can promote it next time, writes a `sudo.confirmed` audit event
   with the method in its metadata, and redirects to the validated `return_to` (or to
-  `accountHome`). Reaching for `markSudo` instead grants the privilege with none of that —
-  no audit trail, no remembered method, no redirect.
+  `accountHome`).
 - `failSudo(context, messageKey)` flashes a localized error and sends the user back to the
   confirmation screen with the destination preserved.
 

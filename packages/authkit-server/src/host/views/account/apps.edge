@@ -40,9 +40,14 @@
         @else
           @each(app in apps)
             <div class="flex items-center justify-between border-b border-gray-100 p-4 last:border-0">
-              <div>
-                <p class="text-sm font-medium text-gray-900">{{ app.name }}</p>
-                <p class="text-xs text-gray-500">{{ t('account.apps.tokens', { accessTokens: app.accessTokens, refreshTokens: app.refreshTokens }) }}</p>
+              <div class="flex items-center gap-3">
+                @if(app.logoUrl)
+                  <img src="{{ app.logoUrl }}" alt="" class="h-8 w-8 rounded-md object-contain">
+                @end
+                <div>
+                  <p class="text-sm font-medium text-gray-900">{{ app.name }}</p>
+                  <p class="text-xs text-gray-500">{{ t('account.apps.tokens', { accessTokens: app.accessTokens, refreshTokens: app.refreshTokens }) }}</p>
+                </div>
               </div>
               <form method="POST" action="{{ accountPaths?.apps ?? '/account/apps' }}/{{ app.clientId }}/revoke"
                 onsubmit="return confirm('{{ t('account.apps.revoke_confirm') }}')">

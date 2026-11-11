@@ -5,6 +5,7 @@ import { adapters, defineConfig } from '../src/define_config.js';
 import { AdminClientsService } from '../src/host/admin_clients_service.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { createTestDatabase, fakeAccountStore } from './bootstrap.js';
+import { withClients } from './helpers/seed_clients.js';
 
 /**
  * Cria a tabela única usada pelo DatabaseAdapter (mesmo schema da migration do host).
@@ -33,11 +34,8 @@ async function startService(port: number, db: any) {
   const fakeApp = { container: { make: async () => db } } as any;
   const cfg = await configProvider.resolve(
     fakeApp,
-    defineConfig({
-      issuer,
-      adapter: adapters.database({}),
-      jwks: { source: 'managed', algorithm: 'RS256' },
-      clients: [
+    withClients(
+      [
         {
           clientId: 'static1',
           clientSecret: 's',
@@ -45,9 +43,14 @@ async function startService(port: number, db: any) {
           grants: ['authorization_code', 'refresh_token'],
         },
       ],
-      accountStore: fakeAccountStore(),
-      dynamicRegistration: { enabled: true, initialAccessToken: 'iat', management: true },
-    }),
+      defineConfig({
+        issuer,
+        adapter: adapters.database({}),
+        jwks: { source: 'managed', algorithm: 'RS256' },
+        accountStore: fakeAccountStore(),
+        dynamicRegistration: { enabled: true, initialAccessToken: 'iat', management: true },
+      }),
+    ),
   );
   const service = new OidcService(cfg!, 'a'.repeat(32));
   const server: Server = createServer(service.callback);
@@ -150,6 +153,32 @@ test.group('AdminClientsService (CRUD de clients OIDC adapter-backed)', (group) 
       [`${issuer}/new/cb`],
       'após a invalidação o provider deve servir a metadata atualizada',
     );
+  });
+
+  test('update: backchannelLogoutUri null removes it, undefined keeps it', async ({
+    assert,
+    cleanup,
+  }) => {
+    const port = 9849;
+    const { issuer, service, server } = await startService(port, db);
+    cleanup(() => new Promise<void>((r) => server.close(() => r())));
+
+    const admin = new AdminClientsService(service);
+    const created = await admin.create({
+      redirectUris: [`${issuer}/cb`],
+      postLogoutRedirectUris: [],
+      grantTypes: ['authorization_code'],
+      tokenEndpointAuthMethod: 'client_secret_basic',
+      backchannelLogoutUri: `${issuer}/bc`,
+    });
+
+    await admin.update(created.clientId, { redirectUris: [`${issuer}/cb2`] });
+    assert.equal((await admin.find(created.clientId))?.backchannelLogoutUri, `${issuer}/bc`);
+
+    await admin.update(created.clientId, { backchannelLogoutUri: null });
+    assert.isUndefined((await admin.find(created.clientId))?.backchannelLogoutUri);
+    const fresh = await (service.provider as any).Client.find(created.clientId);
+    assert.notProperty(fresh.metadata(), 'backchannel_logout_uri');
   });
 
   test('regenerateSecret troca o secret preservando o resto da metadata', async ({

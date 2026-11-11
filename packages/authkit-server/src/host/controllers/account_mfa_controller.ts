@@ -1,3 +1,4 @@
+import type { ScreenRenderProps } from '../screen_props.js';
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import QRCode from 'qrcode';
@@ -54,7 +55,7 @@ export default class AccountMfaController {
       passkeys,
     } satisfies Omit<AccountMfaProps, 'messages'>;
 
-    return render(ctx, 'account/mfa', props);
+    return render(ctx, 'account/mfa', props satisfies ScreenRenderProps<'account/mfa'>);
   }
 
   /**
@@ -224,7 +225,7 @@ export default class AccountMfaController {
       recoveryCodes: null,
     } satisfies Omit<AccountMfaProps, 'messages'>;
 
-    return render(ctx, 'account/mfa', props);
+    return render(ctx, 'account/mfa', props satisfies ScreenRenderProps<'account/mfa'>);
   }
 
   /** POST /account/mfa/confirm — confirma o código; sucesso = ativa e mostra recovery codes. */
@@ -251,7 +252,7 @@ export default class AccountMfaController {
         recoveryCodes: null,
       } satisfies Omit<AccountMfaProps, 'messages'>;
 
-      return render(ctx, 'account/mfa', props);
+      return render(ctx, 'account/mfa', props satisfies ScreenRenderProps<'account/mfa'>);
     }
 
     await cfg.audit?.record({

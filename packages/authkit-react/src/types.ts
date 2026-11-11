@@ -29,13 +29,13 @@ export interface AuthUser {
  * Contrato da shared-prop do Inertia exposta pelo host.
  *
  * O host AdonisJS deve compartilhar este objeto (ex.: via `inertia.share()`),
- * usando `auth.getUser()`/identidade do `@adonis-agora/authkit-client`:
+ * usando `authkit.getUser()`/identidade do `@adonis-agora/authkit-client`:
  *
  * ```ts
  * inertia.share({
  *   authkit: {
- *     user: await auth.getUser(),
- *     globalRoles: auth.identity?.globalRoles ?? [],
+ *     user: await authkit.getUser(),
+ *     globalRoles: authkit.identity?.globalRoles ?? [],
  *   },
  * })
  * ```

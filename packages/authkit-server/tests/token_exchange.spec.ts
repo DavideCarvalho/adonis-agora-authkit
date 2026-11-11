@@ -5,6 +5,7 @@ import RedisMock from 'ioredis-mock';
 import { adapters, defineConfig } from '../src/define_config.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { fakeAccountStore } from './bootstrap.js';
+import { withClients } from './helpers/seed_clients.js';
 
 const PORT = 9790;
 const ISSUER = `http://localhost:${PORT}`;
@@ -26,11 +27,8 @@ test.group('token-exchange (impersonation)', (group) => {
     } as any;
     const cfg = await configProvider.resolve(
       fakeApp,
-      defineConfig({
-        issuer: ISSUER,
-        adapter: adapters.redis({ connection: 'main' }),
-        jwks: { source: 'managed', algorithm: 'RS256' },
-        clients: [
+      withClients(
+        [
           {
             clientId: 'app1',
             clientSecret: 's',
@@ -44,23 +42,28 @@ test.group('token-exchange (impersonation)', (group) => {
             grants: ['authorization_code', 'refresh_token', TOKEN_EXCHANGE],
           },
         ],
-        audit: {
-          record: async (e) => {
-            auditEvents.push(e);
+        defineConfig({
+          issuer: ISSUER,
+          adapter: adapters.redis({ connection: 'main' }),
+          jwks: { source: 'managed', algorithm: 'RS256' },
+          audit: {
+            record: async (e) => {
+              auditEvents.push(e);
+            },
           },
-        },
-        accountStore: fakeAccountStore({
-          findById: async (sub) => {
-            if (sub === 'admin-1')
-              return { id: sub, email: 'admin@x.com', globalRoles: ['ADMIN'], name: 'Admin' };
-            if (sub === 'user-1')
-              return { id: sub, email: 'u@x.com', globalRoles: ['USER'], name: 'User' };
-            if (sub === 'target-1')
-              return { id: sub, email: 't@x.com', globalRoles: ['USER'], name: 'Target' };
-            return null;
-          },
+          accountStore: fakeAccountStore({
+            findById: async (sub) => {
+              if (sub === 'admin-1')
+                return { id: sub, email: 'admin@x.com', globalRoles: ['ADMIN'], name: 'Admin' };
+              if (sub === 'user-1')
+                return { id: sub, email: 'u@x.com', globalRoles: ['USER'], name: 'User' };
+              if (sub === 'target-1')
+                return { id: sub, email: 't@x.com', globalRoles: ['USER'], name: 'Target' };
+              return null;
+            },
+          }),
         }),
-      }),
+      ),
     );
     service = new OidcService(cfg as any, 'a'.repeat(32));
     server = createServer(service.callback);
@@ -227,11 +230,8 @@ test.group('token-exchange — roles do ator fora do globalRoles (resolveTokenRo
     } as any;
     const cfg = await configProvider.resolve(
       fakeApp,
-      defineConfig({
-        issuer: ISSUER3,
-        adapter: adapters.redis({ connection: 'main' }),
-        jwks: { source: 'managed', algorithm: 'RS256' },
-        clients: [
+      withClients(
+        [
           {
             clientId: 'app1',
             clientSecret: 's',
@@ -239,21 +239,26 @@ test.group('token-exchange — roles do ator fora do globalRoles (resolveTokenRo
             grants: ['authorization_code', 'refresh_token', TOKEN_EXCHANGE],
           },
         ],
-        // O caso do app: roles vivem num store PRÓPRIO (ex.: @adonis-agora/authz),
-        // não no `globalRoles` do authkit. `admin` minúsculo + hook resolve.
-        admin: { enabled: false, roles: ['admin'] },
-        resolveTokenRoles: async (account: any) =>
-          account.id === 'authz-admin-1' ? ['admin'] : (account.globalRoles ?? []),
-        accountStore: fakeAccountStore({
-          findById: async (sub) => {
-            if (sub === 'authz-admin-1')
-              return { id: sub, email: 'a@x.com', globalRoles: [], name: 'AuthzAdmin' };
-            if (sub === 'target-1')
-              return { id: sub, email: 't@x.com', globalRoles: [], name: 'Target' };
-            return null;
-          },
+        defineConfig({
+          issuer: ISSUER3,
+          adapter: adapters.redis({ connection: 'main' }),
+          jwks: { source: 'managed', algorithm: 'RS256' },
+          // O caso do app: roles vivem num store PRÓPRIO (ex.: @adonis-agora/authz),
+          // não no `globalRoles` do authkit. `admin` minúsculo + hook resolve.
+          admin: { enabled: false, roles: ['admin'] },
+          resolveTokenRoles: async (account: any) =>
+            account.id === 'authz-admin-1' ? ['admin'] : (account.globalRoles ?? []),
+          accountStore: fakeAccountStore({
+            findById: async (sub) => {
+              if (sub === 'authz-admin-1')
+                return { id: sub, email: 'a@x.com', globalRoles: [], name: 'AuthzAdmin' };
+              if (sub === 'target-1')
+                return { id: sub, email: 't@x.com', globalRoles: [], name: 'Target' };
+              return null;
+            },
+          }),
         }),
-      }),
+      ),
     );
     service = new OidcService(cfg as any, 'a'.repeat(32));
     server = createServer(service.callback);

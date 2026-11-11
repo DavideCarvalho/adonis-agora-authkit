@@ -15,5 +15,5 @@
     "bin/**/*",
     "tests/**/*"
   ],
-  "exclude": ["stubs/ui/**/*"]
+  "exclude": ["stubs/ui/**/*", "tests/fixtures/screen_augmentation/**/*"]
 }

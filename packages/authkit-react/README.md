@@ -17,8 +17,8 @@ pnpm add @adonis-agora/authkit-react
 
 ## 1. No host AdonisJS: compartilhar a prop `authkit`
 
-A shared-prop tem o formato `AuthSharedProps`. Use `auth.getUser()` /
-`auth.identity` do `@adonis-agora/authkit-client` para preenchê-la — tipicamente
+A shared-prop tem o formato `AuthSharedProps`. Use `authkit.getUser()` /
+`authkit.identity` do `@adonis-agora/authkit-client` para preenchê-la — tipicamente
 num middleware ou no `config/inertia.ts` (`sharedData`):
 
 ```ts
@@ -28,11 +28,11 @@ import { defineConfig } from '@adonisjs/inertia'
 export default defineConfig({
   sharedData: {
     authkit: async (ctx) => {
-      const auth = ctx.authkit // sua instância do Authenticator
-      const user = await auth.getUser() // mesmo shape de identityToUser/resolveUser
+      const authkit = ctx.authkit // sua instância do Authenticator
+      const user = await authkit.getUser() // mesmo shape de identityToUser/resolveUser
       return {
         user: user ?? null,
-        globalRoles: auth.identity?.globalRoles ?? [],
+        globalRoles: authkit.identity?.globalRoles ?? [],
       }
     },
   },
@@ -98,29 +98,39 @@ import { AuthProvider } from '@adonis-agora/authkit-react'
 
 ## 5. Config + componentes prontos
 
-Envolva a app com `<AuthkitProvider>` para configurar URLs/endpoints e use os
-hooks headless e componentes prontos:
+Envolva a app com `<AuthkitProvider>` (URLs, CSRF, modo de IdP). Os componentes de
+conta (`UserProfile`, `AuthorizedApps`, `OrganizationSwitcher`, `OrganizationProfile`)
+buscam dados pela Account API, então também precisam de `QueryClientProvider` +
+`AuthkitClientProvider`:
 
 ```tsx
 import '@adonis-agora/authkit-react/styles.css'
+import { QueryClientProvider } from '@tanstack/react-query'
 import {
+  AuthkitClientProvider,
   AuthkitProvider,
-  useSignIn, useSignOut, useUser, useProfile, useSessions, useAuthorizedApps,
-  SignInButton, SignOutButton, UserButton, UserProfile, AuthorizedApps,
+  createAuthkitQueryClient,
+  AuthorizedApps,
+  UserButton,
+  UserProfile,
 } from '@adonis-agora/authkit-react'
 
-<AuthkitProvider config={{ csrfToken: page.props.csrfToken }}>
-  <UserButton />
-  <UserProfile />
-  <AuthorizedApps />
-</AuthkitProvider>
+const queryClient = createAuthkitQueryClient()
+
+<QueryClientProvider client={queryClient}>
+  <AuthkitClientProvider>
+    <AuthkitProvider config={{ csrfToken: page.props.csrfToken }}>
+      <UserButton />
+      <UserProfile />
+      <AuthorizedApps />
+    </AuthkitProvider>
+  </AuthkitClientProvider>
+</QueryClientProvider>
 ```
 
-Defaults dos endpoints apontam para as rotas reais do host-kit
-(`/auth/login`, `/account/logout`, `/account/security`, `/account/security/profile`,
-`/account/apps`, …). Numa topologia de *client app*, aponte-os para rotas locais que
-redirecionam para o IdP. Temável via CSS vars `--authkit-*`. Veja a
-[doc de React](https://...) para detalhes.
+Para telas próprias, use as query options com `useQuery`/`useMutation`
+(`useMeQueryOptions`, `useAccountSessionsQueryOptions`, `useAppsQueryOptions`,
+`useAccountOrgsQueryOptions`, …). Temável via CSS vars `--authkit-*`.
 
 ## Helpers puros
 

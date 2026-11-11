@@ -28,6 +28,7 @@ import {
 } from '../../src/provider/build_provider.js';
 import { OidcService } from '../../src/provider/oidc_service.js';
 import { createTestDatabase, fakeAccountStore } from '../bootstrap.js';
+import { withClients } from '../helpers/seed_clients.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -321,11 +322,8 @@ async function startService(port: number, db: any) {
   const fakeApp = { container: { make: async () => db } } as any;
   const cfg = await configProvider.resolve(
     fakeApp,
-    defineConfig({
-      issuer,
-      adapter: adapters.database({}),
-      jwks: { source: 'managed', algorithm: 'RS256' },
-      clients: [
+    withClients(
+      [
         {
           clientId: 'c1',
           clientSecret: 's',
@@ -333,8 +331,13 @@ async function startService(port: number, db: any) {
           grants: ['authorization_code', 'refresh_token'],
         },
       ],
-      accountStore: fakeAccountStore(),
-    }),
+      defineConfig({
+        issuer,
+        adapter: adapters.database({}),
+        jwks: { source: 'managed', algorithm: 'RS256' },
+        accountStore: fakeAccountStore(),
+      }),
+    ),
   );
   const service = new OidcService(cfg!, 'a'.repeat(32));
   const server: Server = createServer(service.callback);

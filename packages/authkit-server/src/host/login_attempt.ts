@@ -388,7 +388,12 @@ export async function attemptPasswordLogin(
     return { ok: false, locked: true, retryAfterSec: lock.retryAfterSec };
   }
 
-  const account = await cfg.accountStore.verifyCredentials(email, password);
+  // A form posted without a password (e-mail only, typical when password login is
+  // off) is a failed attempt like a wrong password, never a crash in the hasher.
+  const account =
+    typeof password === 'string' && password !== ''
+      ? await cfg.accountStore.verifyCredentials(email, password)
+      : null;
   if (!account) {
     // `clientId` só entra no evento quando o fluxo o fornece (interaction).
     await cfg.audit?.record(
