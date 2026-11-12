@@ -222,8 +222,10 @@ The derivation also accepts the tenant claims other IdPs emit (`active_organizat
 [BYO IdP](/docs/byo-idp)) reads the same field. `active_organization_id` wins when several
 are present.
 
-That same value is published to `@adonis-agora/context` as `tenantId`, which is what lets
-`@adonis-agora/authz` scope roles and queries per tenant automatically:
+That same value is published to `@adonis-agora/context` as the request's tenant
+(`Context.tenant()`, with `kind: 'organization'`, the slug and the role; also `tenantId`). See
+[Tenancy](/docs/client#tenancy) to scope every Agora lib by it. It is also what lets
+`@adonis-agora/authz` scope roles and queries per tenant:
 
 ```ts title="config/authz.ts"
 import { tenantFromContext } from '@adonis-agora/authz'

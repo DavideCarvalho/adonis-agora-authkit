@@ -32,6 +32,7 @@ import {
   validateIdToken,
 } from '../src/id_token.js';
 import { getJwks } from '../src/jwks.js';
+import { contextTenancyEnabled } from '../src/observability/context_bridge.js';
 import { exchangeToken, refreshTokens } from '../src/oidc_login.js';
 import type { ResolverFactory } from '../src/resolvers/factory.js';
 import type { TokenSet } from '../src/types.js';
@@ -563,6 +564,18 @@ export class AuthkitClientManager {
   }
 
   /**
+   * Whether `authkit_context_middleware` resolves the session at request start, so
+   * the tenant is in `@adonis-agora/context` before any handler runs. `tenancy.eager`
+   * when set; otherwise `true` only when context tenancy is enabled and the resolver
+   * is `resolvers.jwt()` (local verify, no network).
+   */
+  eagerTenancy(): boolean {
+    const eager = this.config.tenancy?.eager;
+    if (typeof eager === 'boolean') return eager;
+    return this.config.resolverFactory?.kind === 'jwt' && contextTenancyEnabled();
+  }
+
+  /**
    * The request's {@link Authenticator}. `options.resolver` replaces the configured
    * resolver for this authenticator only (e.g. a guard for bearer-token API routes).
    */
@@ -575,6 +588,7 @@ export class AuthkitClientManager {
     return new Authenticator(ctx, {
       resolver,
       resolveUser: this.config.resolveUser,
+      tenancy: this.config.tenancy,
       getAccessToken: () => {
         const tokenSet = (ctx as CtxWithSession).session?.get(sessionKey) as TokenSet | undefined;
         return tokenSet?.accessToken;

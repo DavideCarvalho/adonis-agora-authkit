@@ -79,6 +79,7 @@ export default authkitClientConfig;
 | `sessionIndex` | `SessionIndex?` | — | Manual sid/sub-to-local-session map, for server-side session stores. |
 | `onBackchannelLogout` | `(event) => void` | — | Extra hook run after a valid `logout_token` arrives. |
 | `resilience` | `ResiliencePolicy?` | — | Wraps outbound IdP calls. See below. |
+| `tenancy` | `{ eager?, personal?, resolve? }` | — | How the session's tenant reaches `@adonis-agora/context`. See [Tenancy](#tenancy). |
 
 ## Resolvers: jwt, pat, opaque
 
@@ -643,6 +644,86 @@ export default class ImpersonationController {
   or `@adonis-agora/authz` **before** calling it — the manager will happily exchange the token
   for any subject the IdP allows.
 </Callout>
+
+## Tenancy
+
+With `@adonis-agora/context` installed, every resolved session publishes its tenant into the
+request context: the active organization, with its slug and the user's role in it. The libs
+that support tenancy (authz, payments, media, durable, agent, telescope) scope their data to
+it once you turn tenancy on in `config/context.ts`:
+
+```ts title="config/context.ts"
+import { defineConfig } from '@adonis-agora/context'
+import { authkitTenantLabels } from '@adonis-agora/authkit-server'
+
+export default defineConfig({
+  tenancy: {
+    enabled: true,
+    kinds: ['organization'],
+    // Organization names in the consoles' tenant picker (apps running authkit-server).
+    label: authkitTenantLabels(),
+  },
+})
+```
+
+Read it anywhere in the request:
+
+```ts
+import { Context } from '@adonis-agora/context'
+
+Context.tenant()
+// { id: 'org-9', kind: 'organization', source: 'authkit', slug: 'acme', role: 'owner' }
+```
+
+A user with no active organization has no tenant. Use the
+[`requireOrg` middleware](/docs/organizations#requiring-an-active-organization) on routes
+that must run inside one.
+
+### Options
+
+```ts title="config/authkit_client.ts"
+export default defineConfig({
+  // ...
+  tenancy: {
+    eager: true,
+    personal: true,
+  },
+})
+```
+
+| Key | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `eager` | `boolean` | `true` with context tenancy on and `resolvers.jwt()`; `false` otherwise | `authkit_context_middleware` resolves the session at request start, so the tenant is set before any handler, job dispatch or console query. With `opaque` or `pat` resolvers it costs a network call per request, so it stays off unless you set it. |
+| `personal` | `boolean` | `false` | With no active organization, the user is the tenant (`{ id: userId, kind: 'user' }`), so personal workspaces are scoped too. Rows created before you turn it on stay visible only to requests without a tenant. |
+| `resolve` | `(identity) => tenant \| tenant[] \| null \| undefined` | — | Map the session to your own tenant model. Return an array for nested tenants (outermost first, active last); `null` for no tenant; `undefined` to keep the active organization. |
+
+Nested tenants, for an app whose clinics have units:
+
+```ts title="config/authkit_client.ts"
+tenancy: {
+  resolve: (identity) => {
+    const unit = identity.raw.unit_id
+    if (typeof unit !== 'string') return undefined
+    return [
+      { id: identity.orgId!, kind: 'clinic' },
+      { id: unit, kind: 'unit' },
+    ]
+  },
+},
+// Context.tenant() → { id: 'unit-7', kind: 'unit', source: 'authkit',
+//                      chain: [{ id: 'clinic-1', kind: 'clinic' }, { id: 'unit-7', kind: 'unit' }] }
+```
+
+A tenant your app sets itself with `Context.setTenant(...)` always wins: authkit never
+overwrites it.
+
+### Tenant labels
+
+`authkitTenantLabels()` (from `@adonis-agora/authkit-server`) turns organization ids into
+their names for the consoles. Pass `{ label: 'slug' }` for slugs, or a function
+`(org) => string`. Ids that are not authkit organizations keep showing as ids. It is meant for
+the app that runs authkit-server; an app whose IdP runs elsewhere shows the viewer's own
+organization by its slug, and other organizations by id.
 
 ## Gating an embedded dashboard
 

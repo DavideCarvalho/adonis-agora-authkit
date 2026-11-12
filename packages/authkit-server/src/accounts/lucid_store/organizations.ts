@@ -163,6 +163,12 @@ export function buildOrganizations(ctx: OrgStoreContext): OrganizationsCapabilit
       return row ? toOrgSummary(row) : null;
     },
 
+    async findOrgsByIds(orgIds) {
+      const ids = [...new Set(orgIds)];
+      if (ids.length === 0) return [];
+      return (await findManyChunked(OrgModel, ids)).map(toOrgSummary);
+    },
+
     async findOrgBySlug(slug) {
       const row = await OrgModel.query().where('slug', slug).first();
       return row ? toOrgSummary(row) : null;

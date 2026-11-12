@@ -471,6 +471,8 @@ interface OrganizationsCapability {
   }): Promise<OrgSummary>
   findOrgById(orgId: string): Promise<OrgSummary | null>
   findOrgBySlug(slug: string): Promise<OrgSummary | null>
+  /** Optional. The orgs among `orgIds` that exist, in any order (unknown ids left out). Absent → one `findOrgById` per id. */
+  findOrgsByIds?(orgIds: readonly string[]): Promise<OrgSummary[]>
   listOrgsForAccount(accountId: string): Promise<Array<OrgSummary & { role: string }>>
   updateOrg(
     orgId: string,

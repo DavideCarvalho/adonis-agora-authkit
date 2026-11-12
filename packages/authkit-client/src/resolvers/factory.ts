@@ -66,6 +66,8 @@ async function currentEndpoints(rc: ResolverContext): Promise<OidcEndpoints | nu
 }
 
 export interface ResolverFactory {
+  /** Which built-in resolver this is (`jwt`, `opaque`, `pat`); absent for a custom one. */
+  readonly kind?: 'jwt' | 'opaque' | 'pat' | (string & {});
   resolver(ctx: ResolverContext): Promise<SessionResolver>;
 }
 
@@ -73,6 +75,7 @@ export const resolvers = {
   jwt(config: JwtResolverFactoryConfig = {}): ResolverFactory {
     const tokenSource = config.tokenSource ?? 'session';
     return {
+      kind: 'jwt',
       async resolver(rc) {
         return new JwtResolver({
           endpoints: async () => {
@@ -91,6 +94,7 @@ export const resolvers = {
 
   pat(config: PatResolverFactoryConfig): ResolverFactory {
     return {
+      kind: 'pat',
       async resolver(_rc) {
         return new PatResolver({
           introspectionUrl: config.introspectionUrl,
@@ -103,6 +107,7 @@ export const resolvers = {
   opaque(config: OpaqueResolverFactoryConfig = {}): ResolverFactory {
     const tokenSource = config.tokenSource ?? 'session';
     return {
+      kind: 'opaque',
       async resolver(rc) {
         if (!rc.clientSecret) {
           throw new Error(
