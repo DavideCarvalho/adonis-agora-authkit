@@ -1,5 +1,12 @@
 # @adonis-agora/authkit-react
 
+## 1.0.0-rc.5
+
+### Patch Changes
+
+- Updated dependencies [[`df9e49d`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/df9e49d7817c03a7cce4cac1df709c7788d6307c)]:
+  - @adonis-agora/authkit-core@1.0.0-rc.2
+
 ## 1.0.0-rc.4
 
 ### Patch Changes
