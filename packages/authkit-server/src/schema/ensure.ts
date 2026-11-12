@@ -25,6 +25,7 @@
  */
 
 import type { AuthkitTable } from '../agents/extension.js';
+import { authkitTablesClient } from './tables_location.js';
 
 type TableBuilder = any;
 
@@ -344,8 +345,17 @@ const TABLES: TableDef[] = [
 ];
 
 export interface EnsureSchemaOptions {
-  /** Conexão Lucid a usar. Default: conexão primária. */
+  /**
+   * Conexão Lucid das tabelas do authkit (`schema.connection`). Default: conexão
+   * primária. Ignorada quando `db` já é um client (o `this.db` de uma migration).
+   */
   connection?: string;
+  /**
+   * Conexão Lucid do model da conta, onde vive a tabela da conta (a coluna
+   * `login_methods`). Default: a conexão primária — NÃO a das tabelas do authkit.
+   * O provider passa a do `accountStore` no boot. Ignorada quando `db` já é um client.
+   */
+  accountConnection?: string;
   /**
    * Tabelas de `personalAgents.extensions` (`tables` de cada uma), garantidas junto. O provider
    * passa as do config no boot.
@@ -574,12 +584,7 @@ export async function ensureAuthkitTables(
   tables: readonly AuthkitTable[],
   options: { connection?: string } = {},
 ): Promise<Pick<EnsureSchemaReport, 'created' | 'altered' | 'indexed'>> {
-  const conn =
-    typeof db.connection !== 'function'
-      ? db
-      : options.connection
-        ? db.connection(options.connection)
-        : db.connection();
+  const conn = authkitTablesClient(db, { connection: options.connection });
   const report: Pick<EnsureSchemaReport, 'created' | 'altered' | 'indexed'> = {
     created: [],
     altered: {},
@@ -600,12 +605,7 @@ export async function ensureAuthkitSchema(
   db: any,
   options: EnsureSchemaOptions = {},
 ): Promise<EnsureSchemaReport> {
-  const conn =
-    typeof db.connection !== 'function'
-      ? db
-      : options.connection
-        ? db.connection(options.connection)
-        : db.connection();
+  const conn = authkitTablesClient(db, { connection: options.connection });
   const report: EnsureSchemaReport = {
     created: [],
     altered: {},
@@ -629,11 +629,15 @@ export async function ensureAuthkitSchema(
   // `users` fixo: com a conta em `auth_users` (o nome que o próprio scaffold da
   // lib usa), o `users` fixo acertava uma tabela qualquer de mesmo nome e a
   // coluna ia parar no lugar errado sem erro nenhum.
+  //
+  // A tabela da conta fica na conexão do MODEL da conta, não na das tabelas do
+  // authkit (`schema.connection`).
   const accountTable = options.accountTable ?? 'users';
-  if (await tableExists(conn, accountTable)) {
+  const accountConn = authkitTablesClient(db, { connection: options.accountConnection });
+  if (await tableExists(accountConn, accountTable)) {
     try {
-      if (!(await columnExists(conn, accountTable, 'login_methods'))) {
-        await conn.schema.alterTable(accountTable, (t: TableBuilder) => {
+      if (!(await columnExists(accountConn, accountTable, 'login_methods'))) {
+        await accountConn.schema.alterTable(accountTable, (t: TableBuilder) => {
           t.jsonb('login_methods').nullable();
         });
         report.altered[accountTable] = ['login_methods'];
@@ -649,7 +653,7 @@ export async function ensureAuthkitSchema(
        * o boot não avisava nada — o silêncio que este bloco existe para acabar.
        * (Mesma semântica do probe de `createTable` logo acima.)
        */
-      if (await columnExists(conn, accountTable, 'login_methods')) {
+      if (await columnExists(accountConn, accountTable, 'login_methods')) {
         report.loginMethods.ensured = true;
       } else {
         throw error;

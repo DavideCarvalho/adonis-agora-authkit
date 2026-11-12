@@ -112,6 +112,12 @@ export interface LucidStoreContext {
    * recovery da conta. Ver nota de `emailVerificationTtlHours`.
    */
   emailChangeTtlHours?: number;
+  /**
+   * Query client for AuthKit's own tables (`auth_mfa`, `auth_password_history`):
+   * `schema.connection` of `defineConfig`, NOT the account model's connection. Absent
+   * → the model's connection (a store used without `defineConfig`).
+   */
+  tablesClient?: () => any;
 }
 
 export const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex');
@@ -153,20 +159,22 @@ export interface MfaStatePatch {
 
 /**
  * Repositório do estado de MFA na tabela LIB-OWNED `auth_mfa`, keyed por
- * `account_id`. Acessa o banco pela CONEXÃO do próprio model (`Model.query().client`),
- * a mesma usada pelo restante do store — sem exigir migration no host.
+ * `account_id`. Acessa o banco pela conexão das tabelas do authkit
+ * (`schema.connection`, via `tablesClient`), a mesma em que o `autoManage` cria a
+ * tabela — sem exigir migration no host. Sem `tablesClient` (store fora do
+ * `defineConfig`), cai na conexão do model.
  *
  * O `upsert` é portável (sqlite + pg sem UPSERT nativo): tenta UPDATE pela PK;
  * se não afetou nenhuma linha, faz INSERT. `recovery_codes` é serializado como
  * JSON (string) na escrita e desserializado na leitura (aceita tanto string —
  * sqlite/text — quanto array já parseado — pg jsonb).
  */
-export function buildMfaStateRepo(Model: any) {
+export function buildMfaStateRepo(Model: any, tablesClient?: () => any) {
   const TABLE = 'auth_mfa';
 
-  /** QueryClient ligado à conexão do model (equivale ao `db` do password_history). */
+  /** QueryClient das tabelas do authkit (equivale ao `db` do password_history). */
   function client(): any {
-    return Model.query().client;
+    return tablesClient ? tablesClient() : Model.query().client;
   }
 
   /** Normaliza `recovery_codes` vindo do banco (json string OU array já parseado). */

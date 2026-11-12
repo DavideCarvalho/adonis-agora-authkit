@@ -629,8 +629,8 @@ export function checkSettings(input: DoctorInput): Finding | null {
     return null;
   }
 
-  // Informa a conexão usada quando nomeada (ajuda a diagnosticar bugs de searchPath).
-  const connectionName: string | undefined = (cfg.accountStore as any)?.connectionName;
+  // Informa a conexão usada quando nomeada (a das tabelas do authkit).
+  const connectionName: string | undefined = (cfg as any).schema?.connection;
   const connectionHint = connectionName ? ` (connection: '${connectionName}')` : '';
 
   // Table present — check if botProtection.verify is configured.

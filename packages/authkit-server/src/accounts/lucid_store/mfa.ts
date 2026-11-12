@@ -16,8 +16,8 @@ import {
  * {@link ensureAuthkitSchema}), keyed por `account_id`. O host NÃO precisa migrar
  * nada e o model não declara colunas de MFA.
  *
- * Acesso ao banco via a CONEXÃO do próprio model (`Model.query().client`), a mesma
- * usada pelo restante do store. O `email` (para o keyuri/QR) continua vindo do
+ * Acesso ao banco pela conexão das tabelas do authkit (`schema.connection`), a
+ * mesma em que o `autoManage` cria `auth_mfa`. O `email` (para o keyuri/QR) continua vindo do
  * model principal — só o ESTADO de MFA migrou para `auth_mfa`.
  */
 /**
@@ -28,7 +28,7 @@ const TOTP_PERIOD = 30;
 
 export function buildMfa(ctx: LucidStoreContext): MfaCapability {
   const { Model, mfaIssuer, recoveryCodeCount, sealSecret, openSecret } = ctx;
-  const repo = buildMfaStateRepo(Model);
+  const repo = buildMfaStateRepo(Model, ctx.tablesClient);
 
   return {
     async getMfaState(accountId) {

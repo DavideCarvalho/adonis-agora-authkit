@@ -1,11 +1,20 @@
 import type { AuditSink } from '../audit/audit_sink.js';
 import { type PasswordConfigInput, PasswordManager } from '../password/password_manager.js';
 import type { FetchLike, PwnedLogger } from '../password/pwned.js';
+import {
+  type AuthkitTablesLocation,
+  authkitTablesClient,
+  BIND_TABLES_LOCATION,
+} from '../schema/tables_location.js';
 import type { AccountStore, AuthAccount } from './account_store.js';
 import { buildCore } from './lucid_store/core.js';
 import { buildLoginMethods, supportsLoginMethodsColumn } from './lucid_store/login_methods.js';
 import { buildMfa } from './lucid_store/mfa.js';
-import { defaultOrganizationModels } from './lucid_store/organization_models.js';
+import {
+  defaultOrganizationModels,
+  type OrganizationModels,
+  organizationModelsOn,
+} from './lucid_store/organization_models.js';
 import { buildOrganizations } from './lucid_store/organizations.js';
 import { buildPasswordExpiration, buildPasswordHistory } from './lucid_store/password_hygiene.js';
 import { buildProviderIdentity } from './lucid_store/provider_identity.js';
@@ -373,12 +382,24 @@ export function lucidAccountStore(
   // opt-out explícito é `false`. O trio explícito segue como escape hatch.
   const orgModelsOption = options.organizationModels;
   const usesDefaultOrgModels = orgModelsOption === undefined || orgModelsOption === true;
-  const OrgModels =
-    orgModelsOption === false
-      ? undefined
-      : usesDefaultOrgModels
-        ? defaultOrganizationModels
-        : orgModelsOption;
+  const explicitOrgModels =
+    orgModelsOption === false || usesDefaultOrgModels ? undefined : orgModelsOption;
+  /**
+   * Onde vivem as tabelas do AuthKit (`schema.connection`). O `defineConfig` informa
+   * via {@link BIND_TABLES_LOCATION} — o store é construído antes de o config existir.
+   * `null` = ainda não informado (store usado fora do `defineConfig`): as tabelas
+   * lib-owned seguem a conexão do model e os models de org default, a primária.
+   */
+  let tablesLocation: AuthkitTablesLocation | null = null;
+  const tablesClient = (): any => {
+    const db = Model.$adapter?.db;
+    if (!tablesLocation || !db) return Model.query().client;
+    return authkitTablesClient(db, tablesLocation);
+  };
+  const orgModels = (): OrganizationModels =>
+    explicitOrgModels ??
+    (tablesLocation ? organizationModelsOn(tablesLocation.connection) : defaultOrganizationModels);
+  const OrgModels = orgModelsOption === false ? undefined : orgModels;
   // RP do WebAuthn: usado nas cerimônias. Default do rpName cai no mfaIssuer.
   const webauthn = options.webauthn ?? {
     rpName: mfaIssuer,
@@ -404,6 +425,7 @@ export function lucidAccountStore(
     audit: options.audit,
     emailVerificationTtlHours: emailTokens.verificationTtlHours,
     emailChangeTtlHours: emailTokens.changeTtlHours,
+    tablesClient,
     // Encripta o segredo antes de persistir (no-op sem encrypter).
     sealSecret: (secret: string) => (encrypter ? encrypter.encrypt(secret) : secret),
     // Decripta o segredo armazenado; retorna null em falha/adulteração (no-op sem encrypter).
@@ -476,9 +498,15 @@ export function lucidAccountStore(
           // NÃO faz parte do contrato AccountStore.
           __organizationModelsSource: usesDefaultOrgModels ? 'default' : 'explicit',
           ...buildOrganizations({
-            OrgModel: OrgModels.OrgModel,
-            MemberModel: OrgModels.MemberModel,
-            InvitationModel: OrgModels.InvitationModel,
+            get OrgModel() {
+              return OrgModels().OrgModel;
+            },
+            get MemberModel() {
+              return OrgModels().MemberModel;
+            },
+            get InvitationModel() {
+              return OrgModels().InvitationModel;
+            },
             findAccountEmail: async (accountId: string) => {
               const row = await Model.find(accountId);
               return row?.email ?? null;
@@ -504,11 +532,10 @@ export function lucidAccountStore(
       }
     },
     /**
-     * Nome da conexão Lucid usada por este store (deriva de `Model.connection`).
-     * Exposto para que os call-sites de RuntimeSettings possam passar
-     * `{ connection: store.connectionName }` e usar a conexão correta.
-     * Undefined quando o model usa a conexão default (back-compat total).
-     * NÃO faz parte do contrato AccountStore.
+     * Nome da conexão Lucid do MODEL da conta (deriva de `Model.connection`) — onde
+     * vive a tabela da conta (e a coluna `login_methods`). As tabelas do authkit
+     * NÃO seguem esta conexão: elas usam `schema.connection`.
+     * Undefined quando o model usa a conexão default.
      */
     connectionName: (Model.connection as string | undefined) ?? undefined,
     /**
@@ -531,14 +558,21 @@ export function lucidAccountStore(
   } as AccountStore;
 
   // Histórico de senhas: tabela lib-owned `auth_password_history`, pela conexão
-  // do model (resolvida a cada uso, como no MFA).
+  // das tabelas do authkit (resolvida a cada uso, como no MFA).
   Object.assign(
     store,
     buildPasswordHistory(ctx, {
-      query: () => Model.query().client.query(),
-      table: (name: string) => Model.query().client.table(name),
+      query: () => tablesClient().query(),
+      table: (name: string) => tablesClient().table(name),
     }),
   );
+
+  // Não-enumerável: o `defineConfig` informa `schema.connection` por aqui.
+  Object.defineProperty(store, BIND_TABLES_LOCATION, {
+    value: (location: AuthkitTablesLocation) => {
+      tablesLocation = { connection: location.connection };
+    },
+  });
 
   return store;
 }

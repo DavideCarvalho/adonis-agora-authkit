@@ -319,6 +319,7 @@ export default class AuthkitServerProvider {
       const report = await ensureAuthkitSchema(db, {
         connection: config.schema.connection,
         accountTable: config.accountStore?.accountTable,
+        accountConnection: config.accountStore?.connectionName,
         tables: config.personalAgents?.extensions?.flatMap((e) => e.tables ?? []),
       });
 
