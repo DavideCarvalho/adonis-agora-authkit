@@ -18,6 +18,14 @@ export interface BrandingConfig {
 }
 
 /**
+ * O que o host declara em `defineConfig({ branding })`. `default` e `firstParty` são
+ * opcionais: sem `default` a marca de quem não tem client conhecido vem da `company`
+ * (ver {@link resolveDefaultBrand}); sem `firstParty`, nenhum client pula o consent.
+ */
+export type BrandingConfigInput = Omit<BrandingConfig, 'default' | 'firstParty'> &
+  Partial<Pick<BrandingConfig, 'default' | 'firstParty'>>;
+
+/**
  * Default `BrandingConfig` usado quando o host não declara `branding` no
  * `defineConfig`. `branding` é tipado opcional e todo doc (getting-started,
  * quickstart, reference) trata como tema puro, dispensável — mas o
@@ -46,8 +54,39 @@ const DEFAULT_BRANDING: BrandingConfig = {
  * vez de deixar `cfg.branding` como `undefined` — o que fazia a MENOR config
  * documentada (sem branding) quebrar a primeira tela de login/consent/signup.
  */
-export function resolveBranding(input: BrandingConfig | undefined): BrandingConfig {
-  return input ?? DEFAULT_BRANDING;
+export function resolveBranding(input: BrandingConfigInput | undefined): BrandingConfig {
+  if (!input) return DEFAULT_BRANDING;
+  // Hosts declaram na prática só `company` + `clients` (sem `default`, às vezes sem
+  // `firstParty`). Sem normalizar, `brandFor` devolvia uma marca SEM `appName`/`accent`
+  // para todo fluxo sem client conhecido (console de conta, recuperação, throttle) — as
+  // telas caíam no fallback genérico enquanto os e-mails já usavam a `company` — e
+  // `isFirstParty` estourava em `firstParty.includes`.
+  return {
+    ...input,
+    clients: input.clients ?? {},
+    default: resolveDefaultBrand(input),
+    firstParty: input.firstParty ?? [],
+  };
+}
+
+/**
+ * A marca default de um host — o ÚNICO lugar que decide o nome/cor de quem não tem
+ * client conhecido (telas sem client, e-mails). Precedência do nome:
+ * `branding.default.appName` → `branding.company` → `'AuthKit'`; as cores caem no
+ * tema neutro. Tolera `branding` parcial/ausente (configs crus, fixtures).
+ */
+export function resolveDefaultBrand(
+  branding: Partial<BrandingConfigInput> | undefined,
+): BrandingConfig['default'] {
+  const declared = branding?.default as Partial<BrandingConfig['default']> | undefined;
+  const neutral = DEFAULT_BRANDING.default;
+  return {
+    ...declared,
+    appName: declared?.appName || branding?.company || neutral.appName,
+    accent: declared?.accent || neutral.accent,
+    accentSoft: declared?.accentSoft || declared?.accent || neutral.accentSoft,
+    tagline: declared?.tagline ?? neutral.tagline,
+  };
 }
 
 export function isFirstParty(cfg: BrandingConfig, clientId: string | undefined): boolean {

@@ -332,7 +332,7 @@ export {
   resolveEffectiveBotProtection,
   verifyBotProtection,
 } from './src/host/bot_protection.js';
-export type { BrandingConfig, ClientBrand } from './src/host/branding.js';
+export type { BrandingConfig, BrandingConfigInput, ClientBrand } from './src/host/branding.js';
 export { brandFor, isFirstParty, isFirstPartyClient } from './src/host/branding.js';
 export type { ApplicationType } from './src/host/client_metadata.js';
 export {

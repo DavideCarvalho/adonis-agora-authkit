@@ -11,18 +11,21 @@
  *     queries ao audit, o que é compatível com volumes moderados (<= 50k contas).
  *     Para volumes maiores, o operador deve implementar um sink com agregação nativa.
  *   - `--warn`: envia e-mail de aviso ("sua conta expira em N dias — faça login") via
- *     hook `mail.onAccountExpirationWarning` + template default. Deduplicado via
- *     audit `account.expiration_warned` — não re-avisa quem já foi avisado dentro
- *     da janela de `warnDays` dias.
+ *     hook `mail.onAccountExpirationWarning` ou, sem ele, o mailer default (i18n +
+ *     branding). Deduplicado via audit `account.expiration_warned` — não re-avisa
+ *     quem já foi avisado dentro da janela de `warnDays` dias.
  *   - `--dry-run`: reporta sem enviar e-mails nem auditar.
  *   - `--json`: output machine-readable.
  *
  * Designed pra cron do host (ex.: `0 2 * * * node ace authkit:accounts:expire-scan --warn`).
  */
 
+import type { HttpContext } from '@adonisjs/core/http';
 import type { ApplicationService } from '@adonisjs/core/types';
 import type { AccountStore, AuthAccount } from '../accounts/account_store.js';
 import type { AuditSink } from '../audit/audit_sink.js';
+import type { ResolvedServerConfig } from '../define_config.js';
+import { sendAccountExpirationWarningEmail } from '../host/default_mailer.js';
 import { RuntimeSettings, settingsLocation } from '../host/runtime_settings.js';
 import { resolveEffectiveAccountExpiration } from '../host/runtime_toggles.js';
 import { ADMIN_LIST_DEFAULT_SIZE, LIST_FIRST_PAGE } from '../pagination.js';
@@ -31,6 +34,12 @@ import { resolveAuthkitConfig } from './resolve_config.js';
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+type ScanLogger = {
+  info: (m: string) => void;
+  warn: (m: string) => void;
+  error: (m: string) => void;
+};
 
 export interface ExpireScanResult {
   /** Contas já expiradas (bloqueadas no login). */
@@ -63,14 +72,14 @@ export async function runExpireScan(
     dryRun?: boolean;
     warn?: boolean;
     json?: boolean;
-    logger: { info: (m: string) => void; warn: (m: string) => void; error: (m: string) => void };
+    logger: ScanLogger;
   },
 ): Promise<ExpireScanResult> {
   const { dryRun = false, warn = false, logger } = opts;
 
   // ---- resolve config ----
   const raw = app.config?.get?.('authkit') ?? null;
-  const cfg = await resolveAuthkitConfig(app, raw);
+  const cfg = await resolveAuthkitConfig<ResolvedServerConfig>(app, raw);
   if (!cfg) {
     logger.error('[expire-scan] Could not resolve authkit config.');
     return emptyResult(dryRun, 0, 0);
@@ -161,7 +170,7 @@ export async function runExpireScan(
             dedupedCount++;
           } else {
             // Envia e-mail de aviso.
-            await sendWarnEmail(cfg, account, daysUntilExpiry);
+            await sendWarnEmail(cfg, account, daysUntilExpiry, logger);
             // Audita para deduplicação.
             await audit.record({
               type: 'account.expiration_warned',
@@ -250,37 +259,44 @@ async function wasWarnedRecently(
   }
 }
 
-/** Envia e-mail de aviso de expiração iminente. Best-effort (silencioso em caso de erro). */
+/**
+ * Envia o aviso de expiração iminente pelo MESMO caminho dos outros e-mails da lib: o hook
+ * `mail.onAccountExpirationWarning` do host tem prioridade; sem ele, o mailer default
+ * (`@adonisjs/mail`) com o locale e o branding do config resolvido. Best-effort: nunca
+ * propaga erros de e-mail (o scan segue para a próxima conta).
+ */
 async function sendWarnEmail(
-  cfg: Record<string, any>,
+  cfg: ResolvedServerConfig,
   account: AuthAccount,
   expiresInDays: number,
+  logger: ScanLogger,
 ): Promise<void> {
   try {
     if (cfg.mail?.onAccountExpirationWarning) {
       await cfg.mail.onAccountExpirationWarning({ email: account.email, expiresInDays });
       return;
     }
-    // Default: tenta via @adonisjs/mail se disponível.
-    const mailSpecifier = '@adonisjs/mail/services/main';
-    const mailMod = await import(mailSpecifier).catch(() => null);
-    const mail = mailMod?.default ?? null;
-    if (!mail) return; // Sem mail configurado — silêncio.
-
-    await mail.send((message: any) => {
-      message
-        .to(account.email)
-        .subject('Your account will be deactivated due to inactivity')
-        .html(
-          `<p>Your account will be deactivated in <strong>${expiresInDays} day(s)</strong> due to inactivity. Sign in to keep your account active.</p>`,
-        )
-        .text(
-          `Your account will be deactivated in ${expiresInDays} day(s) due to inactivity. Sign in to keep your account active.`,
-        );
+    await sendAccountExpirationWarningEmail({ logger: mailLogger(logger) }, cfg, {
+      email: account.email,
+      expiresInDays,
     });
   } catch {
     // Best-effort: nunca propaga erros de e-mail.
   }
+}
+
+/** Adapta o logger do Ace (`info(msg)`) ao formato pino (`info(obj, msg)`) do mailer. */
+function mailLogger(logger: ScanLogger): Pick<HttpContext['logger'], 'info' | 'error'> {
+  const format = (obj: unknown, msg?: string) =>
+    typeof msg === 'string' ? `${msg} ${JSON.stringify(obj, errorReplacer)}` : String(obj);
+  return {
+    info: (obj: unknown, msg?: string) => logger.info(format(obj, msg)),
+    error: (obj: unknown, msg?: string) => logger.error(format(obj, msg)),
+  } as unknown as Pick<HttpContext['logger'], 'info' | 'error'>;
+}
+
+function errorReplacer(_key: string, value: unknown): unknown {
+  return value instanceof Error ? value.message : value;
 }
 
 function emptyResult(

@@ -841,6 +841,15 @@ export const DEFAULT_MESSAGES = {
   'mail.otp_unlock.fallback':
     'If you did not attempt to sign in, your account may be at risk — change your password immediately.',
 
+  // E-mail de aviso de expiração por inatividade (`authkit:accounts:expire-scan --warn`).
+  'mail.account_expiration.subject': 'Your account will be deactivated due to inactivity',
+  'mail.account_expiration.heading': 'Your account will be deactivated soon',
+  'mail.account_expiration.intro':
+    'Your account will be deactivated in {days} day(s) due to inactivity. Sign in to keep your account active.',
+  'mail.account_expiration.cta': 'Sign in',
+  'mail.account_expiration.fallback':
+    'If you no longer use this account, you can ignore this email and it will be deactivated.',
+
   // Tela de desbloqueio OTP (/auth/otp-unlock/:token).
   // Sudo mode (confirm identity — /account/confirm).
   'account.confirm.page_title': 'Confirm your identity',
@@ -1925,6 +1934,15 @@ export const PT_BR_MESSAGES = {
   'mail.otp_unlock.cta': 'Desbloquear verificação',
   'mail.otp_unlock.fallback':
     'Se você não tentou fazer login, sua conta pode estar em risco — altere sua senha imediatamente.',
+
+  // E-mail de aviso de expiração por inatividade (pt-BR).
+  'mail.account_expiration.subject': 'Sua conta será desativada por inatividade',
+  'mail.account_expiration.heading': 'Sua conta será desativada em breve',
+  'mail.account_expiration.intro':
+    'Sua conta será desativada em {days} dia(s) por inatividade. Entre na sua conta para mantê-la ativa.',
+  'mail.account_expiration.cta': 'Entrar',
+  'mail.account_expiration.fallback':
+    'Se você não usa mais esta conta, pode ignorar este e-mail e ela será desativada.',
 
   // Tela de desbloqueio OTP (pt-BR).
   'otp_unlock.page_title': 'Desbloqueio da verificação em duas etapas',
