@@ -108,6 +108,7 @@ test.group('schema.name | other dialects', () => {
     assert.throws(() => assertSchemaSupported(mssql, 'auth'), /supports Postgres and MySQL/);
     await assert.rejects(() => createDbSchema(mssql, 'auth'), /supports Postgres and MySQL/);
     assert.doesNotThrow(() => assertSchemaSupported({ dialect: { name: 'postgres' } }, 'auth'));
+    assert.throws(() => assertSchemaSupported({}, 'auth'), /an unknown dialect/);
     assert.doesNotThrow(() => assertSchemaSupported({ dialect: { name: 'mssql' } }, undefined));
   });
 });

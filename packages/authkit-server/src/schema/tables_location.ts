@@ -73,11 +73,11 @@ export function dialectOf(client: any): string | undefined {
 export function assertSchemaSupported(client: any, schema: string | undefined): void {
   if (!schema) return;
   const dialect = dialectOf(client);
-  if (!dialect || SCHEMA_DIALECTS.has(dialect)) return;
+  if (dialect && SCHEMA_DIALECTS.has(dialect)) return;
   throw new AuthkitSchemaError(
-    SQLITE_DIALECTS.has(dialect)
+    dialect && SQLITE_DIALECTS.has(dialect)
       ? `authkit: schema.name "${schema}" is set, but the connection uses ${dialect}, which has no schemas. Remove schema.name or use Postgres or MySQL.`
-      : `authkit: schema.name "${schema}" is set, but the connection uses ${dialect}; schema.name supports Postgres and MySQL. Remove schema.name or use one of them.`,
+      : `authkit: schema.name "${schema}" is set, but the connection uses ${dialect ?? 'an unknown dialect'}; schema.name supports Postgres and MySQL. Remove schema.name or use one of them.`,
   );
 }
 
