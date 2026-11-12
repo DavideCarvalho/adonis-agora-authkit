@@ -1,4 +1,5 @@
 import React from 'react';
+import { ConsolesContainer } from '../containers/consoles.containers';
 import {
   MetricsContainer,
   RecentEventsContainer,
@@ -24,6 +25,8 @@ export function Overview() {
       <div style={{ marginTop: 16 }}>
         <RecentEventsContainer />
       </div>
+
+      <ConsolesContainer />
     </div>
   );
 }

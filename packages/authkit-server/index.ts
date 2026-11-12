@@ -142,6 +142,14 @@ export type {
 } from './src/console_authorize.js';
 export { authorizeByToken } from './src/console_authorize.js';
 export type {
+  AgoraConsoleDecision,
+  AgoraConsoleEntry,
+  AgoraConsoleIcon,
+  AgoraConsoleRegistry,
+  AgoraConsoleSearchHit,
+} from './src/console_switcher.js';
+export { AGORA_CONSOLES_BINDING, registerAgoraConsole } from './src/console_switcher.js';
+export type {
   AdminApiConfigInput,
   AdminConfigInput,
   AuthHostRenderer,

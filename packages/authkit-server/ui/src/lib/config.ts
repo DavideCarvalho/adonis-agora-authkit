@@ -6,6 +6,10 @@ export interface AuthKitConfig {
   currentUser: { id: string; email: string; roles: string[] } | null;
   endpoints: { api: string; confirm?: string };
   features?: { personalAgents?: boolean; rolesManagedExternally?: boolean };
+  /** Present only when other `@adonis-agora` consoles are registered. */
+  switcher?: { endpoint: string; others: number };
+  /** Global search across the consoles this viewer may open. */
+  search?: { endpoint: string };
 }
 
 /** Id of the JSON data block the server embeds (see `admin_shell_controller.ts`). */

@@ -2,6 +2,7 @@ import React from 'react';
 import { getConfig } from '../lib/config';
 import { type Route, useRouter } from '../lib/router';
 import { useTheme } from '../lib/theme';
+import { ConsoleSwitcher } from './ConsoleSwitcher';
 
 const navItems = [
   {
@@ -149,21 +150,25 @@ export function Sidebar() {
 
   return (
     <aside className="sidebar">
-      <div className="brand">
-        <div className="brand-logo">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <circle cx="8" cy="8" r="6.5" />
-            <path d="M5 8l2.5 2.5L11 5.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          <div className="ring" />
-        </div>
-        <div className="brand-text">
-          <div className="brand-name">
-            Auth<span>Kit</span>
-          </div>
-          <div className="brand-sub">Admin Console</div>
-        </div>
-      </div>
+      <ConsoleSwitcher
+        brand={
+          <>
+            <div className="brand-logo">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <circle cx="8" cy="8" r="6.5" />
+                <path d="M5 8l2.5 2.5L11 5.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <div className="ring" />
+            </div>
+            <div className="brand-text">
+              <div className="brand-name">
+                Auth<span>Kit</span>
+              </div>
+              <div className="brand-sub">Admin Console</div>
+            </div>
+          </>
+        }
+      />
 
       <nav className="nav">
         {navItems

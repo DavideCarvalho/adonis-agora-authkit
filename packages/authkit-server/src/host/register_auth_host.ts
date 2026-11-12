@@ -1,5 +1,7 @@
 import type { Router } from '@adonisjs/core/http';
+import { getBootedApp } from '../../services/booted_app.js';
 import type { ConsoleAuthorizeDecision } from '../console_authorize.js';
+import { registerAgoraConsole } from '../console_switcher.js';
 import type { AuthSocialConfig, RateLimitConfigInput } from '../define_config.js';
 import { resolveRateLimit } from '../define_config.js';
 import { accountHome } from './account_home.js';
@@ -17,6 +19,7 @@ import { resolveAccountRoles } from './account_roles.js';
 import { ACCOUNT_SESSION_KEY } from './account_session_key.js';
 import { adminApiGuard } from './admin_api/admin_api_guard.js';
 import { adminAuthorizeChecker, appInProduction } from './admin_authorize.js';
+import { adminConsoleEntry } from './admin_console/admin_console_entry.js';
 import {
   normalizeAdminApiPrefix,
   normalizeAdminPrefix,
@@ -112,6 +115,21 @@ async function checkAndRefreshIdle(ctx: any): Promise<boolean> {
     return false;
   } catch {
     // FAIL-SAFE: nunca encerra a sessão em caso de erro.
+    return false;
+  }
+}
+
+/** Read-only twin of {@link checkAndRefreshIdle}: whether the idle timeout passed. Never writes. */
+async function isIdleExpired(ctx: any): Promise<boolean> {
+  try {
+    const runtimeSettings = await resolveRuntimeSettings(ctx);
+    if (!runtimeSettings) return false;
+    const policy = await resolveEffectiveSessionPolicy(runtimeSettings);
+    const idleMs = policy.idleTimeoutMinutes * 60 * 1000;
+    if (idleMs <= 0) return false;
+    const lastSeen = ctx.session?.get(ACCOUNT_LAST_SEEN_KEY) as number | undefined;
+    return lastSeen !== undefined && Date.now() - lastSeen > idleMs;
+  } catch {
     return false;
   }
 }
@@ -217,44 +235,70 @@ const accountGuard = async (ctx: any, next: () => Promise<void>) => {
  * As roles permitidas são resolvidas em runtime do `authkit.server` (config lazy).
  */
 export const adminGuard = async (ctx: any, next: () => Promise<void>) => {
+  const access = await evaluateAdminAccess(ctx);
+  switch (access.kind) {
+    case 'allowed':
+      return next();
+    case 'disabled':
+      // Defesa contra flag-drift: as rotas são montadas com `admin: true` em tempo de
+      // registro, ANTES de o config resolver. Se o config tiver `admin.enabled: false`,
+      // as rotas existem mas o console deve estar desligado — 404 (não vaza a existência).
+      return ctx.response.notFound();
+    case 'agent':
+      return ctx.response.status(403).send('');
+    case 'signed-out':
+      // `/account/login` é sempre o login da conta — NÃO muda com o prefixo admin.
+      return unauthenticated(ctx, buildLoginRedirect(ctx));
+    case 'idle':
+      return unauthenticated(ctx, buildLoginRedirect(ctx, 'reason=idle'));
+    case 'not-admin':
+      // Evita vazar a existência do console admin: redireciona para o accountHome
+      // (sem mostrar a URL do admin).
+      if (wantsJson(ctx)) {
+        return ctx.response
+          .status(403)
+          .send({ error: { code: 'forbidden', message: 'Admin role required.' } });
+      }
+      return redirectExact(ctx.response, accountHome(access.cfg));
+    case 'denied':
+      return consoleDenied(ctx, access.decision);
+  }
+};
+
+/** The outcome of the admin console gate, before it becomes a response. */
+type AdminAccess =
+  | { kind: 'allowed' | 'disabled' | 'agent' | 'signed-out' | 'idle' }
+  | { kind: 'not-admin'; cfg: any }
+  | { kind: 'denied'; decision: Extract<ConsoleAuthorizeDecision, { allowed: false }> };
+
+/**
+ * The admin console gate: the session, then `admin.roles`, then `admin.authorize`.
+ *
+ * `probe: true` is the console switcher asking from another console: it reads the idle timeout
+ * without refreshing or ending the session.
+ */
+async function evaluateAdminAccess(
+  ctx: any,
+  options: { probe?: boolean } = {},
+): Promise<AdminAccess> {
   const service = await ctx.containerResolver.make('authkit.server');
   const cfg = service.config;
-  // Defesa contra flag-drift: as rotas são montadas com `admin: true` em tempo de
-  // registro, ANTES de o config resolver. Se o config tiver `admin.enabled: false`,
-  // as rotas existem mas o console deve estar desligado — 404 (não vaza a existência).
-  if (!cfg.admin.enabled) {
-    return ctx.response.notFound();
-  }
-  if (isAgentBrowser(ctx)) return ctx.response.status(403).send('');
+  if (!cfg.admin.enabled) return { kind: 'disabled' };
+  if (isAgentBrowser(ctx)) return { kind: 'agent' };
   // Com `accountSession.acceptIdpSession`, a sessão do IdP também abre o console.
   await ensureConsoleSession(ctx);
   const accountId = ctx.session?.get(ACCOUNT_SESSION_KEY) as string | undefined;
-  if (!accountId) {
-    // `/account/login` é sempre o login da conta — NÃO muda com o prefixo admin.
-    return unauthenticated(ctx, buildLoginRedirect(ctx));
-  }
+  if (!accountId) return { kind: 'signed-out' };
   // Idle timeout: também protege o console admin.
-  const idleExpired = await checkAndRefreshIdle(ctx);
-  if (idleExpired) {
-    return unauthenticated(ctx, buildLoginRedirect(ctx, 'reason=idle'));
-  }
+  const idleExpired = options.probe ? await isIdleExpired(ctx) : await checkAndRefreshIdle(ctx);
+  if (idleExpired) return { kind: 'idle' };
   const allowed = cfg.admin.roles as string[];
   const account = await cfg.accountStore.findById(accountId);
   // Resolve roles through the host's role authority (`resolveTokenRoles`) when set — the same source
   // the token claim is minted from — so an app-role admin reaches the console. Falls back to the
   // account's stored `globalRoles` when no hook is configured.
   const roles = account ? await resolveAccountRoles(cfg, account) : [];
-  const isAdmin = roles.some((r: string) => allowed.includes(r));
-  if (!isAdmin) {
-    // Evita vazar a existência do console admin: redireciona para o accountHome
-    // (sem mostrar a URL do admin).
-    if (wantsJson(ctx)) {
-      return ctx.response
-        .status(403)
-        .send({ error: { code: 'forbidden', message: 'Admin role required.' } });
-    }
-    return redirectExact(ctx.response, accountHome(cfg));
-  }
+  if (!roles.some((r: string) => allowed.includes(r))) return { kind: 'not-admin', cfg };
   // `admin.authorize`, after the roles: both must pass. Omitted, the console is open
   // outside production and closed (403) in production.
   const decision: ConsoleAuthorizeDecision = cfg.admin.authorize
@@ -262,9 +306,53 @@ export const adminGuard = async (ctx: any, next: () => Promise<void>) => {
     : appInProduction()
       ? { allowed: false, status: 403 }
       : { allowed: true };
-  if (!decision.allowed) return consoleDenied(ctx, decision);
-  return next();
-};
+  if (!decision.allowed) return { kind: 'denied', decision };
+  return { kind: 'allowed' };
+}
+
+/**
+ * The admin console gate as the console switcher reads it: `{ allowed }`, never a response, never a
+ * throw. Used as the `authorize` of the admin console's `'agora.consoles'` entry.
+ */
+export async function adminConsoleDecision(
+  ctx: any,
+): Promise<{ allowed: boolean; reason?: 'unauthenticated' | 'forbidden' }> {
+  try {
+    const access = await evaluateAdminAccess(ctx, { probe: true });
+    if (access.kind === 'allowed') return { allowed: true };
+    const unauthenticated =
+      access.kind === 'signed-out' ||
+      access.kind === 'idle' ||
+      (access.kind === 'denied' && access.decision.status === 401);
+    return { allowed: false, reason: unauthenticated ? 'unauthenticated' : 'forbidden' };
+  } catch {
+    return { allowed: false, reason: 'forbidden' };
+  }
+}
+
+/**
+ * Registers the admin console in the shared `'agora.consoles'` registry, so every other
+ * `@adonis-agora` console's switcher can link to it. A no-op when the provider did not register the
+ * app (tests that mount routes on a bare router).
+ */
+function announceAdminConsole(adminPrefix: string): void {
+  let app: ReturnType<typeof getBootedApp>;
+  try {
+    app = getBootedApp();
+  } catch {
+    return;
+  }
+  void (async () => {
+    const logger = (await app.container.make('logger').catch(() => undefined)) as
+      | { warn(message: string): void }
+      | undefined;
+    await registerAgoraConsole(
+      app as never,
+      adminConsoleEntry(adminPrefix, adminConsoleDecision),
+      logger,
+    );
+  })().catch(() => {});
+}
 
 /** The response for an `admin.authorize` denial: same rules in every `@adonis-agora` console. */
 function consoleDenied(
@@ -646,6 +734,7 @@ const C = {
   // Console React JSON API (session-authed, under {prefix}/api/*).
   consoleShell: () => import('./admin_console/admin_shell_controller.js'),
   consoleOverview: () => import('./admin_console/console_overview_controller.js'),
+  consoleSwitcher: () => import('./admin_console/console_switcher_controller.js'),
   consoleUsers: () => import('./admin_console/console_users_controller.js'),
   consoleSessions: () => import('./admin_console/console_sessions_controller.js'),
   consoleClients: () => import('./admin_console/console_clients_controller.js'),
@@ -1382,6 +1471,8 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
     resolvedAdminPrefix = ap;
     // Persiste no singleton de processo para que controllers e views usem o mesmo prefixo.
     setAdminPrefix(ap);
+    // Announce the console to the other `@adonis-agora` consoles (the switcher).
+    announceAdminConsole(ap);
 
     router
       .group(() => {
@@ -1399,6 +1490,10 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
         // ─── JSON API do console (session-authed via adminGuard upstream) ─────
         // GET {ap}/api/overview
         router.get(`${ap}/api/overview`, [C.consoleOverview, 'handle']);
+        // Console switcher: the other `@adonis-agora` consoles this viewer may open, and the
+        // global search across them (search BEFORE the list: fixed path first).
+        router.get(`${ap}/api/consoles/search`, [C.consoleSwitcher, 'search']);
+        router.get(`${ap}/api/consoles`, [C.consoleSwitcher, 'index']);
         // Usuários.
         router.get(`${ap}/api/users`, [C.consoleUsers, 'index']);
         router.get(`${ap}/api/users/:id`, [C.consoleUsers, 'show']);
