@@ -1,78 +1,103 @@
 // agora-doctor command v1 — keep identical across libs
+// Every @adonis-agora lib ships this command; whichever copy Ace loads last wins, and they all
+// behave the same. Change it in @adonis-agora/durable first.
+
 import { BaseCommand, flags } from '@adonisjs/core/ace';
 import type { CommandOptions } from '@adonisjs/core/types/ace';
-import { executeAgoraDoctor } from '../src/doctor/agora_doctor.js';
+import {
+  AgoraDoctorUsageError,
+  discoverDoctorChecks,
+  readDoctorChecks,
+  renderAgoraDoctor,
+  runAgoraDoctor,
+} from '../src/doctor/agora_doctor.js';
 
+/**
+ * `node ace agora:doctor`: one health check for every installed `@adonis-agora` lib. Exit code `0`
+ * when nothing is an error (`--strict`: nor a warning), `1` otherwise, `2` when the doctor itself
+ * cannot run.
+ */
 export default class AgoraDoctor extends BaseCommand {
-  static commandName = 'agora:doctor';
-  static description =
-    'Check the configuration of every installed @adonis-agora lib (exit 1 on errors, 2 if the doctor cannot run)';
+  static override commandName = 'agora:doctor';
+  static override description = 'Check the configuration of every installed @adonis-agora lib';
+  // The app is booted by `run()` itself, so `--no-boot` can skip it.
+  static override options: CommandOptions = { startApp: false };
 
-  static help = [
-    'Runs the health checks every installed @adonis-agora lib registered.',
-    '',
-    '  node ace agora:doctor                 human output',
-    '  node ace agora:doctor --json --strict CI: one JSON object, fail on warnings too',
-    '  node ace agora:doctor --deep          also checks that touch the database, Redis or network',
-    '  node ace agora:doctor --no-boot       config and providers register() only, for a broken boot',
-  ];
-
-  // The doctor boots the app itself, so `--no-boot` can stop before providers' boot().
-  static options: CommandOptions = { startApp: false };
+  /** A `<lib>:doctor` alias sets this to pre-filter its lib. */
+  protected presetLib: string | undefined = undefined;
 
   @flags.boolean({ description: 'Print one JSON object to stdout' })
   declare json: boolean;
 
-  @flags.boolean({ description: 'Also run deep checks (database, Redis, network)' })
-  declare deep: boolean;
-
   @flags.string({ description: 'Only these libs, comma separated (durable,payments)' })
   declare lib?: string;
 
-  @flags.string({ description: 'Run one check by id (durable.verify-tenant)' })
+  @flags.boolean({ description: 'Also run checks that touch the database, Redis or the network' })
+  declare deep: boolean;
+
+  @flags.string({ description: 'Run one check by id' })
   declare only?: string;
 
-  @flags.boolean({ description: 'Exit 1 on warnings too' })
+  @flags.boolean({ description: 'Fail (exit 1) on warnings too' })
   declare strict: boolean;
 
   @flags.boolean({ description: 'Show skipped checks and every message' })
   declare verbose: boolean;
 
   @flags.boolean({
-    description: 'Boot the app (default). --no-boot loads config and runs register() only',
+    description: 'Boot the app first; --no-boot checks the config only (when boot itself fails)',
     default: true,
     showNegatedVariantInHelp: true,
   })
   declare boot: boolean;
 
-  async run() {
-    const colors = this.colors;
-    const tty = process.stdout.isTTY === true && !process.env.NO_COLOR;
-    this.exitCode = await executeAgoraDoctor(
-      this.app,
-      {
-        json: this.json,
-        deep: this.deep,
-        lib: this.lib,
-        only: this.only,
-        strict: this.strict,
-        verbose: this.verbose,
-        boot: this.boot,
-      },
-      {
-        out: (line) => this.logger.log(line),
-        err: (line) => this.logger.logError(line),
-        symbols: process.stdout.isTTY === true,
-        palette: tty
-          ? {
-              green: (t) => colors.green(t),
-              yellow: (t) => colors.yellow(t),
-              red: (t) => colors.red(t),
-              dim: (t) => colors.dim(t),
-              bold: (t) => colors.bold(t),
-            }
-          : undefined,
-      },
-    );
+  override async run(): Promise<void> {
+    const err = (line: string) => process.stderr.write(`${line}\n`);
+    try {
+      let checks: Awaited<ReturnType<typeof readDoctorChecks>>;
+      if (this.boot === false) {
+        checks = (await discoverDoctorChecks(this.app)).filter((check) => check.cost !== 'deep');
+      } else {
+        if (!this.app.isReady) {
+          await this.app.boot();
+          await this.app.start(() => {});
+        }
+        checks = await readDoctorChecks(this.app.container);
+      }
+      const libs = (this.lib ?? this.presetLib)
+        ?.split(',')
+        .map((name) => name.trim())
+        .filter(Boolean);
+      const { report, exitCode } = await runAgoraDoctor(this.app, checks, {
+        ...(libs ? { libs } : {}),
+        ...(this.only ? { only: this.only } : {}),
+        deep: this.deep === true && this.boot !== false,
+        strict: this.strict === true,
+      });
+      if (this.json) {
+        process.stdout.write(`${JSON.stringify(report)}\n`);
+      } else {
+        const fancy = process.stdout.isTTY === true && !process.env.NO_COLOR;
+        const c = this.colors;
+        process.stdout.write(
+          renderAgoraDoctor(report, {
+            verbose: this.verbose === true,
+            fancy,
+            paint: {
+              green: (t) => c.green(t),
+              yellow: (t) => c.yellow(t),
+              red: (t) => c.red(t),
+              dim: (t) => c.dim(t),
+              bold: (t) => c.bold(t),
+            },
+          }),
+        );
+      }
+      this.exitCode = exitCode;
+    } catch (error) {
+      if (!(error instanceof AgoraDoctorUsageError)) throw error;
+      err(`agora:doctor: ${error.message}`);
+      this.exitCode = 2;
+    }
   }
 }

@@ -85,9 +85,13 @@ export const AUTHKIT_DOCTOR_TABLE: ReadonlyArray<
   ['authkit.console-sign-in', 'Console sign-in', checkConsoleSignIn],
 ];
 
+export const AUTHKIT_DOCTOR_PACKAGE = '@adonis-agora/authkit-server';
+
 interface Prepared {
   input: DoctorInput | null;
   error: string | null;
+  /** `agora:doctor --no-boot`: config is not loaded, so the config checks cannot run. */
+  notBooted?: boolean;
 }
 
 /** One input per app per doctor run: every check reads the same resolved config. */
@@ -95,6 +99,10 @@ const prepared = new WeakMap<object, Promise<Prepared>>();
 
 function prepare(app: ApplicationService): Promise<Prepared> {
   let entry = prepared.get(app);
+  const state = (app as { getState?(): string }).getState?.();
+  if (state === 'created' || state === 'initiated') {
+    return Promise.resolve({ input: null, error: null, notBooted: true });
+  }
   if (!entry) {
     // Loaded on demand: the provider imports this module, and the input builder pulls in adapters.
     entry = import('./doctor_input.js')
@@ -155,9 +163,12 @@ export function authkitDoctorChecks(): AgoraDoctorCheck[] {
   const checks: AgoraDoctorCheck[] = AUTHKIT_DOCTOR_TABLE.map(([id, title, fn]) => ({
     id,
     lib: 'authkit',
+    package: AUTHKIT_DOCTOR_PACKAGE,
     title,
     async run(app) {
-      const { input, error } = await prepare(app);
+      const { input, error, notBooted } = await prepare(app);
+      if (notBooted)
+        return [{ status: 'skip', message: 'needs a booted app (run without --no-boot)' }];
       if (input === null) {
         return id === 'authkit.config-resolves'
           ? [
@@ -176,6 +187,7 @@ export function authkitDoctorChecks(): AgoraDoctorCheck[] {
     {
       id: 'authkit.signing-key-age',
       lib: 'authkit',
+      package: AUTHKIT_DOCTOR_PACKAGE,
       title: 'Signing key age',
       async run(app) {
         const { input } = await prepare(app);
@@ -187,9 +199,12 @@ export function authkitDoctorChecks(): AgoraDoctorCheck[] {
     {
       id: 'authkit.console-gate',
       lib: 'authkit',
+      package: AUTHKIT_DOCTOR_PACKAGE,
       title: 'Admin console access in production',
       async run(app) {
-        const { input } = await prepare(app);
+        const { input, notBooted } = await prepare(app);
+        if (notBooted)
+          return { status: 'skip', message: 'needs a booted app (run without --no-boot)' };
         return consoleGateResult(input?.authkitConfig ?? null, app.inProduction);
       },
     },

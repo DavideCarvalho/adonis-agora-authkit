@@ -336,7 +336,7 @@
     },
     {
       "commandName": "agora:doctor",
-      "description": "Check the configuration of every installed @adonis-agora lib (exit 1 on errors, 2 if the doctor cannot run)",
+      "description": "Check the configuration of every installed @adonis-agora lib",
       "namespace": "agora",
       "aliases": [],
       "flags": [
@@ -348,13 +348,6 @@
           "description": "Print one JSON object to stdout"
         },
         {
-          "name": "deep",
-          "flagName": "deep",
-          "required": false,
-          "type": "boolean",
-          "description": "Also run deep checks (database, Redis, network)"
-        },
-        {
           "name": "lib",
           "flagName": "lib",
           "required": false,
@@ -362,18 +355,25 @@
           "description": "Only these libs, comma separated (durable,payments)"
         },
         {
+          "name": "deep",
+          "flagName": "deep",
+          "required": false,
+          "type": "boolean",
+          "description": "Also run checks that touch the database, Redis or the network"
+        },
+        {
           "name": "only",
           "flagName": "only",
           "required": false,
           "type": "string",
-          "description": "Run one check by id (durable.verify-tenant)"
+          "description": "Run one check by id"
         },
         {
           "name": "strict",
           "flagName": "strict",
           "required": false,
           "type": "boolean",
-          "description": "Exit 1 on warnings too"
+          "description": "Fail (exit 1) on warnings too"
         },
         {
           "name": "verbose",
@@ -387,13 +387,15 @@
           "flagName": "boot",
           "required": false,
           "type": "boolean",
-          "description": "Boot the app (default). --no-boot loads config and runs register() only",
+          "description": "Boot the app first; --no-boot checks the config only (when boot itself fails)",
           "default": true,
           "showNegatedVariantInHelp": true
         }
       ],
       "args": [],
-      "options": { "startApp": false },
+      "options": {
+        "startApp": false
+      },
       "filePath": "agora_doctor.js"
     }
   ]

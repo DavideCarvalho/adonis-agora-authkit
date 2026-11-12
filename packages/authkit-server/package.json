@@ -46,7 +46,8 @@
     "./telescope": "./build/src/observability/telescope/index.js",
     "./authkit_server_provider": "./build/providers/authkit_server_provider.js",
     "./commands": "./build/commands/main.js",
-    "./commands/configure": "./build/commands/configure.js"
+    "./commands/configure": "./build/commands/configure.js",
+    "./doctor": "./build/src/doctor/index.js"
   },
   "adonisjs": {
     "types": "@adonis-agora/authkit-server",

@@ -35,6 +35,10 @@ export default class AuthkitServerProvider {
   constructor(protected app: ApplicationService) {}
 
   async boot() {
+    // `node ace agora:doctor` reads these after boot, from the registry every @adonis-agora lib
+    // shares. Registered here rather than in `register()`, which AdonisJS does not await.
+    await registerDoctorChecks(this.app.container, authkitDoctorChecks());
+
     // EAGER + LOUD (fail-fast): se o host configurou `config/authkit.ts`, a
     // `appKey` é indispensável — o oidc-provider a usa para assinar TODOS os
     // cookies (keygrip). Antes, essa validação só rodava dentro do factory
@@ -183,13 +187,6 @@ export default class AuthkitServerProvider {
     // que o `bin/server` bootou — dual-package hazard do core (ver
     // `services/booted_app.ts`).
     setBootedApp(this.app);
-
-    // `node ace agora:doctor`: authkit's checks, in the registry every @adonis-agora lib shares.
-    void registerDoctorChecks(
-      this.app,
-      { lib: 'authkit', package: '@adonis-agora/authkit-server', from: import.meta.url },
-      authkitDoctorChecks(),
-    );
 
     this.app.container.singleton('authkit.server', async () => {
       const configProviderValue = this.app.config.get('authkit');

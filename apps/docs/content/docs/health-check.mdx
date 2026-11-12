@@ -12,7 +12,7 @@ node ace agora:doctor
 ```
 
 ```
-@adonis-agora doctor · development · 1 libs · 38 checks
+@adonis-agora doctor · development · 1 lib · 38 checks
 
 authkit 1.0.0-rc.4
   ✔ Provider registered
@@ -37,10 +37,10 @@ and prints the authkit findings only.
 | `--lib=authkit,durable` | Only these libs. |
 | `--only=authkit.console-gate` | Runs one check by id. |
 | `--verbose` | Shows skipped checks and the message of every check. |
-| `--no-boot` | Loads the config and runs the providers' `register()` only. Use it when the app does not boot. |
+| `--no-boot` | Does not boot the app: imports each installed lib's checks directly. Use it when the app does not boot; checks that need the booted app (authkit's config checks) are skipped. |
 
 Exit codes: `0` no error (warnings allowed), `1` at least one error (or a warning with `--strict`),
-`2` the doctor could not run (the app failed to boot, or an unknown `--lib` or `--only`). With `--no-boot`, a provider whose `register()` fails is reported as an `agora.no-boot` error.
+`2` the doctor could not run (an unknown `--only`, or a doctor registry from an incompatible lib version).
 
 ## In CI
 
@@ -62,7 +62,7 @@ Ids are stable: use them with `--only` and in CI allowlists.
 | --- | --- |
 | `authkit.registered` | The authkit provider is in `adonisrc.ts`. |
 | `authkit.peers` | Every peer dependency is installed in a matching version; optional peers may be absent. |
-| `authkit.agora-siblings` | Only one version of each related `@adonis-agora` package is installed. |
+| `authkit.agora-siblings` | The app does not mix 0.x and 1.x `@adonis-agora` libs. |
 | `authkit.config-resolves` | `config/authkit.ts` resolves. |
 | `authkit.issuer` | `issuer` is a valid URL and matches `mountPath`. |
 | `authkit.clients` | Where OIDC clients live. |
