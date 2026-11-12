@@ -3,7 +3,13 @@ import { getBootedApp } from '../../services/booted_app.js';
 import { accountPathsMap, accountPrefix, joinAccountPath } from '../host/account_paths.js';
 import type { AccountExtensionOverride } from './extension.js';
 import { AccountExtensionRegistryImpl } from './registry.js';
-import { accountExtensionPages, type BuiltinNavId, setAccountConsoleState } from './runtime.js';
+import { type RemoteAccountExtensionSource, RemoteAccountExtensions } from './remote.js';
+import {
+  accountExtensionPages,
+  type BuiltinNavId,
+  remoteAccountPageBySegment,
+  setAccountConsoleState,
+} from './runtime.js';
 
 type Middleware = (ctx: HttpContext, next: () => Promise<void>) => Promise<unknown>;
 
@@ -57,6 +63,28 @@ export interface MountAccountExtensionsOptions {
   builtins: Partial<Record<BuiltinNavId, string>>;
   /** Filled in place once the routes are mounted. */
   entries: AccountExtensionRouteEntry[];
+  /** `accountConsole.remote`: apps that serve pages for this console. */
+  remote?: readonly RemoteAccountExtensionSource[];
+  /** `accountConsole.actionTimeoutMs`. */
+  actionTimeoutMs?: number;
+}
+
+/** The IdP's issuer and signing keys, from the OIDC service of the booted app. */
+async function signingSource() {
+  const service = (await getBootedApp().container.make('authkit.server' as never)) as any;
+  return { issuer: service.config.issuer as string, signingJwks: service.signingJwks };
+}
+
+/**
+ * A route matcher that only accepts the segments remote pages currently use, so the catch-all
+ * routes never shadow another route under the account prefix.
+ */
+function liveSegmentMatcher(): RegExp {
+  const matcher = /^[a-z0-9][a-z0-9-]{0,63}$/;
+  Object.defineProperty(matcher, 'test', {
+    value: (segment: string) => remoteAccountPageBySegment(segment) !== undefined,
+  });
+  return matcher;
 }
 
 const H = () => import('./http.js');
@@ -94,6 +122,58 @@ export function mountAccountExtensions(router: any, options: MountAccountExtensi
     })
     .use([options.guard]);
 
+  const remote =
+    options.remote && options.remote.length > 0
+      ? new RemoteAccountExtensions(options.remote, {
+          signing: signingSource,
+          pathOf: (segment) => joinAccountPath(segment),
+          production: inProduction(),
+          ...(options.actionTimeoutMs !== undefined
+            ? { actionTimeoutMs: options.actionTimeoutMs }
+            : {}),
+        })
+      : null;
+
+  const pushEntries = (pages: readonly { page: any; segment: string; order: number }[]) => {
+    for (const page of pages) {
+      if (page.page.nav === false) continue;
+      if (options.entries.some((entry) => entry.id === page.page.id)) continue;
+      const label = page.page.nav?.label ?? page.page.title;
+      options.entries.push({
+        id: page.page.id,
+        href: joinAccountPath(page.segment),
+        label: typeof label === 'string' ? label : label.key,
+        order: page.order,
+      });
+    }
+  };
+
+  const mountRemote = () => {
+    if (!remote) return;
+    const segment = { xsegment: { match: liveSegmentMatcher() } };
+    const page = (ctx: HttpContext) => remoteAccountPageBySegment(String(ctx.params.xsegment));
+    router
+      .group(() => {
+        router
+          .get(joinAccountPath(':xsegment'), async (ctx: HttpContext) =>
+            (await H()).showRemotePage(ctx, page(ctx)),
+          )
+          .where('xsegment', segment.xsegment);
+        router
+          .get(joinAccountPath(':xsegment/actions/:action/confirm'), async (ctx: HttpContext) =>
+            (await H()).showRemoteActionStep(ctx, page(ctx)),
+          )
+          .where('xsegment', segment.xsegment);
+        const post = router
+          .post(joinAccountPath(':xsegment/actions/:action'), async (ctx: HttpContext) =>
+            (await H()).postRemoteAction(ctx, page(ctx)),
+          )
+          .where('xsegment', segment.xsegment);
+        if (options.throttle) post.use([options.throttle.html]);
+      })
+      .use([options.guard]);
+  };
+
   const mountPages = () => {
     const reg = accountExtensionRegistry();
     const pages = reg.freeze({
@@ -101,7 +181,15 @@ export function mountAccountExtensions(router: any, options: MountAccountExtensi
       builtinSegments: builtinSegments(),
       production: inProduction(),
     });
-    setAccountConsoleState({ pages, builtins: options.builtins, registry: reg });
+    setAccountConsoleState({
+      pages,
+      builtins: options.builtins,
+      registry: reg,
+      remote,
+      builtinSegments: builtinSegments(),
+      ...(options.overrides ? { overrides: options.overrides } : {}),
+    });
+    mountRemote();
     if (pages.length === 0) return;
     router
       .group(() => {
@@ -118,16 +206,14 @@ export function mountAccountExtensions(router: any, options: MountAccountExtensi
         }
       })
       .use([options.guard]);
-    for (const page of accountExtensionPages()) {
-      if (page.page.nav === false) continue;
-      const label = page.page.nav?.label ?? page.page.title;
-      options.entries.push({
-        id: page.page.id,
-        href: joinAccountPath(page.segment),
-        label: typeof label === 'string' ? label : label.key,
-        order: page.order,
-      });
-    }
+    pushEntries(pages);
+  };
+
+  // Remote manifests: fetched when the app starts (bounded), refreshed in the background after.
+  const startRemote = async () => {
+    if (!remote) return;
+    await remote.start();
+    pushEntries(accountExtensionPages().filter((page) => page.remote !== undefined));
   };
 
   setAccountConsoleState({ builtins: options.builtins, registry: accountExtensionRegistry() });
@@ -136,7 +222,9 @@ export function mountAccountExtensions(router: any, options: MountAccountExtensi
   const app = lifecycleApp();
   if (app && app.isBooted === false && typeof app.starting === 'function') {
     app.starting(mountPages);
+    if (remote) app.starting(startRemote);
   } else {
     mountPages();
+    if (remote) void startRemote();
   }
 }

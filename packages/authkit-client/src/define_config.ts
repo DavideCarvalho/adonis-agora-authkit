@@ -1,4 +1,4 @@
-import type { Identity } from '@adonis-agora/authkit-core';
+import type { Identity, RunAccountExtensionCallOptions } from '@adonis-agora/authkit-core';
 import { configProvider } from '@adonisjs/core';
 import type { SessionIndex } from './backchannel_logout.js';
 import type { OidcEndpoints } from './discovery.js';
@@ -26,6 +26,25 @@ export type BackchannelLogoutCallback = (event: {
 export interface BackchannelLogoutInput {
   /** Store que persiste/consulta revogações (ex.: `lucidRevocationStore({ connection: 'auth' })`). */
   store: RevocationStore;
+}
+
+/** `accountConsole` in `config/authkit_client.ts`: pages this app serves for the IdP's account console. */
+export interface ClientAccountConsoleConfig {
+  /**
+   * Serve this app's account console extensions to the IdP over
+   * `/.well-known/agora-account-extensions` (the IdP lists this app in its own
+   * `accountConsole.remote`). Default `false`.
+   */
+  remote?: boolean;
+  /**
+   * Maps the IdP account to this app's subject (what billing, media and agents key on). Every
+   * extension receives it as `ctx.subject`. Default `{ type: 'User', id: account.id }`.
+   */
+  subject?: RunAccountExtensionCallOptions['subject'];
+  /** Budget of one page's `load()` / `visible()`, in ms. Default 5000. */
+  loadTimeoutMs?: number;
+  /** Budget of one action's `handle()`, in ms. Default 15000. */
+  actionTimeoutMs?: number;
 }
 
 export interface ClientConfigInput {
@@ -84,6 +103,8 @@ export interface ClientConfigInput {
    * `resolve`. No effect without `@adonis-agora/context`.
    */
   tenancy?: ClientTenancyOptions;
+  /** Account console pages this app serves to the IdP. See {@link ClientAccountConsoleConfig}. */
+  accountConsole?: ClientAccountConsoleConfig;
 }
 
 export interface ResolvedClientConfig {
@@ -108,6 +129,8 @@ export interface ResolvedClientConfig {
   endpoints?: Partial<OidcEndpoints>;
   /** Tenancy options. See {@link ClientConfigInput.tenancy}. */
   tenancy?: ClientTenancyOptions;
+  /** See {@link ClientConfigInput.accountConsole}. */
+  accountConsole?: ClientAccountConsoleConfig;
 }
 
 export function defineConfig(config: ClientConfigInput) {
@@ -147,6 +170,7 @@ export function defineConfig(config: ClientConfigInput) {
             : {},
       endpoints: config.endpoints,
       tenancy: config.tenancy ?? {},
+      ...(config.accountConsole ? { accountConsole: config.accountConsole } : {}),
     };
   });
 }

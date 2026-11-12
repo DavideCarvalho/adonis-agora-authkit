@@ -1468,6 +1468,10 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
         ? { throttle: { html: throttles.accountActions, json: throttles.accountActionsJson } }
         : {}),
       overrides: hostCfg?.accountConsole?.extensions,
+      ...(hostCfg?.accountConsole?.remote ? { remote: hostCfg.accountConsole.remote } : {}),
+      ...(hostCfg?.accountConsole?.actionTimeoutMs !== undefined
+        ? { actionTimeoutMs: hostCfg.accountConsole.actionTimeoutMs }
+        : {}),
       builtins,
       entries: extensionEntries,
     });
