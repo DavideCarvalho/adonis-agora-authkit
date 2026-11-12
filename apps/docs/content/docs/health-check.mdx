@@ -1,0 +1,103 @@
+---
+icon: Stethoscope
+title: Health check
+description: Check the configuration of authkit and every other @adonis-agora lib with one command.
+---
+
+`node ace agora:doctor` runs the health checks of every `@adonis-agora` lib installed in the app,
+authkit included, and prints what is misconfigured or risky.
+
+```bash
+node ace agora:doctor
+```
+
+```
+@adonis-agora doctor · development · 1 libs · 38 checks
+
+authkit 1.0.0-rc.4
+  ✔ Provider registered
+  ✔ Peer dependencies
+  ! Admin console access in production
+    admin console has no `admin.authorize`: open here, denies every request in production
+    fix: Set `admin.authorize` in config/authkit.ts
+  …
+38 checks: 33 ok · 1 warn · 0 error   (skipped 4, run with --verbose)
+```
+
+The command ships with authkit-server: no extra install. `node ace authkit:doctor` keeps working
+and prints the authkit findings only.
+
+## Flags
+
+| Flag | What it does |
+| --- | --- |
+| `--json` | Prints one JSON object to stdout (`version`, `env`, `summary`, `libs`, `results`). |
+| `--strict` | Exits `1` on warnings too. |
+| `--deep` | Also runs checks that touch the database, Redis or the network. |
+| `--lib=authkit,durable` | Only these libs. |
+| `--only=authkit.console-gate` | Runs one check by id. |
+| `--verbose` | Shows skipped checks and the message of every check. |
+| `--no-boot` | Loads the config and runs the providers' `register()` only. Use it when the app does not boot. |
+
+Exit codes: `0` no error (warnings allowed), `1` at least one error (or a warning with `--strict`),
+`2` the doctor could not run (an unknown `--lib` or `--only`).
+
+## In CI
+
+```yaml
+- name: Agora health check
+  run: node ace agora:doctor --json --strict
+  env:
+    NODE_ENV: production
+```
+
+Run it with the environment you deploy: some checks (console access, for example) are warnings in
+development and errors in production.
+
+## authkit checks
+
+Ids are stable: use them with `--only` and in CI allowlists.
+
+| Id | What it looks at |
+| --- | --- |
+| `authkit.registered` | The authkit provider is in `adonisrc.ts`. |
+| `authkit.peers` | Every peer dependency is installed in a matching version; optional peers may be absent. |
+| `authkit.agora-siblings` | Only one version of each related `@adonis-agora` package is installed. |
+| `authkit.config-resolves` | `config/authkit.ts` resolves. |
+| `authkit.issuer` | `issuer` is a valid URL and matches `mountPath`. |
+| `authkit.clients` | Where OIDC clients live. |
+| `authkit.adapter-volatility` | The adapter persists clients across restarts. |
+| `authkit.account-store` | The account store and its capabilities. |
+| `authkit.account-store-columns` | The model behind the account store has the columns authkit reads. |
+| `authkit.session` | `@adonisjs/session` is configured. |
+| `authkit.shield` | Shield's CSRF exceptions for `mountPath`. |
+| `authkit.ally` | `@adonisjs/ally` is present when social login is on. |
+| `authkit.rate-limit` | `@adonisjs/limiter` is present when rate limiting is on. |
+| `authkit.admin` | Admin console roles and `admin.authorize`. |
+| `authkit.require-verified-email` | The account store can check e-mail verification. |
+| `authkit.bot-protection` | Bot protection setup. |
+| `authkit.webauthn` | Passkey setup. |
+| `authkit.password-policy` | Password policy. |
+| `authkit.jwks` | Signing keys. |
+| `authkit.access-tokens` | Access token format. |
+| `authkit.organizations` | Organizations capability. |
+| `authkit.settings` | Runtime settings table and stored values. |
+| `authkit.auth-methods-setting` | The stored sign-in methods setting. |
+| `authkit.email-change` | E-mail change. |
+| `authkit.security-notifications` | Security notification e-mails. |
+| `authkit.password-pepper` | Password pepper. |
+| `authkit.password-history` | Password history. |
+| `authkit.password-expiration` | Password expiration. |
+| `authkit.session-policy` | Session policy. |
+| `authkit.roles-catalog` | Roles catalog. |
+| `authkit.otp-lockout` | OTP lockout needs `@adonisjs/limiter`. |
+| `authkit.sudo-mode` | Sudo mode. |
+| `authkit.account-expiration` | Account expiration. |
+| `authkit.passkey-autofill` | Passkey autofill. |
+| `authkit.first-party-clients` | First-party clients. |
+| `authkit.console-sign-in` | Console sign-in. |
+| `authkit.signing-key-age` | The managed signing key is younger than `rotationDays`. |
+| `authkit.console-gate` | The admin console has `admin.authorize`: a warning in development, an error in production. |
+
+A check that does not apply to your config (a feature you did not enable) is reported as skipped.
+See [Reference](/docs/reference#authkitdoctor--the-full-check-list) for what each check reports.

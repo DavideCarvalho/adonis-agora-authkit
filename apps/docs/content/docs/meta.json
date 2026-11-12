@@ -55,6 +55,7 @@
     "i18n",
     "agora-integration",
     "observability",
+    "health-check",
     "reference",
     "migrating-to-1-0",
     "changelog"

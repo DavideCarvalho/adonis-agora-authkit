@@ -60,6 +60,10 @@ jobs:
       - name: Check committed WebAuthn bundle
         run: pnpm --filter @adonis-agora/authkit-server check:webauthn-bundle
 
+      # `agora:doctor` ships in every @adonis-agora lib and must stay byte-identical to durable's copy.
+      - name: Check agora:doctor copy
+        run: pnpm --filter @adonis-agora/authkit-server check:agora-doctor
+
       - name: Typecheck
         run: pnpm -r typecheck
 

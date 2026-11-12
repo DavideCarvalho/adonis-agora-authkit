@@ -333,6 +333,68 @@
       "args": [],
       "options": { "startApp": true },
       "filePath": "expire_scan.js"
+    },
+    {
+      "commandName": "agora:doctor",
+      "description": "Check the configuration of every installed @adonis-agora lib (exit 1 on errors, 2 if the doctor cannot run)",
+      "namespace": "agora",
+      "aliases": [],
+      "flags": [
+        {
+          "name": "json",
+          "flagName": "json",
+          "required": false,
+          "type": "boolean",
+          "description": "Print one JSON object to stdout"
+        },
+        {
+          "name": "deep",
+          "flagName": "deep",
+          "required": false,
+          "type": "boolean",
+          "description": "Also run deep checks (database, Redis, network)"
+        },
+        {
+          "name": "lib",
+          "flagName": "lib",
+          "required": false,
+          "type": "string",
+          "description": "Only these libs, comma separated (durable,payments)"
+        },
+        {
+          "name": "only",
+          "flagName": "only",
+          "required": false,
+          "type": "string",
+          "description": "Run one check by id (durable.verify-tenant)"
+        },
+        {
+          "name": "strict",
+          "flagName": "strict",
+          "required": false,
+          "type": "boolean",
+          "description": "Exit 1 on warnings too"
+        },
+        {
+          "name": "verbose",
+          "flagName": "verbose",
+          "required": false,
+          "type": "boolean",
+          "description": "Show skipped checks and every message"
+        },
+        {
+          "name": "boot",
+          "flagName": "boot",
+          "required": false,
+          "type": "boolean",
+          "description": "Boot the app (default). --no-boot loads config and runs register() only",
+          "default": true,
+          "showNegatedVariantInHelp": true
+        }
+      ],
+      "args": [],
+      "options": { "startApp": false },
+      "filePath": "agora_doctor.js"
     }
   ]
 }

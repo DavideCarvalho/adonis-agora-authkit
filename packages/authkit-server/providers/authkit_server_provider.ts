@@ -18,6 +18,8 @@ import { RuntimeException } from '@adonisjs/core/exceptions';
 import type { ApplicationService } from '@adonisjs/core/types';
 import { setBootedApp } from '../services/booted_app.js';
 import { defaultEncryptForStore, type ResolvedServerConfig } from '../src/define_config.js';
+import { authkitDoctorChecks } from '../src/doctor/agora_checks.js';
+import { registerDoctorChecks } from '../src/doctor/agora_doctor.js';
 import { resolveAppKey } from '../src/host/app_key.js';
 import { resolveEffectiveKeyRotation } from '../src/host/key_rotation.js';
 import { RuntimeSettings } from '../src/host/runtime_settings.js';
@@ -181,6 +183,13 @@ export default class AuthkitServerProvider {
     // que o `bin/server` bootou — dual-package hazard do core (ver
     // `services/booted_app.ts`).
     setBootedApp(this.app);
+
+    // `node ace agora:doctor`: authkit's checks, in the registry every @adonis-agora lib shares.
+    void registerDoctorChecks(
+      this.app,
+      { lib: 'authkit', package: '@adonis-agora/authkit-server', from: import.meta.url },
+      authkitDoctorChecks(),
+    );
 
     this.app.container.singleton('authkit.server', async () => {
       const configProviderValue = this.app.config.get('authkit');
