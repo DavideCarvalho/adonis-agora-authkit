@@ -483,6 +483,7 @@ export type {
   AccountOrgsProps,
   AccountTokensProps,
   AgentConsentRequest,
+  AgentConsentScope,
   AgentsConsentProps,
   AgentsDoneProps,
   AuthkitScreen,

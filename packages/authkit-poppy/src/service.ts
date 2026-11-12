@@ -25,6 +25,7 @@ import type {
   PoppySignInType,
   ResolvedPoppyConfig,
 } from './config.js';
+import { AGORA_DEV_SCOPE, AGORA_DEV_SCOPE_DESCRIPTION, AGORA_DEV_SCOPE_MESSAGE } from './config.js';
 import { type DpopNonceSource, normalizeHtu, verifyDpopProof } from './dpop.js';
 import { PoppyError } from './errors.js';
 import { replayKey } from './replay.js';
@@ -176,13 +177,23 @@ export type PoppyVerifyResult =
     };
 
 /** Pedido Direct aguardando o usuário na tela de consentimento. */
+/** Um scope como as telas mostram. */
+export interface PoppyScopeDescription {
+  id: string;
+  description: string;
+  /** Chave de mensagem mostrada no lugar de `description`. */
+  descriptionKey?: string;
+  /** Não vem marcado na tela de consentimento: só é concedido se a pessoa marcar. */
+  optIn?: boolean;
+}
+
 export interface PoppyConsentRequest {
   id: string;
   clientId: string;
   agentName: string;
   agentOrigin: string;
   logoUri: string | null;
-  scopes: { id: string; description: string }[];
+  scopes: PoppyScopeDescription[];
   userCode?: string;
 }
 
@@ -367,9 +378,23 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
     return [this.cfg.organization.domain, ...this.cfg.organization.aliases];
   }
 
-  /** Descrição de um scope para o usuário. */
-  describe(ids: string[]): { id: string; description: string }[] {
-    return ids.map((id) => ({ id, description: this.cfg.scopes[id] ?? id }));
+  /**
+   * Descrição de um scope para o usuário. `agora:dev` vem desmarcado na tela de consentimento
+   * (`optIn`) e, sem descrição própria do app, com o texto traduzido (`descriptionKey`).
+   */
+  describe(ids: string[]): PoppyScopeDescription[] {
+    return ids.map((id) => {
+      const description = this.cfg.scopes[id] ?? id;
+      if (id !== AGORA_DEV_SCOPE) return { id, description };
+      return {
+        id,
+        description,
+        optIn: true,
+        ...(description === AGORA_DEV_SCOPE_DESCRIPTION
+          ? { descriptionKey: AGORA_DEV_SCOPE_MESSAGE }
+          : {}),
+      };
+    });
   }
 
   // ─── descoberta ───────────────────────────────────────────────────────────

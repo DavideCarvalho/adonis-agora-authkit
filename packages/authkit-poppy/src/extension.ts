@@ -27,6 +27,7 @@ import {
   type PoppyReplayStore,
   type ResolvedPoppyConfig,
   resolvePoppyConfig,
+  withAgoraDevScope,
 } from './config.js';
 import { hmacNonceSource } from './dpop.js';
 import { POPPY_MESSAGES } from './messages.js';
@@ -147,6 +148,16 @@ async function resolveReplay(
   return redisReplayStore(redis.connection((replay as { redis: string }).redis));
 }
 
+/** O app serve os dev tools do Agora (`@adonis-agora/agent` ligou `'agora.devTools'`)? */
+async function servesDevTools(host: PersonalAgentHost): Promise<boolean> {
+  try {
+    const hub = await host.make('agora.devTools');
+    return typeof hub === 'object' && hub !== null;
+  } catch {
+    return false;
+  }
+}
+
 /** Bearer de MCP de Sessions logadas viram access tokens do oidc-provider (§7). */
 function mcpBridge(cfg: ResolvedPoppyConfig, host: PersonalAgentHost): PoppyMcpBridge {
   const tokens = host.accessTokens;
@@ -203,7 +214,11 @@ export function poppy(
         },
         routes: (router, kit) => registerRoutes(router, resolved.prefix, kit),
         async setup(host) {
-          const cfg = withRegistry(resolved, host);
+          const offered =
+            resolved.devTools === null && (await servesDevTools(host))
+              ? withAgoraDevScope(resolved, config)
+              : resolved;
+          const cfg = withRegistry(offered, host);
           const limiter: PoppyLimiter | null =
             cfg.rateLimit === false
               ? null

@@ -159,7 +159,12 @@ export interface Env {
 
 export async function setupPoppy(
   poppy: Partial<PoppyConfigInput> = {},
-  extra: { accounts?: Record<string, { email: string }>; mcp?: boolean; issuer?: string } = {},
+  extra: {
+    accounts?: Record<string, { email: string }>;
+    mcp?: boolean;
+    issuer?: string;
+    make?: (binding: string) => Promise<unknown>;
+  } = {},
 ): Promise<Env> {
   const keys = await agentKeys();
   const docs = new Map<string, unknown>([
@@ -236,6 +241,7 @@ export async function setupPoppy(
   const poppyService = (await personalAgentExtensionRuntime<PoppyService>('poppy', {
     service,
     db: async () => db,
+    ...(extra.make ? { make: extra.make } : {}),
     now: () => (nowMs === null ? new Date() : new Date(nowMs)),
   }))!;
 

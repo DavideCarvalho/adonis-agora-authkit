@@ -797,6 +797,42 @@ everywhere because they live in the database.
 
 Without `personalAgents` (or without a database) these answer **404 `capability_unsupported`**.
 
+## MCP tools
+
+When the app also runs [`@adonis-agora/agent`](https://www.npmjs.com/package/@adonis-agora/agent)'s dev tools
+(the `/mcp/agora` endpoint), the admin console's data is available there to an MCP client such as
+Claude Code, with no extra config. The admin console must be on.
+
+| Tool | Kind | What it returns |
+| --- | --- | --- |
+| `authkit_get_overview` | read | Users, active sessions, MAU, sign-ins/sign-ups per day, client count, latest audit events. |
+| `authkit_list_users` | read | `search`, `page`, `limit`: accounts with roles and the disabled flag. |
+| `authkit_get_user` | read | `id`: profile, roles, MFA on/off, linked providers, session and grant counts. |
+| `authkit_list_user_sessions` | read | `accountId`: sessions with browser, OS, IP and location (no session ids). |
+| `authkit_list_user_grants` | read | `accountId`: the apps the account granted, with live token counts. |
+| `authkit_list_orgs` / `authkit_get_org` | read | Organizations; one organization with members and pending invitations. |
+| `authkit_list_clients` | read | OIDC clients (never the secret). |
+| `authkit_list_audit` | read | `type`, `subject`, `page`, `limit`: the audit log. |
+| `authkit_revoke_user_sessions` | action, destructive | `accountId`: ends every session and grant of the account. |
+| `authkit_disable_user` | action, destructive | `accountId`: disables the account (listed only when the store can). |
+
+Lists take `limit` (default 20, max 100) and `page`, and return `{ items, total, next }`.
+The two actions are hidden until you allow them on the endpoint (`devTools.actions` in
+`config/mcp.ts`). They are written to the audit log (`session.revoked_all`, `user.disabled`) with
+`mcp:<caller>` as the actor.
+
+Who may use them:
+
+- With `admin.authorize`, its answer decides. When it allows the MCP request, `admin.roles` is not
+  checked, so `authorize: authorizeByToken({ token: env.get('CONSOLE_TOKEN') })` lets an MCP client
+  in with `Authorization: Bearer <token>`.
+- Without `admin.authorize`, production refuses every call. Outside production the caller must
+  sign in through AuthKit (the MCP client's own OAuth sign-in, or a [Poppy](/docs/personal-agents-poppy#developer-tools-over-mcp)
+  agent granted `agora:dev`) as an active account holding one of `admin.roles`.
+
+A personal agent's token reaches these tools only if the person granted it `agora:dev`; the
+endpoint refuses it otherwise, before any of the rules above run.
+
 ## Settings page
 
 `?view=settings` is the **Runtime Settings** view — the operational configuration that
