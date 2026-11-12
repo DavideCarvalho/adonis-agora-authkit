@@ -323,8 +323,9 @@ export async function searchConsoles(
     options.logger,
   );
   const targets = sortEntries([...self, ...others]);
-  const hits = await probing(ctx, () =>
-    Promise.all(targets.map((entry) => race(() => entry.search!(ctx, q, limit), timeoutMs))),
+  // Real searches by the viewer: run without the probe marker.
+  const hits = await Promise.all(
+    targets.map((entry) => race(() => entry.search!(ctx, q, limit), timeoutMs)),
   );
   targets.forEach((entry, i) => {
     const found = hits[i];

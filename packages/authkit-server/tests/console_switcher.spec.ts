@@ -251,6 +251,27 @@ test.group('searchConsoles', () => {
     assert.equal(body.groups[1]!.hits[0]!.title, 'user ana');
   });
 
+  test('gates run as a probe; the searches themselves do not', async ({ assert }) => {
+    const seen: Array<[string, boolean]> = [];
+    await searchConsoles(
+      registryOf(
+        entry('a', {
+          authorize: async (c: any) => (
+            seen.push(['authorize', isAgoraProbe(c)]), { allowed: true }
+          ),
+          search: async (c: any) => (seen.push(['search', isAgoraProbe(c)]), []),
+        }),
+      ),
+      'authkit',
+      ctx(),
+      'q',
+    );
+    assert.deepEqual(seen, [
+      ['authorize', true],
+      ['search', false],
+    ]);
+  });
+
   test('empty query → no groups, nothing called', async ({ assert }) => {
     let called = false;
     const body = await searchConsoles(
