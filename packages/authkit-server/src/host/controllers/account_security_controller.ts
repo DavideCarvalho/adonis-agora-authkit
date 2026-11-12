@@ -517,10 +517,14 @@ export default class AccountSecurityController {
         oldEmail: account?.email ?? '',
       });
     } else {
-      await sendEmailChangeConfirmationEmail(ctx, {
-        email: newEmail,
-        confirmUrl,
-      });
+      await sendEmailChangeConfirmationEmail(
+        ctx,
+        {
+          email: newEmail,
+          confirmUrl,
+        },
+        cfg,
+      );
     }
 
     // 2. Aviso de segurança → e-mail ATUAL (best-effort, fail-safe).

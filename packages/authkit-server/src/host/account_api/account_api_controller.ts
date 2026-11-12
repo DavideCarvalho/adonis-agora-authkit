@@ -506,7 +506,7 @@ export default class AccountApiController {
         oldEmail: account?.email ?? '',
       });
     } else {
-      await sendEmailChangeConfirmationEmail(ctx, { email: newEmail, confirmUrl });
+      await sendEmailChangeConfirmationEmail(ctx, { email: newEmail, confirmUrl }, cfg);
     }
 
     if (account) {

@@ -455,7 +455,7 @@ export class AdminOrgsService {
       if (this.cfg.mail?.onOrgInvitation) {
         await this.cfg.mail.onOrgInvitation(payload);
       } else if (ctx) {
-        await sendOrgInvitationEmail(ctx, payload);
+        await sendOrgInvitationEmail(ctx, payload, this.cfg);
       }
     } catch {
       // best-effort

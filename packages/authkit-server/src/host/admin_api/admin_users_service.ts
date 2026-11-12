@@ -408,7 +408,7 @@ export class AdminUsersService {
         token: issued.token,
       });
     } else {
-      await sendPasswordResetEmail(ctx, { email, resetUrl });
+      await sendPasswordResetEmail(ctx, { email, resetUrl }, this.cfg);
     }
   }
 }

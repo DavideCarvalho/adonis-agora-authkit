@@ -266,7 +266,7 @@ export default class AuthRegistrationController {
         if (cfg.mail?.onEmailVerification) {
           await cfg.mail.onEmailVerification({ email: data.email, verifyUrl, token: issued.token });
         } else {
-          await sendEmailVerificationEmail(ctx, { email: data.email, verifyUrl });
+          await sendEmailVerificationEmail(ctx, { email: data.email, verifyUrl }, cfg);
         }
       }
     } catch (error) {
@@ -313,7 +313,7 @@ export default class AuthRegistrationController {
         if (cfg.mail?.onMagicLink) {
           await cfg.mail.onMagicLink({ email: to, magicUrl, token: issued.token, code });
         } else {
-          await sendMagicLinkEmail(ctx, { email: to, magicUrl, code });
+          await sendMagicLinkEmail(ctx, { email: to, magicUrl, code }, cfg);
         }
       }
     } else {
@@ -335,7 +335,7 @@ export default class AuthRegistrationController {
       if (cfg.mail?.onMagicLink) {
         await cfg.mail.onMagicLink({ email: data.email, magicUrl, token, code, kind: 'signup' });
       } else {
-        await sendMagicLinkEmail(ctx, { email: data.email, magicUrl, code });
+        await sendMagicLinkEmail(ctx, { email: data.email, magicUrl, code }, cfg);
       }
     }
 
@@ -512,7 +512,7 @@ export default class AuthRegistrationController {
       if (cfg.mail?.onPasswordReset) {
         await cfg.mail.onPasswordReset({ email: to, resetUrl: url, token: result.token });
       } else {
-        await sendPasswordResetEmail(ctx, { email: to, resetUrl: url });
+        await sendPasswordResetEmail(ctx, { email: to, resetUrl: url }, cfg);
       }
     }
     return render(ctx, 'forgot', {
