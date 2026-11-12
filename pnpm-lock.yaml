@@ -358,8 +358,8 @@ importers:
         specifier: workspace:*
         version: link:../authkit-core
       jose:
-        specifier: 6.2.15
-        version: 6.2.15
+        specifier: 6.2.16
+        version: 6.2.16
     devDependencies:
       '@adonis-agora/authkit-server':
         specifier: workspace:*
@@ -437,8 +437,8 @@ importers:
   packages/authkit-poppy:
     dependencies:
       jose:
-        specifier: 6.2.15
-        version: 6.2.15
+        specifier: 6.2.16
+        version: 6.2.16
     devDependencies:
       '@adonis-agora/authkit-server':
         specifier: workspace:*
@@ -580,8 +580,8 @@ importers:
         specifier: 14.1.0
         version: 14.1.0
       jose:
-        specifier: 6.2.15
-        version: 6.2.15
+        specifier: 6.2.16
+        version: 6.2.16
       koa:
         specifier: 3.3.0
         version: 3.3.0
@@ -746,8 +746,8 @@ importers:
         specifier: workspace:*
         version: link:../authkit-core
       jose:
-        specifier: 6.2.15
-        version: 6.2.15
+        specifier: 6.2.16
+        version: 6.2.16
     devDependencies:
       '@adonis-agora/authkit-client':
         specifier: workspace:*
@@ -5122,6 +5122,9 @@ packages:
 
   jose@6.2.15:
     resolution: {integrity: sha512-qdF6ewcZARtef63fJ9AKKZPgxw+t7USH6HLXYcD4CrdmSvDp79rpJSPFEKc90QBeGS63u1KQtN2MZQHC0yDIzA==}
+
+  jose@6.2.16:
+    resolution: {integrity: sha512-4LSJpbuBuPdGrONCdZUy0xnxtLf8eEz+EY0SMXdHQEBU7bgUHDVblU/JAjryv3wID9/LK7/YuwFwq+AQNfMscQ==}
 
   js-stringify@1.0.2:
     resolution: {integrity: sha512-rtS5ATOo2Q5k1G+DADISilDA6lv79zIiwFd6CcjuIxGKLFm5C+RLImRscVap9k55i+MOZwgliw+NejvkLuGD5g==}
@@ -10973,7 +10976,10 @@ snapshots:
 
   jju@1.4.0: {}
 
-  jose@6.2.15: {}
+  jose@6.2.15:
+    optional: true
+
+  jose@6.2.16: {}
 
   js-stringify@1.0.2: {}
 
@@ -11842,7 +11848,7 @@ snapshots:
   oidc-provider@9.12.2(supports-color@10.2.2):
     dependencies:
       debug: 4.4.3(supports-color@10.2.2)
-      jose: 6.2.15
+      jose: 6.2.16
       koa: 3.3.0
     transitivePeerDependencies:
       - supports-color
@@ -11851,7 +11857,7 @@ snapshots:
   oidc-provider@9.13.3(supports-color@10.2.2):
     dependencies:
       debug: 4.4.3(supports-color@10.2.2)
-      jose: 6.2.15
+      jose: 6.2.16
       koa: 3.3.0
     transitivePeerDependencies:
       - supports-color

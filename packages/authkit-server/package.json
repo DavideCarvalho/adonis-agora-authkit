@@ -121,7 +121,7 @@
     "@adonis-agora/authkit-core": "workspace:*",
     "@simplewebauthn/browser": "14.0.0",
     "@simplewebauthn/server": "14.1.0",
-    "jose": "6.2.15",
+    "jose": "6.2.16",
     "koa": "3.3.0",
     "koa-mount": "4.2.0",
     "oidc-provider": "9.13.3",
