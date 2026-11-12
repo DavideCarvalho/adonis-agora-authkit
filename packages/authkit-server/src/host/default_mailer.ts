@@ -161,6 +161,9 @@ async function resolveMailSettings(
       if (typeof ctx?.logger?.warn === 'function') ctx.logger.warn(message);
       else console.warn(message);
     }
+    // `en` de propósito: aqui NÃO há config nenhum (nem o default `pt-BR` do `defineConfig`,
+    // que um host sem `i18n` recebe pelo `cfg.locale` acima). Sem saber de quem é o app,
+    // o catálogo base — o único com todas as chaves — é o fallback honesto.
     return { brand: { appName: 'AuthKit' }, messages: resolveMessages(), locale: 'en' };
   }
   const branding = resolved.branding as Partial<BrandingConfig> | undefined;
