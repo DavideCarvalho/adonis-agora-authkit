@@ -1362,7 +1362,7 @@ export default class AuthInteractionController {
       if (cfg.mail?.onOtpUnlock) {
         await cfg.mail.onOtpUnlock({ email: account.email, unlockUrl, token: raw }).catch(() => {});
       } else {
-        await sendOtpUnlockEmail(ctx, { email: account.email, unlockUrl }).catch(() => {});
+        await sendOtpUnlockEmail(ctx, { email: account.email, unlockUrl }, cfg).catch(() => {});
       }
     } catch {
       // Best-effort: nunca propaga erro para o fluxo de login.
@@ -1467,7 +1467,7 @@ export default class AuthInteractionController {
         if (cfg.mail?.onMagicLink) {
           await cfg.mail.onMagicLink({ email: to, magicUrl, token: issued.token, code, channel });
         } else {
-          await sendMagicLinkEmail(ctx, { email: to, magicUrl, code, channel });
+          await sendMagicLinkEmail(ctx, { email: to, magicUrl, code, channel }, cfg);
         }
       }
     }

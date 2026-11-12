@@ -321,7 +321,7 @@ export default class AccountOrgsApiController {
         token,
       };
       if (c.cfg.mail?.onOrgInvitation) await c.cfg.mail.onOrgInvitation(payload);
-      else await sendOrgInvitationEmail(ctx, payload);
+      else await sendOrgInvitationEmail(ctx, payload, c.cfg);
     } catch {
       /* best-effort */
     }

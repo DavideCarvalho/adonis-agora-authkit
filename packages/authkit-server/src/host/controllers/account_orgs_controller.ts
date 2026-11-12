@@ -260,7 +260,7 @@ export default class AccountOrgsController {
       if (cfg.mail?.onOrgInvitation) {
         await cfg.mail.onOrgInvitation(payload);
       } else {
-        await sendOrgInvitationEmail(ctx, payload);
+        await sendOrgInvitationEmail(ctx, payload, cfg);
       }
     } catch {
       // best-effort

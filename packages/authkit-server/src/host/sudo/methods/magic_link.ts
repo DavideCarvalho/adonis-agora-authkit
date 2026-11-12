@@ -189,7 +189,7 @@ export function magicLink(): SudoMethod {
             await onSudoLink({ email: c.account.email, sudoUrl });
             delivered = true;
           } else {
-            delivered = await sendSudoLinkEmail(ctx, { email: c.account.email, sudoUrl });
+            delivered = await sendSudoLinkEmail(ctx, { email: c.account.email, sudoUrl }, c.cfg);
           }
         } catch {
           delivered = false;

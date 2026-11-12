@@ -188,11 +188,16 @@ test.group('default_mailer', (group) => {
     };
   }
 
-  /** ctx com `containerResolver.app.config.get` devolvendo as configs `authkit`/`mail`. */
+  /**
+   * ctx cujo container resolve o `authkit.server` (config RESOLVIDO = `configs.authkit`) e
+   * cujo `app.config.get('mail')` devolve o `config/mail.ts` do host.
+   */
   function fakeCtxWithConfig(logger: any, configs: Record<string, any>) {
     return {
       logger,
       containerResolver: {
+        make: async (binding: string) =>
+          binding === 'authkit.server' ? { config: configs.authkit } : undefined,
         app: { config: { get: (key: string) => configs[key] } },
       },
     } as any;

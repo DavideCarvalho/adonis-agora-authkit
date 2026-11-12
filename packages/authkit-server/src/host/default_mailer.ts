@@ -1,9 +1,10 @@
 import type { HttpContext } from '@adonisjs/core/http';
+import { getBootedApp } from '../../services/booted_app.js';
 import type { ResolvedServerConfig } from '../define_config.js';
 import { accountPath } from './account_paths.js';
 import type { BrandingConfig } from './branding.js';
 import { type EmailContent, renderTransactionalEmail } from './email_templates.js';
-import { type AuthMessages, type I18nConfig, resolveMessages, translate } from './i18n.js';
+import { type AuthMessages, resolveMessages, translate } from './i18n.js';
 import { authkitOrigin } from './origin.js';
 
 /**
@@ -55,87 +56,140 @@ export function __setMailLoaderForTests(fn: (() => Promise<MailService | null>) 
 }
 
 /**
- * Tenta descobrir o `from` default da config de mail do host. Se não houver,
- * retorna `undefined` (deixa o @adonisjs/mail aplicar o default da própria config).
+ * O que os e-mails default precisam do config: marca, catálogo i18n + locale e o `from`.
  */
-function defaultFrom(ctx: HttpContext): { address: string; name?: string } | string | undefined {
-  try {
-    // Alcançamos as configs do HOST via o resolver do container. Esse formato é
-    // específico do app (a lib não conhece o shape das configs nem `containerResolver.app`
-    // é público), então tipamos apenas ESTE acesso como `unknown`/cast estreito — não o
-    // `HttpContext` inteiro.
-    const resolver = ctx.containerResolver as unknown as {
-      app?: {
-        config?: {
-          get?: (key: string) => { from?: unknown; mail?: { from?: unknown } } | undefined;
-        };
-      };
-    };
-    const get = resolver.app?.config?.get;
-    type FromValue = { address: string; name?: string } | string | undefined;
-    // 1) `from` específico do authkit (defineConfig({ mail: { from } })) — PRIORIDADE:
-    // permite que o auth use um remetente próprio, diferente do e-mail geral do app.
-    const authkitFrom = get?.('authkit')?.mail?.from as FromValue;
-    if (authkitFrom) return authkitFrom;
-    // 2) `from` global do host (config/mail.ts).
-    const hostFrom = get?.('mail')?.from as FromValue;
-    if (hostFrom) return hostFrom;
-  } catch {
-    // sem config resolvível — deixa o @adonisjs/mail decidir.
+interface MailSettings {
+  brand: { appName: string; accent?: string; company?: string };
+  messages: AuthMessages;
+  locale: string;
+  from?: { address: string; name?: string } | string;
+}
+
+/** Algo com `make` — `ctx.containerResolver`, `app.container`. */
+type Maker = { make?: (binding: string) => Promise<unknown> };
+
+let warnedUnresolved = false;
+
+/**
+ * Permite rearmar o warning "config não resolvido" (usado em testes).
+ * @internal
+ */
+export function __resetMailConfigWarningForTests(): void {
+  warnedUnresolved = false;
+}
+
+/**
+ * Encontra o config RESOLVIDO do authkit (`ResolvedServerConfig`).
+ *
+ * Por que não `ctx.containerResolver.app.config.get('authkit')`, como antes: o
+ * `ContainerResolver` do `@adonisjs/fold` não tem `.app` — então numa request real
+ * esse caminho dava `undefined` SEMPRE e todo e-mail default saía em `en` com a marca
+ * "AuthKit". E mesmo onde há um `app` (o ctx do SDK embedded), `config.get('authkit')`
+ * devolve o `ConfigProvider` preguiçoso do `defineConfig`, não o config resolvido —
+ * `.i18n`/`.branding`/`.mail` nunca existem nele.
+ *
+ * Ordem: o `cfg` que o chamador já tem → o binding `authkit.server` pelo container da
+ * request → pelo `app.container` do ctx → pelo app bootado capturado pelo provider.
+ */
+async function resolveServerConfig(
+  ctx: HttpContext,
+  cfg: ResolvedServerConfig | undefined,
+): Promise<ResolvedServerConfig | undefined> {
+  if (cfg) return cfg;
+  const resolver = ctx?.containerResolver as unknown as
+    | (Maker & { app?: { container?: Maker } })
+    | undefined;
+  const containers: Array<() => Maker | undefined> = [
+    () => resolver,
+    () => resolver?.app?.container,
+    () => getBootedApp().container as unknown as Maker,
+  ];
+  for (const container of containers) {
+    try {
+      const maker = container();
+      if (typeof maker?.make !== 'function') continue;
+      const service = (await maker.make('authkit.server')) as
+        | { config?: ResolvedServerConfig }
+        | undefined;
+      if (service?.config) return service.config;
+    } catch {
+      // tenta o próximo; a falha final é avisada em `resolveMailSettings`.
+    }
   }
   return undefined;
 }
 
 /**
- * Resolve a marca default a partir do `config/authkit.ts` (branding.default +
- * company). Usada para o cabeçalho/cor de acento/rodapé dos e-mails. Cai num
- * default neutro se a config não for resolvível.
+ * O `from` global do `config/mail.ts` do host (um objeto simples, não um provider),
+ * lido do `app` do ctx (SDK embedded) ou do app bootado. Ausente → `undefined`, e o
+ * `@adonisjs/mail` decide.
  */
-function resolveBrand(ctx: HttpContext): {
-  appName: string;
-  accent?: string;
-  company?: string;
-} {
-  try {
-    const resolver = ctx.containerResolver as unknown as {
-      app?: { config?: { get?: (key: string) => { branding?: BrandingConfig } | undefined } };
-    };
-    const branding = resolver.app?.config?.get?.('authkit')?.branding;
-    if (branding) {
-      return {
-        appName: branding.default?.appName || branding.company || 'AuthKit',
-        accent: branding.default?.accent,
-        company: branding.company,
-      };
+function hostMailFrom(ctx: HttpContext): MailSettings['from'] {
+  type ConfigReader = { config?: { get?: (key: string) => { from?: unknown } | undefined } };
+  const apps: Array<() => ConfigReader | undefined> = [
+    () => (ctx?.containerResolver as unknown as { app?: ConfigReader } | undefined)?.app,
+    () => getBootedApp() as unknown as ConfigReader,
+  ];
+  for (const app of apps) {
+    try {
+      const from = app()?.config?.get?.('mail')?.from as MailSettings['from'];
+      if (from) return from;
+    } catch {
+      // sem app/config de mail — tenta o próximo.
     }
-  } catch {
-    // sem config authkit resolvível — usa default neutro.
   }
-  return { appName: 'AuthKit' };
+  return undefined;
 }
 
 /**
- * Resolve o catálogo de mensagens i18n a partir do `config/authkit.ts` (i18n).
- * Cai no default (`en`) se a config não for resolvível. Usado para localizar
- * os e-mails transacionais (assunto/cabeçalho/corpo).
+ * Marca, i18n e `from` dos e-mails default, a partir do config resolvido.
+ *
+ * Sem config resolvível cai num default neutro (`en`, "AuthKit") — mas NUNCA em
+ * silêncio: avisa uma vez por processo, porque um e-mail no idioma/marca errados é
+ * exatamente o tipo de bug que só aparece na caixa de entrada de um usuário.
  */
-function resolveMailMessages(ctx: HttpContext): { messages: AuthMessages; locale: string } {
-  try {
-    const resolver = ctx.containerResolver as unknown as {
-      app?: { config?: { get?: (key: string) => { i18n?: I18nConfig } | undefined } };
-    };
-    const i18n = resolver.app?.config?.get?.('authkit')?.i18n;
-    return { messages: resolveMessages(i18n), locale: i18n?.locale ?? 'en' };
-  } catch {
-    // sem config authkit resolvível — usa o default `en`.
-    return { messages: resolveMessages(), locale: 'en' };
+async function resolveMailSettings(
+  ctx: HttpContext,
+  cfg: ResolvedServerConfig | undefined,
+): Promise<MailSettings> {
+  const resolved = await resolveServerConfig(ctx, cfg);
+  if (!resolved) {
+    if (!warnedUnresolved) {
+      warnedUnresolved = true;
+      const message =
+        'authkit: config do authkit não resolvido para os e-mails default — usando locale `en` e a marca "AuthKit". Registre o AuthkitServerProvider ou passe o config resolvido.';
+      if (typeof ctx?.logger?.warn === 'function') ctx.logger.warn(message);
+      else console.warn(message);
+    }
+    // `en` de propósito: aqui NÃO há config nenhum (nem o default `pt-BR` do `defineConfig`,
+    // que um host sem `i18n` recebe pelo `cfg.locale` acima). Sem saber de quem é o app,
+    // o catálogo base — o único com todas as chaves — é o fallback honesto.
+    return { brand: { appName: 'AuthKit' }, messages: resolveMessages(), locale: 'en' };
   }
+  const branding = resolved.branding as Partial<BrandingConfig> | undefined;
+  return {
+    brand: {
+      // `branding.default` é opcional na prática (hosts declaram só `company` + `clients`):
+      // sem ele, o nome do app é a `company`.
+      appName: branding?.default?.appName || branding?.company || 'AuthKit',
+      accent: branding?.default?.accent,
+      company: branding?.company,
+    },
+    messages: resolved.messages ?? resolveMessages(),
+    locale: resolved.locale ?? 'en',
+    // `from` próprio do authkit tem prioridade; senão o `from` global do `config/mail.ts`.
+    from: resolved.mail?.from ?? hostMailFrom(ctx),
+  };
 }
 
-async function sendEmail(ctx: HttpContext, to: string, content: EmailContent): Promise<boolean> {
+async function sendEmail(
+  settings: MailSettings,
+  to: string,
+  content: EmailContent,
+): Promise<boolean> {
   const mail = await loadMail();
   if (!mail) return false;
-  const from = defaultFrom(ctx);
+  const { from } = settings;
   await mail.send((message: any) => {
     if (from) message.from(from);
     message.to(to).subject(content.subject).html(content.html).text(content.text);
@@ -150,10 +204,11 @@ async function sendEmail(ctx: HttpContext, to: string, content: EmailContent): P
 export async function sendPasswordResetEmail(
   ctx: HttpContext,
   data: { email: string; resetUrl: string },
+  cfg?: ResolvedServerConfig,
 ): Promise<void> {
   try {
-    const brand = resolveBrand(ctx);
-    const { messages: t, locale } = resolveMailMessages(ctx);
+    const settings = await resolveMailSettings(ctx, cfg);
+    const { brand, messages: t, locale } = settings;
     const content = renderTransactionalEmail({
       brand,
       locale,
@@ -165,7 +220,7 @@ export async function sendPasswordResetEmail(
       ctaUrl: data.resetUrl,
       footnote: translate(t, 'mail.reset.fallback'),
     });
-    const sent = await sendEmail(ctx, data.email, content);
+    const sent = await sendEmail(settings, data.email, content);
     if (!sent) {
       ctx.logger.info(
         { resetUrl: data.resetUrl, email: data.email },
@@ -187,10 +242,11 @@ export async function sendPasswordResetEmail(
 export async function sendEmailChangeConfirmationEmail(
   ctx: HttpContext,
   data: { email: string; confirmUrl: string },
+  cfg?: ResolvedServerConfig,
 ): Promise<void> {
   try {
-    const brand = resolveBrand(ctx);
-    const { messages: t, locale } = resolveMailMessages(ctx);
+    const settings = await resolveMailSettings(ctx, cfg);
+    const { brand, messages: t, locale } = settings;
     const content = renderTransactionalEmail({
       brand,
       locale,
@@ -202,7 +258,7 @@ export async function sendEmailChangeConfirmationEmail(
       ctaUrl: data.confirmUrl,
       footnote: translate(t, 'mail.email_change.fallback'),
     });
-    const sent = await sendEmail(ctx, data.email, content);
+    const sent = await sendEmail(settings, data.email, content);
     if (!sent) {
       ctx.logger.info(
         { confirmUrl: data.confirmUrl, email: data.email },
@@ -227,8 +283,8 @@ export async function sendNewLoginEmail(
   data: { email: string; ip: string; when: string },
 ): Promise<void> {
   try {
-    const brand = resolveBrand(ctx);
-    const { messages: t, locale } = resolveMailMessages(ctx);
+    const settings = await resolveMailSettings(ctx, cfg);
+    const { brand, messages: t, locale } = settings;
     const origin = authkitOrigin(cfg);
     const intro = [
       translate(t, 'mail.new_login.intro'),
@@ -246,7 +302,7 @@ export async function sendNewLoginEmail(
       ctaUrl: `${origin}${accountPath('security')}`,
       footnote: translate(t, 'mail.new_login.fallback'),
     });
-    const sent = await sendEmail(ctx, data.email, content);
+    const sent = await sendEmail(settings, data.email, content);
     if (!sent) {
       ctx.logger.info(
         { ip: data.ip, email: data.email },
@@ -271,8 +327,8 @@ export async function sendNewDeviceLoginEmail(
   data: { email: string; ip?: string | null; userAgent?: string | null; when: string },
 ): Promise<void> {
   try {
-    const brand = resolveBrand(ctx);
-    const { messages: t, locale } = resolveMailMessages(ctx);
+    const settings = await resolveMailSettings(ctx, cfg);
+    const { brand, messages: t, locale } = settings;
     const origin = authkitOrigin(cfg);
     const lines = [
       translate(t, 'mail.new_login.intro'),
@@ -292,7 +348,7 @@ export async function sendNewDeviceLoginEmail(
       ctaUrl: `${origin}${accountPath('security')}`,
       footnote: translate(t, 'mail.new_login.fallback'),
     });
-    const sent = await sendEmail(ctx, data.email, content);
+    const sent = await sendEmail(settings, data.email, content);
     if (!sent) {
       ctx.logger.info(
         { ip: data.ip, email: data.email, userAgent: data.userAgent },
@@ -314,10 +370,11 @@ export async function sendNewDeviceLoginEmail(
 export async function sendMagicLinkEmail(
   ctx: HttpContext,
   data: { email: string; magicUrl: string; code?: string; channel?: 'code' | 'link' },
+  cfg?: ResolvedServerConfig,
 ): Promise<void> {
   try {
-    const brand = resolveBrand(ctx);
-    const { messages: t, locale } = resolveMailMessages(ctx);
+    const settings = await resolveMailSettings(ctx, cfg);
+    const { brand, messages: t, locale } = settings;
     // Login choose-first: o `channel` decide o que o e-mail SURFA (os dois tokens
     // continuam emitidos co-locados a montante — isto é só renderização).
     //  - 'code'  → e-mail SÓ com o código (sem botão/link), quando há código;
@@ -353,7 +410,7 @@ export async function sendMagicLinkEmail(
           code: linkOnly ? undefined : data.code,
           codeLabel: translate(t, 'mail.magic_link.code_label'),
         });
-    const sent = await sendEmail(ctx, data.email, content);
+    const sent = await sendEmail(settings, data.email, content);
     if (!sent) {
       ctx.logger.info(
         { magicUrl: data.magicUrl, email: data.email },
@@ -386,10 +443,11 @@ export async function sendAuthkitCodeEmail(
     messages: string;
     params?: Record<string, string | number>;
   },
+  cfg?: ResolvedServerConfig,
 ): Promise<void> {
   try {
-    const brand = resolveBrand(ctx);
-    const { messages: t, locale } = resolveMailMessages(ctx);
+    const settings = await resolveMailSettings(ctx, cfg);
+    const { brand, messages: t, locale } = settings;
     const key = (name: string) => `${data.messages}.${name}`;
     const content = renderTransactionalEmail({
       brand,
@@ -401,7 +459,7 @@ export async function sendAuthkitCodeEmail(
       code: data.code,
       codeLabel: translate(t, key('code_label'), data.params),
     });
-    const sent = await sendEmail(ctx, data.email, content);
+    const sent = await sendEmail(settings, data.email, content);
     if (!sent) {
       ctx.logger.info(
         { email: data.email, code: data.code, messages: data.messages, ...(data.params ?? {}) },
@@ -445,10 +503,11 @@ export async function sendAuthkitCodeEmail(
 export async function sendSudoLinkEmail(
   ctx: HttpContext,
   data: { email: string; sudoUrl: string },
+  cfg?: ResolvedServerConfig,
 ): Promise<boolean> {
   try {
-    const brand = resolveBrand(ctx);
-    const { messages: t, locale } = resolveMailMessages(ctx);
+    const settings = await resolveMailSettings(ctx, cfg);
+    const { brand, messages: t, locale } = settings;
     const content = renderTransactionalEmail({
       brand,
       locale,
@@ -460,7 +519,7 @@ export async function sendSudoLinkEmail(
       ctaUrl: data.sudoUrl,
       footnote: translate(t, 'mail.sudo_link.fallback'),
     });
-    const sent = await sendEmail(ctx, data.email, content);
+    const sent = await sendEmail(settings, data.email, content);
     if (!sent) {
       ctx.logger?.info(
         { sudoUrl: data.sudoUrl, email: data.email },
@@ -488,8 +547,8 @@ export async function sendEmailChangeNoticeEmail(
   data: { email: string; newEmail: string },
 ): Promise<void> {
   try {
-    const brand = resolveBrand(ctx);
-    const { messages: t, locale } = resolveMailMessages(ctx);
+    const settings = await resolveMailSettings(ctx, cfg);
+    const { brand, messages: t, locale } = settings;
     const origin = authkitOrigin(cfg);
     const content = renderTransactionalEmail({
       brand,
@@ -502,7 +561,7 @@ export async function sendEmailChangeNoticeEmail(
       ctaUrl: `${origin}${accountPath('security')}`,
       footnote: translate(t, 'mail.email_change_notice.fallback'),
     });
-    const sent = await sendEmail(ctx, data.email, content);
+    const sent = await sendEmail(settings, data.email, content);
     if (!sent) {
       ctx.logger.info(
         { newEmail: data.newEmail, email: data.email },
@@ -528,8 +587,8 @@ export async function sendEmailChangedCompletedEmail(
   data: { oldEmail: string; newEmail: string },
 ): Promise<void> {
   try {
-    const brand = resolveBrand(ctx);
-    const { messages: t, locale } = resolveMailMessages(ctx);
+    const settings = await resolveMailSettings(ctx, cfg);
+    const { brand, messages: t, locale } = settings;
     const origin = authkitOrigin(cfg);
     const content = renderTransactionalEmail({
       brand,
@@ -545,7 +604,7 @@ export async function sendEmailChangedCompletedEmail(
       ctaUrl: `${origin}${accountPath('security')}`,
       footnote: translate(t, 'mail.email_changed_completed.fallback'),
     });
-    const sent = await sendEmail(ctx, data.oldEmail, content);
+    const sent = await sendEmail(settings, data.oldEmail, content);
     if (!sent) {
       ctx.logger.info(
         { oldEmail: data.oldEmail, newEmail: data.newEmail },
@@ -583,8 +642,8 @@ export async function sendSecurityNoticeEmail(
   },
 ): Promise<void> {
   try {
-    const brand = resolveBrand(ctx);
-    const { messages: t, locale } = resolveMailMessages(ctx);
+    const settings = await resolveMailSettings(ctx, cfg);
+    const { brand, messages: t, locale } = settings;
     const origin = authkitOrigin(cfg);
     const kindKey = `mail.security_notice.kind_${data.kind}`;
     const kindLabel = translate(t, kindKey);
@@ -604,7 +663,7 @@ export async function sendSecurityNoticeEmail(
       ctaUrl: `${origin}${accountPath('security')}`,
       footnote: translate(t, 'mail.security_notice.fallback'),
     });
-    const sent = await sendEmail(ctx, data.email, content);
+    const sent = await sendEmail(settings, data.email, content);
     if (!sent) {
       ctx.logger.info(
         { kind: data.kind, email: data.email },
@@ -626,10 +685,11 @@ export async function sendSecurityNoticeEmail(
 export async function sendOtpUnlockEmail(
   ctx: HttpContext,
   data: { email: string; unlockUrl: string },
+  cfg?: ResolvedServerConfig,
 ): Promise<void> {
   try {
-    const brand = resolveBrand(ctx);
-    const { messages: t, locale } = resolveMailMessages(ctx);
+    const settings = await resolveMailSettings(ctx, cfg);
+    const { brand, messages: t, locale } = settings;
     const content = renderTransactionalEmail({
       brand,
       locale,
@@ -641,7 +701,7 @@ export async function sendOtpUnlockEmail(
       ctaUrl: data.unlockUrl,
       footnote: translate(t, 'mail.otp_unlock.fallback'),
     });
-    const sent = await sendEmail(ctx, data.email, content);
+    const sent = await sendEmail(settings, data.email, content);
     if (!sent) {
       ctx.logger.info(
         { unlockUrl: data.unlockUrl, email: data.email },
@@ -679,10 +739,11 @@ export async function sendOrgInvitationEmail(
     acceptUrl: string;
     token: string;
   },
+  cfg?: ResolvedServerConfig,
 ): Promise<void> {
   try {
-    const brand = resolveBrand(ctx);
-    const { messages: t, locale } = resolveMailMessages(ctx);
+    const settings = await resolveMailSettings(ctx, cfg);
+    const { brand, messages: t, locale } = settings;
     const content = renderTransactionalEmail({
       brand,
       locale,
@@ -694,7 +755,7 @@ export async function sendOrgInvitationEmail(
       ctaUrl: data.acceptUrl,
       footnote: translate(t, 'mail.org_invitation.fallback'),
     });
-    const sent = await sendEmail(ctx, data.email, content);
+    const sent = await sendEmail(settings, data.email, content);
     if (!sent) {
       ctx.logger?.info(
         {
@@ -721,10 +782,11 @@ export async function sendOrgInvitationEmail(
 export async function sendEmailVerificationEmail(
   ctx: HttpContext,
   data: { email: string; verifyUrl: string },
+  cfg?: ResolvedServerConfig,
 ): Promise<void> {
   try {
-    const brand = resolveBrand(ctx);
-    const { messages: t, locale } = resolveMailMessages(ctx);
+    const settings = await resolveMailSettings(ctx, cfg);
+    const { brand, messages: t, locale } = settings;
     const content = renderTransactionalEmail({
       brand,
       locale,
@@ -735,7 +797,7 @@ export async function sendEmailVerificationEmail(
       ctaLabel: translate(t, 'mail.verify.cta'),
       ctaUrl: data.verifyUrl,
     });
-    const sent = await sendEmail(ctx, data.email, content);
+    const sent = await sendEmail(settings, data.email, content);
     if (!sent) {
       ctx.logger.info(
         { verifyUrl: data.verifyUrl, email: data.email },
