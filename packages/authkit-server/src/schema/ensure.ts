@@ -25,7 +25,14 @@
  */
 
 import type { AuthkitTable } from '../agents/extension.js';
-import { authkitTablesClient } from './tables_location.js';
+import {
+  type AuthkitTablesLocation,
+  assertSchemaSupported,
+  authkitTable,
+  authkitTablesClient,
+  createDbSchema,
+  validateSchemaName,
+} from './tables_location.js';
 
 type TableBuilder = any;
 
@@ -147,12 +154,12 @@ const TABLES: TableDef[] = [
   },
   {
     name: 'auth_organization_members',
-    create: (t) => {
+    create: (t, ctx) => {
       t.string('id').primary();
       t.string('organization_id')
         .notNullable()
         .references('id')
-        .inTable('auth_organizations')
+        .inTable(ctx.table('auth_organizations'))
         .onDelete('CASCADE');
       t.string('account_id').notNullable();
       t.string('role').notNullable().defaultTo('member');
@@ -194,12 +201,12 @@ const TABLES: TableDef[] = [
   },
   {
     name: 'auth_organization_invitations',
-    create: (t) => {
+    create: (t, ctx) => {
       t.string('id').primary();
       t.string('organization_id')
         .notNullable()
         .references('id')
-        .inTable('auth_organizations')
+        .inTable(ctx.table('auth_organizations'))
         .onDelete('CASCADE');
       t.string('email').notNullable();
       t.string('role').notNullable().defaultTo('member');
@@ -344,6 +351,9 @@ const TABLES: TableDef[] = [
   },
 ];
 
+/** Os nomes (sem schema) das tabelas que {@link ensureAuthkitSchema} garante. */
+export const AUTHKIT_TABLE_NAMES: readonly string[] = TABLES.map((t) => t.name);
+
 export interface EnsureSchemaOptions {
   /**
    * Conexão Lucid das tabelas do authkit (`schema.connection`). Default: conexão
@@ -356,6 +366,12 @@ export interface EnsureSchemaOptions {
    * O provider passa a do `accountStore` no boot. Ignorada quando `db` já é um client.
    */
   accountConnection?: string;
+  /**
+   * Database schema of the tables (MySQL: the database) — `schema.name`. Every statement
+   * names it (`"auth"."auth_settings"`), and it is created when missing. Never a
+   * `searchPath`. Ignored for the account table, which stays where the app put it.
+   */
+  schema?: string;
   /**
    * Tabelas de `personalAgents.extensions` (`tables` de cada uma), garantidas junto. O provider
    * passa as do config no boot.
@@ -488,7 +504,10 @@ async function columnExists(conn: any, table: string, column: string): Promise<b
 async function indexExists(conn: any, table: string, name: string): Promise<boolean | null> {
   const dialect: string | undefined = conn.dialect?.name;
   if (dialect === 'postgres' || dialect === 'redshift') {
-    const found = catalogRows(await conn.rawQuery('select to_regclass(?) as oid', [name]));
+    // Índice mora no schema da tabela: com schema explícito, o nome vai qualificado.
+    const [schema] = mysqlRelation(table);
+    const relation = pgRelation(schema ? `${schema}.${name}` : name);
+    const found = catalogRows(await conn.rawQuery('select to_regclass(?) as oid', [relation]));
     return found[0]?.oid != null;
   }
   if (dialect === 'mysql') {
@@ -520,12 +539,14 @@ async function indexExists(conn: any, table: string, name: string): Promise<bool
  */
 async function ensureIndex(
   conn: any,
-  table: string,
+  loc: AuthkitTablesLocation,
+  name: string,
   index: { name: string; columns: string[] },
 ): Promise<boolean> {
+  const table = authkitTable(loc, name);
   if ((await indexExists(conn, table, index.name)) === true) return false;
   try {
-    await conn.schema.alterTable(table, (t: TableBuilder) => t.index(index.columns, index.name));
+    await ddl(conn, loc).alterTable(name, (t: TableBuilder) => t.index(index.columns, index.name));
     return true;
   } catch (error) {
     const exists = await indexExists(conn, table, index.name).catch(() => null);
@@ -537,16 +558,28 @@ async function ensureIndex(
   }
 }
 
+/**
+ * O schema builder das tabelas do authkit: com `schema`, `withSchema` — o knex escreve
+ * `"schema"."tabela"` em todo DDL e mantém os nomes de índice derivados da tabela pura.
+ */
+function ddl(conn: any, loc: AuthkitTablesLocation): any {
+  return loc.schema ? conn.schema.withSchema(loc.schema) : conn.schema;
+}
+
 /** Cria/completa as tabelas (o miolo de {@link ensureAuthkitSchema}). */
 async function ensureTables(
   conn: any,
+  loc: AuthkitTablesLocation,
   tables: readonly TableDef[],
   report: Pick<EnsureSchemaReport, 'created' | 'altered' | 'indexed'>,
 ): Promise<void> {
+  const context = { table: (name: string) => authkitTable(loc, name) };
+  if (loc.schema) await createDbSchema(conn, loc.schema);
   for (const def of tables) {
-    if (!(await tableExists(conn, def.name))) {
+    const table = authkitTable(loc, def.name);
+    if (!(await tableExists(conn, table))) {
       try {
-        await conn.schema.createTable(def.name, def.create);
+        await ddl(conn, loc).createTable(def.name, (t: TableBuilder) => def.create(t, context));
         report.created.push(def.name);
         continue;
       } catch (error) {
@@ -554,24 +587,31 @@ async function ensureTables(
          * Corrida entre instâncias subindo juntas: se outra instância criou
          * a tabela entre o probe e o CREATE, segue o jogo; senão, propaga.
          */
-        if (!(await tableExists(conn, def.name))) throw error;
+        if (!(await tableExists(conn, table))) throw error;
       }
     }
 
     for (const [column, add] of Object.entries(def.columns)) {
-      if (await columnExists(conn, def.name, column)) continue;
-      await conn.schema.alterTable(def.name, (t: TableBuilder) => add(t));
+      if (await columnExists(conn, table, column)) continue;
+      await ddl(conn, loc).alterTable(def.name, (t: TableBuilder) => add(t));
       if (!report.altered[def.name]) report.altered[def.name] = [];
       report.altered[def.name].push(column);
     }
 
     for (const index of def.indexes ?? []) {
-      if (!(await ensureIndex(conn, def.name, index))) continue;
+      if (!(await ensureIndex(conn, loc, def.name, index))) continue;
       if (!report.indexed) report.indexed = {};
       if (!report.indexed[def.name]) report.indexed[def.name] = [];
       report.indexed[def.name].push(index.name);
     }
   }
+}
+
+function resolveLocation(options: { connection?: string; schema?: string }): AuthkitTablesLocation {
+  return {
+    connection: options.connection,
+    schema: validateSchemaName(options.schema, 'schema'),
+  };
 }
 
 /**
@@ -582,14 +622,16 @@ async function ensureTables(
 export async function ensureAuthkitTables(
   db: any,
   tables: readonly AuthkitTable[],
-  options: { connection?: string } = {},
+  options: { connection?: string; schema?: string } = {},
 ): Promise<Pick<EnsureSchemaReport, 'created' | 'altered' | 'indexed'>> {
-  const conn = authkitTablesClient(db, { connection: options.connection });
+  const loc = resolveLocation(options);
+  const conn = authkitTablesClient(db, loc);
+  assertSchemaSupported(conn, loc.schema);
   const report: Pick<EnsureSchemaReport, 'created' | 'altered' | 'indexed'> = {
     created: [],
     altered: {},
   };
-  await ensureTables(conn, tables, report);
+  await ensureTables(conn, loc, tables, report);
   return report;
 }
 
@@ -605,14 +647,16 @@ export async function ensureAuthkitSchema(
   db: any,
   options: EnsureSchemaOptions = {},
 ): Promise<EnsureSchemaReport> {
-  const conn = authkitTablesClient(db, { connection: options.connection });
+  const loc = resolveLocation(options);
+  const conn = authkitTablesClient(db, loc);
+  assertSchemaSupported(conn, loc.schema);
   const report: EnsureSchemaReport = {
     created: [],
     altered: {},
     loginMethods: { table: options.accountTable ?? 'users', ensured: false },
   };
 
-  await ensureTables(conn, [...TABLES, ...(options.tables ?? [])], report);
+  await ensureTables(conn, loc, [...TABLES, ...(options.tables ?? [])], report);
 
   // Coluna `login_methods` na tabela da CONTA — a tabela é HOST-owned (não está
   // em TABLES porque o nome/shape são decisão do app), mas a LIB consome a

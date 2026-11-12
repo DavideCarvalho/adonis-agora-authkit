@@ -21,8 +21,11 @@ export function buildPasswordHistory(ctx: LucidStoreContext, db: any): PasswordH
    * Lucid expõe `db.query().from(table)` para SELECT e `db.table(table).insert()` para INSERT.
    * Para DELETE usamos `db.query().from(table)`.
    */
+  // Lido a cada uso: o `defineConfig` informa o schema depois de o store existir.
+  const table = () =>
+    ctx.tableName ? ctx.tableName('auth_password_history') : 'auth_password_history';
   function qFrom() {
-    return db.query().from('auth_password_history');
+    return db.query().from(table());
   }
 
   return {
@@ -53,7 +56,7 @@ export function buildPasswordHistory(ctx: LucidStoreContext, db: any): PasswordH
 
     async recordPasswordHistory(accountId, oldHash) {
       try {
-        await db.table('auth_password_history').insert({
+        await db.table(table()).insert({
           account_id: accountId,
           password_hash: oldHash,
           created_at: DateTime.now().toISO(),

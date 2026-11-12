@@ -10,7 +10,15 @@ export type KeystoreStoreConfig =
   | string
   | { driver: 'file'; path: string }
   | { driver: 'drive'; disk?: string; key: string }
-  | { driver: 'lucid'; table?: string; connection?: string; key?: string }
+  | {
+      driver: 'lucid';
+      table?: string;
+      /** Lucid connection. Default: `schema.connection` of the server config. */
+      connection?: string;
+      /** Database schema of the table (MySQL: the database). Default: `schema.name`. */
+      schema?: string;
+      key?: string;
+    }
   | { driver: 'redis'; connection?: string; key?: string }
   | {
       driver: 'hashicorp-vault';

@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { assertSchemaSupported, createDbSchema } from '../schema/tables_location.js';
 
 /**
  * Cofre onde o keystore (blob, possivelmente encriptado) é persistido. Ponto de
@@ -62,12 +63,25 @@ export class LucidKeystoreVault implements KeystoreVault {
     private getConn: () => Promise<any>,
     private table = 'authkit_keystore',
     private key = 'jwks',
+    /** Schema do banco da tabela (MySQL: o database). Escrito em cada statement. */
+    private schema?: string,
   ) {}
 
+  /** Schema builder no schema da tabela (`withSchema`), ou o da conexão. */
+  private ddl(conn: any): any {
+    return this.schema ? conn.schema.withSchema(this.schema) : conn.schema;
+  }
+
+  /** `schema.tabela` (o knex cita cada parte) ou só `tabela`. */
+  private get qualified(): string {
+    return this.schema ? `${this.schema}.${this.table}` : this.table;
+  }
+
   private async ensureTable(conn: any): Promise<void> {
-    if (await conn.schema.hasTable(this.table)) return;
+    if (await this.ddl(conn).hasTable(this.table)) return;
+    if (this.schema) await createDbSchema(conn, this.schema);
     try {
-      await conn.schema.createTable(this.table, (t: any) => {
+      await this.ddl(conn).createTable(this.table, (t: any) => {
         t.string('key').notNullable().primary();
         t.text('blob').notNullable();
         t.bigInteger('updated_at').notNullable();
@@ -75,22 +89,24 @@ export class LucidKeystoreVault implements KeystoreVault {
     } catch (err) {
       // Outra instância criou a tabela entre o hasTable e o createTable (race no boot
       // multi-instância). Se já existe agora, OK; senão propaga.
-      if (!(await conn.schema.hasTable(this.table))) throw err;
+      if (!(await this.ddl(conn).hasTable(this.table))) throw err;
     }
   }
 
   async read(): Promise<string | null> {
     const conn = await this.getConn();
-    if (!(await conn.schema.hasTable(this.table))) return null;
-    const row = await conn.from(this.table).where('key', this.key).first();
+    assertSchemaSupported(conn, this.schema);
+    if (!(await this.ddl(conn).hasTable(this.table))) return null;
+    const row = await conn.from(this.qualified).where('key', this.key).first();
     return row ? (row.blob as string) : null;
   }
 
   async write(blob: string): Promise<void> {
     const conn = await this.getConn();
+    assertSchemaSupported(conn, this.schema);
     await this.ensureTable(conn);
     await conn
-      .table(this.table)
+      .table(this.qualified)
       .insert({ key: this.key, blob, updated_at: Date.now() })
       .onConflict('key')
       .merge();
@@ -98,8 +114,9 @@ export class LucidKeystoreVault implements KeystoreVault {
 
   async head(): Promise<string | null> {
     const conn = await this.getConn();
-    if (!(await conn.schema.hasTable(this.table))) return null;
-    const row = await conn.from(this.table).where('key', this.key).first();
+    assertSchemaSupported(conn, this.schema);
+    if (!(await this.ddl(conn).hasTable(this.table))) return null;
+    const row = await conn.from(this.qualified).where('key', this.key).first();
     return row ? String(row.updated_at) : null;
   }
 }

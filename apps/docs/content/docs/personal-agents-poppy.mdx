@@ -151,6 +151,9 @@ export default class extends BaseSchema {
 }
 ```
 
+With [`schema.name`](/docs/settings#database-schema) set, pass the same schema to both:
+`{ schema: 'auth' }`.
+
 Refresh tokens are
 grants in `auth_agent_grants` (ids `pgrant_…`), so they show up — and are revoked — in the same
 **Personal agents** list of the account console as PACT delegations.

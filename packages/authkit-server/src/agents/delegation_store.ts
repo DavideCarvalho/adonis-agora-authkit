@@ -102,12 +102,16 @@ export interface LiveGrantFilter {
 
 export class DelegationStore {
   /** `conn` = uma conexão Lucid (`db.connection(name?)`) — ou uma transação. */
-  constructor(private conn: () => any) {}
+  constructor(
+    private conn: () => any,
+    /** Nome da tabela como os statements o escrevem (`schema.tabela` com `schema.name`). */
+    private t: (name: string) => string = (name) => name,
+  ) {}
 
   // ─── device codes ─────────────────────────────────────────────────────────
 
   async insertDevice(row: Omit<DeviceCodeRow, 'accountId' | 'grantId' | 'lastPolledAt'>) {
-    await this.conn().table(DEVICE_TABLE).insert({
+    await this.conn().table(this.t(DEVICE_TABLE)).insert({
       id: row.id,
       device_code_hash: row.deviceCodeHash,
       user_code: row.userCode,
@@ -122,22 +126,25 @@ export class DelegationStore {
   }
 
   async findDeviceByCodeHash(hash: string): Promise<DeviceCodeRow | null> {
-    const row = await this.conn().from(DEVICE_TABLE).where('device_code_hash', hash).first();
+    const row = await this.conn()
+      .from(this.t(DEVICE_TABLE))
+      .where('device_code_hash', hash)
+      .first();
     return row ? toDevice(row) : null;
   }
 
   async findDeviceByUserCode(userCode: string): Promise<DeviceCodeRow | null> {
-    const row = await this.conn().from(DEVICE_TABLE).where('user_code', userCode).first();
+    const row = await this.conn().from(this.t(DEVICE_TABLE)).where('user_code', userCode).first();
     return row ? toDevice(row) : null;
   }
 
   /** Liga o pedido aprovado ao grant — a partir daqui o polling do agente recebe o token. */
   async setDeviceGrant(id: string, grantId: string): Promise<void> {
-    await this.conn().from(DEVICE_TABLE).where('id', id).update({ grant_id: grantId });
+    await this.conn().from(this.t(DEVICE_TABLE)).where('id', id).update({ grant_id: grantId });
   }
 
   async markPolled(id: string, at: Date): Promise<void> {
-    await this.conn().from(DEVICE_TABLE).where('id', id).update({ last_polled_at: at });
+    await this.conn().from(this.t(DEVICE_TABLE)).where('id', id).update({ last_polled_at: at });
   }
 
   /**
@@ -153,7 +160,7 @@ export class DelegationStore {
     if (patch.accountId !== undefined) update.account_id = patch.accountId;
     if (patch.grantId !== undefined) update.grant_id = patch.grantId;
     const result = await this.conn()
-      .from(DEVICE_TABLE)
+      .from(this.t(DEVICE_TABLE))
       .where('id', id)
       .where('status', from)
       .update(update);
@@ -165,13 +172,13 @@ export class DelegationStore {
    * vai pelo mesmo binding do INSERT, então a comparação é coerente no dialeto.
    */
   async deleteDevicesExpiredBefore(before: Date): Promise<void> {
-    await this.conn().from(DEVICE_TABLE).where('expires_at', '<', before).delete();
+    await this.conn().from(this.t(DEVICE_TABLE)).where('expires_at', '<', before).delete();
   }
 
   // ─── grants ───────────────────────────────────────────────────────────────
 
   async insertGrant(row: Omit<GrantRow, 'revokedAt'>): Promise<void> {
-    await this.conn().table(GRANT_TABLE).insert({
+    await this.conn().table(this.t(GRANT_TABLE)).insert({
       id: row.id,
       account_id: row.accountId,
       client_id: row.clientId,
@@ -184,14 +191,14 @@ export class DelegationStore {
   }
 
   async findGrant(id: string): Promise<GrantRow | null> {
-    const row = await this.conn().from(GRANT_TABLE).where('id', id).first();
+    const row = await this.conn().from(this.t(GRANT_TABLE)).where('id', id).first();
     return row ? toGrant(row) : null;
   }
 
   /** Grants NÃO revogados da tripla (conta, agente, usuário do agente). */
   async findGrantsFor(accountId: string, clientId: string, agentSub: string): Promise<GrantRow[]> {
     const rows = await this.conn()
-      .from(GRANT_TABLE)
+      .from(this.t(GRANT_TABLE))
       .where('account_id', accountId)
       .where('client_id', clientId)
       .where('agent_sub', agentSub)
@@ -205,7 +212,7 @@ export class DelegationStore {
     patch: { scope: string; expiresAt: Date; updatedAt: Date },
   ): Promise<boolean> {
     const result = await this.conn()
-      .from(GRANT_TABLE)
+      .from(this.t(GRANT_TABLE))
       .where('id', id)
       .whereNull('revoked_at')
       .update({ scope: patch.scope, expires_at: patch.expiresAt, updated_at: patch.updatedAt });
@@ -214,7 +221,7 @@ export class DelegationStore {
 
   async listGrants(accountId: string): Promise<GrantRow[]> {
     const rows = await this.conn()
-      .from(GRANT_TABLE)
+      .from(this.t(GRANT_TABLE))
       .where('account_id', accountId)
       .whereNull('revoked_at')
       .orderBy('created_at', 'desc');
@@ -224,7 +231,7 @@ export class DelegationStore {
   /** Revoga um grant DA CONTA. `false` = não existe, é de outra conta ou já revogado. */
   async revokeGrant(accountId: string, id: string, at: Date): Promise<boolean> {
     const result = await this.conn()
-      .from(GRANT_TABLE)
+      .from(this.t(GRANT_TABLE))
       .where('id', id)
       .where('account_id', accountId)
       .whereNull('revoked_at')
@@ -234,7 +241,7 @@ export class DelegationStore {
 
   async revokeAllGrants(accountId: string, at: Date): Promise<number> {
     const result = await this.conn()
-      .from(GRANT_TABLE)
+      .from(this.t(GRANT_TABLE))
       .where('account_id', accountId)
       .whereNull('revoked_at')
       .update({ revoked_at: at, updated_at: at });
@@ -248,7 +255,10 @@ export class DelegationStore {
    * protocolo sai do prefixo do id: `agrant_` (PACT) ou o `grantIdPrefix` de uma extension.
    */
   #live(now: Date, filter: LiveGrantFilter = {}) {
-    let q = this.conn().from(GRANT_TABLE).whereNull('revoked_at').where('expires_at', '>', now);
+    let q = this.conn()
+      .from(this.t(GRANT_TABLE))
+      .whereNull('revoked_at')
+      .where('expires_at', '>', now);
     // O prefixo é `[a-z0-9]+_`: o `_` do LIKE (um caractere qualquer) casa com ele mesmo.
     if (filter.idPrefix) q = q.where('id', 'like', `${filter.idPrefix}%`);
     if (filter.clientId) q = q.where('client_id', filter.clientId);
@@ -284,7 +294,7 @@ export class DelegationStore {
   /** Ids dos grants não revogados de um agente (vivos ou não) — para revogar todos. */
   async unrevokedGrantIdsOfClient(clientId: string): Promise<string[]> {
     const rows = await this.conn()
-      .from(GRANT_TABLE)
+      .from(this.t(GRANT_TABLE))
       .where('client_id', clientId)
       .whereNull('revoked_at')
       .select('id');
@@ -294,7 +304,7 @@ export class DelegationStore {
   /** Revoga um grant sem checar a conta — reação a reuso de refresh token. */
   async revokeGrantById(id: string, at: Date): Promise<void> {
     await this.conn()
-      .from(GRANT_TABLE)
+      .from(this.t(GRANT_TABLE))
       .where('id', id)
       .whereNull('revoked_at')
       .update({ revoked_at: at, updated_at: at });
@@ -308,7 +318,7 @@ export class DelegationStore {
     expiresAt: Date;
     createdAt: Date;
   }) {
-    await this.conn().table(REFRESH_TABLE).insert({
+    await this.conn().table(this.t(REFRESH_TABLE)).insert({
       token_hash: row.tokenHash,
       grant_id: row.grantId,
       expires_at: row.expiresAt,
@@ -319,7 +329,10 @@ export class DelegationStore {
   async findRefreshToken(
     tokenHash: string,
   ): Promise<{ grantId: string; expiresAt: Date; usedAt: Date | null } | null> {
-    const row = await this.conn().from(REFRESH_TABLE).where('token_hash', tokenHash).first();
+    const row = await this.conn()
+      .from(this.t(REFRESH_TABLE))
+      .where('token_hash', tokenHash)
+      .first();
     return row
       ? {
           grantId: row.grant_id,
@@ -332,7 +345,7 @@ export class DelegationStore {
   /** Marca o refresh como usado (uso único, atômico). `false` = já tinha sido usado. */
   async useRefreshToken(tokenHash: string, at: Date): Promise<boolean> {
     const result = await this.conn()
-      .from(REFRESH_TABLE)
+      .from(this.t(REFRESH_TABLE))
       .where('token_hash', tokenHash)
       .whereNull('used_at')
       .update({ used_at: at });

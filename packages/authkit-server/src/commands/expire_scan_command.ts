@@ -23,7 +23,7 @@
 import type { ApplicationService } from '@adonisjs/core/types';
 import type { AccountStore, AuthAccount } from '../accounts/account_store.js';
 import type { AuditSink } from '../audit/audit_sink.js';
-import { RuntimeSettings } from '../host/runtime_settings.js';
+import { RuntimeSettings, settingsLocation } from '../host/runtime_settings.js';
 import { resolveEffectiveAccountExpiration } from '../host/runtime_toggles.js';
 import { ADMIN_LIST_DEFAULT_SIZE, LIST_FIRST_PAGE } from '../pagination.js';
 import { resolveAuthkitConfig } from './resolve_config.js';
@@ -91,8 +91,7 @@ export async function runExpireScan(
   let runtimeSettings: RuntimeSettings | null = null;
   try {
     const db = await app.container.make('lucid.db' as any);
-    const connection: string | undefined = cfg.schema?.connection;
-    runtimeSettings = new RuntimeSettings(db, connection ? { connection } : {});
+    runtimeSettings = new RuntimeSettings(db, settingsLocation(cfg));
   } catch {
     // Sem DB → usa defaults.
   }

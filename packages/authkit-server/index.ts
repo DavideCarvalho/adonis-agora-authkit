@@ -90,6 +90,7 @@ export type {
 // Personal-agent protocol extensions (`personalAgents.extensions`) — stable for 1.x.
 export type {
   AuthkitTable,
+  AuthkitTableContext,
   PersonalAgentAccessTokens,
   PersonalAgentConsoleSummary,
   PersonalAgentExtension,
@@ -673,6 +674,7 @@ export {
 export { registerOidcRoutes } from './src/register_routes.js';
 export type { EnsureSchemaOptions, EnsureSchemaReport } from './src/schema/ensure.js';
 export { ensureAuthkitSchema, ensureAuthkitTables } from './src/schema/ensure.js';
+export { AuthkitSchemaError } from './src/schema/tables_location.js';
 export type { ServiceTenantInfo } from './src/service_tenants/client_metadata.js';
 export type {
   ResolvedServiceTenantResource,

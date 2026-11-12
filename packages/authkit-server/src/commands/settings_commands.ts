@@ -16,7 +16,7 @@
  */
 
 import type { ApplicationService } from '@adonisjs/core/types';
-import { RuntimeSettings } from '../host/runtime_settings.js';
+import { RuntimeSettings, settingsLocation } from '../host/runtime_settings.js';
 import { SETTING_KEYS, type SettingKey } from '../host/runtime_toggles.js';
 import { resolveAuthkitConfig } from './resolve_config.js';
 
@@ -138,14 +138,14 @@ async function resolveSettingsService(app: ApplicationService): Promise<RuntimeS
   try {
     const db = await app.container.make('lucid.db' as any);
     // `auth_settings` vive na conexão das tabelas do authkit (`schema.connection`).
-    let connection: string | undefined;
+    let location: { connection?: string; schema?: string } = {};
     try {
       const cfg = await resolveCfg(app);
-      connection = (cfg as any)?.schema?.connection;
+      location = settingsLocation(cfg);
     } catch {
       // Silencioso: sem config → default connection.
     }
-    return new RuntimeSettings(db, connection ? { connection } : {});
+    return new RuntimeSettings(db, location);
   } catch {
     return null;
   }

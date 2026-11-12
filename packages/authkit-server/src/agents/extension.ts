@@ -28,10 +28,19 @@ import type { HttpContext } from '@adonisjs/core/http';
  * A lib-owned table: created when missing, new columns added with `ALTER ADD`, never dropped or
  * altered. The builders receive a Knex `TableBuilder`.
  */
+/** What {@link AuthkitTable.create} receives next to the table builder. */
+export interface AuthkitTableContext {
+  /** `name` as AuthKit's tables are addressed: `schema.name` + `.` + `name` when a schema is set. */
+  table(name: string): string;
+}
+
 export interface AuthkitTable {
   name: string;
-  /** Full builder — runs when the table does not exist. */
-  create: (table: any) => void;
+  /**
+   * Full builder — runs when the table does not exist. A foreign key into another lib-owned
+   * table names it through `context.table(name)` (qualified with `schema.name` when set).
+   */
+  create: (table: any, context: AuthkitTableContext) => void;
   /**
    * One builder per column — runs (`ALTER ADD`) when the table exists but the column does not.
    * No constraints that break on populated tables (unique/FK belong in `create`).
@@ -128,6 +137,12 @@ export interface PersonalAgentHost {
   readonly issuer: string;
   /** The Lucid connection AuthKit's tables live on (`schema.connection`). */
   db(): any;
+  /**
+   * `name` as every statement must write it: `schema.name` + `.` + `name` when the app puts
+   * AuthKit's tables in a database schema (knex quotes each part), else `name`. Name every
+   * lib-owned table through it — the shared ledger tables and the extension's own.
+   */
+  table(name: string): string;
   readonly grants: PersonalAgentGrantLedger;
   /** The admin console's verdict on an agent of this protocol. `null` = not listed. */
   registryStatus(identifier: string): Promise<'allowed' | 'blocked' | null>;

@@ -83,6 +83,51 @@ Your account table is not one of AuthKit's tables: it stays on the connection of
 account model (`static connection` on `AuthUser`), and so does the `login_methods` column
 AuthKit adds to it.
 
+### Database schema
+
+To keep AuthKit's tables in their own database schema while your app stays in `public`, set
+`schema.name`:
+
+```ts title="config/authkit.ts"
+export default defineConfig({
+  // ...
+  schema: { name: 'auth' },
+})
+```
+
+Every table AuthKit owns then lives in `auth` (`"auth"."auth_settings"`, `"auth"."auth_mfa"`, …),
+on `schema.connection` if you set one, and AuthKit writes the schema into every statement it
+sends. That includes the `authkit_oidc_payloads` table of `adapters.database()`, the
+`authkit_keystore` of `jwks.store: { driver: 'lucid' }`, the personal-agent tables and the
+tables of agent extensions. `adapters.database({ schema })` and
+`jwks.store: { driver: 'lucid', schema }` override it for that piece. Your account table is
+not affected: it stays where your account model puts it.
+
+With `autoManage` on, the boot runs `CREATE SCHEMA IF NOT EXISTS "auth"`. If the database role
+cannot create schemas, the boot fails with a message naming the schema; create it yourself or
+grant `CREATE` on the database. With `autoManage: false`, pass the schema to the migration:
+
+```ts title="database/migrations/xxxx_authkit_schema.ts"
+await ensureAuthkitSchema(this.db, { schema: 'auth' })
+```
+
+Relying parties that read `auth_session_revocations` from the same database take the same name:
+`lucidRevocationStore({ schema: 'auth' })`. See
+[Back-channel logout](/docs/back-channel-logout).
+
+<Callout type="warn">
+  Don't put AuthKit's tables in another schema by giving the Lucid connection a `searchPath`.
+  knex sends `SET search_path` on the session, and behind PgBouncer in transaction mode that
+  setting leaks to other clients' connections. `schema.name` needs no `searchPath`.
+</Callout>
+
+- **MySQL / MariaDB**: the schema is a database (`` `auth`.`auth_settings` ``). With
+  `autoManage`, the boot runs `CREATE DATABASE IF NOT EXISTS`.
+- **SQLite** has no schemas: with `schema.name` set, the boot fails with an error instead of
+  ignoring the option.
+- `agora:doctor` checks that the schema exists, that AuthKit's tables are in it and that the
+  connection can write there. Without `schema.name` the check prints nothing.
+
 Prefer to own your schema? Disable auto-management and run the same logic inside a
 migration you control:
 
@@ -126,8 +171,8 @@ written with an organization — see [Org-scoped settings](#org-scoped-settings)
 other key is global, and the uniqueness constraint on `(key, organization_id)` is what lets
 a global row and a per-org row for the same key coexist.
 
-AuthKit detects the table on first access — with a real `SELECT` rather than a
-`hasTable` probe, so a schema reached through a Postgres `search_path` is found correctly.
+AuthKit detects the table on first access, with a real `SELECT` rather than a
+`hasTable` probe.
 The probe result and the 15-second value cache are shared by every `RuntimeSettings`
 instance on the same database and connection, so a guarded request reads a setting from
 memory rather than the database. A write through any instance (the admin console, the CLI,

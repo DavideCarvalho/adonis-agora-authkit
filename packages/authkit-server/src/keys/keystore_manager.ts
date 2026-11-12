@@ -1,4 +1,5 @@
 import type { KeystoreStoreConfig } from '@adonis-agora/authkit-core';
+import { validateSchemaName } from '../schema/tables_location.js';
 import type { SigningAlg } from './jwks_manager.js';
 import {
   generateSigningJwk,
@@ -113,6 +114,7 @@ export function resolveKeystoreVault(
         },
         cfg.table,
         cfg.key,
+        validateSchemaName(cfg.schema, 'jwks.store.schema'),
       );
     case 'redis':
       return new RedisKeystoreVault(async () => {

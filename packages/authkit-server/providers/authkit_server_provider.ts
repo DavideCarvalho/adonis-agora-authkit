@@ -23,7 +23,7 @@ import { authkitDoctorChecks } from '../src/doctor/agora_checks.js';
 import { registerDoctorChecks } from '../src/doctor/agora_doctor.js';
 import { resolveAppKey } from '../src/host/app_key.js';
 import { resolveEffectiveKeyRotation } from '../src/host/key_rotation.js';
-import { RuntimeSettings } from '../src/host/runtime_settings.js';
+import { RuntimeSettings, settingsLocation } from '../src/host/runtime_settings.js';
 import { KeystoreCodec } from '../src/keys/keystore_codec.js';
 import { loadEncryptionService } from '../src/keys/keystore_crypto.js';
 import { KeystoreManager, resolveKeystoreVault } from '../src/keys/keystore_manager.js';
@@ -31,6 +31,7 @@ import { KeyRotationScheduler } from '../src/provider/key_rotation_scheduler.js'
 import { KeystoreReloadPoller } from '../src/provider/keystore_reload.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { makeSingleFlightLock } from '../src/provider/single_flight_lock.js';
+import { AuthkitSchemaError } from '../src/schema/tables_location.js';
 
 export default class AuthkitServerProvider {
   constructor(protected app: ApplicationService) {}
@@ -318,6 +319,7 @@ export default class AuthkitServerProvider {
       const { ensureAuthkitSchema } = await import('../src/schema/ensure.js');
       const report = await ensureAuthkitSchema(db, {
         connection: config.schema.connection,
+        schema: config.schema.name,
         accountTable: config.accountStore?.accountTable,
         accountConnection: config.accountStore?.connectionName,
         tables: config.personalAgents?.extensions?.flatMap((e) => e.tables ?? []),
@@ -341,6 +343,9 @@ export default class AuthkitServerProvider {
         );
       }
     } catch (error) {
+      // `schema.name` que o banco não aceita (SQLite, schema que o role não pode criar):
+      // derruba o boot com a mensagem — nunca segue com tabelas fora do schema pedido.
+      if (error instanceof AuthkitSchemaError) throw error;
       const logger = await this.app.container.make('logger').catch(() => null);
       logger?.warn(
         { err: error },
@@ -405,12 +410,16 @@ export default class AuthkitServerProvider {
           .resolve(this.app, value)
           .catch(() => null)) as ResolvedServerConfig | null)
       : null;
-    const connection = config?.schema?.connection;
-
     // RuntimeSettings sem request (mesmo padrão de expire_scan_command / security_notice_service).
-    const settings = new RuntimeSettings(db, connection ? { connection } : {});
+    const settings = new RuntimeSettings(db, settingsLocation(config));
 
-    const withLock = makeSingleFlightLock({ key: 'authkit:keys:rotate', ttlMs: 5 * 60_000 });
+    // Com `schema.name`, a chave do lock leva o schema: duas instalações em schemas
+    // diferentes do mesmo banco não disputam o mesmo lock.
+    const schemaName = config?.schema?.name;
+    const withLock = makeSingleFlightLock({
+      key: schemaName ? `authkit:${schemaName}:keys:rotate` : 'authkit:keys:rotate',
+      ttlMs: 5 * 60_000,
+    });
     const scheduler = new KeyRotationScheduler({
       policy: () => resolveEffectiveKeyRotation(settings),
       ageDays: () => svc.keystoreAgeDays(),

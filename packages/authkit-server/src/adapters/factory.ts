@@ -1,6 +1,11 @@
 import type { ApplicationService } from '@adonisjs/core/types';
+import {
+  assertSchemaSupported,
+  authkitTable,
+  validateSchemaName,
+} from '../schema/tables_location.js';
 import type { OidcAdapter } from './adapter_contract.js';
-import { DatabaseAdapter } from './database_adapter.js';
+import { DatabaseAdapter, OIDC_PAYLOADS_TABLE } from './database_adapter.js';
 import { RedisAdapter } from './redis_adapter.js';
 
 export type OidcAdapterClass = new (name: string) => OidcAdapter;
@@ -12,6 +17,8 @@ export interface AdapterResolveContext {
    * on. A database adapter without its own `connection` uses it.
    */
   connection?: string;
+  /** `schema.name` of `defineConfig`. A database adapter without its own `schema` uses it. */
+  schema?: string;
 }
 
 export interface AdapterFactory {
@@ -78,6 +85,11 @@ export interface DatabaseAdapterConfig {
    * de todas as tabelas do authkit), e sem ela a primária.
    */
   connection?: string;
+  /**
+   * Schema do banco da tabela `authkit_oidc_payloads` (MySQL: o database). Default:
+   * `schema.name` do `defineConfig`. Vai escrito em cada statement — nunca via searchPath.
+   */
+  schema?: string;
 }
 
 export const adapters = {
@@ -116,10 +128,16 @@ export const adapters = {
       async resolver(app, context) {
         const db = await app.container.make('lucid.db');
         const connection = config.connection ?? context?.connection;
+        const schema = validateSchemaName(
+          config.schema ?? context?.schema,
+          'adapters.database({ schema })',
+        );
         const conn = connection ? (db as any).connection(connection) : db;
+        assertSchemaSupported(connection ? conn : (db as any).connection(), schema);
+        const table = authkitTable({ schema }, OIDC_PAYLOADS_TABLE);
         return class extends DatabaseAdapter {
           constructor(name: string) {
-            super(name, conn);
+            super(name, conn, table);
           }
         };
       },

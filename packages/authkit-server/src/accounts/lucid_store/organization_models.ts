@@ -12,8 +12,8 @@ import type { DateTime } from 'luxon';
  * sintoma aparece longe da causa.
  *
  * Use com `organizationModels: true` em {@link lucidAccountStore}. Eles seguem a
- * conexão das tabelas do authkit (`schema.connection` do `defineConfig`, como
- * todas as tabelas lib-owned — ver {@link organizationModelsOn}). O caminho
+ * conexão e o schema das tabelas do authkit (`schema.connection`/`schema.name`
+ * do `defineConfig`, como todas as tabelas lib-owned — ver {@link organizationModelsOn}). O caminho
  * explícito (`{ OrgModel, MemberModel, InvitationModel }`) continua valendo como
  * escape hatch; aí a conexão é a que os models do host declaram.
  *
@@ -126,30 +126,37 @@ export type OrganizationModels = {
   InvitationModel: any;
 };
 
-const modelsByConnection = new Map<string, OrganizationModels>();
+const modelsByLocation = new Map<string, OrganizationModels>();
 
 /**
- * Os models default numa conexão Lucid nomeada (subclasses com `static connection`),
- * memoizados por conexão. `undefined` → os próprios defaults (conexão primária).
+ * Os models default onde vivem as tabelas do authkit: subclasses com `static connection`
+ * (`schema.connection`) e `static table` qualificada (`schema.name`), memoizadas por
+ * local. Sem conexão nem schema → os próprios defaults (conexão primária).
  */
-export function organizationModelsOn(connection: string | undefined): OrganizationModels {
-  if (!connection) return defaultOrganizationModels;
-  let models = modelsByConnection.get(connection);
+export function organizationModelsOn(location: {
+  connection?: string;
+  schema?: string;
+}): OrganizationModels {
+  const { connection, schema } = location;
+  if (!connection && !schema) return defaultOrganizationModels;
+  const key = `${connection ?? ''}\x00${schema ?? ''}`;
+  let models = modelsByLocation.get(key);
   if (!models) {
+    const table = (name: string) => (schema ? `${schema}.${name}` : name);
     class OrgModel extends AuthOrganization {
-      static table = 'auth_organizations';
+      static table = table('auth_organizations');
       static connection = connection;
     }
     class MemberModel extends AuthOrganizationMember {
-      static table = 'auth_organization_members';
+      static table = table('auth_organization_members');
       static connection = connection;
     }
     class InvitationModel extends AuthOrganizationInvitation {
-      static table = 'auth_organization_invitations';
+      static table = table('auth_organization_invitations');
       static connection = connection;
     }
     models = { OrgModel, MemberModel, InvitationModel };
-    modelsByConnection.set(connection, models);
+    modelsByLocation.set(key, models);
   }
   return models;
 }
