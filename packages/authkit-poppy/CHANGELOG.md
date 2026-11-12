@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-poppy
 
+## 0.3.1-rc.0
+
+### Patch Changes
+
+- fix(deps): update dependency jose to v6.2.16 ([#454](https://github.com/DavideCarvalho/adonis-agora-authkit/issues/454))
+
 ## 0.3.0
 
 The package version follows the Poppy spec draft it implements: 0.3.x is Draft 0.3.
