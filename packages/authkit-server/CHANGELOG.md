@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.14
+
+### Patch Changes
+
+- [#476](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/476) [`b9f9119`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/b9f9119a4a030b1fb03befd73d018abd88e8bf6c) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Default emails (new login / new device alerts, password reset, verification, magic link, sudo link, OTP unlock, email change, security notices, org invitations, `sendAuthkitCodeEmail`) now always use the host's `i18n.locale` and `branding`. They used to read the config through `ctx.containerResolver.app`, which a real request's container resolver does not have, so they silently fell back to English and the "AuthKit" brand. The mailer now uses the resolved config the caller already has, or resolves the `authkit.server` binding, and logs a warning once when it cannot find the config. The header falls back to `branding.company` when `branding.default` is absent.
+
 ## 1.0.0-rc.13
 
 ### Patch Changes
