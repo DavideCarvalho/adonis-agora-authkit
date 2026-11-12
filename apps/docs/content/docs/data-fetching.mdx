@@ -123,6 +123,7 @@ const client = createAuthkitClient({
 | `admin.clients.update(id, data?)` | `PATCH /clients/:id` | — |
 | `admin.clients.remove(id)` | `DELETE /clients/:id` | `{ ok, deleted }` |
 | `admin.clients.regenerateSecret(id)` | `POST /clients/:id/regenerate-secret` | Shown once |
+| `admin.clients.disable(id)` / `enable(id)` | `POST /clients/:id/disable` / `enable` | Returns the client |
 | `admin.roles.list()` | `GET /roles` | — |
 | `admin.roles.create(data)` | `POST /roles` | — |
 | `admin.roles.update(name, data)` | `PATCH /roles/:name` | — |

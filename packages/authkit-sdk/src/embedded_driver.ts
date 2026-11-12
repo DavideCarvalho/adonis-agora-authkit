@@ -390,11 +390,16 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
       async regenerateSecret(id: string): Promise<RegeneratedSecret> {
         const svc = new AdminClientsService(service);
         const secret = await svc.regenerateSecret(id);
+        const tenant = (await svc.find(id))?.serviceTenant;
         await cfg.audit?.record({
           type: 'client.updated',
           clientId: id,
           ip: null,
-          metadata: { actor: 'admin-api', action: 'regenerate_secret' },
+          metadata: {
+            actor: 'admin-api',
+            action: 'regenerate_secret',
+            ...(tenant ? { partition: tenant.partition } : {}),
+          },
         });
         return { clientId: id, clientSecret: secret };
       },

@@ -311,6 +311,8 @@ export function remoteAccessTokenVerifier(
     }
     if (body.cnf) return null;
     if (typeof body.sub !== 'string' || !body.sub) return null;
+    // `client_credentials` token: no account behind it.
+    if (body.sub === body.client_id) return null;
     if (typeof body.exp === 'number' && body.exp <= Math.floor(Date.now() / 1000)) return null;
     return {
       format: 'opaque',

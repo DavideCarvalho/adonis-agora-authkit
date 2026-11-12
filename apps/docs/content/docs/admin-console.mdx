@@ -462,6 +462,8 @@ under `{prefix}/api/*`. All endpoints are protected by the `adminGuard`.
 | `PATCH {prefix}/api/clients/:id` | Edit a dynamic client |
 | `DELETE {prefix}/api/clients/:id` | Delete a dynamic client |
 | `POST {prefix}/api/clients/:id/regenerate-secret` | Regenerate client secret |
+| `POST {prefix}/api/clients/:id/disable` | Stop issuing tokens to a client |
+| `POST {prefix}/api/clients/:id/enable` | Issue tokens to a client again |
 | `GET {prefix}/api/roles` | List the roles catalog |
 | `POST {prefix}/api/roles` | Add a role to the catalog |
 | `PATCH {prefix}/api/roles/:name` | Update a catalog role |

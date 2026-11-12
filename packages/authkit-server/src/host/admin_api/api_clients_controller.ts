@@ -94,11 +94,16 @@ export default class ApiClientsController {
     const id = ctx.request.param('id');
     try {
       const secret = await svc.regenerateSecret(id);
+      const tenant = (await svc.find(id))?.serviceTenant;
       await service.config.audit?.record({
         type: 'client.updated',
         clientId: id,
         ip: ctx.request.ip?.() ?? null,
-        metadata: { actor: 'admin-api', action: 'regenerate_secret' },
+        metadata: {
+          actor: 'admin-api',
+          action: 'regenerate_secret',
+          ...(tenant ? { partition: tenant.partition } : {}),
+        },
       });
       return { clientId: id, clientSecret: secret };
     } catch (e) {

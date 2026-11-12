@@ -1,0 +1,256 @@
+---
+icon: Server
+title: Service tenants
+description: Give a background process its own identity and partition, and let a durable control plane verify it with no code.
+---
+
+A **service tenant** is a process with no user behind it that acts as one partition of
+another service. The typical case is a durable `topology: 'tenant'` pod: it sends a token
+with every request, and the control plane must know which tenant it is.
+
+In AuthKit a service tenant is a confidential client with only the `client_credentials`
+grant and a **partition** (plus optional **capabilities**). It asks the token endpoint for a
+token for your control plane and gets a short-lived JWT:
+
+```json
+{
+  "iss": "https://auth.acme.com",
+  "aud": "urn:agora:durable",
+  "sub": "worker-acme",
+  "client_id": "worker-acme",
+  "partition": "acme",
+  "capabilities": ["reports"],
+  "exp": 1762870200
+}
+```
+
+The control plane checks it against AuthKit's signing keys, locally, with no call to AuthKit
+per request.
+
+<Callout type="info">
+AuthKit is the zero-code path when you already run it. Durable does not need it: with plain
+`@adonisjs/auth` access tokens, another OIDC provider, or a shared secret, see durable's
+[Authenticate tenants](/docs/durable/cluster/authenticate-tenants) guide.
+</Callout>
+
+## Declare the resource
+
+Name your control plane with a resource indicator, any absolute URI. Only service tenants can
+get tokens for it, and their tokens are only valid for it:
+
+```ts title="config/authkit.ts"
+defineConfig({
+  // ...
+  serviceTenants: {
+    resources: {
+      'urn:agora:durable': {},
+    },
+  },
+})
+```
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `resources` | `Record<string, { expiresIn?, audience?, scopes? }>` | | One entry per control plane. |
+| `resources[*].expiresIn` | `number` (seconds) | `600` | Token lifetime. Tokens are not revocable, so keep it short. |
+| `resources[*].audience` | `string` | the key | The `aud` of the token. |
+| `resources[*].scopes` | `string[]` | `[]` | Scopes a service tenant may request for it. |
+
+A resource listed here cannot also be in `accessTokens.resources`: a resource is for users or
+for service tenants, never both.
+
+## Create the client
+
+### From the console
+
+**Clients → New Client**, then pick **Service tenant** as the kind. Enter the partition and,
+optionally, the capabilities (comma-separated). The secret is shown once.
+
+### From the CLI
+
+```sh
+node ace authkit:clients:create --client-id=worker-acme --partition=acme --capability=reports
+```
+
+`--capability` is repeatable. Add `--json` for machine-readable output (it includes the
+secret), or `--client-secret=...` to keep a secret you already have.
+
+### From the Admin API
+
+```sh
+curl -X POST https://auth.acme.com/api/authkit/v1/clients \
+  -H "Authorization: Bearer $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "clientId": "worker-acme", "serviceTenant": { "partition": "acme", "capabilities": ["reports"] } }'
+```
+
+```json
+{ "clientId": "worker-acme", "clientSecret": "c2VjcmV0..." }
+```
+
+The client always gets `grantTypes: ["client_credentials"]` and a secret. Redirect URIs, a
+public auth method, or another grant are refused with a 422.
+
+From code, use the [SDK](/docs/sdk):
+
+```ts title="app/controllers/tenants_controller.ts"
+import { createAuthkit } from '@adonis-agora/authkit-sdk'
+import app from '@adonisjs/core/services/app'
+import type { HttpContext } from '@adonisjs/core/http'
+
+export default class TenantsController {
+  async store({ request }: HttpContext) {
+    const { slug } = request.only(['slug'])
+    const authkit = await createAuthkit({ mode: 'embedded', app })
+    return authkit.clients.create({
+      clientId: `worker-${slug}`,
+      serviceTenant: { partition: slug, capabilities: ['reports'] },
+    })
+  }
+}
+```
+
+## Configure durable
+
+### Control plane
+
+The control plane runs in the AuthKit app, so the verifier reads the issuer and keys from it:
+
+```ts title="config/durable.ts"
+import { authkitTenantVerifier } from '@adonis-agora/authkit-server'
+
+export default defineConfig({
+  topology: 'control-plane',
+  // ...
+  verifyTenant: authkitTenantVerifier(),
+})
+```
+
+It accepts a token when the signature, issuer, audience, `typ: at+jwt` and expiry check out and
+the token has a `partition`, and returns `{ tenant: partition, capabilities }`. Anything else
+returns `null`, so durable rejects the request.
+
+With more than one resource in `serviceTenants.resources`, pass the one this control plane
+answers for: `authkitTenantVerifier({ audience: 'urn:agora:durable' })`.
+
+Prefer a class? `AuthkitTenantVerifier` implements durable's `TenantVerifierContract`:
+
+```ts title="app/tenants/verifier.ts"
+import { AuthkitTenantVerifier } from '@adonis-agora/authkit-server'
+
+export default class TenantVerifier extends AuthkitTenantVerifier {
+  constructor() {
+    super({ audience: 'urn:agora:durable' })
+  }
+}
+```
+
+```ts title="config/durable.ts"
+verifyTenant: () => import('#tenants/verifier'),
+```
+
+### Tenant process
+
+The tenant process only needs `@adonis-agora/authkit-client`. `authkitTenantToken` fetches a
+token, caches it, refreshes it a minute before it expires, shares one request between
+concurrent callers, and backs off when AuthKit is unreachable:
+
+```ts title="config/durable.ts"
+import env from '#start/env'
+import { authkitTenantToken } from '@adonis-agora/authkit-client'
+
+export default defineConfig({
+  topology: 'tenant',
+  partition: 'acme',
+  // ...
+  tenant: {
+    token: authkitTenantToken({
+      issuer: env.get('AUTHKIT_ISSUER'),
+      clientId: env.get('DURABLE_TENANT_CLIENT_ID'),
+      clientSecret: env.get('DURABLE_TENANT_CLIENT_SECRET'),
+      resource: 'urn:agora:durable',
+    }),
+  },
+})
+```
+
+`resource` can be left out when AuthKit declares a single service-tenant resource. Other
+options: `scope`, `refreshSkewSec` (default `60`), `tokenEndpoint` (default: from discovery),
+`timeoutMs` (default `10000`).
+
+As a class, `AuthkitTenantToken` implements durable's `TenantCredentialsContract`:
+
+```ts title="app/tenants/credentials.ts"
+import env from '#start/env'
+import { AuthkitTenantToken } from '@adonis-agora/authkit-client'
+
+export default class TenantCredentials extends AuthkitTenantToken {
+  constructor() {
+    super({
+      issuer: env.get('AUTHKIT_ISSUER'),
+      clientId: env.get('DURABLE_TENANT_CLIENT_ID'),
+      clientSecret: env.get('DURABLE_TENANT_CLIENT_SECRET'),
+      resource: 'urn:agora:durable',
+    })
+  }
+}
+```
+
+```ts title="config/durable.ts"
+tenant: { token: () => import('#tenants/credentials') },
+```
+
+Keep the partition in `config/durable.ts` the same as the client's: the control plane trusts the
+token, so a pod that claims another partition only gets its own.
+
+## Rotate the secret
+
+**Clients → (rotate icon)** in the console, or:
+
+```sh
+curl -X POST https://auth.acme.com/api/authkit/v1/clients/worker-acme/regenerate-secret \
+  -H "Authorization: Bearer $KEY"
+```
+
+The old secret stops working at once. Tokens already issued stay valid until they expire, so
+deploy the new secret, and the next refresh uses it.
+
+## Change the partition or capabilities
+
+Edit the client in the console, or `PATCH /api/authkit/v1/clients/:id` with
+`{ "serviceTenant": { "partition": "acme", "capabilities": ["reports", "billing"] } }`. The
+next token carries the new values; a token already issued keeps the old ones until it expires.
+
+## Disable a tenant
+
+**Clients → Disable** in the console, or:
+
+```sh
+curl -X POST https://auth.acme.com/api/authkit/v1/clients/worker-acme/disable \
+  -H "Authorization: Bearer $KEY"
+```
+
+From the next request on, the token endpoint answers `invalid_client`, so the process gets no
+new token. A token it already holds works until it expires (`expiresIn`, 10 minutes by
+default). `POST .../enable` turns it back on with the same secret. Deleting the client is
+permanent.
+
+## Audit
+
+| Event | When | Metadata |
+| --- | --- | --- |
+| `client.created` | The client was created | `actor` |
+| `client.updated` | Partition, capabilities or name changed | `actor` |
+| `client.secret_regenerated` | The secret was rotated from the console | `actor`, `partition` |
+| `client.updated` with `action: 'regenerate_secret'` | The secret was rotated from the Admin API or SDK | `actor`, `partition` |
+| `client.disabled` / `client.enabled` | The client was disabled or enabled | `actor`, `partition` |
+| `service_tenant.token_issued` | A token was issued | `partition`, `resource`, `jti`, `expiresIn` |
+
+Each one also reaches your [events](/docs/events) handlers.
+
+## What a service-tenant token cannot do
+
+- It never authenticates a user: `oidcBearerGuard` and the access-token verifiers reject a
+  token whose `sub` is a client, and a service tenant gets no ID token or refresh token.
+- A service tenant cannot get a token for any other resource, and no other client can get a
+  token for a service-tenant resource.

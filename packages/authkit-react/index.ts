@@ -367,7 +367,6 @@ export {
   usePersonalAgentConnectionsQueryOptions,
   usePersonalAgentsQueryOptions,
   useRegenerateClientSecretMutationOptions,
-  useSetClientDisabledMutationOptions,
   useRemoveOrgMemberMutationOptions,
   useRemovePersonalAgentEntryMutationOptions,
   useRemoveSettingMutationOptions,
@@ -381,6 +380,7 @@ export {
   useRotateKeysMutationOptions,
   // Sessions
   useSessionsQueryOptions,
+  useSetClientDisabledMutationOptions,
   useSetPersonalAgentStatusMutationOptions,
   useSetSettingMutationOptions,
   // Settings
