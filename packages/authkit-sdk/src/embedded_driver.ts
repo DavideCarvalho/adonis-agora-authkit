@@ -600,7 +600,7 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
         } catch {
           return { data: [] };
         }
-        const connection: string | undefined = (cfg.accountStore as any)?.connectionName;
+        const connection: string | undefined = (cfg as any).schema?.connection;
         const svc = new RuntimeSettings(db, connection ? { connection } : {});
         const rows = await svc.listSettings();
         return {
@@ -625,7 +625,7 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
         } catch {
           throw new Error('Runtime settings not available.');
         }
-        const connection: string | undefined = (cfg.accountStore as any)?.connectionName;
+        const connection: string | undefined = (cfg as any).schema?.connection;
         const svc = new RuntimeSettings(db, connection ? { connection } : {});
         const value = await svc.getSetting(key);
         if (value === null) throw new Error(`Setting '${key}' not found.`);
@@ -641,7 +641,7 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
         } catch {
           throw new Error('Runtime settings not available.');
         }
-        const connection: string | undefined = (cfg.accountStore as any)?.connectionName;
+        const connection: string | undefined = (cfg as any).schema?.connection;
         const svc = new RuntimeSettings(db, connection ? { connection } : {});
         await svc.setSetting(key, value, null);
         const saved = await svc.getSetting(key);
@@ -663,7 +663,7 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
         } catch {
           throw new Error('Runtime settings not available.');
         }
-        const connection: string | undefined = (cfg.accountStore as any)?.connectionName;
+        const connection: string | undefined = (cfg as any).schema?.connection;
         const svc = new RuntimeSettings(db, connection ? { connection } : {});
         await svc.deleteSetting(key);
         await cfg.audit?.record({
@@ -684,7 +684,7 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
         let settingsSvc: any = null;
         try {
           const db = await app.container.make('lucid.db');
-          const connection: string | undefined = (cfg.accountStore as any)?.connectionName;
+          const connection: string | undefined = (cfg as any).schema?.connection;
           settingsSvc = new RuntimeSettings(db, connection ? { connection } : {});
         } catch {
           // RuntimeSettings unavailable — buildKeysStatus will fall back to defaults.

@@ -260,9 +260,9 @@ export interface LucidAccountStoreOptions {
    *   `ensureAuthkitSchema`, então o mapeamento não é decisão do host.
    * - `true` → idêntico ao default (atalho explícito; é o que apps existentes
    *   já usam e continua valendo).
-   * - `{ OrgModel, MemberModel, InvitationModel }` → escape hatch, para quem
-   *   guarda as tabelas de auth numa conexão/schema próprios (os defaults não
-   *   declaram `static connection`).
+   * - `{ OrgModel, MemberModel, InvitationModel }` → escape hatch, para usar
+   *   models próprios do host; eles rodam na conexão que declaram. Os defaults
+   *   seguem `schema.connection`, como toda tabela lib-owned.
    * - `false` → opt-out explícito: `OrganizationsCapability` AUSENTE no store.
    *   Use quando a dependência atual é `supportsOrganizations === false` (ex.:
    *   store/rotas que assumem a ausência). O `authkit:doctor` avisa se
@@ -297,8 +297,9 @@ export interface LucidAccountStoreOptions {
  * Organizations também é montada por padrão (models default da lib) e só some
  * com `organizationModels: false`.
  *
- * O histórico de senhas usa a tabela lib-owned `auth_password_history` (criada
- * pelo `ensureAuthkitSchema`) pela conexão do próprio model, como o MFA.
+ * As tabelas lib-owned que o store lê (`auth_mfa`, `auth_password_history`, as de
+ * organizations) usam `schema.connection` (via `tablesClient`/`organizationModelsOn`,
+ * informado pelo `defineConfig`); só a tabela da conta segue a conexão do model.
  */
 /**
  * Nome da tabela da conta, para o metadado `accountTable` do store.
