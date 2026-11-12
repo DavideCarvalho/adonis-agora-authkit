@@ -193,13 +193,15 @@ defineConfig({
   clientId: env.get('AUTHKIT_CLIENT_ID'),
   redirectUri: env.get('AUTHKIT_REDIRECT_URI'),
   resolver: resolvers.jwt(),
-  backchannelLogout: { store: lucidRevocationStore() },
+  backchannelLogout: { store: lucidRevocationStore() }, // with IdP schema.name: lucidRevocationStore({ schema: 'auth' })
 })
 ```
 
 Then apply `BackchannelRevocationMiddleware` (from
 `@adonis-agora/authkit-client/backchannel_revocation_middleware`) so revoked
-sessions are rejected per request. Custom needs: `onBackchannelLogout` receives the
+sessions are rejected per request. `lucidRevocationStore` accepts
+`{ connection?, schema?, table? }`; when the IdP uses `schema.name`, pass the same
+`schema` here so both sides use `"auth"."auth_session_revocations"`. Custom needs: `onBackchannelLogout` receives the
 validated `{ sid, sub }` (store runs first, then the hook).
 
 Source: `src/define_config.ts` (`BackchannelLogoutInput`), README.

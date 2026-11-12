@@ -4,7 +4,7 @@ description: >-
   Set up the @adonis-agora/authkit-server OIDC/OAuth2 Authorization Server (Identity
   Provider) in an AdonisJS app. Covers `node ace add @adonis-agora/authkit-server`,
   defineConfig({ issuer, adapter, jwks, ttl, globalRolesClaim, accountStore }) with
-  adapters.redis({ connection }) vs adapters.database({ connection? }),
+  adapters.redis({ connection }) vs adapters.database({ connection?, schema? }),
   lucidAccountStore(AuthUser), JWKS management ({ source: 'managed' | 'jwks' } or
   'auto', keystore store file/drive/lucid/redis/hashicorp vaults plus
   @adonis-agora/authkit-vault-aws/azure/gcp createKeystoreVault add-ons),
@@ -83,12 +83,18 @@ export default authServerConfig
 
 `adapter` is where oidc-provider persists grants/tokens/codes: `adapters.redis({
 connection })` requires `@adonisjs/redis` configured; `adapters.database({
-connection? })` uses Lucid and stores artifacts in `authkit_oidc_payloads`, which
-`ensureAuthkitSchema` creates on boot (with `schema: { autoManage: false }`, call it
-from a migration). The table carries an indexed `account_id` column so per-account
+connection?, schema? })` uses Lucid and stores artifacts in `authkit_oidc_payloads`, which
+`ensureAuthkitSchema` creates on boot (with `schema: { autoManage: false }`, call
+`ensureAuthkitSchema(db)` — or `ensureAuthkitSchema(db, { schema })` when `schema.name`
+is set — from a migration). The `schema` defaults to `schema.name` of `defineConfig`.
+The table carries an indexed `account_id` column so per-account
 session lookups and revocation stay in SQL; rows with a NULL `account_id` are still
-found and get classified on read, so no backfill is needed. Works on Postgres,
-MySQL and SQLite; expired rows are pruned every 10 minutes per connection. `accountStore` is the identity contract — `lucidAccountStore(AuthUser)`
+found and get classified on read, so no backfill is needed. Without `schema.name` it
+works on Postgres, MySQL and SQLite; with `schema: { name: 'auth' }` every AuthKit
+table lives in that DB schema (`"auth"."auth_settings"`), the boot creates it
+(`CREATE SCHEMA IF NOT EXISTS`; MySQL: `CREATE DATABASE IF NOT EXISTS`), and SQLite
+fails the boot instead of ignoring the option. Never use `searchPath` for this
+(it leaks across clients behind PgBouncer in transaction mode). Expired rows are pruned every 10 minutes per connection. `accountStore` is the identity contract — `lucidAccountStore(AuthUser)`
 derives `findAccount`/`verifyCredentials` from your user model.
 
 Source: `stubs/config/authkit.stub`, `src/define_config.ts` (`AuthServerConfigInput`),
@@ -112,7 +118,7 @@ blob lives); `{ source: 'jwks', keys }` supplies keys inline.
 
 The managed keystore's `store` accepts a path shortcut (`store: 'tmp/keystore.json'`)
 or `{ driver: ... }`: built-in vaults are `file`, `drive` (a `@adonisjs/drive` disk),
-`lucid` (table created on first write), `redis`, and `hashicorp`; for cloud secret
+`lucid` (table created on first write; `schema` overrides, default `schema.name`), `redis`, and `hashicorp`; for cloud secret
 managers install the add-ons `@adonis-agora/authkit-vault-aws` / `-azure` / `-gcp`
 and pass their `createKeystoreVault(...)` result as `store` (any object with a
 `read()` method is accepted). With no `store` at all, keys are ephemeral per boot.
