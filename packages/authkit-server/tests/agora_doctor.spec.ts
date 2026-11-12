@@ -205,7 +205,7 @@ test.group('agora doctor | in an app', () => {
     const app = new IgnitorFactory().withCoreConfig().create(BOOT_APP).createApp('console');
     await app.init();
     const { report } = await runAgoraDoctor(app, authkitDoctorChecks(), {
-      only: 'authkit.issuer',
+      only: 'authkit.signing-key-age',
     });
     assert.equal(report.results[0]!.status, 'skip');
     assert.match(report.results[0]!.message, /--no-boot/);

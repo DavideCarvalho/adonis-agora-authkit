@@ -190,7 +190,10 @@ export function authkitDoctorChecks(): AgoraDoctorCheck[] {
       package: AUTHKIT_DOCTOR_PACKAGE,
       title: 'Signing key age',
       async run(app) {
-        const { input } = await prepare(app);
+        const { input, notBooted } = await prepare(app);
+        if (notBooted) {
+          return { status: 'skip', message: 'needs a booted app (run without --no-boot)' };
+        }
         if (!input) return toResults(null);
         const { managedSigningKeyAgeFinding } = await import('./doctor_input.js');
         return toResults(await managedSigningKeyAgeFinding(app, input.authkitConfig));
