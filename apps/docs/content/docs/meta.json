@@ -19,6 +19,7 @@
     "dynamic-registration",
     "mcp-clients",
     "device-flow",
+    "service-tenants",
     "personal-agents",
     "personal-agents-poppy",
     "native-apps",

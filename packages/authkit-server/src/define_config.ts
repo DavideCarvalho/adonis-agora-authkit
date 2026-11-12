@@ -74,6 +74,11 @@ import {
   resolveRedirectUriPolicy,
   type ValidateRegistrationHook,
 } from './provider/registration_policy.js';
+import {
+  type ResolvedServiceTenantsConfig,
+  resolveServiceTenants,
+  type ServiceTenantsConfigInput,
+} from './service_tenants/config.js';
 
 export type { AuthAccount };
 export { adapters };
@@ -1428,6 +1433,19 @@ export interface AuthServerConfigInput {
    */
   accessTokens?: AccessTokensConfig;
   /**
+   * Service tenants: confidential `client_credentials` clients that act as a partition of
+   * a resource server (e.g. a durable control plane). `resources` lists the resource
+   * indicators (RFC 8707) that issue their JWT access tokens (RFC 9068), each with an
+   * optional `expiresIn` (seconds, default 600), `audience` and `scopes`:
+   *
+   * ```ts
+   * serviceTenants: { resources: { 'urn:agora:durable': { expiresIn: 600 } } }
+   * ```
+   *
+   * Turns on the `client_credentials` grant. Default: off.
+   */
+  serviceTenants?: ServiceTenantsConfigInput;
+  /**
    * Login OAuth de clientes MCP (Claude Code, Claude, ChatGPT, VS Code, Cursor): `true` liga o
    * registro dinâmico restrito aos redirects deles, o refresh token desses clientes e os
    * `resource` dos servidores MCP — os de `resources` e os que se registram em runtime (o MCP do
@@ -1651,6 +1669,8 @@ export interface ResolvedServerConfig {
   registration: ResolvedRegistrationConfig;
   /** Access Tokens resolvido (RFC 9068; default opaque). */
   accessTokens: ResolvedAccessTokensConfig;
+  /** Service tenants (always present; `enabled: false` when no resource is declared). */
+  serviceTenants: ResolvedServiceTenantsConfig;
   mcp: ResolvedMcpOAuthConfig;
   /** Console admin resolvido (sempre presente; default desligado). */
   admin: ResolvedAdminConfig;
@@ -1945,6 +1965,7 @@ export function defineConfig(config: AuthServerConfigInput) {
         : undefined,
       registration: resolveRegistration(config.registration),
       accessTokens: resolveAccessTokens(config.issuer, config.accessTokens),
+      serviceTenants: resolveServiceTenants(config.serviceTenants, config.accessTokens?.resources),
       mcp: resolveMcpOAuth(config.mcp),
       admin: resolveAdmin(config.admin),
       adminApi: resolveAdminApi(config.adminApi),

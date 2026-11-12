@@ -26,6 +26,8 @@ function invalidMetadata(ctx: HttpContext, err: ClientMetadataError) {
  * PATCH  {prefix}/api/clients/:id             → atualizar metadata
  * DELETE {prefix}/api/clients/:id             → remover client
  * POST   {prefix}/api/clients/:id/regenerate-secret → gerar novo secret
+ * POST   {prefix}/api/clients/:id/disable     → stop issuing tokens to the client
+ * POST   {prefix}/api/clients/:id/enable      → issue tokens again
  */
 export default class ConsoleClientsController {
   /** GET {prefix}/api/clients */
@@ -125,6 +127,37 @@ export default class ConsoleClientsController {
     return { ok: true, deleted: id };
   }
 
+  /** POST {prefix}/api/clients/:id/disable */
+  async disable(ctx: HttpContext) {
+    return this.#setDisabled(ctx, true);
+  }
+
+  /** POST {prefix}/api/clients/:id/enable */
+  async enable(ctx: HttpContext) {
+    return this.#setDisabled(ctx, false);
+  }
+
+  /** Disabled clients get `invalid_client` from the next request on. */
+  async #setDisabled(ctx: HttpContext, disabled: boolean) {
+    const service = await ctx.containerResolver.make('authkit.server');
+    const svc = new AdminClientsService(service);
+    const id = ctx.request.param('id') as string;
+    if (!(await svc.setDisabled(id, disabled))) {
+      return ctx.response.notFound(apiError('not_found', 'Client não encontrado.'));
+    }
+    const client = await svc.find(id);
+    await service.config.audit?.record({
+      type: disabled ? 'client.disabled' : 'client.enabled',
+      clientId: id,
+      ip: ctx.request.ip?.() ?? null,
+      metadata: {
+        actor: 'admin-console',
+        ...(client?.serviceTenant ? { partition: client.serviceTenant.partition } : {}),
+      },
+    });
+    return clientDto(client!);
+  }
+
   /** POST {prefix}/api/clients/:id/regenerate-secret */
   async regenerateSecret(ctx: HttpContext) {
     const service = await ctx.containerResolver.make('authkit.server');
@@ -153,7 +186,10 @@ export default class ConsoleClientsController {
       type: 'client.secret_regenerated',
       clientId: id,
       ip: ctx.request.ip?.() ?? null,
-      metadata: { actor: 'admin-console' },
+      metadata: {
+        actor: 'admin-console',
+        ...(existing.serviceTenant ? { partition: existing.serviceTenant.partition } : {}),
+      },
     });
 
     return { clientId: id, clientSecret: newSecret };

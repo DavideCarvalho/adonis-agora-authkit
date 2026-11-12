@@ -343,6 +343,12 @@ class AuthkitClient {
       /** DELETE {base}/clients/:id */
       remove: (id: string) =>
         this.delete<DeletedResult>(this.b(`/clients/${encodeURIComponent(id)}`)),
+      /** POST {base}/clients/:id/disable — no new tokens until enabled again. */
+      disable: (id: string) =>
+        this.post<AdminClient>(this.b(`/clients/${encodeURIComponent(id)}/disable`)),
+      /** POST {base}/clients/:id/enable */
+      enable: (id: string) =>
+        this.post<AdminClient>(this.b(`/clients/${encodeURIComponent(id)}/enable`)),
       /** POST {base}/clients/:id/regenerate-secret */
       regenerateSecret: (id: string) =>
         this.post<RegenerateSecretResult>(

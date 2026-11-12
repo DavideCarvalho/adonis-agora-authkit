@@ -1,4 +1,9 @@
 import vine from '@vinejs/vine';
+import {
+  CAPABILITY_PATTERN,
+  MAX_CAPABILITIES,
+  PARTITION_PATTERN,
+} from '../service_tenants/client_metadata.js';
 import type { ClientInput, TokenEndpointAuthMethod } from './admin_clients_service.js';
 import { APPLICATION_TYPES, type ApplicationType, redirectUriProblem } from './client_metadata.js';
 import { normalizeEmailIdentifier } from './email_identifier.js';
@@ -112,6 +117,18 @@ export const clientInputValidator = vine.compile(
     // `null` (update) removes them.
     clientName: vine.string().trim().maxLength(200).nullable().optional(),
     logoUri: vine.string().trim().url(URL_OPTS).nullable().optional(),
+    // Service tenant (`client_credentials` + partition claim). `null` (update) turns it
+    // back into a regular client.
+    serviceTenant: vine
+      .object({
+        partition: vine.string().trim().regex(PARTITION_PATTERN),
+        capabilities: vine
+          .array(vine.string().trim().regex(CAPABILITY_PATTERN))
+          .maxLength(MAX_CAPABILITIES)
+          .optional(),
+      })
+      .nullable()
+      .optional(),
   }),
 );
 
@@ -127,6 +144,7 @@ export type ClientInputFields = {
   backchannelLogoutSessionRequired?: boolean;
   clientName?: string | null;
   logoUri?: string | null;
+  serviceTenant?: { partition: string; capabilities?: string[] } | null;
 };
 
 /**
@@ -136,6 +154,21 @@ export type ClientInputFields = {
  */
 export function clientCreateInput(v: ClientInputFields): ClientInput {
   const applicationType = v.applicationType ?? 'web';
+  // A service tenant only uses client_credentials: that is its default grant.
+  if (v.serviceTenant) {
+    return {
+      clientId: v.clientId?.trim() || undefined,
+      applicationType,
+      redirectUris: v.redirectUris ?? [],
+      postLogoutRedirectUris: v.postLogoutRedirectUris ?? [],
+      grantTypes: v.grantTypes ?? ['client_credentials'],
+      tokenEndpointAuthMethod: v.tokenEndpointAuthMethod ?? 'client_secret_basic',
+      backchannelLogoutUri: v.backchannelLogoutUri || undefined,
+      clientName: v.clientName || undefined,
+      logoUri: v.logoUri || undefined,
+      serviceTenant: v.serviceTenant,
+    };
+  }
   return {
     clientId: v.clientId?.trim() || undefined,
     applicationType,
@@ -169,6 +202,7 @@ export function clientPartialInput(v: ClientInputFields): Partial<ClientInput> {
     out.backchannelLogoutSessionRequired = v.backchannelLogoutSessionRequired;
   if (v.clientName !== undefined) out.clientName = v.clientName?.trim() || null;
   if (v.logoUri !== undefined) out.logoUri = v.logoUri?.trim() || null;
+  if (v.serviceTenant !== undefined) out.serviceTenant = v.serviceTenant;
   return out;
 }
 

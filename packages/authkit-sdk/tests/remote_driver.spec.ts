@@ -272,6 +272,20 @@ test.group('remote driver — clients + tokens', () => {
     );
   });
 
+  test('disable and enable hit their paths', async ({ assert }) => {
+    await withApi(
+      () => ({ status: 200, body: { clientId: 'c1', disabled: true } }),
+      async (sdk, api) => {
+        const res = await sdk.clients.disable('c1');
+        assert.isTrue(res.disabled);
+        assert.equal(api.last!.url, '/api/authkit/v1/clients/c1/disable');
+        assert.equal(api.last!.method, 'POST');
+        await sdk.clients.enable('c1');
+        assert.equal(api.last!.url, '/api/authkit/v1/clients/c1/enable');
+      },
+    );
+  });
+
   test('delete uses DELETE verb', async ({ assert }) => {
     await withApi(
       () => ({ status: 200, body: { clientId: 'c1', deleted: true } }),

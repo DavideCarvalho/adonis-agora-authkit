@@ -107,6 +107,11 @@ export const AUDIT_EVENT_TYPES = [
   'session.revoked',
   'account.signed_out_all',
   'client.secret_regenerated',
+  // A client was disabled (no new tokens) or enabled again.
+  'client.disabled',
+  'client.enabled',
+  // A service tenant got a token (`partition`, `resource`, `jti` in the metadata).
+  'service_tenant.token_issued',
   'roles_catalog.updated',
   // Personal agents (PACT §5): o usuário aprovou/negou a delegação pedida por um
   // agente, ou revogou um grant no console. `clientId` = issuer do agente.

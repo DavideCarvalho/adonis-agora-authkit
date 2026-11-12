@@ -132,6 +132,7 @@ export type {
   // Admin – Roles
   RoleCatalogEntry,
   RoleListResult,
+  ServiceTenantSettings,
   // Admin – Settings
   SettingEntry,
   SettingListResult,
@@ -379,6 +380,7 @@ export {
   useRotateKeysMutationOptions,
   // Sessions
   useSessionsQueryOptions,
+  useSetClientDisabledMutationOptions,
   useSetPersonalAgentStatusMutationOptions,
   useSetSettingMutationOptions,
   // Settings

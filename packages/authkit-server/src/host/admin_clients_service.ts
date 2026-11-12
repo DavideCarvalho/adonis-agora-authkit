@@ -2,6 +2,14 @@ import { randomBytes } from 'node:crypto';
 import type { EnumeratedClient, OidcAdapter } from '../adapters/adapter_contract.js';
 import type { OidcService } from '../provider/oidc_service.js';
 import {
+  CLIENT_DISABLED_KEY,
+  isClientDisabled,
+  normalizeServiceTenant,
+  SERVICE_TENANT_KEY,
+  type ServiceTenantInfo,
+  serviceTenantOf,
+} from '../service_tenants/client_metadata.js';
+import {
   type ApplicationType,
   assertClientMetadata,
   ClientMetadataError,
@@ -42,6 +50,12 @@ export interface ClientInput {
    * `backchannelLogoutUri` não está definido.
    */
   backchannelLogoutSessionRequired?: boolean;
+  /**
+   * Makes the client a service tenant: confidential, `client_credentials` only, no
+   * redirect URIs; its tokens carry `partition` and `capabilities`. On update, `null`
+   * turns it back into a regular client; absent keeps the current value.
+   */
+  serviceTenant?: { partition: string; capabilities?: string[] } | null;
 }
 
 /** Client persistido, apresentado ao console admin. */
@@ -62,6 +76,10 @@ export interface AdminClient {
   clientName: string | null;
   /** `logo_uri` registrado, ou `null`. */
   logoUri: string | null;
+  /** Disabled clients get no tokens (`invalid_client`) until enabled again. */
+  disabled: boolean;
+  /** Service-tenant settings, or `null` for a regular client. */
+  serviceTenant: ServiceTenantInfo | null;
 }
 
 /** Resultado de uma criação: o client + o secret em claro (mostrado UMA vez). */
@@ -194,14 +212,35 @@ export class AdminClientsService {
         input.logoUri === null
           ? undefined
           : (input.logoUri ?? (existing.logo_uri as string | undefined)),
+      serviceTenant:
+        input.serviceTenant === undefined
+          ? serviceTenantOf(existing as Record<string, unknown>)
+          : input.serviceTenant,
     };
 
     const confidential = !PUBLIC_AUTH_METHODS.has(merged.tokenEndpointAuthMethod);
     // Mantém o secret atual se continua confidencial; se virou public, remove-o.
     const clientSecret = confidential ? (previousSecret ?? randomId()) : undefined;
     const payload = this.#buildPayload(clientId, merged, clientSecret);
+    if (isClientDisabled(existing as Record<string, unknown>)) payload[CLIENT_DISABLED_KEY] = true;
     await this.#adapter.upsert(clientId, payload, 0);
     await this.oidc.evictDynamicClientCache();
+  }
+
+  /**
+   * Disables or re-enables a client. A disabled client gets `invalid_client` on every
+   * endpoint from the next request on (tokens already issued stay valid until they
+   * expire). Returns `false` when the client does not exist.
+   */
+  async setDisabled(clientId: string, disabled: boolean): Promise<boolean> {
+    const existing = await this.#adapter.find(clientId);
+    if (!existing) return false;
+    const payload: Record<string, any> = { ...existing };
+    if (disabled) payload[CLIENT_DISABLED_KEY] = true;
+    else delete payload[CLIENT_DISABLED_KEY];
+    await this.#adapter.upsert(clientId, payload, 0);
+    await this.oidc.evictDynamicClientCache();
+    return true;
   }
 
   /**
@@ -234,6 +273,7 @@ export class AdminClientsService {
    * `client_metadata.ts`). Lança `ClientMetadataError`.
    */
   #assertValid(input: ClientInput): void {
+    if (input.serviceTenant) this.#assertServiceTenant(input);
     assertClientMetadata({
       applicationType: input.applicationType ?? 'web',
       tokenEndpointAuthMethod: input.tokenEndpointAuthMethod,
@@ -241,6 +281,30 @@ export class AdminClientsService {
       redirectUris: input.redirectUris,
       postLogoutRedirectUris: input.postLogoutRedirectUris,
     });
+  }
+
+  /** Rules of a service-tenant client (see {@link ClientInput.serviceTenant}). */
+  #assertServiceTenant(input: ClientInput): void {
+    if (!this.oidc.config.serviceTenants?.enabled) {
+      throw new ClientMetadataError(
+        'service tenants are not enabled: declare serviceTenants.resources in config/authkit.ts',
+      );
+    }
+    if (PUBLIC_AUTH_METHODS.has(input.tokenEndpointAuthMethod)) {
+      throw new ClientMetadataError('a service tenant must be confidential (it has a secret)');
+    }
+    if ((input.applicationType ?? 'web') !== 'web') {
+      throw new ClientMetadataError('a service tenant must be a web (server) client');
+    }
+    if (input.grantTypes.length !== 1 || input.grantTypes[0] !== 'client_credentials') {
+      throw new ClientMetadataError('a service tenant can only use the client_credentials grant');
+    }
+    if (input.redirectUris.length || input.postLogoutRedirectUris.length) {
+      throw new ClientMetadataError('a service tenant has no redirect URIs');
+    }
+    if (input.backchannelLogoutUri) {
+      throw new ClientMetadataError('a service tenant has no back-channel logout URI');
+    }
   }
 
   /**
@@ -280,6 +344,11 @@ export class AdminClientsService {
         payload.backchannel_logout_session_required = input.backchannelLogoutSessionRequired;
       }
     }
+    if (input.serviceTenant) {
+      const tenant = normalizeServiceTenant(input.serviceTenant);
+      if (typeof tenant === 'string') throw new ClientMetadataError(tenant);
+      payload[SERVICE_TENANT_KEY] = tenant;
+    }
     return payload;
   }
 
@@ -297,6 +366,8 @@ export class AdminClientsService {
       applicationType: p.application_type === 'native' ? 'native' : 'web',
       clientName: typeof p.client_name === 'string' && p.client_name ? p.client_name : null,
       logoUri: typeof p.logo_uri === 'string' && p.logo_uri ? p.logo_uri : null,
+      disabled: isClientDisabled(p),
+      serviceTenant: serviceTenantOf(p),
     };
     if (p.backchannel_logout_uri) {
       result.backchannelLogoutUri = p.backchannel_logout_uri as string;

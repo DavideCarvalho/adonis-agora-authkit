@@ -94,16 +94,49 @@ export default class ApiClientsController {
     const id = ctx.request.param('id');
     try {
       const secret = await svc.regenerateSecret(id);
+      const tenant = (await svc.find(id))?.serviceTenant;
       await service.config.audit?.record({
         type: 'client.updated',
         clientId: id,
         ip: ctx.request.ip?.() ?? null,
-        metadata: { actor: 'admin-api', action: 'regenerate_secret' },
+        metadata: {
+          actor: 'admin-api',
+          action: 'regenerate_secret',
+          ...(tenant ? { partition: tenant.partition } : {}),
+        },
       });
       return { clientId: id, clientSecret: secret };
     } catch (e) {
       return ctx.response.conflict(apiError('cannot_regenerate', (e as Error).message));
     }
+  }
+
+  async disable(ctx: HttpContext) {
+    return this.#setDisabled(ctx, true);
+  }
+
+  async enable(ctx: HttpContext) {
+    return this.#setDisabled(ctx, false);
+  }
+
+  /** Disabled clients get `invalid_client` from the next request on. */
+  async #setDisabled(ctx: HttpContext, disabled: boolean) {
+    const { service, svc } = await clientsService(ctx);
+    const id = ctx.request.param('id');
+    if (!(await svc.setDisabled(id, disabled))) {
+      return ctx.response.notFound(apiError('not_found', 'Client não encontrado.'));
+    }
+    const client = await svc.find(id);
+    await service.config.audit?.record({
+      type: disabled ? 'client.disabled' : 'client.enabled',
+      clientId: id,
+      ip: ctx.request.ip?.() ?? null,
+      metadata: {
+        actor: 'admin-api',
+        ...(client?.serviceTenant ? { partition: client.serviceTenant.partition } : {}),
+      },
+    });
+    return clientDto(client!);
   }
 
   async destroy(ctx: HttpContext) {

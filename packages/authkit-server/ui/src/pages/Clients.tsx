@@ -4,6 +4,7 @@ import {
   type CreateClientInput,
   useAuthkitClient,
   useCreateClientMutationOptions,
+  useSetClientDisabledMutationOptions,
   useUpdateClientMutationOptions,
 } from '@adonis-agora/authkit-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -16,6 +17,11 @@ const GRANT_TYPES = ['authorization_code', 'refresh_token', 'client_credentials'
 const AUTH_METHODS = ['client_secret_basic', 'client_secret_post', 'none'];
 
 interface FormState {
+  /** `app`: a regular OAuth client. `serviceTenant`: client_credentials + partition claim. */
+  kind: 'app' | 'serviceTenant';
+  partition: string;
+  /** Comma- or space-separated. */
+  capabilities: string;
   clientIdOverride: string;
   redirectUris: string[];
   postLogoutRedirectUris: string[];
@@ -28,8 +34,18 @@ interface FormState {
   logoUri: string;
 }
 
+function parseCapabilities(raw: string): string[] {
+  return raw
+    .split(/[\s,]+/)
+    .map((c) => c.trim())
+    .filter(Boolean);
+}
+
 function defaultForm(): FormState {
   return {
+    kind: 'app',
+    partition: '',
+    capabilities: '',
     clientIdOverride: '',
     redirectUris: [],
     postLogoutRedirectUris: [],
@@ -60,6 +76,7 @@ export function Clients() {
 
   const createMutation = useMutation(useCreateClientMutationOptions());
   const updateMutation = useMutation(useUpdateClientMutationOptions(editClient?.clientId ?? ''));
+  const disableMutation = useMutation(useSetClientDisabledMutationOptions());
 
   function openCreate() {
     setFormData(defaultForm());
@@ -70,6 +87,9 @@ export function Clients() {
 
   function openEdit(c: AdminClient) {
     setFormData({
+      kind: c.serviceTenant ? 'serviceTenant' : 'app',
+      partition: c.serviceTenant?.partition ?? '',
+      capabilities: (c.serviceTenant?.capabilities ?? []).join(', '),
       clientIdOverride: '',
       redirectUris: [...c.redirectUris],
       postLogoutRedirectUris: [...c.postLogoutRedirectUris],
@@ -121,18 +141,30 @@ export function Clients() {
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     try {
-      const input: CreateClientInput = {
-        clientId: formData.clientIdOverride || undefined,
-        redirectUris: formData.redirectUris,
-        postLogoutRedirectUris: formData.postLogoutRedirectUris,
-        grantTypes: formData.grantTypes,
-        tokenEndpointAuthMethod: formData.tokenEndpointAuthMethod,
-        applicationType: formData.applicationType,
-        backchannelLogoutUri: formData.backchannelLogoutUri || undefined,
-        backchannelLogoutSessionRequired: formData.backchannelLogoutSessionRequired,
-        clientName: formData.clientName.trim() || undefined,
-        logoUri: formData.logoUri.trim() || undefined,
-      };
+      const input: CreateClientInput =
+        formData.kind === 'serviceTenant'
+          ? {
+              clientId: formData.clientIdOverride || undefined,
+              grantTypes: ['client_credentials'],
+              tokenEndpointAuthMethod: 'client_secret_basic',
+              clientName: formData.clientName.trim() || undefined,
+              serviceTenant: {
+                partition: formData.partition.trim(),
+                capabilities: parseCapabilities(formData.capabilities),
+              },
+            }
+          : {
+              clientId: formData.clientIdOverride || undefined,
+              redirectUris: formData.redirectUris,
+              postLogoutRedirectUris: formData.postLogoutRedirectUris,
+              grantTypes: formData.grantTypes,
+              tokenEndpointAuthMethod: formData.tokenEndpointAuthMethod,
+              applicationType: formData.applicationType,
+              backchannelLogoutUri: formData.backchannelLogoutUri || undefined,
+              backchannelLogoutSessionRequired: formData.backchannelLogoutSessionRequired,
+              clientName: formData.clientName.trim() || undefined,
+              logoUri: formData.logoUri.trim() || undefined,
+            };
       const r = await createMutation.mutateAsync(input);
       queryClient.invalidateQueries({ queryKey: authkitKeys.admin.clients() });
       setCreateOpen(false);
@@ -150,6 +182,19 @@ export function Clients() {
     e.preventDefault();
     if (!editClient) return;
     try {
+      if (formData.kind === 'serviceTenant') {
+        await updateMutation.mutateAsync({
+          clientName: formData.clientName.trim() || null,
+          serviceTenant: {
+            partition: formData.partition.trim(),
+            capabilities: parseCapabilities(formData.capabilities),
+          },
+        });
+        queryClient.invalidateQueries({ queryKey: authkitKeys.admin.clients() });
+        toast.success('Client updated');
+        setEditClient(null);
+        return;
+      }
       await updateMutation.mutateAsync({
         redirectUris: formData.redirectUris,
         postLogoutRedirectUris: formData.postLogoutRedirectUris,
@@ -176,6 +221,25 @@ export function Clients() {
       await authkitClient.admin.clients.remove(c.clientId);
       queryClient.invalidateQueries({ queryKey: authkitKeys.admin.clients() });
       toast.success('Client deleted');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function handleToggleDisabled(c: AdminClient) {
+    const disable = !c.disabled;
+    if (
+      disable &&
+      !confirm(
+        `Disable ${c.clientId}? It gets no new tokens from now on; tokens already issued expire on their own.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await disableMutation.mutateAsync({ id: c.clientId, disabled: disable });
+      queryClient.invalidateQueries({ queryKey: authkitKeys.admin.clients() });
+      toast.success(disable ? `Client ${c.clientId} disabled` : `Client ${c.clientId} enabled`);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : String(err));
     }
@@ -209,173 +273,233 @@ export function Clients() {
         </div>
       )}
 
-      <div className="field">
-        <label>Grant Types</label>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
-          {GRANT_TYPES.map((g) => (
-            <label key={g} className="checkbox-row" style={{ padding: '4px 0' }}>
-              <input
-                type="checkbox"
-                checked={formData.grantTypes.includes(g)}
-                onChange={() => toggleGrant(g)}
-              />
-              <span className="chk-label mono">{g}</span>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      <div className="field">
-        <label>Application Type</label>
-        <select
-          className="input"
-          value={formData.applicationType}
-          onChange={(e) => {
-            const applicationType = e.target.value === 'native' ? 'native' : 'web';
-            // Native apps (RFC 8252) are always public clients: no secret.
-            setFormData((f) => ({
-              ...f,
-              applicationType,
-              tokenEndpointAuthMethod:
-                applicationType === 'native' ? 'none' : f.tokenEndpointAuthMethod,
-            }));
-          }}
-        >
-          <option value="web">web</option>
-          <option value="native">native (mobile / desktop app)</option>
-        </select>
-      </div>
-
-      <div className="field">
-        <label>Token Endpoint Auth Method</label>
-        <select
-          className="input"
-          value={formData.tokenEndpointAuthMethod}
-          disabled={formData.applicationType === 'native'}
-          onChange={(e) => setFormData((f) => ({ ...f, tokenEndpointAuthMethod: e.target.value }))}
-        >
-          {AUTH_METHODS.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="field">
-        <label>Redirect URIs</label>
-        {formData.redirectUris.map((uri, i) => (
-          <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
-            <input className="input input-mono" value={uri} readOnly style={{ flex: 1 }} />
-            <button
-              type="button"
-              className="btn btn-sm btn-danger"
-              onClick={() => removeUri('redirect', i)}
-            >
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M3 3l10 10M13 3L3 13" strokeLinecap="round" />
-              </svg>
-            </button>
-          </div>
-        ))}
-        <div style={{ display: 'flex', gap: 6 }}>
-          <input
-            className="input input-mono"
-            value={redirectInput}
-            onChange={(e) => setRedirectInput(e.target.value)}
-            placeholder={
-              formData.applicationType === 'native'
-                ? 'com.example.app:/oauth or http://127.0.0.1/callback'
-                : 'https://app.example.com/callback'
+      {!editClient && (
+        <div className="field">
+          <label>Kind</label>
+          <select
+            className="input"
+            value={formData.kind}
+            onChange={(e) =>
+              setFormData((f) => ({
+                ...f,
+                kind: e.target.value === 'serviceTenant' ? 'serviceTenant' : 'app',
+              }))
             }
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                addUri('redirect');
-              }
-            }}
-          />
-          <button type="button" className="btn btn-sm" onClick={() => addUri('redirect')}>
-            Add
-          </button>
+          >
+            <option value="app">Application (sign-in, APIs)</option>
+            <option value="serviceTenant">Service tenant (client_credentials + partition)</option>
+          </select>
         </div>
-      </div>
+      )}
 
-      <div className="field">
-        <label>Post-Logout Redirect URIs</label>
-        {formData.postLogoutRedirectUris.map((uri, i) => (
-          <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
-            <input className="input input-mono" value={uri} readOnly style={{ flex: 1 }} />
-            <button
-              type="button"
-              className="btn btn-sm btn-danger"
-              onClick={() => removeUri('logout', i)}
-            >
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M3 3l10 10M13 3L3 13" strokeLinecap="round" />
-              </svg>
-            </button>
+      {formData.kind === 'serviceTenant' ? (
+        <>
+          <div className="field">
+            <label>Partition</label>
+            <input
+              className="input input-mono"
+              value={formData.partition}
+              onChange={(e) => setFormData((f) => ({ ...f, partition: e.target.value }))}
+              placeholder="acme"
+              required
+            />
           </div>
-        ))}
-        <div style={{ display: 'flex', gap: 6 }}>
-          <input
-            className="input input-mono"
-            value={logoutInput}
-            onChange={(e) => setLogoutInput(e.target.value)}
-            placeholder="https://app.example.com/logged-out"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                addUri('logout');
+          <div className="field">
+            <label>Capabilities (optional, comma-separated)</label>
+            <input
+              className="input input-mono"
+              value={formData.capabilities}
+              onChange={(e) => setFormData((f) => ({ ...f, capabilities: e.target.value }))}
+              placeholder="reports, billing"
+            />
+          </div>
+          <div className="field">
+            <label>Name</label>
+            <input
+              className="input"
+              value={formData.clientName}
+              onChange={(e) => setFormData((f) => ({ ...f, clientName: e.target.value }))}
+              placeholder="Acme worker"
+            />
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--faint)' }}>
+            Confidential client with only the client_credentials grant. Its tokens carry the
+            partition and capabilities as claims.
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="field">
+            <label>Grant Types</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+              {GRANT_TYPES.map((g) => (
+                <label key={g} className="checkbox-row" style={{ padding: '4px 0' }}>
+                  <input
+                    type="checkbox"
+                    checked={formData.grantTypes.includes(g)}
+                    onChange={() => toggleGrant(g)}
+                  />
+                  <span className="chk-label mono">{g}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="field">
+            <label>Application Type</label>
+            <select
+              className="input"
+              value={formData.applicationType}
+              onChange={(e) => {
+                const applicationType = e.target.value === 'native' ? 'native' : 'web';
+                // Native apps (RFC 8252) are always public clients: no secret.
+                setFormData((f) => ({
+                  ...f,
+                  applicationType,
+                  tokenEndpointAuthMethod:
+                    applicationType === 'native' ? 'none' : f.tokenEndpointAuthMethod,
+                }));
+              }}
+            >
+              <option value="web">web</option>
+              <option value="native">native (mobile / desktop app)</option>
+            </select>
+          </div>
+
+          <div className="field">
+            <label>Token Endpoint Auth Method</label>
+            <select
+              className="input"
+              value={formData.tokenEndpointAuthMethod}
+              disabled={formData.applicationType === 'native'}
+              onChange={(e) =>
+                setFormData((f) => ({ ...f, tokenEndpointAuthMethod: e.target.value }))
               }
-            }}
-          />
-          <button type="button" className="btn btn-sm" onClick={() => addUri('logout')}>
-            Add
-          </button>
-        </div>
-      </div>
+            >
+              {AUTH_METHODS.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </div>
 
-      <div className="field">
-        <label>Name</label>
-        <input
-          className="input"
-          value={formData.clientName}
-          onChange={(e) => setFormData((f) => ({ ...f, clientName: e.target.value }))}
-          placeholder="Shown on consent and authorized-app screens"
-        />
-      </div>
+          <div className="field">
+            <label>Redirect URIs</label>
+            {formData.redirectUris.map((uri, i) => (
+              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
+                <input className="input input-mono" value={uri} readOnly style={{ flex: 1 }} />
+                <button
+                  type="button"
+                  className="btn btn-sm btn-danger"
+                  onClick={() => removeUri('redirect', i)}
+                >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M3 3l10 10M13 3L3 13" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input
+                className="input input-mono"
+                value={redirectInput}
+                onChange={(e) => setRedirectInput(e.target.value)}
+                placeholder={
+                  formData.applicationType === 'native'
+                    ? 'com.example.app:/oauth or http://127.0.0.1/callback'
+                    : 'https://app.example.com/callback'
+                }
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addUri('redirect');
+                  }
+                }}
+              />
+              <button type="button" className="btn btn-sm" onClick={() => addUri('redirect')}>
+                Add
+              </button>
+            </div>
+          </div>
 
-      <div className="field">
-        <label>Logo URL</label>
-        <input
-          className="input input-mono"
-          value={formData.logoUri}
-          onChange={(e) => setFormData((f) => ({ ...f, logoUri: e.target.value }))}
-          placeholder="https://app.example.com/logo.png"
-        />
-      </div>
+          <div className="field">
+            <label>Post-Logout Redirect URIs</label>
+            {formData.postLogoutRedirectUris.map((uri, i) => (
+              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
+                <input className="input input-mono" value={uri} readOnly style={{ flex: 1 }} />
+                <button
+                  type="button"
+                  className="btn btn-sm btn-danger"
+                  onClick={() => removeUri('logout', i)}
+                >
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M3 3l10 10M13 3L3 13" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input
+                className="input input-mono"
+                value={logoutInput}
+                onChange={(e) => setLogoutInput(e.target.value)}
+                placeholder="https://app.example.com/logged-out"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addUri('logout');
+                  }
+                }}
+              />
+              <button type="button" className="btn btn-sm" onClick={() => addUri('logout')}>
+                Add
+              </button>
+            </div>
+          </div>
 
-      <div className="field">
-        <label>Backchannel Logout URI</label>
-        <input
-          className="input input-mono"
-          value={formData.backchannelLogoutUri}
-          onChange={(e) => setFormData((f) => ({ ...f, backchannelLogoutUri: e.target.value }))}
-          placeholder="https://app.example.com/backchannel-logout"
-        />
-      </div>
+          <div className="field">
+            <label>Name</label>
+            <input
+              className="input"
+              value={formData.clientName}
+              onChange={(e) => setFormData((f) => ({ ...f, clientName: e.target.value }))}
+              placeholder="Shown on consent and authorized-app screens"
+            />
+          </div>
 
-      <label className="checkbox-row">
-        <input
-          type="checkbox"
-          checked={formData.backchannelLogoutSessionRequired}
-          onChange={(e) =>
-            setFormData((f) => ({ ...f, backchannelLogoutSessionRequired: e.target.checked }))
-          }
-        />
-        <span className="chk-label">Require session ID in backchannel logout</span>
-      </label>
+          <div className="field">
+            <label>Logo URL</label>
+            <input
+              className="input input-mono"
+              value={formData.logoUri}
+              onChange={(e) => setFormData((f) => ({ ...f, logoUri: e.target.value }))}
+              placeholder="https://app.example.com/logo.png"
+            />
+          </div>
+
+          <div className="field">
+            <label>Backchannel Logout URI</label>
+            <input
+              className="input input-mono"
+              value={formData.backchannelLogoutUri}
+              onChange={(e) => setFormData((f) => ({ ...f, backchannelLogoutUri: e.target.value }))}
+              placeholder="https://app.example.com/backchannel-logout"
+            />
+          </div>
+
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={formData.backchannelLogoutSessionRequired}
+              onChange={(e) =>
+                setFormData((f) => ({ ...f, backchannelLogoutSessionRequired: e.target.checked }))
+              }
+            />
+            <span className="chk-label">Require session ID in backchannel logout</span>
+          </label>
+        </>
+      )}
     </form>
   );
 
@@ -401,6 +525,7 @@ export function Clients() {
         onEdit={openEdit}
         onDelete={handleDelete}
         onRegenerate={handleRegenerate}
+        onToggleDisabled={handleToggleDisabled}
       />
 
       {/* Create modal */}

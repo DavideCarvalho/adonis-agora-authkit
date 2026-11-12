@@ -135,6 +135,16 @@ export interface AdminClient {
   clientName: string | null;
   /** Registered `logo_uri`, or `null`. */
   logoUri: string | null;
+  /** Disabled clients get no tokens. Absent on older servers (= `false`). */
+  disabled?: boolean;
+  /** Service-tenant settings, or `null` for a regular client. Absent on older servers. */
+  serviceTenant?: ServiceTenantSettings | null;
+}
+
+/** A service tenant: `client_credentials` tokens carrying `partition` (and `capabilities`). */
+export interface ServiceTenantSettings {
+  partition: string;
+  capabilities: string[];
 }
 
 export interface AdminClientListResult {
@@ -164,16 +174,22 @@ export interface CreateClientInput {
   backchannelLogoutSessionRequired?: boolean;
   clientName?: string;
   logoUri?: string;
+  /** Makes it a service tenant (confidential, `client_credentials` only, no redirect URIs). */
+  serviceTenant?: { partition: string; capabilities?: string[] };
 }
 
-/** Like {@link CreateClientInput}; `null` removes `backchannelLogoutUri`, `clientName` or `logoUri`. */
+/**
+ * Like {@link CreateClientInput}; `null` removes `backchannelLogoutUri`, `clientName` or
+ * `logoUri`, and turns a service tenant back into a regular client.
+ */
 export type UpdateClientInput = Omit<
   CreateClientInput,
-  'backchannelLogoutUri' | 'clientName' | 'logoUri'
+  'backchannelLogoutUri' | 'clientName' | 'logoUri' | 'serviceTenant'
 > & {
   backchannelLogoutUri?: string | null;
   clientName?: string | null;
   logoUri?: string | null;
+  serviceTenant?: { partition: string; capabilities?: string[] } | null;
 };
 
 // ---------------------------------------------------------------------------

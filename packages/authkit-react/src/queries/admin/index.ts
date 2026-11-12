@@ -231,6 +231,20 @@ export function useDeleteClientMutationOptions(id: string) {
   } satisfies UseMutationOptions<DeletedResult, AuthkitClientError, void>;
 }
 
+/** Disables or enables a client; the id goes with each call (one mutation for a whole list). */
+export function useSetClientDisabledMutationOptions() {
+  const client = useAuthkitClient();
+  return {
+    mutationKey: ['authkit', 'admin', 'clients', 'disabled'],
+    mutationFn: ({ id, disabled }: { id: string; disabled: boolean }) =>
+      disabled ? client.admin.clients.disable(id) : client.admin.clients.enable(id),
+  } satisfies UseMutationOptions<
+    AdminClient,
+    AuthkitClientError,
+    { id: string; disabled: boolean }
+  >;
+}
+
 export function useRegenerateClientSecretMutationOptions(id: string) {
   const client = useAuthkitClient();
   return {

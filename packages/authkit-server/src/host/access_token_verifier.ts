@@ -112,6 +112,9 @@ function fromJwtPayload(payload: JWTPayload): VerifiedAccessToken | null {
   if ((payload as { cnf?: unknown }).cnf) return null;
   if (typeof payload.sub !== 'string' || !payload.sub) return null;
   const clientId = (payload as { client_id?: unknown }).client_id;
+  // No user behind it: a `client_credentials` token (a service tenant's, for one) has
+  // `sub` = the client id (RFC 9068 §2.2) and never authenticates an account.
+  if (payload.sub === clientId) return null;
   return {
     format: 'jwt',
     sub: payload.sub,
@@ -308,6 +311,8 @@ export function remoteAccessTokenVerifier(
     }
     if (body.cnf) return null;
     if (typeof body.sub !== 'string' || !body.sub) return null;
+    // `client_credentials` token: no account behind it.
+    if (body.sub === body.client_id) return null;
     if (typeof body.exp === 'number' && body.exp <= Math.floor(Date.now() / 1000)) return null;
     return {
       format: 'opaque',

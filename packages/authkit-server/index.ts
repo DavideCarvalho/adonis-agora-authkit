@@ -660,4 +660,20 @@ export {
 export { registerOidcRoutes } from './src/register_routes.js';
 export type { EnsureSchemaOptions, EnsureSchemaReport } from './src/schema/ensure.js';
 export { ensureAuthkitSchema, ensureAuthkitTables } from './src/schema/ensure.js';
+export type { ServiceTenantInfo } from './src/service_tenants/client_metadata.js';
+export type {
+  ResolvedServiceTenantResource,
+  ResolvedServiceTenantsConfig,
+  ServiceTenantResourceInput,
+  ServiceTenantsConfigInput,
+} from './src/service_tenants/config.js';
+export {
+  AuthkitTenantVerifier,
+  type AuthkitTenantVerifierFn,
+  type AuthkitTenantVerifierOptions,
+  authkitTenantVerifier,
+  type TenantTokenIssuer,
+  type TenantVerifierInput,
+  type VerifiedTenant,
+} from './src/service_tenants/tenant_verifier.js';
 export { stubsRoot } from './stubs/main.js';

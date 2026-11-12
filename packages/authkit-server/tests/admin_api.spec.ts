@@ -12,6 +12,7 @@ import { adminApiGuard } from '../src/host/admin_api/admin_api_guard.js';
 import ApiClientsController from '../src/host/admin_api/api_clients_controller.js';
 import ApiMiscController from '../src/host/admin_api/api_misc_controller.js';
 import ApiUsersController from '../src/host/admin_api/api_users_controller.js';
+import ConsoleClientsController from '../src/host/admin_console/console_clients_controller.js';
 import { attemptPasswordLogin } from '../src/host/login_attempt.js';
 import { withPersonalAccessToken } from '../src/mixins/with_personal_access_token.js';
 import { lucidPatStore } from '../src/pat/lucid_pat_store.js';
@@ -769,5 +770,101 @@ test.group('Admin REST API (controllers)', (group) => {
     } finally {
       await cleanup();
     }
+  });
+});
+
+test.group('Admin REST API + console: service-tenant clients', (group) => {
+  let db: any;
+  let service: any;
+  let server: Server;
+  let port = 9960;
+
+  group.each.setup(async () => {
+    db = createTestDatabase();
+    await migrate(db);
+    const started = await startService(port++, db, {
+      serviceTenants: { resources: { 'urn:agora:durable': {} } },
+    });
+    service = started.service;
+    server = started.server;
+    return async () => {
+      await new Promise<void>((r) => server.close(() => r()));
+      await db.manager.closeAll();
+    };
+  });
+
+  test('create (client_credentials by default), edit, disable, enable — audited', async ({
+    assert,
+  }) => {
+    const clients = new ApiClientsController();
+    const c = fakeCtx({
+      service,
+      inputs: {
+        clientId: 'worker-acme',
+        serviceTenant: { partition: 'acme', capabilities: ['reports'] },
+      },
+    });
+    const created: any = await clients.store(c.ctx);
+    assert.equal(c.captured.status(), 201, JSON.stringify(created));
+    assert.isString(created.clientSecret);
+
+    const got: any = await clients.show(fakeCtx({ service, params: { id: 'worker-acme' } }).ctx);
+    assert.deepEqual(got.grantTypes, ['client_credentials']);
+    assert.deepEqual(got.serviceTenant, { partition: 'acme', capabilities: ['reports'] });
+    assert.isFalse(got.disabled);
+
+    const patched: any = await clients.update(
+      fakeCtx({
+        service,
+        params: { id: 'worker-acme' },
+        inputs: { serviceTenant: { partition: 'globex' } },
+      }).ctx,
+    );
+    assert.deepEqual(patched.serviceTenant, { partition: 'globex', capabilities: [] });
+
+    const disabled: any = await clients.disable(
+      fakeCtx({ service, params: { id: 'worker-acme' } }).ctx,
+    );
+    assert.isTrue(disabled.disabled);
+    const enabled: any = await new ConsoleClientsController().enable(
+      fakeCtx({ service, params: { id: 'worker-acme' } }).ctx,
+    );
+    assert.isFalse(enabled.disabled);
+
+    const types = service.config.audit.events.map((e: any) => e.type);
+    assert.includeMembers(types, [
+      'client.created',
+      'client.updated',
+      'client.disabled',
+      'client.enabled',
+    ]);
+    const disabledEvent = service.config.audit.events.find(
+      (e: any) => e.type === 'client.disabled',
+    );
+    assert.equal(disabledEvent.metadata.partition, 'globex');
+
+    const missing = fakeCtx({ service, params: { id: 'nope' } });
+    await clients.disable(missing.ctx);
+    assert.equal(missing.captured.status(), 404);
+  });
+
+  test('refuses a service tenant with redirect URIs or a public auth method (422)', async ({
+    assert,
+  }) => {
+    const clients = new ApiClientsController();
+    for (const inputs of [
+      { serviceTenant: { partition: 'acme' }, redirectUris: ['https://app/cb'] },
+      { serviceTenant: { partition: 'acme' }, tokenEndpointAuthMethod: 'none' },
+      { serviceTenant: { partition: 'acme' }, grantTypes: ['authorization_code'] },
+    ]) {
+      const c = fakeCtx({ service, inputs });
+      await clients.store(c.ctx);
+      assert.equal(c.captured.status(), 422, JSON.stringify(inputs));
+    }
+    await assert.rejects(() =>
+      clients.store(
+        fakeCtx({ service, inputs: { serviceTenant: { partition: 'bad partition' } } }).ctx,
+      ),
+    );
   });
 });

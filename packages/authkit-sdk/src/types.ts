@@ -143,6 +143,10 @@ export interface AuthkitClient {
   clientName: string | null;
   /** Registered `logo_uri`, or `null`. */
   logoUri: string | null;
+  /** Disabled clients get no tokens until enabled again. */
+  disabled: boolean;
+  /** Service-tenant settings, or `null` for a regular client. */
+  serviceTenant: { partition: string; capabilities: string[] } | null;
 }
 
 export interface ListClientsResult {
@@ -158,6 +162,11 @@ export interface ClientInput {
   postLogoutRedirectUris?: string[];
   grantTypes?: string[];
   tokenEndpointAuthMethod?: TokenEndpointAuthMethod;
+  /**
+   * Makes the client a service tenant (confidential, `client_credentials` only, no
+   * redirect URIs). On update, `null` turns it back into a regular client.
+   */
+  serviceTenant?: { partition: string; capabilities?: string[] } | null;
 }
 
 /** Created/regenerated client — the secret is shown ONCE (`createdClientDto`). */
@@ -445,6 +454,9 @@ export interface Authkit {
     create(input: ClientInput): Promise<AuthkitCreatedClient>;
     update(id: string, input: ClientInput): Promise<AuthkitClient>;
     regenerateSecret(id: string): Promise<RegeneratedSecret>;
+    /** Stops issuing tokens to the client (`invalid_client`) until `enable`. */
+    disable(id: string): Promise<AuthkitClient>;
+    enable(id: string): Promise<AuthkitClient>;
     delete(id: string): Promise<DeletedClient>;
   };
   audit: {
