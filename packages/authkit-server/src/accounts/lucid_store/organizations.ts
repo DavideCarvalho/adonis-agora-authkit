@@ -8,8 +8,8 @@ import type {
 } from '../account_store.js';
 
 /**
- * Contexto mínimo para o builder de organizations. Recebe os três models direto
- * (já construídos pelo lucidAccountStore).
+ * Contexto mínimo para o builder de organizations. Os três models são lidos a cada
+ * uso (podem ser getters — ver `lucidAccountStore`).
  */
 export interface OrgStoreContext {
   OrgModel: any;
@@ -86,8 +86,10 @@ async function countOwners(MemberModel: any, orgId: string): Promise<number> {
 }
 
 export function buildOrganizations(ctx: OrgStoreContext): OrganizationsCapability {
-  const { OrgModel, MemberModel, InvitationModel, findAccountEmail, listAccountIdsInAdminOrder } =
-    ctx;
+  // Os models são lidos do ctx a CADA uso (não desestruturados): o `lucidAccountStore`
+  // troca os models default pelos da conexão das tabelas do authkit quando o
+  // `defineConfig` informa o `schema.connection`, depois de construir o store.
+  const { findAccountEmail, listAccountIdsInAdminOrder } = ctx;
 
   return {
     ...(listAccountIdsInAdminOrder
@@ -102,7 +104,7 @@ export function buildOrganizations(ctx: OrgStoreContext): OrganizationsCapabilit
            * (like `listOrgMembers(orgId).length`).
            */
           async listAllOrgsWithMemberCount() {
-            const memberships = await MemberModel.query();
+            const memberships = await ctx.MemberModel.query();
             if (memberships.length === 0) return [];
             const byAccount = new Map<string, any[]>();
             const memberCount = new Map<string, number>();
@@ -116,7 +118,7 @@ export function buildOrganizations(ctx: OrgStoreContext): OrganizationsCapabilit
             }
             const accountIds = await listAccountIdsInAdminOrder([...byAccount.keys()]);
             const orgs = new Map<string, any>();
-            for (const org of await findManyChunked(OrgModel, [...memberCount.keys()])) {
+            for (const org of await findManyChunked(ctx.OrgModel, [...memberCount.keys()])) {
               orgs.set(String(org.id), org);
             }
             const result: Array<OrgSummary & { role: string; memberCount: number }> = [];
@@ -141,7 +143,7 @@ export function buildOrganizations(ctx: OrgStoreContext): OrganizationsCapabilit
       : {}),
     async createOrg(input) {
       const { randomUUID } = await import('node:crypto');
-      const org = await OrgModel.create({
+      const org = await ctx.OrgModel.create({
         id: randomUUID(),
         name: input.name,
         slug: input.slug,
@@ -149,7 +151,7 @@ export function buildOrganizations(ctx: OrgStoreContext): OrganizationsCapabilit
         metadata: input.metadata ?? null,
       });
       // Cria a membership do owner automaticamente
-      await MemberModel.create({
+      await ctx.MemberModel.create({
         id: randomUUID(),
         organizationId: org.id,
         accountId: input.ownerAccountId,
@@ -159,29 +161,29 @@ export function buildOrganizations(ctx: OrgStoreContext): OrganizationsCapabilit
     },
 
     async findOrgById(orgId) {
-      const row = await OrgModel.find(orgId);
+      const row = await ctx.OrgModel.find(orgId);
       return row ? toOrgSummary(row) : null;
     },
 
     async findOrgsByIds(orgIds) {
       const ids = [...new Set(orgIds)];
       if (ids.length === 0) return [];
-      return (await findManyChunked(OrgModel, ids)).map(toOrgSummary);
+      return (await findManyChunked(ctx.OrgModel, ids)).map(toOrgSummary);
     },
 
     async findOrgBySlug(slug) {
-      const row = await OrgModel.query().where('slug', slug).first();
+      const row = await ctx.OrgModel.query().where('slug', slug).first();
       return row ? toOrgSummary(row) : null;
     },
 
     async listOrgsForAccount(accountId) {
-      const memberships = await MemberModel.query().where('account_id', accountId);
+      const memberships = await ctx.MemberModel.query().where('account_id', accountId);
       if (memberships.length === 0) return [];
       // One query for every org (by primary key, like `find`), instead of one per
       // membership. The result keeps the memberships' order.
       const ids = [...new Set<string>(memberships.map((m: any) => m.organizationId))];
       const orgs = new Map<string, any>();
-      for (const org of await OrgModel.findMany(ids)) orgs.set(String(org.id), org);
+      for (const org of await ctx.OrgModel.findMany(ids)) orgs.set(String(org.id), org);
       const result: Array<OrgSummary & { role: string }> = [];
       for (const m of memberships) {
         const org = orgs.get(String(m.organizationId));
@@ -191,7 +193,7 @@ export function buildOrganizations(ctx: OrgStoreContext): OrganizationsCapabilit
     },
 
     async updateOrg(orgId, patch) {
-      const row = await OrgModel.find(orgId);
+      const row = await ctx.OrgModel.find(orgId);
       if (!row) return null;
       if (patch.name !== undefined) row.name = patch.name;
       if (patch.logoUrl !== undefined) row.logoUrl = patch.logoUrl;
@@ -201,16 +203,16 @@ export function buildOrganizations(ctx: OrgStoreContext): OrganizationsCapabilit
     },
 
     async deleteOrg(orgId) {
-      const row = await OrgModel.find(orgId);
+      const row = await ctx.OrgModel.find(orgId);
       if (!row) return false;
-      await MemberModel.query().where('organization_id', orgId).delete();
-      await InvitationModel.query().where('organization_id', orgId).delete();
+      await ctx.MemberModel.query().where('organization_id', orgId).delete();
+      await ctx.InvitationModel.query().where('organization_id', orgId).delete();
       await row.delete();
       return true;
     },
 
     async listOrgMembers(orgId) {
-      const rows = await MemberModel.query().where('organization_id', orgId);
+      const rows = await ctx.MemberModel.query().where('organization_id', orgId);
       return rows.map(
         (r: any): OrgMember => ({
           accountId: r.accountId,
@@ -224,7 +226,7 @@ export function buildOrganizations(ctx: OrgStoreContext): OrganizationsCapabilit
     async addOrgMember(orgId, accountId, role) {
       const { randomUUID } = await import('node:crypto');
       // Upsert: se já existe, atualiza a role
-      const existing = await MemberModel.query()
+      const existing = await ctx.MemberModel.query()
         .where('organization_id', orgId)
         .where('account_id', accountId)
         .first();
@@ -232,19 +234,19 @@ export function buildOrganizations(ctx: OrgStoreContext): OrganizationsCapabilit
         existing.role = role;
         await existing.save();
       } else {
-        await MemberModel.create({ id: randomUUID(), organizationId: orgId, accountId, role });
+        await ctx.MemberModel.create({ id: randomUUID(), organizationId: orgId, accountId, role });
       }
     },
 
     async removeOrgMember(orgId, accountId) {
-      const row = await MemberModel.query()
+      const row = await ctx.MemberModel.query()
         .where('organization_id', orgId)
         .where('account_id', accountId)
         .first();
       if (!row) return { ok: false, reason: 'not_found' as const };
       // Invariante: org deve ter sempre >= 1 owner
       if (row.role === 'owner') {
-        const ownerCount = await countOwners(MemberModel, orgId);
+        const ownerCount = await countOwners(ctx.MemberModel, orgId);
         if (ownerCount <= 1) return { ok: false, reason: 'last_owner' as const };
       }
       await row.delete();
@@ -252,14 +254,14 @@ export function buildOrganizations(ctx: OrgStoreContext): OrganizationsCapabilit
     },
 
     async updateOrgMemberRole(orgId, accountId, newRole) {
-      const row = await MemberModel.query()
+      const row = await ctx.MemberModel.query()
         .where('organization_id', orgId)
         .where('account_id', accountId)
         .first();
       if (!row) return { ok: false, reason: 'not_found' as const };
       // Invariante: não rebaixa o último owner
       if (row.role === 'owner' && newRole !== 'owner') {
-        const ownerCount = await countOwners(MemberModel, orgId);
+        const ownerCount = await countOwners(ctx.MemberModel, orgId);
         if (ownerCount <= 1) return { ok: false, reason: 'last_owner' as const };
       }
       row.role = newRole;
@@ -268,7 +270,7 @@ export function buildOrganizations(ctx: OrgStoreContext): OrganizationsCapabilit
     },
 
     async getOrgMembership(orgId, accountId) {
-      const row = await MemberModel.query()
+      const row = await ctx.MemberModel.query()
         .where('organization_id', orgId)
         .where('account_id', accountId)
         .first();
@@ -280,7 +282,7 @@ export function buildOrganizations(ctx: OrgStoreContext): OrganizationsCapabilit
       const token = randomBytes(32).toString('hex');
       const tokenHash = createHash('sha256').update(token).digest('hex');
       const expiresAt = DateTime.now().plus({ hours: input.ttlHours });
-      const inv = await InvitationModel.create({
+      const inv = await ctx.InvitationModel.create({
         id: randomUUID(),
         organizationId: input.organizationId,
         email: input.email,
@@ -294,24 +296,24 @@ export function buildOrganizations(ctx: OrgStoreContext): OrganizationsCapabilit
     },
 
     async findInvitationByTokenHash(tokenHash) {
-      const row = await InvitationModel.query().where('token_hash', tokenHash).first();
+      const row = await ctx.InvitationModel.query().where('token_hash', tokenHash).first();
       return row ? toOrgInvitation(row) : null;
     },
 
     async listPendingInvitationsForOrg(orgId) {
-      const rows = await InvitationModel.query()
+      const rows = await ctx.InvitationModel.query()
         .where('organization_id', orgId)
         .whereNull('accepted_at');
       return rows.map(toOrgInvitation);
     },
 
     async listPendingInvitationsForEmail(email) {
-      const rows = await InvitationModel.query().where('email', email).whereNull('accepted_at');
+      const rows = await ctx.InvitationModel.query().where('email', email).whereNull('accepted_at');
       return rows.map(toOrgInvitation);
     },
 
     async acceptInvitation(invitationId, accountId) {
-      const inv = await InvitationModel.find(invitationId);
+      const inv = await ctx.InvitationModel.find(invitationId);
       if (!inv) return { ok: false, reason: 'not_found' as const };
       // Verifica expiração (expiresAt pode ser DateTime Luxon, Date, ou string do SQLite)
       let expiresMs: number;
@@ -336,7 +338,7 @@ export function buildOrganizations(ctx: OrgStoreContext): OrganizationsCapabilit
         return { ok: false, reason: 'email_mismatch' as const };
       }
       // Verifica se já é membro
-      const existing = await MemberModel.query()
+      const existing = await ctx.MemberModel.query()
         .where('organization_id', inv.organizationId)
         .where('account_id', accountId)
         .first();
@@ -348,7 +350,7 @@ export function buildOrganizations(ctx: OrgStoreContext): OrganizationsCapabilit
       }
       // Cria membership + marca accepted_at
       const { randomUUID } = await import('node:crypto');
-      await MemberModel.create({
+      await ctx.MemberModel.create({
         id: randomUUID(),
         organizationId: inv.organizationId,
         accountId,
@@ -363,7 +365,7 @@ export function buildOrganizations(ctx: OrgStoreContext): OrganizationsCapabilit
       // Escopado por org: exige que o convite pertença à org informada antes de
       // deletar. Sem esse filtro, um owner/admin de qualquer org revogaria
       // convites de outra org sabendo apenas o invitationId (IDOR cross-org).
-      const inv = await InvitationModel.query()
+      const inv = await ctx.InvitationModel.query()
         .where('id', invitationId)
         .where('organization_id', organizationId)
         .first();
@@ -374,7 +376,7 @@ export function buildOrganizations(ctx: OrgStoreContext): OrganizationsCapabilit
 
     async removeAccountFromAllOrgs(accountId) {
       // Memberships: remove todas, mesmo se for único owner (LGPD não pode bloquear)
-      const memberships = await MemberModel.query().where('account_id', accountId);
+      const memberships = await ctx.MemberModel.query().where('account_id', accountId);
       for (const m of memberships) {
         await m.delete();
       }
@@ -382,7 +384,7 @@ export function buildOrganizations(ctx: OrgStoreContext): OrganizationsCapabilit
       const email = await findAccountEmail(accountId);
       let invCount = 0;
       if (email) {
-        const invitations = await InvitationModel.query()
+        const invitations = await ctx.InvitationModel.query()
           .where('email', email)
           .whereNull('accepted_at');
         for (const inv of invitations) {

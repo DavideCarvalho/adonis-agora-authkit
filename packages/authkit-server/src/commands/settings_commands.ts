@@ -137,11 +137,11 @@ function validateKnownKey(key: string, value: unknown): string | null {
 async function resolveSettingsService(app: ApplicationService): Promise<RuntimeSettings | null> {
   try {
     const db = await app.container.make('lucid.db' as any);
-    // Tenta derivar a conexão do accountStore para probe searchPath-aware.
+    // `auth_settings` vive na conexão das tabelas do authkit (`schema.connection`).
     let connection: string | undefined;
     try {
       const cfg = await resolveCfg(app);
-      connection = (cfg?.accountStore as any)?.connectionName;
+      connection = (cfg as any)?.schema?.connection;
     } catch {
       // Silencioso: sem config → default connection.
     }

@@ -112,8 +112,9 @@ accountStore: lucidAccountStore(AuthUser, {
 capability off — for example because you relied on `supportsOrganizations === false` — pass
 `organizationModels: false`.
 
-If your auth tables live in their own connection or schema (`static connection = 'auth'`),
-pass the three model classes explicitly — the built-in models don't declare a connection:
+The built-in models use the connection of AuthKit's tables (`schema.connection`), like every
+other table AuthKit owns. To use models of your own, pass the three classes explicitly; they
+then run on the connection they declare:
 
 ```ts title="config/authkit.ts"
 import { lucidAccountStore } from '@adonis-agora/authkit-server'

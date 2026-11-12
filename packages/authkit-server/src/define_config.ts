@@ -75,6 +75,7 @@ import {
   resolveRedirectUriPolicy,
   type ValidateRegistrationHook,
 } from './provider/registration_policy.js';
+import { bindTablesLocation } from './schema/tables_location.js';
 import {
   type ResolvedServiceTenantsConfig,
   resolveServiceTenants,
@@ -1512,7 +1513,10 @@ export interface AuthServerConfigInput {
    *   adiciona colunas novas (aditivo — nunca dropa nem altera tipos).
    * - `autoManage: false`: nada roda no boot; gerencie o schema você mesmo —
    *   de preferência chamando `ensureAuthkitSchema(this.db)` numa migration.
-   * - `connection`: conexão Lucid a usar (default: primária).
+   * - `connection`: a conexão Lucid de TODAS as tabelas do authkit (default:
+   *   primária) — as acima, o `authkit_keystore`, as de extensions e a do
+   *   `adapters.database()`/keystore `lucid` quando eles não declaram a própria.
+   *   A tabela da conta NÃO entra: fica na conexão do model da conta.
    */
   schema?: { autoManage?: boolean; connection?: string };
   /**
@@ -1767,16 +1771,21 @@ export function defineConfig(config: AuthServerConfigInput) {
   ) {
     throw new Error('mfa.requiredFactors must be an integer between 2 and 8');
   }
+  // Toda tabela do AuthKit vive em `schema.connection` — inclusive as que o store da
+  // conta lê (auth_mfa, auth_password_history, organizations), que antes seguiam a
+  // conexão do model da conta.
+  bindTablesLocation(config.accountStore, { connection: config.schema?.connection });
   return configProvider.create(async (app: ApplicationService): Promise<ResolvedServerConfig> => {
-    const AdapterClass = await config.adapter.resolver(app);
+    const tablesContext = { connection: config.schema?.connection };
+    const AdapterClass = await config.adapter.resolver(app, tablesContext);
     // `session.adapter` ausente ⇒ mesma classe do default (back-compat: o
     // dispatcher vira identidade e tudo continua no adapter único de hoje).
     const SessionAdapterClass = config.session?.adapter
-      ? await config.session.adapter.resolver(app)
+      ? await config.session.adapter.resolver(app, tablesContext)
       : AdapterClass;
 
     // `jwks: 'auto'` → resolve env-aware: AUTHKIT_JWKS inline, senão managed em arquivo.
-    const jwksConfig: JwksConfig =
+    const jwksInput: JwksConfig =
       config.jwks === 'auto'
         ? process.env.AUTHKIT_JWKS
           ? {
@@ -1789,6 +1798,15 @@ export function defineConfig(config: AuthServerConfigInput) {
               store: 'tmp/authkit_jwks.json',
             }
         : config.jwks;
+    // Keystore no Lucid sem conexão própria fica na conexão das tabelas do authkit.
+    const jwksStore = (jwksInput as { store?: any }).store;
+    const jwksConfig: JwksConfig =
+      jwksStore?.driver === 'lucid' && !jwksStore.connection && config.schema?.connection
+        ? ({
+            ...jwksInput,
+            store: { ...jwksStore, connection: config.schema.connection },
+          } as JwksConfig)
+        : jwksInput;
 
     if (config.jwks === 'auto' && !process.env.AUTHKIT_JWKS) {
       const warning = jwksAutoFallbackWarning((jwksConfig as { store?: string }).store ?? null);

@@ -105,10 +105,10 @@ export interface RuntimeSettingsOptions {
   /** TTL do cache em ms. Default: 15_000 (15s). */
   ttlMs?: number;
   /**
-   * Nome da conexão Lucid a usar (ex.: 'auth'). Quando presente, todas as
-   * queries usam `db.connection(name)` em vez da conexão default. Necessário
-   * quando o schema de auth vive numa conexão nomeada com searchPath próprio.
-   * Ausente (ou undefined) → conexão default (back-compat total).
+   * Nome da conexão Lucid a usar (ex.: 'auth') — a `schema.connection` do
+   * `defineConfig`, onde vivem as tabelas do authkit. Quando presente, todas as
+   * queries usam `db.connection(name)` em vez da conexão default.
+   * Ausente (ou undefined) → conexão default.
    */
   connection?: string;
 }
@@ -386,8 +386,8 @@ export class RuntimeSettings implements SettingsCapability {
  *
  * Esta fábrica SUBSTITUI ~16 cópias do mesmo bloco db/connection que viviam sob
  * nomes distintos (`getRuntimeSettings`, `getSettingsService`,
- * `getRuntimeSettingsForSudo`) e elimina o cast `as any` (via `connectionName`
- * tipado em {@link AccountStore}).
+ * `getRuntimeSettingsForSudo`). A conexão é `schema.connection`, a de todas as
+ * tabelas do authkit.
  *
  * @example
  * ```ts
@@ -399,7 +399,8 @@ export async function resolveRuntimeSettings(ctx: HttpContext): Promise<RuntimeS
   try {
     const db = await ctx.containerResolver.make('lucid.db');
     const service = await ctx.containerResolver.make('authkit.server').catch(() => null);
-    const connection = service?.config?.accountStore?.connectionName;
+    // `auth_settings` vive na conexão das tabelas do authkit, não na do model da conta.
+    const connection = service?.config?.schema?.connection;
     return new RuntimeSettings(db, connection ? { connection } : {});
   } catch {
     return null;

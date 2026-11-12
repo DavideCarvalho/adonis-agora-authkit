@@ -5,8 +5,17 @@ import { RedisAdapter } from './redis_adapter.js';
 
 export type OidcAdapterClass = new (name: string) => OidcAdapter;
 
+/** What `defineConfig` hands every adapter factory. */
+export interface AdapterResolveContext {
+  /**
+   * `schema.connection` of `defineConfig`: the Lucid connection AuthKit's tables live
+   * on. A database adapter without its own `connection` uses it.
+   */
+  connection?: string;
+}
+
 export interface AdapterFactory {
-  resolver(app: ApplicationService): Promise<OidcAdapterClass>;
+  resolver(app: ApplicationService, context?: AdapterResolveContext): Promise<OidcAdapterClass>;
 }
 
 /**
@@ -64,7 +73,10 @@ export interface RedisAdapterConfig {
 }
 
 export interface DatabaseAdapterConfig {
-  /** nome da conexão Lucid (default: a primária) */
+  /**
+   * Nome da conexão Lucid. Default: `schema.connection` do `defineConfig` (a conexão
+   * de todas as tabelas do authkit), e sem ela a primária.
+   */
   connection?: string;
 }
 
@@ -101,9 +113,9 @@ export const adapters = {
    */
   database(config: DatabaseAdapterConfig = {}): AdapterFactory {
     return {
-      async resolver(app) {
+      async resolver(app, context) {
         const db = await app.container.make('lucid.db');
-        const connection = config.connection;
+        const connection = config.connection ?? context?.connection;
         const conn = connection ? (db as any).connection(connection) : db;
         return class extends DatabaseAdapter {
           constructor(name: string) {

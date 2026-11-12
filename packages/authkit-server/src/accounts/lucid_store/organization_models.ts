@@ -11,10 +11,11 @@ import type { DateTime } from 'luxon';
  * pelo `autoManage` sem que o model escrito à mão no host saiba dela, e o
  * sintoma aparece longe da causa.
  *
- * Use com `organizationModels: true` em {@link lucidAccountStore}. O caminho
+ * Use com `organizationModels: true` em {@link lucidAccountStore}. Eles seguem a
+ * conexão das tabelas do authkit (`schema.connection` do `defineConfig`, como
+ * todas as tabelas lib-owned — ver {@link organizationModelsOn}). O caminho
  * explícito (`{ OrgModel, MemberModel, InvitationModel }`) continua valendo como
- * escape hatch — é para quem guarda as tabelas de auth numa conexão/schema
- * próprios (`static connection = 'auth'`), que estes defaults não declaram.
+ * escape hatch; aí a conexão é a que os models do host declaram.
  *
  * Não crie migration para estas tabelas: elas são criadas/atualizadas pelo
  * `schema.autoManage` do authkit.
@@ -118,3 +119,37 @@ export const defaultOrganizationModels = {
   MemberModel: AuthOrganizationMember,
   InvitationModel: AuthOrganizationInvitation,
 } as const;
+
+export type OrganizationModels = {
+  OrgModel: any;
+  MemberModel: any;
+  InvitationModel: any;
+};
+
+const modelsByConnection = new Map<string, OrganizationModels>();
+
+/**
+ * Os models default numa conexão Lucid nomeada (subclasses com `static connection`),
+ * memoizados por conexão. `undefined` → os próprios defaults (conexão primária).
+ */
+export function organizationModelsOn(connection: string | undefined): OrganizationModels {
+  if (!connection) return defaultOrganizationModels;
+  let models = modelsByConnection.get(connection);
+  if (!models) {
+    class OrgModel extends AuthOrganization {
+      static table = 'auth_organizations';
+      static connection = connection;
+    }
+    class MemberModel extends AuthOrganizationMember {
+      static table = 'auth_organization_members';
+      static connection = connection;
+    }
+    class InvitationModel extends AuthOrganizationInvitation {
+      static table = 'auth_organization_invitations';
+      static connection = connection;
+    }
+    models = { OrgModel, MemberModel, InvitationModel };
+    modelsByConnection.set(connection, models);
+  }
+  return models;
+}

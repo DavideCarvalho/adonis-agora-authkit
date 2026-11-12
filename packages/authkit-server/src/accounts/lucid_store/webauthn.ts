@@ -21,7 +21,7 @@ export function buildWebauthn(
   const { Model } = ctx;
   // Estado de MFA é LIB-OWNED (tabela `auth_mfa`): registrar uma passkey habilita
   // o MFA gravando `mfa_enabled_at` em `auth_mfa`, não numa coluna do model.
-  const mfaState = buildMfaStateRepo(Model);
+  const mfaState = buildMfaStateRepo(Model, ctx.tablesClient);
 
   return {
     async generatePasskeyRegistrationOptions(accountId) {

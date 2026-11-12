@@ -91,7 +91,7 @@ export async function runExpireScan(
   let runtimeSettings: RuntimeSettings | null = null;
   try {
     const db = await app.container.make('lucid.db' as any);
-    const connection: string | undefined = (accountStore as any)?.connectionName;
+    const connection: string | undefined = cfg.schema?.connection;
     runtimeSettings = new RuntimeSettings(db, connection ? { connection } : {});
   } catch {
     // Sem DB → usa defaults.

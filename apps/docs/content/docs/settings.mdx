@@ -61,6 +61,28 @@ keystore loads while the config is being resolved — before boot, and therefore
 schema management runs — so it cannot depend on the table existing. The Lucid keystore
 vault creates it on demand, on its first write. Nothing you do is required either way.
 
+### Which connection the tables use
+
+Every table AuthKit owns lives on one Lucid connection: `schema.connection` (default: the
+primary connection). That covers the eight tables above, `authkit_keystore` of the Lucid
+keystore, the personal-agent tables, the tables of agent extensions, and the
+`authkit_oidc_payloads` table of `adapters.database()`. The pieces that take their own
+`connection` (`adapters.database({ connection })`, `jwks.store: { driver: 'lucid', connection }`)
+fall back to `schema.connection` when you leave it out.
+
+```ts title="config/authkit.ts"
+export default defineConfig({
+  // ...
+  schema: { connection: 'auth' },
+  adapter: adapters.database(), // also on 'auth'
+  accountStore: lucidAccountStore(AuthUser),
+})
+```
+
+Your account table is not one of AuthKit's tables: it stays on the connection of your
+account model (`static connection` on `AuthUser`), and so does the `login_methods` column
+AuthKit adds to it.
+
 Prefer to own your schema? Disable auto-management and run the same logic inside a
 migration you control:
 
@@ -422,9 +444,8 @@ degrades gracefully instead of throwing:
 
 - **The `auth_settings` table** — absent is silently fine, it is an opt-in feature. Present
   but with no `botProtection.verify` in the config is a `warn`: any `bot_protection` row you
-  stored is an orphan with nothing to enforce it. Otherwise `ok`, and the message names the
-  connection when the account store uses a named one, which is the fastest way to spot a
-  `search_path` mix-up.
+  stored is an orphan with nothing to enforce it. Otherwise `ok`, and the message names
+  `schema.connection` when it is set.
 - **The `auth_methods` row** — `warn` when the stored shape is not an object, when it turns
   every login method off (the runtime fail-safe will quietly revert to the config defaults),
   or when its `social` list names a provider that is not in `social.providers` (the

@@ -713,13 +713,13 @@ export function supportsOrganizations(
  */
 export type AccountStore = CoreAccountStore & {
   /**
-   * Nome da conexão Lucid usada por este store (deriva de `Model.connection` no
-   * store default — ver `lucid_account_store.ts`). Quando presente, os call-sites
-   * de RuntimeSettings o repassam como `{ connection }` para que o probe da tabela
-   * `auth_settings` seja searchPath-aware (auth vivendo numa conexão/schema
-   * próprios). Undefined → conexão default (back-compat total). É metadado
-   * opcional, não um método de capacidade — por isso `readonly` e fora dos
-   * blocos `Partial<...>` de capacidades probáveis.
+   * Nome da conexão Lucid da tabela da CONTA (deriva de `Model.connection` no
+   * store default — ver `lucid_account_store.ts`). O boot a usa para garantir a
+   * coluna `login_methods` na tabela da conta. As tabelas do authkit
+   * (`auth_settings` etc.) NÃO seguem esta conexão: usam `schema.connection`.
+   * Undefined → conexão default. É metadado opcional, não um método de
+   * capacidade — por isso `readonly` e fora dos blocos `Partial<...>` de
+   * capacidades probáveis.
    */
   readonly connectionName?: string;
   /**
