@@ -372,16 +372,25 @@ export class RemoteAccountExtensions {
         .filter((page) => page.remote === source.clientId && page.page.visible)
         .map((page) => page.page.id);
       decided = (async () => {
-        const payload = (await this.#call(
-          source,
-          { ...this.#base(source, ctx), op: 'visible', pageIds },
-          source.timeoutMs ?? 5000,
-        )) as { visible?: unknown };
-        return new Set(
-          Array.isArray(payload?.visible)
-            ? payload.visible.filter((id): id is string => typeof id === 'string')
-            : [],
-        );
+        try {
+          const payload = (await this.#call(
+            source,
+            { ...this.#base(source, ctx), op: 'visible', pageIds },
+            source.timeoutMs ?? 5000,
+          )) as { visible?: unknown };
+          return new Set(
+            Array.isArray(payload?.visible)
+              ? payload.visible.filter((id): id is string => typeof id === 'string')
+              : [],
+          );
+        } catch (error) {
+          // The app cannot answer: keep its pages listed, so each shows the "could not be
+          // loaded" notice instead of vanishing (a page body never loads without the app).
+          this.#log(
+            `authkit: remote account extensions of "${source.clientId}" did not answer visible(): ${(error as Error).message}`,
+          );
+          return new Set(pageIds);
+        }
       })();
       perRequest.set(source.clientId, decided);
     }
