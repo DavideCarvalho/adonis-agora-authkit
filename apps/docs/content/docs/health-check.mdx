@@ -40,7 +40,7 @@ and prints the authkit findings only.
 | `--no-boot` | Does not boot the app: imports each installed lib's checks directly (a lib whose checks fail to load is reported as an error). Use it when the app does not boot; checks that need the booted app (authkit's config checks) are skipped. |
 
 Exit codes: `0` no error (warnings allowed), `1` at least one error (or a warning with `--strict`),
-`2` the doctor could not run (an unknown `--only`, or a doctor registry from an incompatible lib version).
+`2` the doctor could not run (an unknown `--only` or `--lib`, filters that select nothing, an app that does not boot, or a doctor registry from an incompatible lib version). Deep checks that do not run are listed as skipped (`--verbose`).
 
 ## In CI
 

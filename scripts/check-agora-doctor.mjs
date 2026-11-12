@@ -19,11 +19,11 @@ import { join, resolve } from 'node:path';
 const FROZEN = {
   'src/doctor/agora_doctor.ts': {
     header: '// agora-doctor runner v1 — keep identical across libs',
-    sha256: 'add876a2b951aa31eb46382f8468e8d0de3f134db48cfff94cc8bc59fcdfd8f0',
+    sha256: 'c9a7547f1271b28b56962168693a5d5a4fc258a7593bc6a3d1d631944b7a7f83',
   },
   'commands/agora_doctor.ts': {
     header: '// agora-doctor command v1 — keep identical across libs',
-    sha256: 'e6efe88f3c81910f3ddabf4d69c353f8d79f540ff38beecc136f8158bf9c8005',
+    sha256: '2c6694939e554155185a3c89de8c43a46d31fb790f1f43f786f71462175f9ead',
   },
 };
 

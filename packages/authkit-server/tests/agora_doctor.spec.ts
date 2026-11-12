@@ -81,6 +81,55 @@ test.group('agora doctor | shared runner (canonical copy)', () => {
     );
   });
 
+  test('an unknown --lib, or --lib and --only that select nothing, is a usage error', async ({
+    assert,
+  }) => {
+    const checks = [
+      check('a.one', () => ({ status: 'ok', message: '' })),
+      check('b.one', () => ({ status: 'ok', message: '' })),
+    ];
+    await assert.rejects(
+      () => runAgoraDoctor(fakeApp(), checks, { libs: ['nope'] }),
+      AgoraDoctorUsageError as never,
+    );
+    await assert.rejects(
+      () => runAgoraDoctor(fakeApp(), checks, { libs: ['a'], only: 'b.one' }),
+      AgoraDoctorUsageError as never,
+    );
+    assert.equal((await runAgoraDoctor(fakeApp(), checks, { libs: ['a'] })).exitCode, 0);
+  });
+
+  test('deep checks that do not run are reported as skipped, with the reason', async ({
+    assert,
+  }) => {
+    let ran = 0;
+    const deep: AgoraDoctorCheck = {
+      ...check('a.deep', () => {
+        ran += 1;
+        return { status: 'error', message: 'db down' };
+      }),
+      cost: 'deep',
+    };
+    const plain = await runAgoraDoctor(fakeApp(), [deep]);
+    const skipped = plain.report.results.find((r) => r.id === 'a.deep');
+    assert.equal(skipped?.status, 'skip');
+    assert.include(skipped?.message ?? '', '--deep');
+
+    const noBoot = await runAgoraDoctor(fakeApp(), [deep], {
+      noBoot: true,
+      deep: true,
+      only: 'a.deep',
+    });
+    const entry = noBoot.report.results.find((r) => r.id === 'a.deep');
+    assert.equal(entry?.status, 'skip');
+    assert.include(entry?.message ?? '', '--no-boot');
+    assert.equal(ran, 0);
+
+    const run = await runAgoraDoctor(fakeApp(), [deep], { deep: true });
+    assert.equal(run.exitCode, 1);
+    assert.equal(ran, 1);
+  });
+
   test('matches the peer ranges authkit declares', ({ assert }) => {
     const range = '>=0.7.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0';
     assert.isTrue(satisfies('1.0.0-rc.3', range));

@@ -1,4 +1,5 @@
 // agora-doctor runner v1 — keep identical across libs
+// Revision 1.1 (see the canonical README for the changelog).
 // This file is copied byte for byte into every @adonis-agora lib (src/doctor/agora_doctor.ts); each
 // repo's CI checks its sha256 against the pinned canonical one. Never edit a lib's copy: change the
 // canonical copy, then re-copy it into every lib.
@@ -65,6 +66,8 @@ export interface AgoraDoctorOptions {
   libs?: string[];
   only?: string;
   deep?: boolean;
+  /** The app was not booted (`--no-boot`): deep checks are reported as skipped, never run. */
+  noBoot?: boolean;
   strict?: boolean;
   /** Per-check budget in ms (default 5000, deep checks 15000). */
   timeoutMs?: number;
@@ -82,7 +85,8 @@ interface ContainerLike {
 
 /**
  * Add a lib's checks to the app's doctor registry, creating it when absent. Call it from a provider's
- * `register()`. A registry of another version is left alone; a duplicate id is skipped.
+ * `boot()` (Adonis does not await `register()`, so an async registration there can be lost). A
+ * registry of another version is left alone; a duplicate id is skipped.
  */
 export async function registerDoctorChecks(
   container: ContainerLike,
@@ -670,14 +674,36 @@ export async function runAgoraDoctor(
   if (options.only !== undefined && !all.some((check) => check.id === options.only)) {
     throw new AgoraDoctorUsageError(`no check has the id "${options.only}".`);
   }
-  const selected = all.filter(
+  const known = [...new Set(all.map((check) => check.lib))];
+  const unknownLibs = (options.libs ?? []).filter((lib) => !known.includes(lib));
+  if (unknownLibs.length > 0) {
+    throw new AgoraDoctorUsageError(
+      `no installed lib is named ${unknownLibs.map((lib) => `"${lib}"`).join(', ')} (known: ${known.join(', ') || 'none'}).`,
+    );
+  }
+  const chosen = all.filter(
     (check) =>
       (options.only === undefined || check.id === options.only) &&
-      (options.libs === undefined ||
-        options.libs.length === 0 ||
-        options.libs.includes(check.lib)) &&
-      (check.cost !== 'deep' || options.deep === true || options.only === check.id),
+      (options.libs === undefined || options.libs.length === 0 || options.libs.includes(check.lib)),
   );
+  if (chosen.length === 0 && options.only !== undefined && (options.libs ?? []).length > 0) {
+    throw new AgoraDoctorUsageError(
+      `--only=${String(options.only)} is not a check of ${(options.libs ?? []).join(', ')}: nothing to run.`,
+    );
+  }
+  // Deep checks that do not run still show up, as skipped with the reason.
+  const notRun = (check: AgoraDoctorCheck): string | null => {
+    if (check.cost !== 'deep') return null;
+    if (options.noBoot === true)
+      return 'Deep check: not run with --no-boot (it needs the booted app).';
+    if (options.deep === true || options.only === check.id) return null;
+    return 'Deep check: run with --deep.';
+  };
+  const selected = chosen.map((check): AgoraDoctorCheck => {
+    const reason = notRun(check);
+    if (reason === null) return check;
+    return { ...check, cost: 'cheap', run: () => ({ status: 'skip', message: reason }) };
+  });
   const byLib = new Map<string, AgoraDoctorCheck[]>();
   for (const check of selected) byLib.set(check.lib, [...(byLib.get(check.lib) ?? []), check]);
 
