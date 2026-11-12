@@ -76,10 +76,7 @@ export function Clients() {
 
   const createMutation = useMutation(useCreateClientMutationOptions());
   const updateMutation = useMutation(useUpdateClientMutationOptions(editClient?.clientId ?? ''));
-  const [toggling, setToggling] = useState<AdminClient | null>(null);
-  const disableMutation = useMutation(
-    useSetClientDisabledMutationOptions(toggling?.clientId ?? ''),
-  );
+  const disableMutation = useMutation(useSetClientDisabledMutationOptions());
 
   function openCreate() {
     setFormData(defaultForm());
@@ -239,15 +236,12 @@ export function Clients() {
     ) {
       return;
     }
-    setToggling(c);
     try {
-      await disableMutation.mutateAsync(disable);
+      await disableMutation.mutateAsync({ id: c.clientId, disabled: disable });
       queryClient.invalidateQueries({ queryKey: authkitKeys.admin.clients() });
       toast.success(disable ? `Client ${c.clientId} disabled` : `Client ${c.clientId} enabled`);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : String(err));
-    } finally {
-      setToggling(null);
     }
   }
 

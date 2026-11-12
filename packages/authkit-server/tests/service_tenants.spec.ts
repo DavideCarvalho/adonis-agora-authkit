@@ -226,6 +226,9 @@ test.group('service tenants: issuance', (group) => {
       { redirectUris: ['https://app/cb'] },
       { serviceTenant: { partition: 'has spaces' } },
       { serviceTenant: { partition: 'acme', capabilities: ['bad cap'] } },
+      { serviceTenant: { partition: 42 as any } },
+      { serviceTenant: { partition: 'acme', capabilities: 'reports' as any } },
+      { serviceTenant: { partition: 'acme', capabilities: [1] as any } },
     ];
     for (const overrides of bad) {
       await assert.rejects(

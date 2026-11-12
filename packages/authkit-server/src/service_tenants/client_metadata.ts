@@ -51,12 +51,17 @@ export function normalizeServiceTenant(input: {
   partition: string;
   capabilities?: string[];
 }): ServiceTenantInfo | string {
-  const partition = input.partition.trim();
+  // Called directly too (not only behind the HTTP validators): check the types here.
+  const rawPartition: unknown = input?.partition;
+  const partition = typeof rawPartition === 'string' ? rawPartition.trim() : '';
   if (!PARTITION_PATTERN.test(partition)) {
     return `partition "${partition}" is invalid: use letters, digits, ".", "_", ":" or "-" (max 128 chars)`;
   }
+  const rawCapabilities: unknown = input.capabilities ?? [];
+  if (!Array.isArray(rawCapabilities)) return 'capabilities must be an array of strings';
   const capabilities: string[] = [];
-  for (const raw of input.capabilities ?? []) {
+  for (const raw of rawCapabilities) {
+    if (typeof raw !== 'string') return 'capabilities must be an array of strings';
     const cap = raw.trim();
     if (!CAPABILITY_PATTERN.test(cap)) {
       return `capability "${cap}" is invalid: use letters, digits, ".", "_", ":", "*", "/" or "-" (max 128 chars)`;

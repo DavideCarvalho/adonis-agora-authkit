@@ -152,6 +152,43 @@ test.group('authkitTenantToken (unit)', () => {
     assert.lengthOf(ep.calls, 3);
   });
 
+  test('callers joining a failed early refresh also get the still-valid token', async ({
+    assert,
+    cleanup,
+  }) => {
+    const realNow = Date.now;
+    let now = realNow();
+    Date.now = () => now;
+    cleanup(() => {
+      Date.now = realNow;
+    });
+    const ep = fakeEndpoint((n) =>
+      n === 1
+        ? { status: 200, body: { access_token: 'tok-1', expires_in: 600 } }
+        : { status: 503, body: { error: 'temporarily_unavailable' } },
+    );
+    const source = new AuthkitTenantToken({ ...base, fetch: ep.fetchImpl });
+    assert.equal(await source.token(), 'tok-1');
+    now += 560_000;
+    const results = await Promise.all(Array.from({ length: 5 }, () => source.token()));
+    assert.deepEqual(results, ['tok-1', 'tok-1', 'tok-1', 'tok-1', 'tok-1']);
+    assert.lengthOf(ep.calls, 2);
+  });
+
+  test('reset() during a fetch: the stale result is not cached', async ({ assert }) => {
+    const ep = fakeEndpoint((n) => ({
+      status: 200,
+      body: { access_token: `tok-${n}`, expires_in: 600 },
+    }));
+    const source = new AuthkitTenantToken({ ...base, fetch: ep.fetchImpl });
+    const stale = source.token();
+    source.reset();
+    assert.equal(await stale, 'tok-1');
+    assert.equal(await source.token(), 'tok-2');
+    assert.equal(await source.token(), 'tok-2');
+    assert.lengthOf(ep.calls, 2);
+  });
+
   test('requires issuer, clientId and clientSecret', ({ assert }) => {
     assert.throws(() => authkitTenantToken({ ...base, clientSecret: '' }), /required/);
   });

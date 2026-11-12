@@ -69,6 +69,8 @@ export class AuthkitTenantToken {
   #failures = 0;
   #retryAt = 0;
   #lastError: unknown;
+  /** Bumped by `reset()`: a fetch started before it does not touch the new state. */
+  #generation = 0;
 
   constructor(options: AuthkitTenantTokenOptions) {
     if (!options?.issuer || !options.clientId || !options.clientSecret) {
@@ -82,16 +84,20 @@ export class AuthkitTenantToken {
     const now = Date.now();
     const cached = this.#cached;
     if (cached && now < cached.refreshAt) return cached.value;
-    if (this.#inflight) return this.#inflight;
-    if (now < this.#retryAt) {
-      if (cached && now < cached.expiresAt) return cached.value;
-      throw this.#lastError;
+    let pending = this.#inflight;
+    if (!pending) {
+      if (now < this.#retryAt) {
+        if (cached && now < cached.expiresAt) return cached.value;
+        throw this.#lastError;
+      }
+      const started: Promise<string> = this.#fetch().finally(() => {
+        if (this.#inflight === started) this.#inflight = undefined;
+      });
+      this.#inflight = started;
+      pending = started;
     }
-    const pending = this.#fetch().finally(() => {
-      if (this.#inflight === pending) this.#inflight = undefined;
-    });
-    this.#inflight = pending;
-    // Still-valid token while refreshing early: a failed refresh does not break callers.
+    // Still-valid token while refreshing early: a failed refresh breaks no caller,
+    // whether it started the refresh or joined it.
     if (cached && now < cached.expiresAt) {
       return pending.catch(() => {
         if (Date.now() < cached.expiresAt) return cached.value;
@@ -103,19 +109,26 @@ export class AuthkitTenantToken {
 
   /** Drops the cached token: the next `token()` fetches a new one. */
   reset(): void {
+    this.#generation += 1;
     this.#cached = undefined;
+    this.#inflight = undefined;
     this.#failures = 0;
     this.#retryAt = 0;
+    this.#lastError = undefined;
   }
 
   async #fetch(): Promise<string> {
+    const generation = this.#generation;
     try {
-      const value = await this.#request();
+      const { value, cached } = await this.#request();
+      if (generation !== this.#generation) return value;
+      this.#cached = cached;
       this.#failures = 0;
       this.#retryAt = 0;
       this.#lastError = undefined;
       return value;
     } catch (error) {
+      if (generation !== this.#generation) throw error;
       this.#failures += 1;
       const delay = Math.min(MAX_BACKOFF_MS, MIN_BACKOFF_MS * 2 ** (this.#failures - 1));
       this.#retryAt = Date.now() + delay;
@@ -124,7 +137,7 @@ export class AuthkitTenantToken {
     }
   }
 
-  async #request(): Promise<string> {
+  async #request(): Promise<{ value: string; cached: CachedToken }> {
     const o = this.#options;
     const doFetch = o.fetch ?? globalThis.fetch;
     let endpoint = o.tokenEndpoint;
@@ -197,8 +210,7 @@ export class AuthkitTenantToken {
       typeof json.expires_in === 'number' && json.expires_in > 0 ? json.expires_in : 60;
     const expiresAt = startedAt + expiresIn * 1000;
     const skew = Math.min((o.refreshSkewSec ?? 60) * 1000, (expiresIn * 1000) / 2);
-    this.#cached = { value, expiresAt, refreshAt: expiresAt - skew };
-    return value;
+    return { value, cached: { value, expiresAt, refreshAt: expiresAt - skew } };
   }
 }
 
