@@ -71,6 +71,12 @@ export { default as BackchannelRevocationMiddleware } from './src/middleware/bac
 export type { RequireOrgMiddlewareOptions } from './src/middleware/require_org_middleware.js';
 export { default as RequireOrgMiddleware } from './src/middleware/require_org_middleware.js';
 export type {
+  ClientTenancyOptions,
+  ContextTenant,
+  ContextTenantLink,
+  TenantInput,
+} from './src/observability/context_bridge.js';
+export type {
   AuthorizeParams,
   EndSessionParams,
   ExchangeParams,

@@ -8,6 +8,7 @@ import { lucidAccountStore } from '../../src/accounts/lucid_account_store.js';
 import { lucidStores } from '../../src/accounts/lucid_stores.js';
 import { withAuthUser } from '../../src/mixins/with_auth_user.js';
 import { withCredentials } from '../../src/mixins/with_credentials.js';
+import { authkitTenantLabels } from '../../src/tenancy/tenant_labels.js';
 import { createTestDatabase } from '../bootstrap.js';
 
 class TestAccount extends compose(BaseModel, withAuthUser(), withCredentials()) {
@@ -731,5 +732,71 @@ test.group('OrganizationsCapability — removeAccountFromAllOrgs (cascade LGPD)'
     // Mas não tem mais owners
     const members = await store.listOrgMembers(org.id);
     assert.lengthOf(members, 0);
+  });
+});
+
+test.group('authkitTenantLabels (tenant label resolver)', (group) => {
+  let db: any;
+  group.each.setup(async () => {
+    db = createTestDatabase();
+    return async () => db.manager.closeAll();
+  });
+
+  test('labels the asked org ids in one batch; unknown ids are left out', async ({ assert }) => {
+    await migrateWithOrgs(db);
+    const store = lucidAccountStore(TestAccount) as any;
+    const owner = await store.create({ email: 'o@labels.test', password: 'pass12345678' });
+    const acme = await store.createOrg({ name: 'Acme', slug: 'acme', ownerAccountId: owner.id });
+    const beta = await store.createOrg({ name: 'Beta', slug: 'beta', ownerAccountId: owner.id });
+    await store.createOrg({ name: 'Other', slug: 'other', ownerAccountId: owner.id });
+
+    const found = await store.findOrgsByIds([acme.id, beta.id, acme.id, 'nope']);
+    assert.sameMembers(
+      found.map((o: any) => o.slug),
+      ['acme', 'beta'],
+    );
+
+    const labels = authkitTenantLabels({ store: () => store });
+    assert.deepEqual(await labels([acme.id, 'user-1', beta.id]), {
+      [acme.id]: 'Acme',
+      [beta.id]: 'Beta',
+    });
+    assert.deepEqual(await authkitTenantLabels({ store: () => store, label: 'slug' })([acme.id]), {
+      [acme.id]: 'acme',
+    });
+    assert.deepEqual(await labels([]), {});
+  });
+
+  test('falls back to findOrgById without findOrgsByIds, and never labels ids not asked', async ({
+    assert,
+  }) => {
+    const calls: string[] = [];
+    const store = {
+      createOrg() {},
+      async findOrgById(id: string) {
+        calls.push(id);
+        return id === 'o1' ? { id: 'o1', name: 'One', slug: 'one' } : null;
+      },
+    } as any;
+    const labels = authkitTenantLabels({ store: () => store, label: (org) => `${org.name}!` });
+    assert.deepEqual(await labels(['o1', 'o2', 'o1']), { o1: 'One!' });
+    assert.deepEqual(calls, ['o1', 'o2']);
+
+    const leaky = {
+      createOrg() {},
+      async findOrgById() {
+        return null;
+      },
+      async findOrgsByIds() {
+        return [{ id: 'o9', name: 'Not asked', slug: 'x' }];
+      },
+    } as any;
+    assert.deepEqual(await authkitTenantLabels({ store: () => leaky })(['o1']), {});
+  });
+
+  test('a store without organizations labels nothing', async ({ assert }) => {
+    await migrateWithoutOrgs(db);
+    const store = lucidAccountStore(TestAccount, { organizationModels: false }) as any;
+    assert.deepEqual(await authkitTenantLabels({ store: () => store })(['o1']), {});
   });
 });

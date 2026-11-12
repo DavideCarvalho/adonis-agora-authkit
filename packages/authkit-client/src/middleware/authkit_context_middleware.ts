@@ -25,10 +25,29 @@ import { getAuthkit } from '../host/request_authenticator.js';
  *
  * Sem `@adonisjs/auth`, é ele sozinho que dá a sessão ao app: `ctx.authkit`
  * em qualquer rota, e `auth_middleware` para exigir login.
+ *
+ * With tenancy eager (`tenancy.eager`, default on when `config/context.ts` enables
+ * tenancy and the resolver is `jwt`), it also resolves the session here, so the
+ * request's tenant is in `@adonis-agora/context` before any handler, job dispatch
+ * or console query runs.
  */
 export default class AuthkitContextMiddleware {
   async handle(ctx: HttpContext, next: NextFn) {
-    await getAuthkit(ctx);
+    const authkit = await getAuthkit(ctx);
+    if (await eagerTenancy(ctx)) {
+      try {
+        await authkit.getIdentity();
+      } catch {
+        // Same as lazy: the failure surfaces when the app asks for the session.
+      }
+    }
     return next();
   }
+}
+
+async function eagerTenancy(ctx: HttpContext): Promise<boolean> {
+  const manager = (await ctx.containerResolver.make('authkit.client')) as {
+    eagerTenancy?: () => boolean;
+  };
+  return typeof manager.eagerTenancy === 'function' && manager.eagerTenancy();
 }

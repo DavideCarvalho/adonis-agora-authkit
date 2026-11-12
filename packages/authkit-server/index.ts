@@ -677,4 +677,9 @@ export {
   type TenantVerifierInput,
   type VerifiedTenant,
 } from './src/service_tenants/tenant_verifier.js';
+export {
+  type AuthkitTenantLabelsOptions,
+  authkitTenantLabels,
+  type TenantLabelResolver,
+} from './src/tenancy/tenant_labels.js';
 export { stubsRoot } from './stubs/main.js';

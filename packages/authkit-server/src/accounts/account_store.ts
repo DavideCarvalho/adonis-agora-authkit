@@ -626,6 +626,12 @@ export interface OrganizationsCapability {
   }): Promise<OrgSummary>;
   findOrgById(orgId: string): Promise<OrgSummary | null>;
   findOrgBySlug(slug: string): Promise<OrgSummary | null>;
+  /**
+   * OPTIONAL: the orgs among `orgIds` that exist, in a bounded number of queries
+   * (any order; unknown ids are left out). Absent → callers fall back to
+   * `findOrgById` per id.
+   */
+  findOrgsByIds?(orgIds: readonly string[]): Promise<OrgSummary[]>;
   listOrgsForAccount(accountId: string): Promise<Array<OrgSummary & { role: string }>>;
   /**
    * OPTIONAL: every org that has at least one member whose account exists, with

@@ -3,6 +3,7 @@ import { configProvider } from '@adonisjs/core';
 import type { SessionIndex } from './backchannel_logout.js';
 import type { OidcEndpoints } from './discovery.js';
 import type { ResiliencePolicy } from './http/resilient_fetch.js';
+import type { ClientTenancyOptions } from './observability/context_bridge.js';
 import { type ResolverFactory, resolvers } from './resolvers/factory.js';
 import type { RevocationStore } from './revocation/revocation_store.js';
 
@@ -77,6 +78,12 @@ export interface ClientConfigInput {
   discovery?: boolean | { cacheTtlMs?: number };
   /** Per-field endpoint overrides; always win over discovery. */
   endpoints?: Partial<OidcEndpoints>;
+  /**
+   * How the session's tenant is published into `@adonis-agora/context` (the active
+   * organization by default). See {@link ClientTenancyOptions}: `eager`, `personal`,
+   * `resolve`. No effect without `@adonis-agora/context`.
+   */
+  tenancy?: ClientTenancyOptions;
 }
 
 export interface ResolvedClientConfig {
@@ -99,6 +106,8 @@ export interface ResolvedClientConfig {
   discovery: false | { cacheTtlMs?: number };
   /** Endpoint overrides. See {@link ClientConfigInput.endpoints}. */
   endpoints?: Partial<OidcEndpoints>;
+  /** Tenancy options. See {@link ClientConfigInput.tenancy}. */
+  tenancy?: ClientTenancyOptions;
 }
 
 export function defineConfig(config: ClientConfigInput) {
@@ -137,6 +146,7 @@ export function defineConfig(config: ClientConfigInput) {
             ? config.discovery
             : {},
       endpoints: config.endpoints,
+      tenancy: config.tenancy ?? {},
     };
   });
 }
