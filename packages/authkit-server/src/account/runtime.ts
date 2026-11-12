@@ -497,7 +497,7 @@ export function resolveBlock(input: ResolveInput, block: Block): ResolvedBlock {
         return { kind: 'actions', items: resolveActions(input, block.items) };
       case 'link': {
         const href = safeHref(block.href, block.external);
-        if (!href) return fallback(t('account.extension.unsafe_link'));
+        if (!href) return fallback(t({ key: 'account.extension.unsafe_link' }));
         return { kind: 'link', label: t(block.label), href, external: block.external === true };
       }
       case 'toolPreview':
@@ -519,12 +519,12 @@ export function resolveBlock(input: ResolveInput, block: Block): ResolvedBlock {
       case 'component': {
         const provider = String(block.provider ?? '');
         if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(provider)) {
-          return fallback(t('account.extension.unknown_block'));
+          return fallback(t({ key: 'account.extension.unknown_block' }));
         }
         const scripts: Array<{ src: string; integrity: string | null; module: boolean }> = [];
         for (const script of (block.scripts ?? []) as ComponentScript[]) {
           const src = safeScriptSrc(script?.src, input.page.scriptOrigins);
-          if (!src) return fallback(t('account.extension.unsafe_script'));
+          if (!src) return fallback(t({ key: 'account.extension.unsafe_script' }));
           scripts.push({
             src,
             integrity: typeof script.integrity === 'string' ? script.integrity : null,
@@ -553,10 +553,10 @@ export function resolveBlock(input: ResolveInput, block: Block): ResolvedBlock {
         };
       }
       default:
-        return fallback(t('account.extension.unknown_block'));
+        return fallback(t({ key: 'account.extension.unknown_block' }));
     }
   } catch {
-    return fallback(t('account.extension.unknown_block'));
+    return fallback(t({ key: 'account.extension.unknown_block' }));
   }
 }
 

@@ -11,16 +11,14 @@
         <div class="flex items-center justify-between gap-4 px-4 py-3 text-sm">
           <dt class="text-gray-500">{{ row.label }}</dt>
           <dd class="text-right text-gray-900">
-            @let(value = row.value)
-            @include('authkit::account/partials/extension_value')
+            @!component('authkit::account/partials/extension_value', { value: row.value })
           </dd>
         </div>
       @end
     </dl>
     @if(block.actions.length > 0)
       <div class="flex flex-wrap gap-2 border-t border-gray-100 px-4 py-3">
-        @let(actions = block.actions)
-        @include('authkit::account/partials/extension_actions')
+        @!component('authkit::account/partials/extension_actions', { actions: block.actions, csrfToken })
       </div>
     @end
   </section>
@@ -48,7 +46,7 @@
                 <p class="mt-1 flex flex-wrap gap-3 text-xs text-gray-500">
                   @each(value in item.meta)
                     <span>
-                      @include('authkit::account/partials/extension_value')
+                      @!component('authkit::account/partials/extension_value', { value })
                     </span>
                   @end
                 </p>
@@ -56,11 +54,9 @@
             </div>
             <div class="flex shrink-0 items-center gap-2">
               @if(item.badge)
-                @let(value = item.badge)
-                @include('authkit::account/partials/extension_value')
+                @!component('authkit::account/partials/extension_value', { value: item.badge })
               @end
-              @let(actions = item.actions)
-              @include('authkit::account/partials/extension_actions')
+              @!component('authkit::account/partials/extension_actions', { actions: item.actions, csrfToken })
             </div>
           </li>
         @end
@@ -97,14 +93,13 @@
               <tr>
                 @each(value in row.cells)
                   <td class="px-4 py-2 text-gray-900">
-                    @include('authkit::account/partials/extension_value')
+                    @!component('authkit::account/partials/extension_value', { value })
                   </td>
                 @end
                 @if(block.hasActions)
                   <td class="px-4 py-2 text-right">
                     <div class="flex justify-end gap-2">
-                      @let(actions = row.actions)
-                      @include('authkit::account/partials/extension_actions')
+                      @!component('authkit::account/partials/extension_actions', { actions: row.actions, csrfToken })
                     </div>
                   </td>
                 @end
@@ -135,8 +130,7 @@
   </section>
 @elseif(block.kind === 'actions')
   <div data-block="actions" class="flex flex-wrap gap-2">
-    @let(actions = block.items)
-    @include('authkit::account/partials/extension_actions')
+    @!component('authkit::account/partials/extension_actions', { actions: block.items, csrfToken })
   </div>
 @elseif(block.kind === 'link')
   <p data-block="link">
@@ -159,8 +153,7 @@
           <div class="flex items-start justify-between gap-4 px-4 py-2 text-sm">
             <dt class="text-gray-500">{{ arg.label }}</dt>
             <dd class="break-all text-right text-gray-900">
-              @let(value = arg.value)
-              @include('authkit::account/partials/extension_value')
+              @!component('authkit::account/partials/extension_value', { value: arg.value })
             </dd>
           </div>
         @end
@@ -171,8 +164,7 @@
     @end
     @if(block.actions.length > 0)
       <div class="flex flex-wrap gap-2 border-t border-gray-100 px-4 py-3">
-        @let(actions = block.actions)
-        @include('authkit::account/partials/extension_actions')
+        @!component('authkit::account/partials/extension_actions', { actions: block.actions, csrfToken })
       </div>
     @end
   </section>
