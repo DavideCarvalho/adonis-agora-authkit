@@ -3,6 +3,7 @@ import { getBootedApp } from '../../services/booted_app.js';
 import { supportsAccountStatus } from '../accounts/account_store.js';
 import { findMcpResource } from '../mcp/mcp_oauth.js';
 import type { OidcService } from '../provider/oidc_service.js';
+import { authkitTable } from '../schema/tables_location.js';
 import { PersonalAgentVerifier } from './agent_identity.js';
 import type { PersonalAgentRegistration, ResolvedPersonalAgentsConfig } from './config.js';
 import { PersonalAgentDelegation } from './delegation_service.js';
@@ -222,8 +223,11 @@ export function buildPersonalAgentsRuntime(
           conn = null;
         }
       }
-      const store = conn ? new DelegationStore(conn) : null;
-      const registry = conn ? new AgentRegistryStore(conn) : null;
+      // Com `schema.name`, cada statement escreve `schema.tabela`.
+      const tableName = (name: string) =>
+        authkitTable({ schema: service.config.schema.name }, name);
+      const store = conn ? new DelegationStore(conn, tableName) : null;
+      const registry = conn ? new AgentRegistryStore(conn, { table: tableName }) : null;
       const effective = registry ? withRegistry(config, registry) : config;
 
       let delegation: PersonalAgentDelegation | null = null;
@@ -247,6 +251,7 @@ export function buildPersonalAgentsRuntime(
             protocol: extension.id,
             issuer: service.config.issuer,
             db: () => db(),
+            table: tableName,
             grants: scopedLedger(store, extension.grantIdPrefix),
             registryStatus: async (identifier) =>
               (await registry.find(extension.id, identifier))?.status ?? null,

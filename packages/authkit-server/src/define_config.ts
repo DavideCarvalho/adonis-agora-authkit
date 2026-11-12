@@ -75,7 +75,12 @@ import {
   resolveRedirectUriPolicy,
   type ValidateRegistrationHook,
 } from './provider/registration_policy.js';
-import { bindTablesLocation } from './schema/tables_location.js';
+import {
+  assertSchemaSupported,
+  authkitTablesClient,
+  bindTablesLocation,
+  validateSchemaName,
+} from './schema/tables_location.js';
 import {
   type ResolvedServiceTenantsConfig,
   resolveServiceTenants,
@@ -1517,8 +1522,14 @@ export interface AuthServerConfigInput {
    *   primária) — as acima, o `authkit_keystore`, as de extensions e a do
    *   `adapters.database()`/keystore `lucid` quando eles não declaram a própria.
    *   A tabela da conta NÃO entra: fica na conexão do model da conta.
+   * - `name`: o schema do banco dessas tabelas (MySQL: o database), ex.: `'auth'`
+   *   → `"auth"."auth_settings"`. Vai escrito em cada statement; o boot cria o
+   *   schema quando falta (com `autoManage`). Default: o schema corrente da
+   *   conexão. SQLite não tem schemas: com `name`, o boot falha. NÃO use
+   *   `searchPath` na conexão para isso — atrás de um PgBouncer em modo
+   *   transaction, o `SET search_path` vaza para as conexões de outros clientes.
    */
-  schema?: { autoManage?: boolean; connection?: string };
+  schema?: { autoManage?: boolean; connection?: string; name?: string };
   /**
    * Ciclo de vida da conta (LGPD/GDPR). OPT-IN para workflows DURÁVEIS:
    *
@@ -1710,7 +1721,7 @@ export interface ResolvedServerConfig {
   /** Locale ativo (default 'pt-BR'). */
   locale: string;
   /** Gestão automática de schema resolvida (default ligada). */
-  schema: { autoManage: boolean; connection?: string };
+  schema: { autoManage: boolean; connection?: string; name?: string };
   /**
    * Ciclo de vida da conta resolvido. `durable` default `false` → caminho
    * síncrono de sempre. `true` → endpoints enfileiram os workflows duráveis.
@@ -1774,9 +1785,19 @@ export function defineConfig(config: AuthServerConfigInput) {
   // Toda tabela do AuthKit vive em `schema.connection` — inclusive as que o store da
   // conta lê (auth_mfa, auth_password_history, organizations), que antes seguiam a
   // conexão do model da conta.
-  bindTablesLocation(config.accountStore, { connection: config.schema?.connection });
+  const tablesSchema = validateSchemaName(config.schema?.name);
+  bindTablesLocation(config.accountStore, {
+    connection: config.schema?.connection,
+    schema: tablesSchema,
+  });
   return configProvider.create(async (app: ApplicationService): Promise<ResolvedServerConfig> => {
-    const tablesContext = { connection: config.schema?.connection };
+    const tablesContext = { connection: config.schema?.connection, schema: tablesSchema };
+    if (tablesSchema) {
+      // Schema num dialeto sem schemas (SQLite) falha aqui, na resolução do config — nunca
+      // cai em silêncio para tabelas sem schema.
+      const db: any = await app.container.make('lucid.db' as any).catch(() => null);
+      if (db) assertSchemaSupported(authkitTablesClient(db, tablesContext), tablesSchema);
+    }
     const AdapterClass = await config.adapter.resolver(app, tablesContext);
     // `session.adapter` ausente ⇒ mesma classe do default (back-compat: o
     // dispatcher vira identidade e tudo continua no adapter único de hoje).
@@ -1798,13 +1819,18 @@ export function defineConfig(config: AuthServerConfigInput) {
               store: 'tmp/authkit_jwks.json',
             }
         : config.jwks;
-    // Keystore no Lucid sem conexão própria fica na conexão das tabelas do authkit.
+    // Keystore no Lucid sem conexão/schema próprios fica onde estão as tabelas do authkit.
     const jwksStore = (jwksInput as { store?: any }).store;
     const jwksConfig: JwksConfig =
-      jwksStore?.driver === 'lucid' && !jwksStore.connection && config.schema?.connection
+      jwksStore?.driver === 'lucid' &&
+      ((!jwksStore.connection && config.schema?.connection) || (!jwksStore.schema && tablesSchema))
         ? ({
             ...jwksInput,
-            store: { ...jwksStore, connection: config.schema.connection },
+            store: {
+              ...jwksStore,
+              connection: jwksStore.connection ?? config.schema?.connection,
+              schema: jwksStore.schema ?? tablesSchema,
+            },
           } as JwksConfig)
         : jwksInput;
 
@@ -2017,6 +2043,7 @@ export function defineConfig(config: AuthServerConfigInput) {
       schema: {
         autoManage: config.schema?.autoManage !== false,
         connection: config.schema?.connection,
+        name: tablesSchema,
       },
       // OPT-IN: default false → caminho síncrono de sempre (byte-idêntico).
       accountLifecycle: {

@@ -52,6 +52,7 @@
  */
 
 import type { HttpContext } from '@adonisjs/core/http';
+import { authkitTable } from '../schema/tables_location.js';
 import { isSettingLocked, SettingLockedError } from './config_locks.js';
 
 /** Uma entrada da tabela `auth_settings`. */
@@ -111,6 +112,11 @@ export interface RuntimeSettingsOptions {
    * Ausente (ou undefined) → conexão default.
    */
   connection?: string;
+  /**
+   * Schema do banco de `auth_settings` (MySQL: o database) — o `schema.name` do
+   * `defineConfig`. Escrito em cada statement (`"auth"."auth_settings"`).
+   */
+  schema?: string;
 }
 
 type CacheEntry = { value: unknown | null; expiresAt: number };
@@ -129,7 +135,7 @@ interface SharedState {
 
 const sharedStates = new WeakMap<object, Map<string, SharedState>>();
 
-function sharedStateFor(db: unknown, connection: string | undefined): SharedState {
+function sharedStateFor(db: unknown, connection: string | undefined, table: string): SharedState {
   const fresh = (): SharedState => ({ cache: new Map(), tablePresent: null, tableAbsentUntil: 0 });
   if (!db || (typeof db !== 'object' && typeof db !== 'function')) return fresh();
   let byConnection = sharedStates.get(db);
@@ -137,13 +143,24 @@ function sharedStateFor(db: unknown, connection: string | undefined): SharedStat
     byConnection = new Map();
     sharedStates.set(db, byConnection);
   }
-  const name = connection ?? '';
+  const name = `${connection ?? ''}\x00${table}`;
   let state = byConnection.get(name);
   if (!state) {
     state = fresh();
     byConnection.set(name, state);
   }
   return state;
+}
+
+/**
+ * `{ connection, schema }` das tabelas do authkit a partir do config resolvido
+ * (`schema.connection`/`schema.name`), no formato de {@link RuntimeSettingsOptions}.
+ */
+export function settingsLocation(config: any): { connection?: string; schema?: string } {
+  const out: { connection?: string; schema?: string } = {};
+  if (config?.schema?.connection) out.connection = config.schema.connection;
+  if (config?.schema?.name) out.schema = config.schema.name;
+  return out;
 }
 
 /** Chave de cache: combina key + escopo de org (null = global). */
@@ -160,13 +177,16 @@ export class RuntimeSettings implements SettingsCapability {
   private readonly db: any;
   private readonly ttlMs: number;
   private readonly connectionName: string | undefined;
+  /** `auth_settings`, qualificada com o schema quando há um. */
+  private readonly table: string;
   private readonly shared: SharedState;
 
   constructor(db: any, opts: RuntimeSettingsOptions = {}) {
     this.db = db;
     this.ttlMs = opts.ttlMs ?? 15_000;
     this.connectionName = opts.connection;
-    this.shared = sharedStateFor(db, opts.connection);
+    this.table = authkitTable({ schema: opts.schema }, 'auth_settings');
+    this.shared = sharedStateFor(db, opts.connection, this.table);
   }
 
   private get cache(): Map<string, CacheEntry> {
@@ -201,7 +221,7 @@ export class RuntimeSettings implements SettingsCapability {
     if (shared.tablePresent === true) return true;
     if (shared.tablePresent === false && shared.tableAbsentUntil > Date.now()) return false;
     try {
-      await this.conn().from('auth_settings').select('key').limit(1);
+      await this.conn().from(this.table).select('key').limit(1);
       shared.tablePresent = true;
       return true;
     } catch {
@@ -227,7 +247,7 @@ export class RuntimeSettings implements SettingsCapability {
     }
 
     try {
-      let q = this.conn().from('auth_settings').where('key', key);
+      let q = this.conn().from(this.table).where('key', key);
       if (orgId) {
         q = q.where('organization_id', orgId);
       } else {
@@ -269,14 +289,14 @@ export class RuntimeSettings implements SettingsCapability {
     const resolvedOrgId = orgId ?? null;
     try {
       // Delete first then insert = upsert (compatível com sqlite + pg sem UPSERT syntax).
-      let q = this.conn().from('auth_settings').where('key', key);
+      let q = this.conn().from(this.table).where('key', key);
       if (resolvedOrgId) {
         q = q.where('organization_id', resolvedOrgId);
       } else {
         q = q.whereNull('organization_id');
       }
       await q.delete();
-      await this.conn().table('auth_settings').insert({
+      await this.conn().table(this.table).insert({
         key,
         organization_id: resolvedOrgId,
         value: json,
@@ -294,7 +314,7 @@ export class RuntimeSettings implements SettingsCapability {
     if (!(await this.hasTable())) return;
     const resolvedOrgId = orgId ?? null;
     try {
-      let q = this.conn().from('auth_settings').where('key', key);
+      let q = this.conn().from(this.table).where('key', key);
       if (resolvedOrgId) {
         q = q.where('organization_id', resolvedOrgId);
       } else {
@@ -310,7 +330,7 @@ export class RuntimeSettings implements SettingsCapability {
   async listSettings(orgId?: string | null): Promise<SettingRow[]> {
     if (!(await this.hasTable())) return [];
     try {
-      let q = this.conn().from('auth_settings').select('*');
+      let q = this.conn().from(this.table).select('*');
       if (orgId !== undefined) {
         // orgId fornecido: filtra pelo escopo
         if (orgId) {
@@ -399,9 +419,8 @@ export async function resolveRuntimeSettings(ctx: HttpContext): Promise<RuntimeS
   try {
     const db = await ctx.containerResolver.make('lucid.db');
     const service = await ctx.containerResolver.make('authkit.server').catch(() => null);
-    // `auth_settings` vive na conexão das tabelas do authkit, não na do model da conta.
-    const connection = service?.config?.schema?.connection;
-    return new RuntimeSettings(db, connection ? { connection } : {});
+    // `auth_settings` vive onde estão as tabelas do authkit, não na conexão do model da conta.
+    return new RuntimeSettings(db, settingsLocation(service?.config));
   } catch {
     return null;
   }

@@ -4,6 +4,7 @@ import type { EnumeratedArtifact, OidcAdapter } from '../adapters/adapter_contra
 import { pickModelAdapterClass } from '../adapters/factory.js';
 import { buildPersonalAgentsRuntime } from '../agents/runtime.js';
 import type { OidcService } from '../provider/oidc_service.js';
+import { authkitTable } from '../schema/tables_location.js';
 import { normalizeActiveOrg } from './active_org_cookie.js';
 
 /** Uma sessão ativa do IdP (login do usuário no provider), apresentada ao admin. */
@@ -79,8 +80,10 @@ export class AdminSessionsService {
   #AdapterClass: any;
   #SessionAdapterClass: any;
   #accountStore: AccountStore;
-  /** Conexão Lucid das tabelas authkit (schema `auth`) — onde vive auth_session_revocations. */
+  /** Conexão Lucid das tabelas authkit (`schema.connection`) — onde vive auth_session_revocations. */
   #schemaConnection?: string;
+  /** `auth_session_revocations`, qualificada com `schema.name` quando há um. */
+  #revocationsTable: string;
   #oidc: OidcService;
 
   constructor(oidc: OidcService) {
@@ -92,6 +95,10 @@ export class AdminSessionsService {
     this.#SessionAdapterClass = oidc.config.SessionAdapterClass ?? oidc.config.AdapterClass;
     this.#accountStore = oidc.config.accountStore;
     this.#schemaConnection = oidc.config.schema?.connection;
+    this.#revocationsTable = authkitTable(
+      { schema: oidc.config.schema?.name },
+      'auth_session_revocations',
+    );
   }
 
   #adapter(model: string): OidcAdapter {
@@ -135,7 +142,7 @@ export class AdminSessionsService {
       const conn = this.#schemaConnection
         ? (db as any).connection(this.#schemaConnection)
         : (db as any).connection();
-      await conn.insertQuery().table('auth_session_revocations').insert({
+      await conn.insertQuery().table(this.#revocationsTable).insert({
         sid: null,
         sub: accountId,
         revoked_at: revokedAt,

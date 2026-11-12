@@ -1,7 +1,8 @@
 import type { Database } from '@adonisjs/lucid/database';
 import type { EnumeratedArtifact, OidcAdapter, OidcPayload } from './adapter_contract.js';
 
-const TABLE = 'authkit_oidc_payloads';
+/** Nome da tabela (sem schema). O adapter recebe o nome já qualificado pelo factory. */
+export const OIDC_PAYLOADS_TABLE = 'authkit_oidc_payloads';
 
 /** Intervalo mínimo, por conexão, entre duas limpezas das linhas expiradas. */
 const PRUNE_INTERVAL_MS = 10 * 60_000;
@@ -23,13 +24,19 @@ interface ConnectionState {
   dialect?: string | null;
 }
 
-const connectionStates = new WeakMap<object, ConnectionState>();
+const connectionStates = new WeakMap<object, Map<string, ConnectionState>>();
 
-function connectionState(db: object): ConnectionState {
-  let state = connectionStates.get(db);
+/** Estado por conexão E tabela (duas instalações em schemas diferentes não se misturam). */
+function connectionState(db: object, table: string): ConnectionState {
+  let byTable = connectionStates.get(db);
+  if (!byTable) {
+    byTable = new Map();
+    connectionStates.set(db, byTable);
+  }
+  let state = byTable.get(table);
   if (!state) {
     state = { accountColumn: null, accountColumnRecheckAt: 0, nextPruneAt: 0 };
-    connectionStates.set(db, state);
+    byTable.set(table, state);
   }
   return state;
 }
@@ -51,10 +58,12 @@ export class DatabaseAdapter implements OidcAdapter {
   constructor(
     private name: string,
     private db: Database,
+    /** `authkit_oidc_payloads`, qualificada com `schema.name` quando há schema. */
+    private table: string = OIDC_PAYLOADS_TABLE,
   ) {}
 
   #query() {
-    return this.db.query().from(TABLE).where('model_name', this.name);
+    return this.db.query().from(this.table).where('model_name', this.name);
   }
 
   /**
@@ -64,7 +73,7 @@ export class DatabaseAdapter implements OidcAdapter {
    * driver serializa no formato do banco — o MySQL recusa o ISO com `Z`.
    */
   #timestamp(ms: number): Date | string {
-    const state = connectionState(this.db);
+    const state = connectionState(this.db, this.table);
     if (state.dialect === undefined) {
       // O factory passa o manager (`Database`) ou um `QueryClient` de conexão nomeada.
       const db = this.db as any;
@@ -91,11 +100,11 @@ export class DatabaseAdapter implements OidcAdapter {
    * re-checado, para pegar o ALTER do boot que rodou depois do primeiro request.
    */
   async #hasAccountColumn(): Promise<boolean> {
-    const state = connectionState(this.db);
+    const state = connectionState(this.db, this.table);
     if (state.accountColumn === true) return true;
     if (state.accountColumn === false && state.accountColumnRecheckAt > Date.now()) return false;
     try {
-      await this.db.query().from(TABLE).select('account_id').limit(1);
+      await this.db.query().from(this.table).select('account_id').limit(1);
       state.accountColumn = true;
     } catch {
       state.accountColumn = false;
@@ -111,7 +120,7 @@ export class DatabaseAdapter implements OidcAdapter {
    * do caminho do request e nunca lança.
    */
   #maybePrune(): void {
-    const state = connectionState(this.db);
+    const state = connectionState(this.db, this.table);
     const now = Date.now();
     if (state.nextPruneAt > now) return;
     state.nextPruneAt = now + PRUNE_INTERVAL_MS;
@@ -119,7 +128,7 @@ export class DatabaseAdapter implements OidcAdapter {
       .then(() =>
         this.db
           .query()
-          .from(TABLE)
+          .from(this.table)
           .whereNotNull('expires_at')
           .where('expires_at', '<=', this.#timestamp(now))
           .delete(),
@@ -149,7 +158,7 @@ export class DatabaseAdapter implements OidcAdapter {
     if (existing) {
       await this.#query().where('id', id).update(row);
     } else {
-      await this.db.table(TABLE).insert(row);
+      await this.db.table(this.table).insert(row);
     }
     this.#maybePrune();
   }
@@ -217,7 +226,7 @@ export class DatabaseAdapter implements OidcAdapter {
   }
 
   async revokeByGrantId(grantId: string): Promise<void> {
-    await this.db.query().from(TABLE).where('grant_id', grantId).delete();
+    await this.db.query().from(this.table).where('grant_id', grantId).delete();
   }
 
   /**

@@ -229,10 +229,10 @@ only ever arrive as optional:
 | `PersonalAgentExtension` | `{ id, resolve(context) }`. `id` is 2–16 of `a-z0-9-` (not `pact`); `resolve` gets `{ issuer, delegationScopes }` when the config loads, validates, and returns the definition. |
 | `PersonalAgentExtensionDefinition` | `label`, `grantIdPrefix` (`[a-z0-9]+_`), `prefix` (its routes; not under the OIDC `mountPath` nor `personalAgents.prefix`), and optional `csrfExemptPaths`, `tables`, `messages`, `isAgentBrowser(ctx)`, `boot()`, `routes(router, kit)`, plus `setup(host)`. |
 | `PersonalAgentRouteKit` | What `routes` receives: `accountGuard` (the consent screens' session guard) and `throttle.login` / `throttle.otp` (AuthKit's rate-limit buckets). |
-| `PersonalAgentHost` | What `setup` receives: `issuer`, `db()`, `grants` (the ledger, scoped to `grantIdPrefix`), `registryStatus(id)`, `deriveSecret(label)`, `isAccountActive(id)`, `make(binding)`, `accessTokens` (OIDC-provider access tokens for MCP resources) and `now()`. |
+| `PersonalAgentHost` | What `setup` receives: `issuer`, `db()`, `table(name)` (how every statement must name a lib-owned table: `auth.auth_agent_grants` when the app sets `schema.name`), `grants` (the ledger, scoped to `grantIdPrefix`), `registryStatus(id)`, `deriveSecret(label)`, `isAccountActive(id)`, `make(binding)`, `accessTokens` (OIDC-provider access tokens for MCP resources) and `now()`. |
 | `PersonalAgentProtocolRuntime` | What `setup` returns: `listAccountGrants`, `revokeAccountGrant`, `revokeAllAccountGrants`, `revokeGrant`, `disconnectAgent`, `displayName`, `consoleSummary`. |
 | `personalAgentExtensionRuntime(id, ctx?)` | The runtime `setup` built, from a request, from `{ service, db }`, or from the booted app. |
-| `AuthkitTable`, `ensureAuthkitTables(db, tables)` | The table format of `tables`, and the helper an extension's own `ensure…Schema()` calls. |
+| `AuthkitTable`, `ensureAuthkitTables(db, tables, { connection?, schema? })` | The table format of `tables` (`create(table, { table })`: name a foreign-key target through `table(name)`), and the helper an extension's own `ensure…Schema()` calls. |
 | `sendAuthkitCodeEmail(ctx, { email, code, messages, params })` | A code-only email through AuthKit's mailer, branding and i18n (`messages` is the key prefix of the extension's catalog). |
 | `signInAccountSession(ctx, id)` / `signOutAccountSession(ctx)` | Open or close AuthKit's account session (and `ctx.auth` with `adonisAuth.guard`). |
 

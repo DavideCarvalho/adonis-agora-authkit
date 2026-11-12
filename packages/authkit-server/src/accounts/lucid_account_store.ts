@@ -3,6 +3,7 @@ import { type PasswordConfigInput, PasswordManager } from '../password/password_
 import type { FetchLike, PwnedLogger } from '../password/pwned.js';
 import {
   type AuthkitTablesLocation,
+  authkitTable,
   authkitTablesClient,
   BIND_TABLES_LOCATION,
 } from '../schema/tables_location.js';
@@ -399,7 +400,7 @@ export function lucidAccountStore(
   };
   const orgModels = (): OrganizationModels =>
     explicitOrgModels ??
-    (tablesLocation ? organizationModelsOn(tablesLocation.connection) : defaultOrganizationModels);
+    (tablesLocation ? organizationModelsOn(tablesLocation) : defaultOrganizationModels);
   const OrgModels = orgModelsOption === false ? undefined : orgModels;
   // RP do WebAuthn: usado nas cerimônias. Default do rpName cai no mfaIssuer.
   const webauthn = options.webauthn ?? {
@@ -427,6 +428,7 @@ export function lucidAccountStore(
     emailVerificationTtlHours: emailTokens.verificationTtlHours,
     emailChangeTtlHours: emailTokens.changeTtlHours,
     tablesClient,
+    tableName: (name: string) => authkitTable(tablesLocation ?? undefined, name),
     // Encripta o segredo antes de persistir (no-op sem encrypter).
     sealSecret: (secret: string) => (encrypter ? encrypter.encrypt(secret) : secret),
     // Decripta o segredo armazenado; retorna null em falha/adulteração (no-op sem encrypter).
@@ -571,7 +573,7 @@ export function lucidAccountStore(
   // Não-enumerável: o `defineConfig` informa `schema.connection` por aqui.
   Object.defineProperty(store, BIND_TABLES_LOCATION, {
     value: (location: AuthkitTablesLocation) => {
-      tablesLocation = { connection: location.connection };
+      tablesLocation = { connection: location.connection, schema: location.schema };
     },
   });
 

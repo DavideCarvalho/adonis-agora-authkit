@@ -149,10 +149,15 @@ export const POPPY_TABLES: readonly AuthkitTable[] = [
  *   async up() {
  *     await ensureAuthkitSchema(this.db)
  *     await ensurePoppySchema(this.db)
+ *     // with `schema.name: 'auth'`: pass `{ schema: 'auth' }` to both
  *   }
  * }
  * ```
  */
-export function ensurePoppySchema(db: unknown, options: { connection?: string } = {}) {
+export function ensurePoppySchema(
+  db: unknown,
+  /** The same `connection` and `schema` (`schema.name`) as AuthKit's tables. */
+  options: { connection?: string; schema?: string } = {},
+) {
   return ensureAuthkitTables(db, POPPY_TABLES, options);
 }

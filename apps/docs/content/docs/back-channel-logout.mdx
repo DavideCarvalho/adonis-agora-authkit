@@ -181,7 +181,8 @@ logout at the IdP propagates to all of them.
 
 | Option | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `connection` | `string?` | primary connection | Point it at a connection whose search path sees the schema the table lives in. |
+| `connection` | `string?` | primary connection | The connection of the IdP's database (its `schema.connection`). |
+| `schema` | `string?` | the connection's default | The database schema the table lives in (MySQL: the database), the IdP's `schema.name`. Written into every statement. Don't use a connection `searchPath` for this: behind PgBouncer in transaction mode, `SET search_path` leaks to other clients' connections. |
 | `table` | `string?` | `DEFAULT_REVOCATION_TABLE` | Override only if you cannot use the shared table. |
 | `autoPrune` | `false \| { everyHours?, olderThanDays? }` | `{ everyHours: 24, olderThanDays: 35 }` | Opportunistic cleanup. |
 

@@ -28,7 +28,7 @@ const TOTP_PERIOD = 30;
 
 export function buildMfa(ctx: LucidStoreContext): MfaCapability {
   const { Model, mfaIssuer, recoveryCodeCount, sealSecret, openSecret } = ctx;
-  const repo = buildMfaStateRepo(Model, ctx.tablesClient);
+  const repo = buildMfaStateRepo(Model, ctx.tablesClient, ctx.tableName);
 
   return {
     async getMfaState(accountId) {

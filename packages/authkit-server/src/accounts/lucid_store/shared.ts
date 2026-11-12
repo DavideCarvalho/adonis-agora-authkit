@@ -118,6 +118,11 @@ export interface LucidStoreContext {
    * → the model's connection (a store used without `defineConfig`).
    */
   tablesClient?: () => any;
+  /**
+   * Nome de uma tabela do authkit como os statements a escrevem: com `schema.name`,
+   * `schema.tabela` (o knex cita cada parte). Ausente → o nome puro.
+   */
+  tableName?: (name: string) => string;
 }
 
 export const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex');
@@ -169,8 +174,13 @@ export interface MfaStatePatch {
  * JSON (string) na escrita e desserializado na leitura (aceita tanto string —
  * sqlite/text — quanto array já parseado — pg jsonb).
  */
-export function buildMfaStateRepo(Model: any, tablesClient?: () => any) {
-  const TABLE = 'auth_mfa';
+export function buildMfaStateRepo(
+  Model: any,
+  tablesClient?: () => any,
+  tableName: (name: string) => string = (name) => name,
+) {
+  // Lido a cada uso: o `defineConfig` informa o schema depois de o store existir.
+  const table = () => tableName('auth_mfa');
 
   /** QueryClient das tabelas do authkit (equivale ao `db` do password_history). */
   function client(): any {
@@ -209,7 +219,7 @@ export function buildMfaStateRepo(Model: any, tablesClient?: () => any) {
   return {
     /** Lê o estado de MFA da conta; null se não há linha em `auth_mfa`. */
     async read(accountId: string): Promise<MfaState | null> {
-      const row = await client().from(TABLE).where('account_id', accountId).first();
+      const row = await client().from(table()).where('account_id', accountId).first();
       if (!row) return null;
       return {
         totpSecret: row.totp_secret ?? null,
@@ -243,18 +253,18 @@ export function buildMfaStateRepo(Model: any, tablesClient?: () => any) {
       }
       if ('lastTotpStep' in patch) update.last_totp_step = patch.lastTotpStep ?? null;
 
-      const affected = await client().from(TABLE).where('account_id', accountId).update(update);
+      const affected = await client().from(table()).where('account_id', accountId).update(update);
       // knex update retorna o nº de linhas afetadas (0 = linha ainda não existe).
       if (!affected) {
         await client()
-          .table(TABLE)
+          .table(table())
           .insert({ account_id: accountId, ...update });
       }
     },
 
     /** Remove o estado de MFA da conta (disable / reset total). No-op se ausente. */
     async clear(accountId: string): Promise<void> {
-      await client().from(TABLE).where('account_id', accountId).delete();
+      await client().from(table()).where('account_id', accountId).delete();
     },
   };
 }

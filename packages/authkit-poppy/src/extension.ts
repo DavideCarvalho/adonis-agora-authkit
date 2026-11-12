@@ -137,12 +137,20 @@ function withRegistry(cfg: ResolvedPoppyConfig, host: PersonalAgentHost): Resolv
   };
 }
 
+/**
+ * How the host names AuthKit's tables (with `schema.name`, `schema.table`). A host from before
+ * `table()` existed has no schema option, so the bare name is right there.
+ */
+function tableOf(host: PersonalAgentHost): (name: string) => string {
+  return (name) => (typeof host.table === 'function' ? host.table(name) : name);
+}
+
 async function resolveReplay(
   replay: ResolvedPoppyConfig['replay'],
   host: PersonalAgentHost,
 ): Promise<PoppyReplayStore> {
   if (replay === 'memory') return memoryReplayStore();
-  if (replay === 'database') return databaseReplayStore(() => host.db());
+  if (replay === 'database') return databaseReplayStore(() => host.db(), tableOf(host));
   if (typeof (replay as PoppyReplayStore).claim === 'function') return replay as PoppyReplayStore;
   const redis = await host.make('redis');
   return redisReplayStore(redis.connection((replay as { redis: string }).redis));
@@ -228,7 +236,7 @@ export function poppy(
           return new PoppyService({
             cfg,
             urls: poppyUrls(host.issuer, cfg.prefix),
-            store: new PoppyStore(() => host.db()),
+            store: new PoppyStore(() => host.db(), tableOf(host)),
             grants: host.grants,
             registry: new PoppyClientRegistry(cfg, { fetchJson: options.fetchJson }),
             replay: await resolveReplay(cfg.replay, host),

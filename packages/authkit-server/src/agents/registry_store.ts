@@ -70,14 +70,20 @@ export class AgentRegistryStore {
   #snapshot: { rows: Map<string, AgentRegistryRow>; expiresAt: number } | null = null;
   #loading: Promise<Map<string, AgentRegistryRow>> | null = null;
 
-  constructor(conn: () => any, options: { now?: () => number } = {}) {
+  #table: string;
+
+  constructor(
+    conn: () => any,
+    options: { now?: () => number; table?: (name: string) => string } = {},
+  ) {
     this.#conn = conn;
+    this.#table = (options.table ?? ((name: string) => name))(REGISTRY_TABLE);
     this.#now = options.now ?? Date.now;
   }
 
   /** Todas as linhas, mais recentes primeiro. Lê do banco (console). */
   async list(): Promise<AgentRegistryRow[]> {
-    const rows = await this.#conn().from(REGISTRY_TABLE).orderBy('updated_at', 'desc');
+    const rows = await this.#conn().from(this.#table).orderBy('updated_at', 'desc');
     return rows.map(toRow);
   }
 
@@ -87,7 +93,7 @@ export class AgentRegistryStore {
   }
 
   async findById(id: string): Promise<AgentRegistryRow | null> {
-    const row = await this.#conn().from(REGISTRY_TABLE).where('id', id).first();
+    const row = await this.#conn().from(this.#table).where('id', id).first();
     return row ? toRow(row) : null;
   }
 
@@ -102,7 +108,7 @@ export class AgentRegistryStore {
   }): Promise<AgentRegistryRow> {
     const now = new Date(this.#now());
     const existing = await this.#conn()
-      .from(REGISTRY_TABLE)
+      .from(this.#table)
       .where('protocol', input.protocol)
       .where('identifier', input.identifier)
       .first();
@@ -114,10 +120,10 @@ export class AgentRegistryStore {
       updated_at: now,
     };
     if (existing) {
-      await this.#conn().from(REGISTRY_TABLE).where('id', existing.id).update(values);
+      await this.#conn().from(this.#table).where('id', existing.id).update(values);
     } else {
       await this.#conn()
-        .table(REGISTRY_TABLE)
+        .table(this.#table)
         .insert({
           id: `areg_${randomBytes(12).toString('base64url')}`,
           protocol: input.protocol,
@@ -128,7 +134,7 @@ export class AgentRegistryStore {
     }
     this.invalidate();
     const row = await this.#conn()
-      .from(REGISTRY_TABLE)
+      .from(this.#table)
       .where('protocol', input.protocol)
       .where('identifier', input.identifier)
       .first();
@@ -136,7 +142,7 @@ export class AgentRegistryStore {
   }
 
   async delete(id: string): Promise<boolean> {
-    const result = await this.#conn().from(REGISTRY_TABLE).where('id', id).delete();
+    const result = await this.#conn().from(this.#table).where('id', id).delete();
     this.invalidate();
     return (typeof result === 'number' ? result : Array.isArray(result) ? result.length : 0) > 0;
   }
@@ -151,7 +157,7 @@ export class AgentRegistryStore {
     if (!this.#loading) {
       this.#loading = (async (): Promise<Map<string, AgentRegistryRow>> => {
         try {
-          const rows: AgentRegistryRow[] = (await this.#conn().from(REGISTRY_TABLE)).map(toRow);
+          const rows: AgentRegistryRow[] = (await this.#conn().from(this.#table)).map(toRow);
           const map = new Map<string, AgentRegistryRow>(
             rows.map((r) => [key(r.protocol, r.identifier), r]),
           );

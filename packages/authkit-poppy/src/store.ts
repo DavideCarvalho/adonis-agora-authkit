@@ -150,12 +150,16 @@ function toRequest(row: any): RequestRow {
 }
 
 export class PoppyStore {
-  constructor(private conn: () => any) {}
+  constructor(
+    private conn: () => any,
+    /** Nome da tabela como os statements o escrevem (`schema.tabela` quando o app usa um schema). */
+    private t: (name: string) => string = (name) => name,
+  ) {}
 
   // ─── sessions ─────────────────────────────────────────────────────────────
 
   async insertSession(row: Omit<SessionRow, 'endedAt'>): Promise<void> {
-    await this.conn().table(SESSION_TABLE).insert({
+    await this.conn().table(this.t(SESSION_TABLE)).insert({
       id: row.id,
       client_id: row.clientId,
       user_id: row.userId,
@@ -171,14 +175,14 @@ export class PoppyStore {
 
   async findSession(id: string): Promise<SessionRow | null> {
     if (typeof id !== 'string' || !id) return null;
-    const row = await this.conn().from(SESSION_TABLE).where('id', id).first();
+    const row = await this.conn().from(this.t(SESSION_TABLE)).where('id', id).first();
     return row ? toSession(row) : null;
   }
 
   /** Estende a vida da Session (uso). */
   async touchSession(id: string, expiresAt: Date, at: Date): Promise<void> {
     await this.conn()
-      .from(SESSION_TABLE)
+      .from(this.t(SESSION_TABLE))
       .where('id', id)
       .whereNull('ended_at')
       .update({ expires_at: expiresAt, updated_at: at });
@@ -190,7 +194,7 @@ export class PoppyStore {
    */
   async bindSessionAccount(id: string, accountId: string, at: Date): Promise<boolean> {
     const result = await this.conn()
-      .from(SESSION_TABLE)
+      .from(this.t(SESSION_TABLE))
       .where('id', id)
       .where((q: any) => q.whereNull('account_id').orWhere('account_id', accountId))
       .update({ account_id: accountId, updated_at: at });
@@ -200,7 +204,7 @@ export class PoppyStore {
   /** Encerra todas as Sessions de um agente (bloqueio no console): param na hora. */
   async endSessionsOfClient(clientId: string, at: Date): Promise<number> {
     const result = await this.conn()
-      .from(SESSION_TABLE)
+      .from(this.t(SESSION_TABLE))
       .where('client_id', clientId)
       .whereNull('ended_at')
       .update({ ended_at: at, grant_id: null, scope: '', updated_at: at });
@@ -210,7 +214,7 @@ export class PoppyStore {
   // ─── access tokens ────────────────────────────────────────────────────────
 
   async insertToken(row: TokenRow): Promise<void> {
-    await this.conn().table(TOKEN_TABLE).insert({
+    await this.conn().table(this.t(TOKEN_TABLE)).insert({
       token_hash: row.tokenHash,
       // `session_id`/`user_id` são NOT NULL desde a Draft 0.1 e o schema só é aditivo; o sign-in
       // não conhece a Session nem o User ID (§4.4).
@@ -228,16 +232,18 @@ export class PoppyStore {
   }
 
   async findToken(hash: string): Promise<TokenRow | null> {
-    const row = await this.conn().from(TOKEN_TABLE).where('token_hash', hash).first();
+    const row = await this.conn().from(this.t(TOKEN_TABLE)).where('token_hash', hash).first();
     return row ? toToken(row) : null;
   }
 
   async deleteToken(hash: string): Promise<boolean> {
-    return affected(await this.conn().from(TOKEN_TABLE).where('token_hash', hash).delete()) > 0;
+    return (
+      affected(await this.conn().from(this.t(TOKEN_TABLE)).where('token_hash', hash).delete()) > 0
+    );
   }
 
   async deleteTokensExpiredBefore(before: Date): Promise<void> {
-    await this.conn().from(TOKEN_TABLE).where('expires_at', '<', before).delete();
+    await this.conn().from(this.t(TOKEN_TABLE)).where('expires_at', '<', before).delete();
   }
 
   // ─── sign-in requests ─────────────────────────────────────────────────────
@@ -248,7 +254,7 @@ export class PoppyStore {
     },
   ): Promise<void> {
     await this.conn()
-      .table(REQUEST_TABLE)
+      .table(this.t(REQUEST_TABLE))
       .insert({
         id: row.id,
         kind: row.kind,
@@ -272,17 +278,17 @@ export class PoppyStore {
 
   async findRequest(id: string): Promise<RequestRow | null> {
     if (typeof id !== 'string' || !id) return null;
-    const row = await this.conn().from(REQUEST_TABLE).where('id', id).first();
+    const row = await this.conn().from(this.t(REQUEST_TABLE)).where('id', id).first();
     return row ? toRequest(row) : null;
   }
 
   async findRequestByCodeHash(hash: string): Promise<RequestRow | null> {
-    const row = await this.conn().from(REQUEST_TABLE).where('code_hash', hash).first();
+    const row = await this.conn().from(this.t(REQUEST_TABLE)).where('code_hash', hash).first();
     return row ? toRequest(row) : null;
   }
 
   async findRequestByUserCode(userCode: string): Promise<RequestRow | null> {
-    const row = await this.conn().from(REQUEST_TABLE).where('user_code', userCode).first();
+    const row = await this.conn().from(this.t(REQUEST_TABLE)).where('user_code', userCode).first();
     return row ? toRequest(row) : null;
   }
 
@@ -312,7 +318,7 @@ export class PoppyStore {
     if (patch.sessionId !== undefined) update.session_id = patch.sessionId;
     if (patch.data !== undefined) update.data = JSON.stringify(patch.data);
     const result = await this.conn()
-      .from(REQUEST_TABLE)
+      .from(this.t(REQUEST_TABLE))
       .where('id', id)
       .where('status', from)
       .update(update);
@@ -322,7 +328,7 @@ export class PoppyStore {
   /** Conta uma tentativa errada (atômico sobre o valor lido). */
   async bumpAttempts(id: string, from: number): Promise<boolean> {
     const result = await this.conn()
-      .from(REQUEST_TABLE)
+      .from(this.t(REQUEST_TABLE))
       .where('id', id)
       .where('attempts', from)
       .update({ attempts: from + 1 });
@@ -331,16 +337,16 @@ export class PoppyStore {
 
   async setRequestData(id: string, data: Record<string, unknown>): Promise<void> {
     await this.conn()
-      .from(REQUEST_TABLE)
+      .from(this.t(REQUEST_TABLE))
       .where('id', id)
       .update({ data: JSON.stringify(data) });
   }
 
   async markPolled(id: string, at: Date): Promise<void> {
-    await this.conn().from(REQUEST_TABLE).where('id', id).update({ last_polled_at: at });
+    await this.conn().from(this.t(REQUEST_TABLE)).where('id', id).update({ last_polled_at: at });
   }
 
   async deleteRequestsExpiredBefore(before: Date): Promise<void> {
-    await this.conn().from(REQUEST_TABLE).where('expires_at', '<', before).delete();
+    await this.conn().from(this.t(REQUEST_TABLE)).where('expires_at', '<', before).delete();
   }
 }

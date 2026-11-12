@@ -41,6 +41,8 @@ export function memoryReplayStore(
  */
 export function databaseReplayStore(
   conn: () => any,
+  /** Nome da tabela como os statements o escrevem (`schema.tabela` quando o app usa um schema). */
+  table: (name: string) => string = (name) => name,
   options: { now?: () => Date } = {},
 ): PoppyReplayStore {
   const now = options.now ?? (() => new Date());
@@ -49,14 +51,14 @@ export function databaseReplayStore(
     async claim(key, expiresAt) {
       const t = now();
       if (++claims % 200 === 1) {
-        await conn().from(JTI_TABLE).where('expires_at', '<', t).delete();
+        await conn().from(table(JTI_TABLE)).where('expires_at', '<', t).delete();
       }
       try {
-        await conn().table(JTI_TABLE).insert({ key, expires_at: expiresAt });
+        await conn().table(table(JTI_TABLE)).insert({ key, expires_at: expiresAt });
         return true;
       } catch (error) {
         // Chave já usada — a não ser que a linha vencida ainda não tenha saído.
-        const row = await conn().from(JTI_TABLE).where('key', key).first();
+        const row = await conn().from(table(JTI_TABLE)).where('key', key).first();
         if (!row) throw error;
         const exp =
           row.expires_at instanceof Date
@@ -64,7 +66,7 @@ export function databaseReplayStore(
             : new Date(Number(row.expires_at) || row.expires_at);
         if (exp.getTime() > t.getTime()) return false;
         const updated = await conn()
-          .from(JTI_TABLE)
+          .from(table(JTI_TABLE))
           .where('key', key)
           .where('expires_at', '<=', t)
           .update({ expires_at: expiresAt });

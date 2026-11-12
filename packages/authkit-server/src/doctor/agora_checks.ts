@@ -200,6 +200,23 @@ export function authkitDoctorChecks(): AgoraDoctorCheck[] {
       },
     },
     {
+      id: 'authkit.db-schema',
+      lib: 'authkit',
+      package: AUTHKIT_DOCTOR_PACKAGE,
+      title: 'Database schema',
+      cost: 'deep',
+      async run(app) {
+        const { input, notBooted } = await prepare(app);
+        if (notBooted || !input?.authkitConfig?.schema?.name) return [];
+        const { dbSchemaResults } = await import('./db_schema_check.js');
+        return dbSchemaResults(
+          input.authkitConfig,
+          () => app.container.make('lucid.db' as any),
+          AUTHKIT_DOCTOR_DOCS,
+        );
+      },
+    },
+    {
       id: 'authkit.console-gate',
       lib: 'authkit',
       package: AUTHKIT_DOCTOR_PACKAGE,
