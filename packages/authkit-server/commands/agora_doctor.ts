@@ -1,6 +1,7 @@
 // agora-doctor command v1 — keep identical across libs
-// Every @adonis-agora lib ships this command; whichever copy Ace loads last wins, and they all
-// behave the same. Change it in @adonis-agora/durable first.
+// Every @adonis-agora lib ships this command (commands/agora_doctor.ts); whichever copy Ace loads
+// last wins, and they all behave the same. Each repo's CI checks its sha256 against the pinned
+// canonical one. Never edit a lib's copy: change the canonical copy, then re-copy it into every lib.
 
 import { BaseCommand, flags } from '@adonisjs/core/ace';
 import type { CommandOptions } from '@adonisjs/core/types/ace';
@@ -59,8 +60,15 @@ export default class AgoraDoctor extends BaseCommand {
         checks = (await discoverDoctorChecks(this.app)).filter((check) => check.cost !== 'deep');
       } else {
         if (!this.app.isReady) {
-          await this.app.boot();
-          await this.app.start(() => {});
+          try {
+            await this.app.boot();
+            await this.app.start(() => {});
+          } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            throw new AgoraDoctorUsageError(
+              `the app did not boot (${reason}). Fix the boot error, or run with --no-boot.`,
+            );
+          }
         }
         checks = await readDoctorChecks(this.app.container);
       }

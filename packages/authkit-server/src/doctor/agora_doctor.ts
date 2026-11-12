@@ -1,8 +1,9 @@
 // agora-doctor runner v1 — keep identical across libs
-// This file is copied byte for byte into every @adonis-agora lib (src/doctor/agora_doctor.ts) and
-// checked in CI against the copy @adonis-agora/durable publishes. Change it in durable first.
+// This file is copied byte for byte into every @adonis-agora lib (src/doctor/agora_doctor.ts); each
+// repo's CI checks its sha256 against the pinned canonical one. Never edit a lib's copy: change the
+// canonical copy, then re-copy it into every lib.
 
-import { readFile, realpath } from 'node:fs/promises';
+import { access, readFile, realpath } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { ApplicationService } from '@adonisjs/core/types';
@@ -87,6 +88,9 @@ export async function registerDoctorChecks(
   container: ContainerLike,
   checks: readonly AgoraDoctorCheck[],
 ): Promise<void> {
+  // A container without value bindings (a test double) has nowhere to keep them.
+  if (typeof container.hasBinding !== 'function' || typeof container.bindValue !== 'function')
+    return;
   if (!container.hasBinding(AGORA_DOCTOR_BINDING)) {
     const fresh: AgoraDoctorRegistry = { version: 1, checks: [] };
     container.bindValue(AGORA_DOCTOR_BINDING, fresh);
@@ -111,23 +115,45 @@ export async function readDoctorChecks(container: ContainerLike): Promise<AgoraD
   return registry.checks;
 }
 
-/**
- * The checks of every installed `@adonis-agora/*` package that publishes a `./doctor` entry
- * (`export const agoraDoctorChecks`), imported from the app root without booting providers.
- */
-export async function discoverDoctorChecks(app: ApplicationService): Promise<AgoraDoctorCheck[]> {
+/** An installed `@adonis-agora/*` package the app depends on that publishes a `./doctor` entry. */
+interface DoctorPackage {
+  name: string;
+  dir: string;
+  entry: string;
+}
+
+/** The app's `@adonis-agora/*` dependencies that publish a `./doctor` entry, sorted by name. */
+async function doctorPackages(app: ApplicationService): Promise<DoctorPackage[]> {
   const manifest = await readJson(app.makePath('package.json'));
   const names = Object.keys({
     ...(manifest?.dependencies as object | undefined),
     ...(manifest?.devDependencies as object | undefined),
   }).filter((name) => name.startsWith('@adonis-agora/'));
-  const checks: AgoraDoctorCheck[] = [];
+  const found: DoctorPackage[] = [];
   for (const name of names.sort()) {
     const dir = await packageDir(name, app.makePath());
     if (dir === null) continue;
     const pkg = await readJson(join(dir, 'package.json'));
     const entry = exportTarget(pkg?.exports, './doctor');
-    if (entry === null) continue;
+    if (entry !== null) found.push({ name, dir, entry });
+  }
+  return found;
+}
+
+/** `@adonis-agora/durable` → `durable`. */
+function libOfPackage(name: string): string {
+  return name.slice('@adonis-agora/'.length);
+}
+
+/**
+ * The checks of every installed `@adonis-agora/*` package that publishes a `./doctor` entry
+ * (`export const agoraDoctorChecks`), imported from the app root without booting providers. A
+ * package whose entry fails to load is reported as an error (`<lib>.doctor-entry`), never skipped.
+ */
+export async function discoverDoctorChecks(app: ApplicationService): Promise<AgoraDoctorCheck[]> {
+  const checks: AgoraDoctorCheck[] = [];
+  for (const { name, dir, entry } of await doctorPackages(app)) {
+    let problem: string | null = null;
     try {
       const mod = (await import(pathToFileURL(join(dir, entry)).href)) as {
         agoraDoctorChecks?: unknown;
@@ -136,12 +162,51 @@ export async function discoverDoctorChecks(app: ApplicationService): Promise<Ago
         for (const check of mod.agoraDoctorChecks as AgoraDoctorCheck[]) {
           if (!checks.some((c) => c.id === check.id)) checks.push(check);
         }
+      } else {
+        problem = 'it does not export `agoraDoctorChecks`';
       }
-    } catch {
-      /* a package whose doctor entry cannot load is reported by its peers check */
+    } catch (error) {
+      problem = `it failed to load: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    if (problem !== null) {
+      const message = `The ./doctor entry of ${name}: ${problem}.`;
+      checks.push({
+        id: `${libOfPackage(name)}.doctor-entry`,
+        lib: libOfPackage(name),
+        package: name,
+        title: 'Doctor checks load',
+        run: () => ({
+          status: 'error',
+          message,
+          fix: `Reinstall ${name}, or run without --no-boot to see the boot error.`,
+        }),
+      });
     }
   }
   return checks;
+}
+
+/**
+ * One `<lib>.registered` warning per installed package that has doctor checks but registered none:
+ * its provider is missing from `adonisrc.ts`.
+ */
+async function unregisteredChecks(
+  app: ApplicationService,
+  registeredPackages: ReadonlySet<string>,
+): Promise<AgoraDoctorCheck[]> {
+  return (await doctorPackages(app))
+    .filter(({ name }) => !registeredPackages.has(name))
+    .map(({ name }) => ({
+      id: `${libOfPackage(name)}.registered`,
+      lib: libOfPackage(name),
+      package: name,
+      title: 'Provider registered',
+      run: () => ({
+        status: 'warn',
+        message: `${name} is installed but its provider is not registered, so none of its checks ran.`,
+        fix: `Run \`node ace configure ${name}\`, or add its provider to adonisrc.ts.`,
+      }),
+    }));
 }
 
 function exportTarget(exportsField: unknown, subpath: string): string | null {
@@ -190,20 +255,55 @@ export async function installedVersion(name: string, from: string): Promise<stri
   return typeof pkg?.version === 'string' ? pkg.version : null;
 }
 
-// ── a small semver range matcher (^, ~, >=, >, <=, <, =, x, ||, hyphen-free) ─────────────────────
+// ── a small semver range matcher (node-semver grammar, prereleases included) ──────────────────────
+// Supports `||`, hyphen ranges (`1.2 - 2`), `^`, `~`, `~>`, `>=`, `>`, `<=`, `<`, `=`, bare and
+// partial versions, and `x`/`X`/`*` wildcards. Every comparator is desugared to a lower and an
+// upper bound the way node-semver does, then compared with prereleases allowed anywhere.
 
 type Version = { nums: [number, number, number]; pre: string[] };
 
-function parseVersion(text: string): Version | null {
-  const m = /^v?(\d+)(?:\.(\d+|x|\*))?(?:\.(\d+|x|\*))?(?:-([0-9A-Za-z.-]+))?/.exec(text.trim());
+/** A partial version: `null` marks a missing or wildcard part. */
+type PartialVersion = {
+  major: number | null;
+  minor: number | null;
+  patch: number | null;
+  pre: string[];
+};
+
+type Bound = { op: '>=' | '>' | '<' | '<=' | '='; v: Version };
+
+const PARTIAL =
+  /^v?(\d+|x|X|\*)(?:\.(\d+|x|X|\*))?(?:\.(\d+|x|X|\*))?(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+
+function parsePartial(text: string): PartialVersion | null {
+  const m = PARTIAL.exec(text.trim());
   if (!m) return null;
-  const n = (s: string | undefined) => (s === undefined || s === 'x' || s === '*' ? 0 : Number(s));
-  return { nums: [Number(m[1]), n(m[2]), n(m[3])], pre: m[4] ? m[4].split('.') : [] };
+  const part = (s: string | undefined): number | null =>
+    s === undefined || s === 'x' || s === 'X' || s === '*' ? null : Number(s);
+  const major = part(m[1]);
+  const minor = major === null ? null : part(m[2]);
+  const patch = minor === null ? null : part(m[3]);
+  return { major, minor, patch, pre: patch !== null && m[4] ? m[4].split('.') : [] };
 }
 
+function parseVersion(text: string): Version | null {
+  const p = parsePartial(text);
+  if (!p || p.major === null) return null;
+  return { nums: [p.major, p.minor ?? 0, p.patch ?? 0], pre: p.pre };
+}
+
+const v = (major: number, minor: number, patch: number, pre: string[] = []): Version => ({
+  nums: [major, minor, patch],
+  pre,
+});
+
+/** The lowest version above every `major.minor.patch` release: `x.y.z-0`. */
+const floor = (major: number, minor: number, patch: number): Version =>
+  v(major, minor, patch, ['0']);
+
 function compare(a: Version, b: Version): number {
-  for (let i = 0; i < 3; i += 1) {
-    const d = (a.nums[i] ?? 0) - (b.nums[i] ?? 0);
+  for (const i of [0, 1, 2] as const) {
+    const d = a.nums[i] - b.nums[i];
     if (d !== 0) return d;
   }
   if (a.pre.length === 0 || b.pre.length === 0) return b.pre.length - a.pre.length;
@@ -212,64 +312,181 @@ function compare(a: Version, b: Version): number {
     const y = b.pre[i];
     if (x === undefined) return -1;
     if (y === undefined) return 1;
-    const nx = /^\d+$/.test(x) ? Number(x) : Number.NaN;
-    const ny = /^\d+$/.test(y) ? Number(y) : Number.NaN;
-    if (!Number.isNaN(nx) && !Number.isNaN(ny)) {
-      if (nx !== ny) return nx - ny;
-    } else if (x !== y) return x < y ? -1 : 1;
+    const xNum = /^\d+$/.test(x);
+    const yNum = /^\d+$/.test(y);
+    if (xNum && yNum) {
+      if (Number(x) !== Number(y)) return Number(x) - Number(y);
+    } else if (xNum !== yNum) {
+      return xNum ? -1 : 1;
+    } else if (x !== y) {
+      return x < y ? -1 : 1;
+    }
   }
   return 0;
 }
 
-function satisfiesComparator(version: Version, comparator: string): boolean {
-  const c = comparator.trim();
-  if (c === '' || c === '*' || c === 'x') return true;
-  const m = /^(\^|~|>=|<=|>|<|=)?\s*(.+)$/.exec(c);
-  if (!m) return false;
-  const op = m[1] ?? '=';
-  const raw = m[2] as string;
-  const target = parseVersion(raw);
-  if (!target) return false;
-  const parts = raw.replace(/^v/, '').split('-')[0]?.split('.') ?? [];
-  const wild = (i: number) => parts[i] === undefined || parts[i] === 'x' || parts[i] === '*';
-  const cmp = compare(version, target);
-  if (op === '>=') return cmp >= 0;
-  if (op === '>') return cmp > 0;
-  if (op === '<=') return cmp <= 0;
-  if (op === '<') return cmp < 0;
-  const [major, minor] = target.nums;
+const ANY: Bound[] = [];
+const NONE: Bound[] = [{ op: '<', v: v(0, 0, 0, ['0']) }];
+
+/** The bounds of one comparator (`^1.2`, `>=1`, `1.x`, …); `null` when it does not parse. */
+function boundsOf(comparator: string): Bound[] | null {
+  const m = /^(~>|\^|~|>=|<=|>|<|=)?\s*(.*)$/.exec(comparator.trim());
+  if (!m) return null;
+  const op = m[1] ?? '';
+  const rest = m[2] ?? '';
+  if (rest === '') return op === '' ? ANY : null;
+  const p = parsePartial(rest);
+  if (!p) return null;
+  const { major: M, minor: m2, patch: P, pre } = p;
+  if (M === null) return op === '<' || op === '>' ? NONE : ANY;
+  // A partial lower bound starts at the first prerelease (`>=1` is `>=1.0.0-0`).
+  const low = P === null ? floor(M, m2 ?? 0, 0) : v(M, m2 ?? 0, P, pre);
+  if (op === '~' || op === '~>') {
+    if (m2 === null)
+      return [
+        { op: '>=', v: low },
+        { op: '<', v: floor(M + 1, 0, 0) },
+      ];
+    return [
+      { op: '>=', v: low },
+      { op: '<', v: floor(M, m2 + 1, 0) },
+    ];
+  }
   if (op === '^') {
-    if (cmp < 0) return false;
-    if (major > 0 || wild(1)) return version.nums[0] === major;
-    if (minor > 0 || wild(2)) return version.nums[0] === 0 && version.nums[1] === minor;
-    return compare({ nums: version.nums, pre: [] }, { nums: target.nums, pre: [] }) === 0;
+    if (m2 === null)
+      return [
+        { op: '>=', v: low },
+        { op: '<', v: floor(M + 1, 0, 0) },
+      ];
+    if (M > 0)
+      return [
+        { op: '>=', v: low },
+        { op: '<', v: floor(M + 1, 0, 0) },
+      ];
+    if (P === null || m2 > 0)
+      return [
+        { op: '>=', v: low },
+        { op: '<', v: floor(0, m2 + 1, 0) },
+      ];
+    return [
+      { op: '>=', v: low },
+      { op: '<', v: floor(0, 0, P + 1) },
+    ];
   }
-  if (op === '~') {
-    if (cmp < 0) return false;
-    return version.nums[0] === major && (wild(1) || version.nums[1] === minor);
+  if (op === '>') {
+    if (m2 === null) return [{ op: '>=', v: floor(M + 1, 0, 0) }];
+    if (P === null) return [{ op: '>=', v: floor(M, m2 + 1, 0) }];
+    return [{ op: '>', v: low }];
   }
-  if (wild(1)) return version.nums[0] === major;
-  if (wild(2)) return version.nums[0] === major && version.nums[1] === minor;
+  if (op === '>=') return [{ op: '>=', v: low }];
+  if (op === '<') return [{ op: '<', v: m2 === null || P === null ? floor(M, m2 ?? 0, 0) : low }];
+  if (op === '<=') {
+    if (m2 === null) return [{ op: '<', v: floor(M + 1, 0, 0) }];
+    if (P === null) return [{ op: '<', v: floor(M, m2 + 1, 0) }];
+    return [{ op: '<=', v: low }];
+  }
+  // bare or `=`
+  if (m2 === null)
+    return [
+      { op: '>=', v: low },
+      { op: '<', v: floor(M + 1, 0, 0) },
+    ];
+  if (P === null)
+    return [
+      { op: '>=', v: low },
+      { op: '<', v: floor(M, m2 + 1, 0) },
+    ];
+  return [{ op: '=', v: low }];
+}
+
+/** The bounds of a hyphen range `a - b`; `null` when either side does not parse. */
+function hyphenBounds(from: string, to: string): Bound[] | null {
+  const a = parsePartial(from);
+  const b = parsePartial(to);
+  if (!a || !b) return null;
+  const bounds: Bound[] = [];
+  if (a.major !== null) {
+    // node-semver starts a hyphen range at the first prerelease unless `from` names one.
+    const low =
+      a.patch === null || a.pre.length === 0
+        ? floor(a.major, a.minor ?? 0, a.patch ?? 0)
+        : v(a.major, a.minor ?? 0, a.patch, a.pre);
+    bounds.push({ op: '>=', v: low });
+  }
+  if (b.major !== null) {
+    if (b.minor === null) bounds.push({ op: '<', v: floor(b.major + 1, 0, 0) });
+    else if (b.patch === null) bounds.push({ op: '<', v: floor(b.major, b.minor + 1, 0) });
+    else bounds.push({ op: '<=', v: v(b.major, b.minor, b.patch, b.pre) });
+  }
+  return bounds;
+}
+
+function within(version: Version, bound: Bound): boolean {
+  const cmp = compare(version, bound.v);
+  if (bound.op === '>=') return cmp >= 0;
+  if (bound.op === '>') return cmp > 0;
+  if (bound.op === '<') return cmp < 0;
+  if (bound.op === '<=') return cmp <= 0;
   return cmp === 0;
 }
 
-/** Whether `version` satisfies `range` (prereleases included). */
+/**
+ * Whether `version` satisfies `range`, with node-semver's grammar and prereleases included (like
+ * `semver.satisfies(version, range, { includePrerelease: true })`). An unparsable range is `false`.
+ */
 export function satisfies(version: string, range: string): boolean {
-  const v = parseVersion(version);
-  if (!v) return false;
-  return range.split('||').some((set) =>
-    set
-      .trim()
-      .replace(/(\^|~|>=|<=|>|<|=)\s+/g, '$1')
-      .split(/\s+/)
-      .every((comparator) => satisfiesComparator(v, comparator)),
-  );
+  const parsed = parseVersion(version);
+  if (!parsed) return false;
+  return range.split('||').some((set) => {
+    const text = set.trim().replace(/(~>|\^|~|>=|<=|>|<|=)\s+/g, '$1');
+    const hyphen = /^(\S+)\s+-\s+(\S+)$/.exec(text);
+    let bounds: Bound[] | null = [];
+    if (hyphen) bounds = hyphenBounds(hyphen[1] ?? '', hyphen[2] ?? '');
+    else {
+      for (const comparator of text === '' ? [''] : text.split(/\s+/)) {
+        const more = boundsOf(comparator);
+        if (more === null) return false;
+        bounds.push(...more);
+      }
+    }
+    return bounds?.every((bound) => within(parsed, bound)) === true;
+  });
 }
 
 // ── built-in checks, one set per lib ──────────────────────────────────────────────────────────────
 
 function packageOf(check: Pick<AgoraDoctorCheck, 'lib' | 'package'>): string {
   return check.package ?? `@adonis-agora/${check.lib}`;
+}
+
+/**
+ * Agora packages that keep their own version line on purpose (not the 1.x train), so they never
+ * count as mixing. A package can also say so itself: `"agora": { "versioning": "independent" }`.
+ */
+const INDEPENDENT_VERSIONING = new Set(['@adonis-agora/cms', '@adonis-agora/authkit-poppy']);
+
+function isIndependent(pkg: Record<string, unknown> | null): boolean {
+  const agora = pkg?.agora;
+  return (
+    typeof agora === 'object' &&
+    agora !== null &&
+    (agora as Record<string, unknown>).versioning === 'independent'
+  );
+}
+
+/** Whether the app (or a workspace above it) was installed by pnpm: a `node_modules/.pnpm` exists. */
+async function isPnpmInstall(from: string): Promise<boolean> {
+  let dir = from;
+  for (;;) {
+    try {
+      await access(join(dir, 'node_modules', '.pnpm'));
+      return true;
+    } catch {
+      const parent = dirname(dir);
+      if (parent === dir) return false;
+      dir = parent;
+    }
+  }
 }
 
 function builtinChecks(lib: string, pkgName: string): AgoraDoctorCheck[] {
@@ -325,6 +542,12 @@ function builtinChecks(lib: string, pkgName: string): AgoraDoctorCheck[] {
       lib,
       title: 'Agora versions line up',
       run: async (app) => {
+        if (!(await isPnpmInstall(app.makePath()))) {
+          return {
+            status: 'skip',
+            message: 'Only checked on pnpm installs (no node_modules/.pnpm found).',
+          };
+        }
         const own = await installedVersion(pkgName, app.makePath());
         if (own === null) return { status: 'skip', message: `${pkgName} is not installed.` };
         const manifest = await readJson(app.makePath('package.json'));
@@ -335,8 +558,12 @@ function builtinChecks(lib: string, pkgName: string): AgoraDoctorCheck[] {
         const ownMajor = parseVersion(own)?.nums[0] ?? 0;
         const off: string[] = [];
         for (const name of names) {
-          const version = await installedVersion(name, app.makePath());
-          if (version === null) continue;
+          if (INDEPENDENT_VERSIONING.has(name)) continue;
+          const dir = await packageDir(name, app.makePath());
+          if (dir === null) continue;
+          const pkg = await readJson(join(dir, 'package.json'));
+          const version = typeof pkg?.version === 'string' ? pkg.version : null;
+          if (version === null || isIndependent(pkg)) continue;
           const major = parseVersion(version)?.nums[0] ?? 0;
           if ((ownMajor === 0) !== (major === 0)) off.push(`${name} ${version}`);
         }
@@ -407,6 +634,19 @@ async function runOne(
   }
 }
 
+/**
+ * The environment shown in the report, from the app itself: `production` when `app.inProduction`,
+ * `test` when `app.inTest`, else the app's node environment, and `development` when that is unset.
+ */
+export function environmentOf(
+  app: Pick<ApplicationService, 'inProduction' | 'inTest' | 'nodeEnvironment'>,
+): string {
+  if (app.inProduction) return 'production';
+  if (app.inTest) return 'test';
+  const env = app.nodeEnvironment;
+  return typeof env === 'string' && env !== '' && env !== 'unknown' ? env : 'development';
+}
+
 /** Run the checks and build the report. Throws {@link AgoraDoctorUsageError} for an unknown `--only`. */
 export async function runAgoraDoctor(
   app: ApplicationService,
@@ -422,6 +662,11 @@ export async function runAgoraDoctor(
     all.push(...builtinChecks(lib, packages.get(lib) as string));
     all.push(...registered.filter((check) => check.lib === lib));
   }
+  for (const check of await unregisteredChecks(app, new Set(packages.values()))) {
+    if (!packages.has(check.lib)) packages.set(check.lib, packageOf(check));
+    all.push(check);
+  }
+  all.sort((a, b) => (a.lib < b.lib ? -1 : a.lib > b.lib ? 1 : 0));
   if (options.only !== undefined && !all.some((check) => check.id === options.only)) {
     throw new AgoraDoctorUsageError(`no check has the id "${options.only}".`);
   }
@@ -461,7 +706,7 @@ export async function runAgoraDoctor(
   return {
     report: {
       version: 1,
-      env: app.inProduction ? 'production' : (app.nodeEnvironment ?? 'development'),
+      env: environmentOf(app),
       summary,
       libs,
       results,
