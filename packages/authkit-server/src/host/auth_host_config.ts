@@ -1,4 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http';
+import type { AccountConsoleConfig } from '../account/runtime.js';
 import type { ResolvedPersonalAgentExtension } from '../agents/extension.js';
 import type { AuthSocialConfig, ResolvedRateLimitConfig } from '../define_config.js';
 import type { PolicyRouteOption } from './config_locks.js';
@@ -47,6 +48,8 @@ export interface AuthHostRuntimeConfig {
    * o console só entra por um `accountLoginUrl` do host (`registerAuthHost` recusa sem ele).
    */
   consoleNeedsLoginUrl?: boolean;
+  /** `accountConsole` do config: os overrides das páginas de extension. */
+  accountConsole?: AccountConsoleConfig;
   /**
    * API headless (Clerk-style). Presente quando o host a declarou — o provider o
    * stash no boot para `registerAuthHost` montar as rotas sem reler o config inteiro.

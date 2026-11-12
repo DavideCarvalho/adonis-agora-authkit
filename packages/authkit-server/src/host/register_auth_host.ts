@@ -1,5 +1,7 @@
 import type { Router } from '@adonisjs/core/http';
 import { getBootedApp } from '../../services/booted_app.js';
+import { type AccountExtensionRouteEntry, mountAccountExtensions } from '../account/mount.js';
+import type { BuiltinNavId } from '../account/runtime.js';
 import type { ConsoleAuthorizeDecision } from '../console_authorize.js';
 import { registerAgoraConsole } from '../console_switcher.js';
 import type { AuthSocialConfig, RateLimitConfigInput } from '../define_config.js';
@@ -671,6 +673,11 @@ export interface AuthHostRouteMap {
     loginUrl: string;
     /** Quais telas foram efetivamente montadas. */
     screens: Record<keyof AccountScreensOptions, boolean>;
+    /**
+     * Account console extension pages (filled once every provider booted): id, path, label (a
+     * literal, or the message key) and order. `useAccountExtensions()` gives the localized nav.
+     */
+    extensions: AccountExtensionRouteEntry[];
   };
   /** Console admin: prefixo resolvido, ou `null` quando não foi montado. */
   admin: { prefix: string } | null;
@@ -1444,6 +1451,28 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
     })
     .use([accountGuard]);
 
+  // Account console extensions (`@adonis-agora/authkit-server/account-extension`): pages other
+  // packages register from their provider's `boot()`. Same guard as the built-in screens; the
+  // page routes mount once every provider booted. `account: false` turns them off too.
+  const extensionEntries: AccountExtensionRouteEntry[] = [];
+  if (accountOpt !== false) {
+    const builtins: Partial<Record<BuiltinNavId, string>> = {};
+    if (mountSecurity) builtins.security = securityPath;
+    if (mountMfa) builtins.mfa = mfaPath;
+    if (mountTokens) builtins.tokens = tokensPath;
+    if (mountApps) builtins.apps = appsPath;
+    if (mountOrgs) builtins.orgs = orgsPath;
+    mountAccountExtensions(router, {
+      guard: accountGuard,
+      ...(throttles
+        ? { throttle: { html: throttles.accountActions, json: throttles.accountActionsJson } }
+        : {}),
+      overrides: hostCfg?.accountConsole?.extensions,
+      builtins,
+      entries: extensionEntries,
+    });
+  }
+
   // API headless (Clerk-style) — montada fora do `accountGuard` (não depende da
   // sessão de CONTA), autenticada pelo resolver do host (`headless.resolveAccountId`).
   // `PUT` usa CSRF igual à API do console (middleware de shield do host).
@@ -1694,6 +1723,7 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
         mfa: mountMfa,
         apps: mountApps,
       },
+      extensions: extensionEntries,
     },
     admin: resolvedAdminPrefix ? { prefix: resolvedAdminPrefix } : null,
     adminApi: resolvedAdminApiPrefix ? { prefix: resolvedAdminApiPrefix } : null,

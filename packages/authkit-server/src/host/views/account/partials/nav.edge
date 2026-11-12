@@ -1,0 +1,14 @@
+{{-- Navegação do console de conta: telas embutidas montadas + páginas de extensions visíveis (prop `accountNav`). --}}
+@if(accountNav && accountNav.length > 0)
+  <nav class="mb-6 flex flex-wrap gap-x-4 gap-y-2 text-sm font-medium" data-account-nav>
+    @each(navEntry in accountNav)
+      <a href="{{ navEntry.href }}" class="{{ navEntry.active ? 'text-gray-900 underline' : 'text-gray-500 hover:underline' }}" aria-current="{{ navEntry.active ? 'page' : 'false' }}">{{ navEntry.label }}</a>
+    @end
+  </nav>
+@elseif(accountNav === undefined)
+  <nav class="mb-6 flex gap-4 text-sm font-medium" data-account-nav>
+    <a href="{{ accountPaths?.tokens ?? '/account/tokens' }}" class="text-gray-500 hover:underline">{{ t('account.tokens.title') }}</a>
+    <a href="{{ accountPaths?.security ?? '/account/security' }}" class="text-gray-500 hover:underline">{{ t('account.security.title') }}</a>
+    <a href="{{ accountPaths?.apps ?? '/account/apps' }}" class="text-gray-500 hover:underline">{{ t('account.apps.title') }}</a>
+  </nav>
+@end

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="{{ htmlLang ?? 'en' }}"><head><meta charset="utf-8"><title>{{ page.title }}</title>
+@include('authkit::partials/styles')
+@include('authkit::partials/submit_lock')
+</head>
+<body class="min-h-screen bg-gray-100 p-4">
+  <div class="mx-auto max-w-2xl" data-account-extension="{{ page.id }}">
+    <div class="flex items-center justify-between py-6">
+      <div>
+        <div class="text-xs font-semibold uppercase tracking-widest text-gray-400">{{ t('common.brand_eyebrow') }}</div>
+        <h1 class="text-xl font-semibold text-gray-900">{{ page.title }}</h1>
+      </div>
+      <form method="POST" action="{{ accountPaths?.logout ?? '/account/logout' }}">
+        <input type="hidden" name="_csrf" value="{{ csrfToken }}">
+        <button type="submit" class="text-sm text-gray-500 hover:underline">{{ t('account.extension.logout') }}</button>
+      </form>
+    </div>
+
+    @include('authkit::account/partials/nav')
+
+    @if(flash)
+      <div class="mb-6 rounded-lg border p-4 {{ flash.tone === 'danger' ? 'border-red-300 bg-red-50' : 'border-emerald-300 bg-emerald-50' }}" role="status">
+        <p class="text-sm font-medium {{ flash.tone === 'danger' ? 'text-red-900' : 'text-emerald-900' }}">{{ flash.text }}</p>
+      </div>
+    @end
+
+    @if(step)
+      {{-- Passo de confirmação de uma action (sem JS). --}}
+      <div class="rounded-xl bg-white p-6 shadow-xs ring-1 ring-black/5" data-block="confirm">
+        <h2 class="text-base font-semibold text-gray-900">{{ step.title }}</h2>
+        @if(step.text)
+          <p class="mt-2 text-sm text-gray-600">{{ step.text }}</p>
+        @end
+        <form method="POST" action="{{ step.href }}" class="mt-4 space-y-4" data-submit-lock>
+          <input type="hidden" name="_csrf" value="{{ csrfToken }}">
+          @if(step.target)
+            <input type="hidden" name="target" value="{{ step.target }}">
+          @end
+          @each(field in step.fields)
+            <label class="block text-sm">
+              <span class="font-medium text-gray-700">{{ field.label }}</span>
+              @if(field.kind === 'textarea')
+                <textarea name="field_{{ field.name }}" rows="3" class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" {{ field.required ? 'required' : '' }} {{ field.maxLength ? 'maxlength=' + field.maxLength : '' }}>{{ field.value }}</textarea>
+              @elseif(field.kind === 'select')
+                <select name="field_{{ field.name }}" class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" {{ field.required ? 'required' : '' }}>
+                  @each(option in field.options)
+                    <option value="{{ option.value }}">{{ option.label }}</option>
+                  @end
+                </select>
+              @else
+                <input type="text" name="field_{{ field.name }}" value="{{ field.value }}" class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" {{ field.required ? 'required' : '' }} {{ field.maxLength ? 'maxlength=' + field.maxLength : '' }}>
+              @end
+            </label>
+          @end
+          <div class="flex items-center gap-3">
+            <button type="submit" class="rounded-lg px-4 py-2 text-sm font-semibold text-white {{ step.tone === 'danger' ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-900 hover:bg-gray-800' }}">{{ step.submitLabel }}</button>
+            <a href="{{ step.cancelHref }}" class="text-sm text-gray-500 hover:underline">{{ t('account.extension.cancel') }}</a>
+          </div>
+        </form>
+      </div>
+    @else
+      @if(page.tabs.length > 0)
+        <div class="mb-4 flex gap-4 border-b border-gray-200 text-sm font-medium" role="tablist" data-block="tabs">
+          @each(tab in page.tabs)
+            <a href="{{ tab.href }}" role="tab" aria-selected="{{ tab.active ? 'true' : 'false' }}" class="-mb-px border-b-2 pb-2 {{ tab.active ? 'border-gray-900 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700' }}">{{ tab.label }}</a>
+          @end
+        </div>
+      @end
+      <div class="space-y-6">
+        @each(block in page.blocks)
+          @include('authkit::account/partials/extension_block')
+        @end
+      </div>
+    @end
+  </div>
+</body>
+</html>

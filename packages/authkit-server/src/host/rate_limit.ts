@@ -1,5 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http';
 import type { ResolvedRateLimitConfig } from '../define_config.js';
+import { ACCOUNT_SESSION_KEY } from './account_session_key.js';
 import { brandFor } from './branding.js';
 import type { ScreenRenderProps } from './screen_props.js';
 
@@ -40,6 +41,14 @@ export interface AuthThrottles {
    * anti-brute-force do código adivinhável, ANTES do lockout por interaction.
    */
   otpLogin: ThrottleMiddleware;
+  /**
+   * Actions das páginas de extension do console de conta, keyed pela CONTA da sessão
+   * (bucket `authkit_account_actions`). `accountActions` responde 429 com a tela
+   * `throttled` (formulários); `accountActionsJson` responde o 429 cru (JSON API) —
+   * mesmo bucket, mesma contagem.
+   */
+  accountActions: ThrottleMiddleware;
+  accountActionsJson: ThrottleMiddleware;
 }
 
 /**
@@ -122,6 +131,18 @@ function buildThrottle(
 export function createAuthThrottles(config: ResolvedRateLimitConfig): AuthThrottles | undefined {
   if (!config.enabled) return undefined;
 
+  const accountActions = buildThrottle(
+    'authkit_account_actions',
+    config.accountActions ?? { points: 30, duration: '1 min' },
+    config.store,
+    (ctx) => {
+      const accountId = (ctx as any).session?.get?.(ACCOUNT_SESSION_KEY);
+      return typeof accountId === 'string' && accountId !== ''
+        ? `account:${accountId}`
+        : `account-ip:${ctx.request.ip?.() ?? 'unknown'}`;
+    },
+  );
+
   return {
     // Login/signup/forgot/reset: keyed por IP (default do HttpLimiter).
     // `friendly`: rota de BROWSER — 429 vira a tela themeável `throttled`
@@ -156,6 +177,8 @@ export function createAuthThrottles(config: ResolvedRateLimitConfig): AuthThrott
     // Verificação de código OTP: keyed por IP (default), bucket próprio e mais
     // apertado que o login. O namespace do nome mantém a contagem separada.
     otpLogin: withFriendly429(buildThrottle('authkit_otp_login', config.otpLogin, config.store)),
+    accountActions: withFriendly429(accountActions),
+    accountActionsJson: accountActions,
   };
 }
 

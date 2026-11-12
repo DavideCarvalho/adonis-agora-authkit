@@ -19,11 +19,7 @@
       </form>
     </div>
 
-    <nav class="mb-6 flex gap-4 text-sm font-medium">
-      <a href="{{ accountPaths?.tokens ?? '/account/tokens' }}" class="text-gray-500 hover:underline">{{ t('account.tokens.title') }}</a>
-      <a href="{{ accountPaths?.security ?? '/account/security' }}" class="text-gray-900 underline">{{ t('account.security.title') }}</a>
-      <a href="{{ accountPaths?.apps ?? '/account/apps' }}" class="text-gray-500 hover:underline">{{ t('account.apps.title') }}</a>
-    </nav>
+    @include('authkit::account/partials/nav')
 
     @if(profileUpdated)
       <div class="mb-6 rounded-lg border border-emerald-300 bg-emerald-50 p-4">

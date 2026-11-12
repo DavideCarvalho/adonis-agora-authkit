@@ -1,0 +1,8 @@
+{{-- Um valor formatado (variável `value`). --}}
+@if(value.type === 'badge')
+  <span data-value="badge" data-tone="{{ value.tone }}" class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium {{ value.tone === 'success' ? 'bg-emerald-100 text-emerald-800' : value.tone === 'warning' ? 'bg-amber-100 text-amber-800' : value.tone === 'danger' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-700' }}">{{ value.text }}</span>
+@elseif(value.type === 'date' && value.iso)
+  <time datetime="{{ value.iso }}" data-value="date">{{ value.text }}</time>
+@else
+  <span data-value="{{ value.type }}">{{ value.text }}</span>
+@end

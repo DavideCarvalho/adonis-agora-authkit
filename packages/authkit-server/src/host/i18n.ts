@@ -223,6 +223,26 @@ export const DEFAULT_MESSAGES = {
   'account.delete.invalid_confirmation': 'Confirmation failed. Your account was not deleted.',
   'account.delete.not_supported': 'Account deletion is not available in this installation.',
 
+  // Console de conta — páginas de extensions (account/extension).
+  'account.extension.logout': 'Log out',
+  'account.extension.nav_label': 'Account',
+  'account.extension.unknown_block': 'This section cannot be shown here.',
+  'account.extension.unsafe_link': 'This link was hidden because its address is not allowed.',
+  'account.extension.unsafe_script': 'This section was hidden because it loads a script from an address that is not allowed.',
+  'account.extension.load_failed': 'This page could not be loaded right now. Try again in a moment.',
+  'account.extension.next_page': 'Next page',
+  'account.extension.confirm_title': 'Confirm',
+  'account.extension.confirm_submit': 'Continue',
+  'account.extension.cancel': 'Cancel',
+  'account.extension.action_failed': 'That did not work. Try again in a moment.',
+  'account.extension.action_not_found': 'This action is not available.',
+  'account.extension.impersonation_refused': 'This action is not available while acting as another user.',
+  'account.extension.field_required': '{field} is required.',
+  'account.extension.field_too_long': '{field} is too long.',
+  'account.extension.field_invalid': '{field} has an invalid value.',
+  'account.extension.done': 'Done.',
+  'account.extension.provider_loading': 'Loading…',
+
   // Console de conta — apps com acesso (account/apps).
   'account.apps.page_title': 'Apps with access',
   'account.apps.title': 'Apps with access',
@@ -1262,6 +1282,26 @@ export const PT_BR_MESSAGES = {
   'account.delete.deleted': 'Sua conta foi deletada permanentemente.',
   'account.delete.invalid_confirmation': 'Confirmação falhou. Sua conta NÃO foi deletada.',
   'account.delete.not_supported': 'A deleção de conta não está disponível nesta instalação.',
+
+  // Console de conta — páginas de extensions (account/extension).
+  'account.extension.logout': 'Sair',
+  'account.extension.nav_label': 'Conta',
+  'account.extension.unknown_block': 'Esta seção não pode ser exibida aqui.',
+  'account.extension.unsafe_link': 'Este link foi ocultado porque o endereço não é permitido.',
+  'account.extension.unsafe_script': 'Esta seção foi ocultada porque carrega um script de um endereço não permitido.',
+  'account.extension.load_failed': 'Não foi possível carregar esta página agora. Tente de novo em instantes.',
+  'account.extension.next_page': 'Próxima página',
+  'account.extension.confirm_title': 'Confirmar',
+  'account.extension.confirm_submit': 'Continuar',
+  'account.extension.cancel': 'Cancelar',
+  'account.extension.action_failed': 'Não deu certo. Tente de novo em instantes.',
+  'account.extension.action_not_found': 'Esta ação não está disponível.',
+  'account.extension.impersonation_refused': 'Esta ação não está disponível enquanto você age como outro usuário.',
+  'account.extension.field_required': '{field} é obrigatório.',
+  'account.extension.field_too_long': '{field} é longo demais.',
+  'account.extension.field_invalid': '{field} tem um valor inválido.',
+  'account.extension.done': 'Feito.',
+  'account.extension.provider_loading': 'Carregando…',
 
   // Console de conta — apps com acesso (account/apps).
   'account.apps.page_title': 'Apps com acesso',

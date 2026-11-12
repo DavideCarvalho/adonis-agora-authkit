@@ -17,6 +17,7 @@ import { configProvider } from '@adonisjs/core';
 import { RuntimeException } from '@adonisjs/core/exceptions';
 import type { ApplicationService } from '@adonisjs/core/types';
 import { setBootedApp } from '../services/booted_app.js';
+import { accountExtensionRegistry } from '../src/account/mount.js';
 import { defaultEncryptForStore, type ResolvedServerConfig } from '../src/define_config.js';
 import { authkitDoctorChecks } from '../src/doctor/agora_checks.js';
 import { registerDoctorChecks } from '../src/doctor/agora_doctor.js';
@@ -140,6 +141,7 @@ export default class AuthkitServerProvider {
       lockedRouteOptions: config.lockedRouteOptions,
       consoleNeedsLoginUrl:
         config.accountSession?.acceptIdpSession === false && config.authMethods?.password === false,
+      accountConsole: config.accountConsole,
       personalAgents: config.personalAgents
         ? {
             prefix: config.personalAgents.prefix,
@@ -199,6 +201,10 @@ export default class AuthkitServerProvider {
     // que o `bin/server` bootou — dual-package hazard do core (ver
     // `services/booted_app.ts`).
     setBootedApp(this.app);
+
+    // Account console extensions: other packages register pages here from their `boot()`. A plain
+    // value (no config to resolve), so `hasBinding` + `make` never boots the auth server.
+    this.app.container.bindValue('authkit.accountExtensions', accountExtensionRegistry());
 
     this.app.container.singleton('authkit.server', async () => {
       const configProviderValue = this.app.config.get('authkit');
