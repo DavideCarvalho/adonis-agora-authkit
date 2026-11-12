@@ -9,6 +9,7 @@ import type {
 import { configProvider } from '@adonisjs/core';
 import type { HttpContext } from '@adonisjs/core/http';
 import type { ApplicationService } from '@adonisjs/core/types';
+import type { AccountConsoleConfig } from './account/runtime.js';
 import type { AccountStore, AuthAccount } from './accounts/account_store.js';
 import { type AdapterFactory, adapters, type OidcAdapterClass } from './adapters/factory.js';
 import {
@@ -364,6 +365,11 @@ export interface ResolvedRateLimitConfig {
    * force ANTES do lockout por interaction (contador persistido no slot do código).
    */
   otpLogin: RateLimitBucket;
+  /**
+   * Bucket das actions das páginas de extension do console de conta
+   * (`POST /account/<página>/actions/*`), keyed pela CONTA. Default 30/min.
+   */
+  accountActions?: RateLimitBucket;
   store?: string;
 }
 
@@ -373,6 +379,7 @@ const RATE_LIMIT_DEFAULTS: {
   adminIp: RateLimitBucket;
   sudo: RateLimitBucket;
   otpLogin: RateLimitBucket;
+  accountActions: RateLimitBucket;
 } = {
   login: { points: 10, duration: '1 min' },
   introspection: { points: 60, duration: '1 min' },
@@ -381,6 +388,8 @@ const RATE_LIMIT_DEFAULTS: {
   sudo: { points: 10, duration: '1 min' },
   // Mais apertado que o login — verificação de código adivinhável.
   otpLogin: { points: 5, duration: '1 min' },
+  // Actions das extensions do console de conta, por conta.
+  accountActions: { points: 30, duration: '1 min' },
 };
 
 export function resolveRateLimit(input?: RateLimitConfigInput): ResolvedRateLimitConfig {
@@ -392,6 +401,7 @@ export function resolveRateLimit(input?: RateLimitConfigInput): ResolvedRateLimi
     adminIp: RATE_LIMIT_DEFAULTS.adminIp,
     sudo: RATE_LIMIT_DEFAULTS.sudo,
     otpLogin: RATE_LIMIT_DEFAULTS.otpLogin,
+    accountActions: RATE_LIMIT_DEFAULTS.accountActions,
     store: input?.store,
   };
 }
@@ -1560,6 +1570,17 @@ export interface AuthServerConfigInput {
    * `routes.accountLoginUrl` aponte para um login do próprio host.
    */
   accountSession?: { acceptIdpSession?: boolean };
+
+  /**
+   * Account console extensions: the pages other packages add to `/account/*`.
+   *
+   * - `subject(account, { activeOrg, tenant })`: who the account is in the app (default
+   *   `{ type: 'User', id: account.id }`); every extension receives it as `ctx.subject`.
+   * - `extensions`: turn off, rename or reorder pages, by extension id
+   *   (`{ payments: { pages: { 'payments.invoices': { segment: 'faturas' } } } }`).
+   * - `loadTimeoutMs`: budget of one page's `load()` (default 5000).
+   */
+  accountConsole?: AccountConsoleConfig;
 }
 
 export interface ResolvedServerConfig {
@@ -1704,6 +1725,8 @@ export interface ResolvedServerConfig {
   adonisAuth?: { guard: string };
   /** Sessão do console. Ver {@link AuthServerConfigInput.accountSession}. */
   accountSession: { acceptIdpSession: boolean };
+  /** Account console extensions. Ver {@link AuthServerConfigInput.accountConsole}. */
+  accountConsole?: AccountConsoleConfig;
 }
 
 const UNITS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
@@ -1991,6 +2014,7 @@ export function defineConfig(config: AuthServerConfigInput) {
       // Opt-in: ausente = authkit nunca toca `ctx.auth` (comportamento de sempre).
       adonisAuth: config.adonisAuth,
       accountSession: { acceptIdpSession: config.accountSession?.acceptIdpSession !== false },
+      accountConsole: config.accountConsole,
     };
   });
 }

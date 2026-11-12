@@ -124,6 +124,10 @@ export const AUDIT_EVENT_TYPES = [
   'agent.allowed',
   'agent.blocked',
   'agent.registry_removed',
+  // Console de conta: uma action de extension mandou o usuário para fora do app
+  // (`redirectTo.external`), ou uma action sensível (sudo/danger) rodou.
+  'account.extension.redirect',
+  'account.extension.action',
 ] as const;
 
 /** Tipos de eventos de auditoria relevantes para segurança emitidos pelo IdP. */

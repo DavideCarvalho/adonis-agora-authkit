@@ -9,6 +9,8 @@
  * package's `tsc`.
  */
 
+import type { ResolvedActionStep } from '../account/http.js';
+import type { AccountNavEntry, ResolvedAccountPage } from '../account/runtime.js';
 import type { OrgInvitation, OrgMember, OrgSummary } from '../accounts/account_store.js';
 import type { PatRecord } from '../pat/pat_store.js';
 import type {
@@ -303,6 +305,25 @@ export interface AccountOrgsProps extends WithMessages {
   token?: string;
 }
 
+/**
+ * `account/extension` — a page an account console extension added. `page` is the resolved page
+ * (texts translated, values formatted); `step` is set on the confirmation step of an action.
+ * `accountNav` (the console navigation) is added by the renderer to every account screen.
+ */
+export interface AccountExtensionProps extends WithMessages {
+  csrfToken: string;
+  page: ResolvedAccountPage;
+  step: ResolvedActionStep | null;
+  flash: { tone: 'success' | 'danger'; text: string } | null;
+  /** The response's CSP nonce, for the scripts of `component` blocks. */
+  cspNonce: string | null;
+  accountNav?: AccountNavEntry[] | null;
+  /** `<html lang>` of the console locale. */
+  htmlLang?: string;
+  /** Edge only: the `<script>` tag of a `component` block's script (nonce included). */
+  scriptTag?: (script: { src: string; integrity: string | null; module: boolean }) => string;
+}
+
 /** Props of every screen, by view name. */
 export interface AuthkitScreenProps {
   login: LoginProps;
@@ -326,6 +347,7 @@ export interface AuthkitScreenProps {
   'account/orgs': AccountOrgsProps;
   'account/confirm': AccountConfirmProps;
   'account/email-confirmed': AccountEmailConfirmedProps;
+  'account/extension': AccountExtensionProps;
 }
 
 /** Every screen authkit-server renders. */

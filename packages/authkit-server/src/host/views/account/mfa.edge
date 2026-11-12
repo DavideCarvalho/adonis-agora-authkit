@@ -16,6 +16,8 @@
       </form>
     </div>
 
+    @include('authkit::account/partials/nav')
+
     @if(error)
       <p class="mb-4 text-sm text-red-600">{{ error }}</p>
     @end

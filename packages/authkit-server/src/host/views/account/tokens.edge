@@ -11,14 +11,14 @@
         <h1 class="text-xl font-semibold text-gray-900">{{ t('account.tokens.title') }}</h1>
       </div>
       <div class="flex items-center gap-4">
-        <a href="{{ accountPaths?.security ?? '/account/security' }}" class="text-sm text-gray-500 hover:underline">{{ t('account.tokens.security') }}</a>
-        <a href="{{ accountPaths?.apps ?? '/account/apps' }}" class="text-sm text-gray-500 hover:underline">{{ t('account.apps.title') }}</a>
         <form method="POST" action="{{ accountPaths?.logout ?? '/account/logout' }}">
           <input type="hidden" name="_csrf" value="{{ csrfToken }}">
           <button type="submit" class="text-sm text-gray-500 hover:underline">{{ t('account.tokens.logout') }}</button>
         </form>
       </div>
     </div>
+
+    @include('authkit::account/partials/nav')
 
     @if(createdToken)
       <div class="mb-6 rounded-lg border border-emerald-300 bg-emerald-50 p-4">

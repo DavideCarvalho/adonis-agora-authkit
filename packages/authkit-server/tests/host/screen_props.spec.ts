@@ -30,6 +30,7 @@ const SCREENS = {
   'account/orgs': true,
   'account/confirm': true,
   'account/email-confirmed': true,
+  'account/extension': true,
 } as const satisfies Record<AuthkitScreen, true>;
 
 // `AuthkitScreen` and the props map have exactly the same keys.

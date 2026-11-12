@@ -25,6 +25,7 @@
     "native-apps",
     "account-lockout",
     "organizations",
+    "account-extensions",
     "compliance",
     "adopting-existing-users",
     "passwords-and-migration",

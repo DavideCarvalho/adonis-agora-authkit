@@ -1,4 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http';
+import { accountNavFor } from '../../account/runtime.js';
 import { type AuthMessages, DEFAULT_MESSAGES } from '../i18n.js';
 import type { AuthkitScreen } from '../screen_props.js';
 import { renderEdgeView } from './edge_renderer.js';
@@ -109,6 +110,11 @@ export function inertiaRenderer(opts: InertiaRendererOptions) {
     // Happy path: view vai ao Inertia.
     // `messages` vai como shared prop para as páginas React traduzirem.
     const messages = await resolveMessagesFromCtx(ctx);
-    return (ctx as any).inertia.render(`${opts.prefix}/${view}`, { ...props, messages });
+    const accountNav = props.accountNav ?? (await accountNavFor(ctx, view, props));
+    return (ctx as any).inertia.render(`${opts.prefix}/${view}`, {
+      ...(accountNav ? { accountNav } : {}),
+      ...props,
+      messages,
+    });
   };
 }

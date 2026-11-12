@@ -136,7 +136,8 @@ function scanForExternalReferences(files: string[], readFile: (path: string) => 
  * quebra o literal), então não precisa de tratamento especial.
  */
 function hasInlineScript(line: string): boolean {
-  return /<script\b(?![^>]*\bsrc\s*=)[^>]*>/i.test(line);
+  // A JSON data block (`type="application/json"`) is never executed, so CSP never blocks it.
+  return /<script\b(?![^>]*\bsrc\s*=)(?![^>]*\btype\s*=\s*"application\/json")[^>]*>/i.test(line);
 }
 
 /**

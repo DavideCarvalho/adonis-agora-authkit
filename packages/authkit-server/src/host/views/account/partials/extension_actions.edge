@@ -1,0 +1,14 @@
+{{-- Botões de actions (variável `actions`). Com `confirm`/`fields` o botão abre o passo de confirmação. --}}
+@each(action in actions)
+  @if(action.step)
+    <a href="{{ action.href }}" data-action="{{ action.action }}" class="rounded-lg border px-3 py-1.5 text-sm font-semibold {{ action.tone === 'danger' ? 'border-red-300 text-red-700 hover:bg-red-50' : 'border-gray-300 text-gray-700 hover:bg-gray-50' }}">{{ action.label }}</a>
+  @else
+    <form method="POST" action="{{ action.href }}" data-submit-lock>
+      <input type="hidden" name="_csrf" value="{{ csrfToken }}">
+      @if(action.target !== null)
+        <input type="hidden" name="target" value="{{ action.target }}">
+      @end
+      <button type="submit" data-action="{{ action.action }}" class="rounded-lg border px-3 py-1.5 text-sm font-semibold {{ action.tone === 'danger' ? 'border-red-300 text-red-700 hover:bg-red-50' : 'border-gray-300 text-gray-700 hover:bg-gray-50' }}">{{ action.label }}</button>
+    </form>
+  @end
+@end

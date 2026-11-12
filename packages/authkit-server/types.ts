@@ -1,4 +1,5 @@
 import type { MetricsRecorder } from '@adonis-agora/authkit-core';
+import type { AccountExtensionRegistry } from './src/account/extension.js';
 import type { AccountStore } from './src/accounts/account_store.js';
 import type { PatStore } from './src/pat/pat_store.js';
 import type { OidcService } from './src/provider/oidc_service.js';
@@ -23,7 +24,8 @@ declare module '@adonisjs/core/types' {
     'authkit.metrics': MetricsRecorder;
     'authkit.accountStore': AccountStore;
     'authkit.patStore': PatStore;
+    'authkit.accountExtensions': AccountExtensionRegistry;
   }
 }
 
-export type { AccountStore, MetricsRecorder, OidcService, PatStore };
+export type { AccountExtensionRegistry, AccountStore, MetricsRecorder, OidcService, PatStore };

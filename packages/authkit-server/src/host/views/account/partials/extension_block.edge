@@ -1,0 +1,197 @@
+{{-- Um bloco de uma página de extension (já resolvido: textos traduzidos, valores formatados). Variável `block`. --}}
+@if(block.kind === 'notice')
+  <div data-block="notice" data-tone="{{ block.tone }}" class="rounded-lg border p-4 text-sm {{ block.tone === 'danger' ? 'border-red-300 bg-red-50 text-red-900' : block.tone === 'warning' ? 'border-amber-300 bg-amber-50 text-amber-900' : block.tone === 'success' ? 'border-emerald-300 bg-emerald-50 text-emerald-900' : 'border-sky-300 bg-sky-50 text-sky-900' }}">{{ block.text }}</div>
+@elseif(block.kind === 'keyValue')
+  <section data-block="keyValue" class="overflow-hidden rounded-xl bg-white shadow-xs ring-1 ring-black/5">
+    @if(block.title)
+      <h2 class="border-b border-gray-100 px-4 py-3 text-sm font-semibold text-gray-900">{{ block.title }}</h2>
+    @end
+    <dl class="divide-y divide-gray-100">
+      @each(row in block.rows)
+        <div class="flex items-center justify-between gap-4 px-4 py-3 text-sm">
+          <dt class="text-gray-500">{{ row.label }}</dt>
+          <dd class="text-right text-gray-900">
+            @!component('authkit::account/partials/extension_value', { value: row.value })
+          </dd>
+        </div>
+      @end
+    </dl>
+    @if(block.actions.length > 0)
+      <div class="flex flex-wrap gap-2 border-t border-gray-100 px-4 py-3">
+        @!component('authkit::account/partials/extension_actions', { actions: block.actions, csrfToken })
+      </div>
+    @end
+  </section>
+@elseif(block.kind === 'list')
+  <section data-block="list" class="overflow-hidden rounded-xl bg-white shadow-xs ring-1 ring-black/5">
+    @if(block.title)
+      <h2 class="border-b border-gray-100 px-4 py-3 text-sm font-semibold text-gray-900">{{ block.title }}</h2>
+    @end
+    @if(block.items.length === 0)
+      <p class="p-6 text-sm text-gray-500">{{ block.empty }}</p>
+    @else
+      <ul class="divide-y divide-gray-100">
+        @each(item in block.items)
+          <li class="flex items-center justify-between gap-4 p-4">
+            <div class="min-w-0">
+              @if(item.href)
+                <a href="{{ item.href }}" class="text-sm font-medium text-gray-900 hover:underline" {{ item.external ? 'rel=noopener target=_blank' : '' }}>{{ item.title }}</a>
+              @else
+                <p class="text-sm font-medium text-gray-900">{{ item.title }}</p>
+              @end
+              @if(item.subtitle)
+                <p class="text-xs text-gray-500">{{ item.subtitle }}</p>
+              @end
+              @if(item.meta.length > 0)
+                <p class="mt-1 flex flex-wrap gap-3 text-xs text-gray-500">
+                  @each(value in item.meta)
+                    <span>
+                      @!component('authkit::account/partials/extension_value', { value })
+                    </span>
+                  @end
+                </p>
+              @end
+            </div>
+            <div class="flex shrink-0 items-center gap-2">
+              @if(item.badge)
+                @!component('authkit::account/partials/extension_value', { value: item.badge })
+              @end
+              @!component('authkit::account/partials/extension_actions', { actions: item.actions, csrfToken })
+            </div>
+          </li>
+        @end
+      </ul>
+    @end
+    @if(block.nextHref)
+      <div class="border-t border-gray-100 px-4 py-3 text-right">
+        <a href="{{ block.nextHref }}" class="text-sm text-gray-700 hover:underline" rel="next">{{ t('account.extension.next_page') }}</a>
+      </div>
+    @end
+  </section>
+@elseif(block.kind === 'table')
+  <section data-block="table" class="overflow-hidden rounded-xl bg-white shadow-xs ring-1 ring-black/5">
+    @if(block.title)
+      <h2 class="border-b border-gray-100 px-4 py-3 text-sm font-semibold text-gray-900">{{ block.title }}</h2>
+    @end
+    @if(block.rows.length === 0)
+      <p class="p-6 text-sm text-gray-500">{{ block.empty }}</p>
+    @else
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead class="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+            <tr>
+              @each(column in block.columns)
+                <th scope="col" class="px-4 py-2 font-medium">{{ column.label }}</th>
+              @end
+              @if(block.hasActions)
+                <th scope="col" class="px-4 py-2"></th>
+              @end
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            @each(row in block.rows)
+              <tr>
+                @each(value in row.cells)
+                  <td class="px-4 py-2 text-gray-900">
+                    @!component('authkit::account/partials/extension_value', { value })
+                  </td>
+                @end
+                @if(block.hasActions)
+                  <td class="px-4 py-2 text-right">
+                    <div class="flex justify-end gap-2">
+                      @!component('authkit::account/partials/extension_actions', { actions: row.actions, csrfToken })
+                    </div>
+                  </td>
+                @end
+              </tr>
+            @end
+          </tbody>
+        </table>
+      </div>
+    @end
+    @if(block.nextHref)
+      <div class="border-t border-gray-100 px-4 py-3 text-right">
+        <a href="{{ block.nextHref }}" class="text-sm text-gray-700 hover:underline" rel="next">{{ t('account.extension.next_page') }}</a>
+      </div>
+    @end
+  </section>
+@elseif(block.kind === 'meter')
+  <section data-block="meter" class="rounded-xl bg-white p-4 shadow-xs ring-1 ring-black/5">
+    <div class="flex items-center justify-between text-sm">
+      <span class="font-medium text-gray-900">{{ block.label }}</span>
+      <span class="text-gray-500">{{ block.text }}</span>
+    </div>
+    @if(block.percent !== null)
+      <progress class="mt-2 block h-2 w-full overflow-hidden rounded-full" max="100" value="{{ block.percent }}">{{ block.percent }}%</progress>
+    @end
+    @if(block.resetsAt)
+      <p class="mt-1 text-xs text-gray-500">{{ block.resetsAt.text }}</p>
+    @end
+  </section>
+@elseif(block.kind === 'actions')
+  <div data-block="actions" class="flex flex-wrap gap-2">
+    @!component('authkit::account/partials/extension_actions', { actions: block.items, csrfToken })
+  </div>
+@elseif(block.kind === 'link')
+  <p data-block="link">
+    <a href="{{ block.href }}" class="text-sm font-medium text-gray-900 underline" {{ block.external ? 'rel=noopener target=_blank' : '' }}>{{ block.label }}</a>
+  </p>
+@elseif(block.kind === 'toolPreview')
+  <section data-block="toolPreview" class="overflow-hidden rounded-xl bg-white shadow-xs ring-1 ring-black/5">
+    <div class="border-b border-gray-100 px-4 py-3">
+      <h2 class="text-sm font-semibold text-gray-900">{{ block.title }}</h2>
+      @if(block.tool)
+        <p class="font-mono text-xs text-gray-500">{{ block.tool }}</p>
+      @end
+      @if(block.subtitle)
+        <p class="text-xs text-gray-500">{{ block.subtitle }}</p>
+      @end
+    </div>
+    @if(block.args.length > 0)
+      <dl class="divide-y divide-gray-100">
+        @each(arg in block.args)
+          <div class="flex items-start justify-between gap-4 px-4 py-2 text-sm">
+            <dt class="text-gray-500">{{ arg.label }}</dt>
+            <dd class="break-all text-right text-gray-900">
+              @!component('authkit::account/partials/extension_value', { value: arg.value })
+            </dd>
+          </div>
+        @end
+      </dl>
+    @end
+    @if(block.body)
+      <pre class="max-h-80 overflow-auto bg-gray-50 px-4 py-3 text-xs text-gray-800" data-format="{{ block.body.format }}">{{ block.body.content }}</pre>
+    @end
+    @if(block.actions.length > 0)
+      <div class="flex flex-wrap gap-2 border-t border-gray-100 px-4 py-3">
+        @!component('authkit::account/partials/extension_actions', { actions: block.actions, csrfToken })
+      </div>
+    @end
+  </section>
+@elseif(block.kind === 'component')
+  <section class="rounded-xl bg-white p-4 shadow-xs ring-1 ring-black/5">
+    <div id="{{ block.mountId }}" data-block="component" data-provider="{{ block.provider }}" data-props="{{ block.mountId }}-props">
+      @if(block.submit)
+        <form method="POST" action="{{ block.submit.postHref }}" data-component-form>
+          <input type="hidden" name="_csrf" value="{{ csrfToken }}">
+          @if(block.submit.target)
+            <input type="hidden" name="target" value="{{ block.submit.target }}">
+          @end
+        </form>
+      @end
+      <div data-component-fallback class="text-sm text-gray-500">
+        @if(block.fallback)
+          <a href="{{ block.fallback.href }}" class="font-medium text-gray-900 underline" {{ block.fallback.external ? 'rel=noopener' : '' }}>{{ block.fallback.label }}</a>
+        @else
+          {{ t('account.extension.provider_loading') }}
+        @end
+      </div>
+    </div>
+    <script type="application/json" id="{{ block.mountId }}-props">{{{ block.propsJson }}}</script>
+    @each(script in block.scripts)
+      {{{ scriptTag(script) }}}
+    @end
+  </section>
+@else
+  <div data-block="notice" data-tone="warning" class="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">{{ t('account.extension.unknown_block') }}</div>
+@end

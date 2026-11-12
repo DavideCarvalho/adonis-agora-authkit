@@ -16,6 +16,12 @@
  */
 
 import type {
+  AccountExtensionActionInput,
+  AccountExtensionActionResult,
+  AccountExtensionPageResult,
+  AccountExtensionsResult,
+} from '../account_extensions/types.js';
+import type {
   AcceptOrgInvitationResult,
   AccountAgentsResult,
   AccountAppsResult,
@@ -673,6 +679,27 @@ class AuthkitClient {
       acceptInvitation: (token: string) =>
         this.post<AcceptOrgInvitationResult>(
           this.a(`/orgs/invitations/${encodeURIComponent(token)}/accept`),
+        ),
+    },
+
+    /** Pages other packages added to the account console. */
+    extensions: {
+      /** GET /account/api/extensions — the localized navigation. */
+      list: () => this.get<AccountExtensionsResult>(this.a('/extensions')),
+      /** GET /account/api/x/:pageId — one page, resolved. */
+      page: (pageId: string, query?: { cursor?: string; tab?: string }) =>
+        this.get<AccountExtensionPageResult>(
+          this.a(`/x/${encodeURIComponent(pageId)}`),
+          query as Record<string, unknown> | undefined,
+        ),
+      /**
+       * POST /account/api/x/:pageId/actions/:action. `403 sudo_required` (with
+       * `confirmUrl`) when the action needs a recent sign-in.
+       */
+      action: (pageId: string, action: string, input: AccountExtensionActionInput = {}) =>
+        this.post<AccountExtensionActionResult>(
+          this.a(`/x/${encodeURIComponent(pageId)}/actions/${encodeURIComponent(action)}`),
+          input,
         ),
     },
   } as const;

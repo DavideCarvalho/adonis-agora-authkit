@@ -1,0 +1,346 @@
+---
+icon: LayoutGrid
+title: Account console extensions
+description: Add pages to the signed-in user's own console (/account/*) — billing, AI usage, files — from any package or from your app.
+---
+
+The account console (`/account/*`) can show pages that other packages add: a subscription page
+from payments, an AI usage page from the agent, a files page from media. A package that supports
+it registers its pages when it boots, so the app writes no code. Your app can add its own pages
+the same way.
+
+Each page is data: a list of **blocks** (notices, tables, lists…) and the **actions** the user
+can run. AuthKit renders them with its own screens, its own CSRF and sudo rules, and the same
+look as the built-in screens. Pages appear in the console navigation next to Security, Tokens and
+the others.
+
+## Add a page
+
+Register an extension from a provider's `boot()`:
+
+```ts title="providers/billing_provider.ts"
+import type { ApplicationService } from '@adonisjs/core/types'
+import type { AccountExtension } from '@adonis-agora/authkit-server/account-extension'
+
+const billing: AccountExtension = {
+  id: 'billing',
+  contract: 1,
+  messages: {
+    en: { 'billing.title': 'Billing', 'billing.cancelled': 'Your plan ends on {date}.' },
+    'pt-BR': { 'billing.title': 'Cobrança', 'billing.cancelled': 'Seu plano termina em {date}.' },
+  },
+  pages: [
+    {
+      id: 'billing.plan',
+      segment: 'billing', // → /account/billing
+      title: { key: 'billing.title' },
+      nav: { group: 'billing', order: 100 },
+      async visible(ctx) {
+        return (await Subscription.findBy('ownerId', ctx.subject.id)) !== null
+      },
+      async load(ctx) {
+        const sub = await Subscription.findByOrFail('ownerId', ctx.subject.id)
+        return {
+          blocks: [
+            {
+              kind: 'keyValue',
+              rows: [
+                { label: 'Plan', value: { type: 'text', text: sub.planName } },
+                { label: 'Price', value: { type: 'money', amount: sub.amount, currency: 'BRL' } },
+                { label: 'Renews', value: { type: 'date', at: sub.periodEnd } },
+              ],
+              actions: [{ action: 'cancel', target: sub.id }],
+            },
+          ],
+        }
+      },
+      actions: {
+        cancel: {
+          label: 'Cancel plan',
+          tone: 'danger',
+          confirm: 'Your plan stays active until the end of the period.',
+          sudo: true,
+          async handle(ctx, { target }) {
+            const sub = await Subscription.query()
+              .where('id', target ?? '')
+              .where('ownerId', ctx.subject.id)
+              .first()
+            if (!sub) return { ok: false, error: 'Not found', status: 404 }
+            await sub.cancelAtPeriodEnd()
+            return { ok: true, flash: { key: 'billing.cancelled', params: { date: sub.periodEndLabel } } }
+          },
+        },
+      },
+    },
+  ],
+}
+
+export default class BillingProvider {
+  constructor(protected app: ApplicationService) {}
+
+  async boot() {
+    if (!this.app.container.hasBinding('authkit.accountExtensions')) return
+    const registry = await this.app.container.make('authkit.accountExtensions')
+    if (registry.contract >= 1) registry.register(billing)
+  }
+}
+```
+
+The page is now at `/account/billing`, behind the console sign-in, with a "Billing" entry in the
+navigation.
+
+<Callout type="warn">
+`target` comes from the browser. Always look the row up again **for `ctx.subject` (or
+`ctx.account`)** and answer `{ ok: false, status: 404 }` when it is not theirs.
+</Callout>
+
+A package that should work without AuthKit declares `@adonis-agora/authkit-server` as an optional
+peer, imports the types with `import type` only, and skips registration when the binding is
+missing (as above).
+
+### Rules the registry checks
+
+| What | Rule |
+| --- | --- |
+| `id` | 2–16 of `a-z`, `0-9`, `-`; not a built-in screen (`security`, `mfa`, `tokens`, `apps`, `orgs`…) |
+| page `id` | `<extension id>.<page>` |
+| `segment` | `a-z`, `0-9`, `-`; unique; not a built-in screen nor `api`, `confirm`, `login`, `logout` |
+| `messages` | every key starts with `<extension id>.` |
+| `contract` | the major you wrote against (`1`) |
+
+Outside production an invalid extension stops the boot with a message naming it. In production
+it is skipped and one error is logged, so a broken package cannot take the console down.
+
+Register from `boot()`, never from a preload: once the console routes are mounted, `register()`
+throws.
+
+## What a page receives
+
+`visible(ctx)`, `load(ctx)` and every action `handle(ctx, input)` get the same context:
+
+| Field | What it is |
+| --- | --- |
+| `account` | `{ id, email, name, roles }` of the signed-in account |
+| `subject` | the account as your app knows it (see below), default `{ type: 'User', id: account.id }` |
+| `activeOrg` | `{ id, slug, role }` of the active organization, or `null` |
+| `tenant` | the active organization as a tenant (`{ id, kind: 'organization', slug, role }`), or `null` |
+| `impersonatedBy` | the admin acting as this user, or `null` |
+| `locale` | the console locale |
+| `query` | `{ cursor?, tab? }` from the URL |
+| `url(pageId, query?)` | path of another console page |
+| `make(binding)` | resolves a container binding |
+
+`visible()` runs once per request; when it returns `false` (or throws) the page answers 404 and
+leaves the navigation. `load()` has 5 seconds; when it throws or times out, only that page shows
+an error notice.
+
+### Map the account to your app
+
+Every extension gets `ctx.subject`. Set the mapping once in `config/authkit.ts`:
+
+```ts title="config/authkit.ts"
+export default defineConfig({
+  // ...
+  accountConsole: {
+    subject: async (account, { activeOrg }) =>
+      activeOrg ? { type: 'Organization', id: activeOrg.id } : { type: 'User', id: account.id },
+  },
+})
+```
+
+A package may also offer its own mapping option; when it does, that one wins for its pages.
+
+## Blocks
+
+| `kind` | Shows |
+| --- | --- |
+| `notice` | a message, `tone: 'info' \| 'success' \| 'warning' \| 'danger'` |
+| `keyValue` | label/value rows, with action buttons |
+| `list` | items with title, subtitle, meta, badge, link and actions; `nextCursor` adds a "Next page" link |
+| `table` | columns and rows of values; `nextCursor` pages it |
+| `meter` | usage against a limit, with when it resets |
+| `actions` | a row of action buttons |
+| `link` | a link (`external: true` for an https URL) |
+| `toolPreview` | something waiting for a decision: a title, its arguments and a body (text or JSON), with approve/reject actions |
+| `component` | a provider's own UI (card fields), see below |
+
+Texts are literal strings or `{ key, params }` from your `messages`. Values are
+`text`, `badge`, `money` (minor units), `date` (`date`, `datetime` or `relative`) and `number`;
+AuthKit formats them for the console locale. Everything is escaped. A link must be a same-origin
+path (`/…`) or, with `external: true`, an https URL; anything else is dropped. A block kind this
+AuthKit does not know shows a neutral notice; check `registry.blockKinds` to degrade.
+
+`tabs: [{ id, label }]` on the view adds tabs; the active one is `ctx.query.tab`.
+
+## Actions
+
+An action is a button. With `confirm` or `fields` the button opens a confirmation page (no
+JavaScript) where the user reads the text and fills the fields; otherwise it posts right away.
+
+| Option | Effect |
+| --- | --- |
+| `tone: 'danger'` | red button; refused while an admin impersonates the user |
+| `confirm` | text of the confirmation page |
+| `fields` | `text`, `textarea` or `select` fields (`required`, `maxLength`, `options`); values arrive validated as strings |
+| `sudo: true` | the user confirms their identity first (`/account/confirm`) and comes back; refused while impersonated |
+
+`handle` returns `{ ok: true, flash?, redirectTo? }` or `{ ok: false, error, status? }`.
+`redirectTo: { page: 'billing.invoices' }` goes to another console page;
+`redirectTo: { external: 'https://…' }` sends the user to a payment provider (https only, recorded
+in the audit log as `account.extension.redirect`). Sensitive actions (`sudo` or `danger`) are
+recorded as `account.extension.action`.
+
+Action posts use the app's CSRF token like every console form and share a per-account rate limit
+(30 per minute, bucket `authkit_account_actions`, when `rateLimit` is on).
+
+## Provider components (card fields)
+
+For payment providers that collect a card in the browser (Stripe Elements, Asaas, Efí, PayPal),
+use a `component` block. List the https origins it loads scripts from in `scriptOrigins`:
+
+```ts
+const payments: AccountExtension = {
+  id: 'payments',
+  contract: 1,
+  scriptOrigins: ['https://js.stripe.com'],
+  pages: [{
+    id: 'payments.method',
+    segment: 'payment-method',
+    title: 'Payment method',
+    async load() {
+      return {
+        blocks: [{
+          kind: 'component',
+          provider: 'stripe',
+          scripts: [
+            { src: 'https://js.stripe.com/v3/' },
+            { src: '/payments/assets/stripe_card.js', module: true },
+          ],
+          props: { publishableKey: env.get('STRIPE_KEY'), clientSecret: setupIntent.client_secret },
+          submit: { action: 'saveMethod' },
+          fallback: { label: 'Update on Stripe', href: portalUrl, external: true },
+        }],
+      }
+    },
+    actions: { saveMethod: { label: 'Save', sudo: true, async handle(ctx, { fields }) { /* fields.paymentMethod */ } } },
+  }],
+}
+```
+
+AuthKit renders:
+
+- a mount point `<div data-block="component" data-provider="stripe" data-props="…">`, holding a
+  `<form>` that posts straight to the `submit` action (with the CSRF token, skipping its
+  confirmation step) and the fallback link;
+- the props as `<script type="application/json">` (data, never executed);
+- each script with the response's CSP `nonce` when your shield sets one.
+
+Your script finds `[data-block="component"][data-provider="stripe"]`, reads the props from the
+element named by `data-props`, mounts the provider's fields, adds hidden `field_<name>` inputs to
+the form and submits it. Until it mounts, or when scripts are blocked, the fallback link shows,
+so providers without a browser component simply use the link.
+
+**CSP.** With shield's `scriptSrc: ["'self'", '@nonce']` the scripts load through the nonce. The
+provider's own iframes and API calls still need their origins, for example for Stripe:
+
+```ts title="config/shield.ts"
+csp: {
+  directives: {
+    scriptSrc: ["'self'", '@nonce'],
+    frameSrc: ["'self'", 'https://js.stripe.com', 'https://hooks.stripe.com'],
+    connectSrc: ["'self'", 'https://api.stripe.com'],
+  },
+}
+```
+
+## Control pages from your app
+
+Turn pages off, rename their URL or reorder them in `config/authkit.ts`:
+
+```ts title="config/authkit.ts"
+accountConsole: {
+  extensions: {
+    media: false, // no media pages
+    payments: {
+      pages: {
+        'payments.invoices': { segment: 'faturas', order: 5 },
+        'payments.method': false,
+      },
+    },
+  },
+  loadTimeoutMs: 8000, // a page's load(), default 5000
+  actionTimeoutMs: 20000, // an action's handle(), default 15000
+},
+```
+
+`routes.account: false` (no account console screens) also removes every extension page.
+
+The navigation lists the mounted built-in screens (Security 10, Two-factor 20, Tokens 30, Apps 40,
+Organizations 50) and the visible extension pages (100 and up by default), grouped as account,
+billing, AI and content. Translate an extension's texts with your own `i18n.messages`: your keys
+win over the package's.
+
+## React (Inertia) hosts
+
+Add the view to your renderer and render the page with `<AccountExtensionPage>`:
+
+```ts title="config/authkit.ts"
+render: inertiaRenderer({ prefix: 'authkit', views: [/* … */, 'account/extension'] }),
+```
+
+```tsx title="inertia/pages/authkit/account/extension.tsx"
+import {
+  AccountExtensionPage,
+  type AccountExtensionPageView,
+  type AccountNavEntry,
+} from '@adonis-agora/authkit-react'
+
+export default function Extension(props: {
+  page: AccountExtensionPageView
+  accountNav: AccountNavEntry[]
+  csrfToken: string
+  flash: { tone: 'success' | 'danger'; text: string } | null
+}) {
+  return (
+    <AccountLayout nav={props.accountNav}>
+      {props.flash && <p role="status">{props.flash.text}</p>}
+      <AccountExtensionPage view={props.page} csrfToken={props.csrfToken} />
+    </AccountLayout>
+  )
+}
+```
+
+Every account screen receives `accountNav`, so your layout can render the same navigation. The
+page renders unstyled elements with `data-block`, `data-value` and `data-action` attributes for
+your CSS.
+
+To run actions over JSON instead of form posts, pass `onAction`:
+
+```tsx
+function BillingPage({ page }: { page: AccountExtensionPageView }) {
+  const run = useMutation(useAccountExtensionActionMutationOptions(page.id))
+  return (
+    <AccountExtensionPage
+      view={page}
+      onAction={(button, input) =>
+        run.mutate({ action: button.action, target: button.target, ...input })
+      }
+      loadComponent={(provider) => (provider === 'stripe' ? StripeCardFields : null)}
+    />
+  )
+}
+```
+
+A refused `sudo` action throws `AuthkitClientError` with code `sudo_required` and a `confirmUrl`
+to send the user to.
+
+### Headless
+
+| Endpoint | Hook |
+| --- | --- |
+| `GET {prefix}/api/extensions` — navigation and extension pages | `useAccountExtensions()` |
+| `GET {prefix}/api/x/:pageId?cursor=&tab=` — `{ page, actions }` | `useAccountExtensionPageQueryOptions(pageId, query)` |
+| `POST {prefix}/api/x/:pageId/actions/:action` — `{ target, fields }` | `useAccountExtensionActionMutationOptions(pageId)` |
+
+`registerAuthHost()` also returns the pages in `map.account.extensions` (`id`, `href`, `label`,
+`order`).

@@ -1,4 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http';
+import { accountNavFor } from '../../account/runtime.js';
 import { getAccountLoginUrl } from '../account_login_url.js';
 import { accountPathsMap } from '../account_paths.js';
 import { type AuthMessages, DEFAULT_MESSAGES, translate } from '../i18n.js';
@@ -46,9 +47,13 @@ export async function renderEdgeView(
   // `accountRoutes` — sem cada view conhecer o prefixo. Os action-subpaths
   // fixos (`/password`, `/passkeys/verify`, ...) são concatenados na própria view.
   const accountPaths = accountPathsMap();
+  // `accountNav` como prop global das telas do console de conta: telas embutidas montadas e
+  // páginas de extension visíveis para a conta (partial `authkit::account/partials/nav`).
+  const accountNav = props.accountNav ?? (await accountNavFor(ctx, view, props));
   return (ctx as any).view.render(`authkit::${view}`, {
     loginUrl,
     accountPaths,
+    accountNav,
     ...props,
     t,
     messages,
