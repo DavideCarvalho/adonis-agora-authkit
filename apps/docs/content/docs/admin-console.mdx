@@ -830,6 +830,9 @@ Who may use them:
   sign in through AuthKit (the MCP client's own OAuth sign-in, or a [Poppy](/docs/personal-agents-poppy#developer-tools-over-mcp)
   agent granted `agora:dev`) as an active account holding one of `admin.roles`.
 
+A personal agent's token reaches these tools only if the person granted it `agora:dev`; the
+endpoint refuses it otherwise, before any of the rules above run.
+
 ## Settings page
 
 `?view=settings` is the **Runtime Settings** view — the operational configuration that

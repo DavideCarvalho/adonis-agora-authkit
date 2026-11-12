@@ -309,6 +309,7 @@ test.group('authkit dev tools — actions', () => {
     assert.equal(event.accountId, 'u2');
     assert.equal(event.actorId, 'mcp:token:abc123');
     assert.equal(event.metadata.source, 'mcp');
+    assert.equal(event.metadata.actor, 'mcp');
     await assert.rejects(
       () => tool('authkit_revoke_user_sessions').run({ accountId: 'nope' }, call),
       /No account/,

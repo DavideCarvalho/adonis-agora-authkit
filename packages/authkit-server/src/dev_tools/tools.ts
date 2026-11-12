@@ -402,6 +402,7 @@ export function authkitDevTools(deps: AuthkitDevToolsDeps = {}): DevTool[] {
             accessTokens: result.accessTokens,
             refreshTokens: result.refreshTokens,
             source: 'mcp',
+            actor: 'mcp',
           },
         });
         return { ok: true, accountId: id, ...result };
