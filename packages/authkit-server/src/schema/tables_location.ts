@@ -57,6 +57,8 @@ export function authkitTablesClient(db: any, location: AuthkitTablesLocation = {
 }
 
 const SQLITE_DIALECTS: ReadonlySet<string> = new Set(['sqlite3', 'better-sqlite3', 'libsql']);
+/** Dialects AuthKit writes and creates schemas on. */
+const SCHEMA_DIALECTS: ReadonlySet<string> = new Set(['postgres', 'redshift', 'mysql']);
 
 /** The Lucid dialect name of a client or manager (`postgres`, `mysql`, `better-sqlite3`…). */
 export function dialectOf(client: any): string | undefined {
@@ -64,17 +66,19 @@ export function dialectOf(client: any): string | undefined {
 }
 
 /**
- * Throws {@link AuthkitSchemaError} when `schema` is set on a dialect without schemas
- * (SQLite). AuthKit never ignores the option nor falls back to unqualified tables.
+ * Throws {@link AuthkitSchemaError} when `schema` is set on a dialect AuthKit cannot use it on:
+ * SQLite (no schemas) and any dialect other than Postgres and MySQL. AuthKit never ignores the
+ * option nor falls back to unqualified tables.
  */
 export function assertSchemaSupported(client: any, schema: string | undefined): void {
   if (!schema) return;
   const dialect = dialectOf(client);
-  if (dialect && SQLITE_DIALECTS.has(dialect)) {
-    throw new AuthkitSchemaError(
-      `authkit: schema.name "${schema}" is set, but the connection uses ${dialect}, which has no schemas. Remove schema.name or use Postgres or MySQL.`,
-    );
-  }
+  if (!dialect || SCHEMA_DIALECTS.has(dialect)) return;
+  throw new AuthkitSchemaError(
+    SQLITE_DIALECTS.has(dialect)
+      ? `authkit: schema.name "${schema}" is set, but the connection uses ${dialect}, which has no schemas. Remove schema.name or use Postgres or MySQL.`
+      : `authkit: schema.name "${schema}" is set, but the connection uses ${dialect}; schema.name supports Postgres and MySQL. Remove schema.name or use one of them.`,
+  );
 }
 
 /**

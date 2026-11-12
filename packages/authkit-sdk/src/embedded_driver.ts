@@ -45,6 +45,17 @@ import type {
 } from './types.js';
 import { ADMIN_LIST_DEFAULT_SIZE, ADMIN_LIST_MAX_SIZE, LIST_FIRST_PAGE } from './types.js';
 
+/**
+ * Where the server keeps `auth_settings`: `schema.connection` and `schema.name` of its resolved
+ * config (the same rule the server applies), in `RuntimeSettings` options.
+ */
+function tablesLocation(cfg: any): { connection?: string; schema?: string } {
+  const out: { connection?: string; schema?: string } = {};
+  if (cfg?.schema?.connection) out.connection = cfg.schema.connection;
+  if (cfg?.schema?.name) out.schema = cfg.schema.name;
+  return out;
+}
+
 export interface EmbeddedOptions {
   /** The AdonisJS application service (e.g. injected `app`). */
   app: ApplicationService;
@@ -600,8 +611,7 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
         } catch {
           return { data: [] };
         }
-        const connection: string | undefined = (cfg as any).schema?.connection;
-        const svc = new RuntimeSettings(db, connection ? { connection } : {});
+        const svc = new RuntimeSettings(db, tablesLocation(cfg));
         const rows = await svc.listSettings();
         return {
           data: rows.map(
@@ -625,8 +635,7 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
         } catch {
           throw new Error('Runtime settings not available.');
         }
-        const connection: string | undefined = (cfg as any).schema?.connection;
-        const svc = new RuntimeSettings(db, connection ? { connection } : {});
+        const svc = new RuntimeSettings(db, tablesLocation(cfg));
         const value = await svc.getSetting(key);
         if (value === null) throw new Error(`Setting '${key}' not found.`);
         return { key, value, updatedAt: null, updatedBy: null };
@@ -641,8 +650,7 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
         } catch {
           throw new Error('Runtime settings not available.');
         }
-        const connection: string | undefined = (cfg as any).schema?.connection;
-        const svc = new RuntimeSettings(db, connection ? { connection } : {});
+        const svc = new RuntimeSettings(db, tablesLocation(cfg));
         await svc.setSetting(key, value, null);
         const saved = await svc.getSetting(key);
         await cfg.audit?.record({
@@ -663,8 +671,7 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
         } catch {
           throw new Error('Runtime settings not available.');
         }
-        const connection: string | undefined = (cfg as any).schema?.connection;
-        const svc = new RuntimeSettings(db, connection ? { connection } : {});
+        const svc = new RuntimeSettings(db, tablesLocation(cfg));
         await svc.deleteSetting(key);
         await cfg.audit?.record({
           type: 'settings.updated',
@@ -684,8 +691,7 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
         let settingsSvc: any = null;
         try {
           const db = await app.container.make('lucid.db');
-          const connection: string | undefined = (cfg as any).schema?.connection;
-          settingsSvc = new RuntimeSettings(db, connection ? { connection } : {});
+          settingsSvc = new RuntimeSettings(db, tablesLocation(cfg));
         } catch {
           // RuntimeSettings unavailable — buildKeysStatus will fall back to defaults.
         }

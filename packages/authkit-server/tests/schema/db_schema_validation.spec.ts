@@ -93,3 +93,21 @@ test.group('schema.name | validation and SQLite', () => {
     assert.include(report.created, 'auth_settings');
   });
 });
+
+test.group('schema.name | other dialects', () => {
+  test('a dialect other than Postgres/MySQL is refused before any DDL', async ({ assert }) => {
+    const { assertSchemaSupported, createDbSchema } = await import(
+      '../../src/schema/tables_location.js'
+    );
+    const mssql = {
+      dialect: { name: 'mssql' },
+      rawQuery: async () => {
+        throw new Error('must not run');
+      },
+    };
+    assert.throws(() => assertSchemaSupported(mssql, 'auth'), /supports Postgres and MySQL/);
+    await assert.rejects(() => createDbSchema(mssql, 'auth'), /supports Postgres and MySQL/);
+    assert.doesNotThrow(() => assertSchemaSupported({ dialect: { name: 'postgres' } }, 'auth'));
+    assert.doesNotThrow(() => assertSchemaSupported({ dialect: { name: 'mssql' } }, undefined));
+  });
+});
