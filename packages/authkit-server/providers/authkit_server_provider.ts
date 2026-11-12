@@ -18,6 +18,8 @@ import { RuntimeException } from '@adonisjs/core/exceptions';
 import type { ApplicationService } from '@adonisjs/core/types';
 import { setBootedApp } from '../services/booted_app.js';
 import { defaultEncryptForStore, type ResolvedServerConfig } from '../src/define_config.js';
+import { authkitDoctorChecks } from '../src/doctor/agora_checks.js';
+import { registerDoctorChecks } from '../src/doctor/agora_doctor.js';
 import { resolveAppKey } from '../src/host/app_key.js';
 import { resolveEffectiveKeyRotation } from '../src/host/key_rotation.js';
 import { RuntimeSettings } from '../src/host/runtime_settings.js';
@@ -33,6 +35,10 @@ export default class AuthkitServerProvider {
   constructor(protected app: ApplicationService) {}
 
   async boot() {
+    // `node ace agora:doctor` reads these after boot, from the registry every @adonis-agora lib
+    // shares. Registered here rather than in `register()`, which AdonisJS does not await.
+    await registerDoctorChecks(this.app.container, authkitDoctorChecks());
+
     // EAGER + LOUD (fail-fast): se o host configurou `config/authkit.ts`, a
     // `appKey` é indispensável — o oidc-provider a usa para assinar TODOS os
     // cookies (keygrip). Antes, essa validação só rodava dentro do factory

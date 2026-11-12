@@ -267,6 +267,7 @@ Commands provided by `@adonis-agora/authkit-server`:
 | Command | Notes |
 | --- | --- |
 | `node ace authkit:doctor` | Validate the config and peer dependencies; emits findings with `ok`/`warn`/`error` levels. Includes `checkSettings` (bot_protection orphan, require_verified_email capability) and `checkClients` (informational: adapter volatility warning). |
+| `node ace agora:doctor [--json] [--strict] [--deep] [--lib] [--only] [--verbose] [--no-boot]` | The health check of every installed `@adonis-agora` lib, authkit included. See [Health check](/docs/health-check). |
 | `node ace authkit:eject` | Copy the bundled host-kit controllers/pages into your project for customization. |
 | `node ace authkit:users:import --file <path> [--dry-run]` | Bulk-import users from a JSON array or NDJSON file, preserving hashes as-is for lazy rehash on login. |
 | `node ace authkit:users:normalize-emails [--apply]` | Migrate stored addresses to the normalized identity form (`trim` + `toLowerCase`). Reports by default; `--apply` writes, refusing to touch accounts involved in a collision. **Required upgrade step** from 0.70 or earlier — see [below](#authkitusersnormalize-emails). |

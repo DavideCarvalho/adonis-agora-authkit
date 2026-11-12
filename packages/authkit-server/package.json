@@ -46,7 +46,8 @@
     "./telescope": "./build/src/observability/telescope/index.js",
     "./authkit_server_provider": "./build/providers/authkit_server_provider.js",
     "./commands": "./build/commands/main.js",
-    "./commands/configure": "./build/commands/configure.js"
+    "./commands/configure": "./build/commands/configure.js",
+    "./doctor": "./build/src/doctor/index.js"
   },
   "adonisjs": {
     "types": "@adonis-agora/authkit-server",
@@ -65,6 +66,7 @@
     "prepack": "npm run build",
     "build:ui": "node scripts/build_ui.mjs",
     "build:webauthn": "node scripts/build_webauthn.mjs",
+    "check:agora-doctor": "node ../../scripts/check-agora-doctor.mjs .",
     "check:host-css": "node scripts/check_host_css.mjs",
     "check:webauthn-bundle": "node scripts/check_webauthn_bundle.mjs",
     "typecheck": "tsc --noEmit && node scripts/typecheck_ui.mjs && node scripts/typecheck_tests.mjs",

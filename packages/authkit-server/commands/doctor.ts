@@ -1,49 +1,7 @@
 import { BaseCommand } from '@adonisjs/core/ace';
 import type { CommandOptions } from '@adonisjs/core/types/ace';
-import { DatabaseAdapter } from '../src/adapters/database_adapter.js';
-import { resolveAuthkitConfig } from '../src/commands/resolve_config.js';
-import { defaultEncryptForStore } from '../src/define_config.js';
-import {
-  type DoctorInput,
-  type Finding,
-  hasErrors,
-  runAllChecks,
-  signingKeyAgeFinding,
-} from '../src/doctor/checks.js';
-import { signingKeyAgeDays } from '../src/keys/keystore.js';
-import { KeystoreCodec } from '../src/keys/keystore_codec.js';
-import { loadEncryptionService } from '../src/keys/keystore_crypto.js';
-import { KeystoreManager, resolveKeystoreVault } from '../src/keys/keystore_manager.js';
-
-/** Logger mínimo para reportar peers instalados-mas-quebrados. */
-interface CanImportLogger {
-  warning(msg: string): void;
-}
-
-/**
- * Tenta importar um peer; `true` se importável.
- *
- * Distingue "não instalado" de "instalado mas quebrado": só um erro de
- * módulo-não-encontrado (`ERR_MODULE_NOT_FOUND`/`MODULE_NOT_FOUND`) é tratado como
- * peer ausente (silencioso — é o caso esperado). Qualquer outro erro significa que
- * o peer ESTÁ presente mas falhou ao carregar (import circular, erro de sintaxe,
- * config inválida) — isso o doctor precisa gritar, senão um peer quebrado aparece
- * como "ausente" e o diagnóstico mente.
- */
-async function canImport(specifier: string, logger?: CanImportLogger): Promise<boolean> {
-  try {
-    await import(specifier);
-    return true;
-  } catch (err) {
-    const code = (err as { code?: string } | null)?.code;
-    if (code !== 'ERR_MODULE_NOT_FOUND' && code !== 'MODULE_NOT_FOUND') {
-      logger?.warning(
-        `⚠️  ${specifier} está instalado mas falhou ao carregar: ${(err as Error).message}`,
-      );
-    }
-    return false;
-  }
-}
+import { type Finding, hasErrors, runAllChecks } from '../src/doctor/checks.js';
+import { buildDoctorInput, managedSigningKeyAgeFinding } from '../src/doctor/doctor_input.js';
 
 export default class AuthkitDoctor extends BaseCommand {
   static commandName = 'authkit:doctor';
@@ -59,56 +17,21 @@ export default class AuthkitDoctor extends BaseCommand {
   static options: CommandOptions = { startApp: true };
 
   async run() {
-    const config = await this.app.container.make('config');
-
-    // `defineConfig` exporta um config provider — resolve antes de inspecionar,
-    // senão todo campo aparece como "ausente" (provider cru não tem issuer etc.).
-    let authkitConfig: Record<string, any> | null = null;
+    // `buildDoctorInput` resolve o config provider de `config/authkit.ts` antes de inspecionar.
+    let input: Awaited<ReturnType<typeof buildDoctorInput>>;
     try {
-      authkitConfig = await resolveAuthkitConfig(this.app, config.get('authkit', null));
+      input = await buildDoctorInput(this.app, this.logger);
     } catch (error) {
       this.logger.logError(`❌ config/authkit.ts falhou ao resolver: ${(error as Error).message}`);
       this.exitCode = 1;
       return;
     }
-    const sessionConfig = (config.get('session', null) as Record<string, any> | null) ?? null;
-
-    const input: DoctorInput = {
-      authkitConfig,
-      sessionConfig,
-      peers: {
-        session: await canImport('@adonisjs/session', this.logger),
-        shield: await canImport('@adonisjs/shield', this.logger),
-        ally: await canImport('@adonisjs/ally', this.logger),
-        limiter: await canImport('@adonisjs/limiter', this.logger),
-      },
-      __adapterClasses: { DatabaseAdapter },
-    };
 
     const findings = runAllChecks(input);
 
     // Adiciona o finding de idade da chave de assinatura managed (best-effort).
-    const jwksInput = (authkitConfig?.jwksConfig ?? authkitConfig?.jwks) as any;
-    if (jwksInput?.source === 'managed' && jwksInput?.store) {
-      try {
-        const vault = resolveKeystoreVault(jwksInput.store, {
-          makePath: (p) => this.app.makePath(p),
-          container: this.app.container,
-        });
-        const encrypt = jwksInput.encrypt ?? defaultEncryptForStore(jwksInput.store);
-        const enc = encrypt ? await loadEncryptionService().catch(() => undefined) : undefined;
-        const mgr = new KeystoreManager(
-          vault,
-          new KeystoreCodec({ encrypt, enc }),
-          jwksInput.algorithm ?? 'RS256',
-        );
-        const store = await mgr.read().catch(() => null);
-        const maxAge = jwksInput.rotationDays ?? 90;
-        findings.push(signingKeyAgeFinding(signingKeyAgeDays(store), maxAge));
-      } catch {
-        /* idade é best-effort no doctor */
-      }
-    }
+    const keyAge = await managedSigningKeyAgeFinding(this.app, input.authkitConfig);
+    if (keyAge) findings.push(keyAge);
 
     this.print(findings);
 

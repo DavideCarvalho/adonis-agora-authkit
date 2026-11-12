@@ -333,6 +333,70 @@
       "args": [],
       "options": { "startApp": true },
       "filePath": "expire_scan.js"
+    },
+    {
+      "commandName": "agora:doctor",
+      "description": "Check the configuration of every installed @adonis-agora lib",
+      "namespace": "agora",
+      "aliases": [],
+      "flags": [
+        {
+          "name": "json",
+          "flagName": "json",
+          "required": false,
+          "type": "boolean",
+          "description": "Print one JSON object to stdout"
+        },
+        {
+          "name": "lib",
+          "flagName": "lib",
+          "required": false,
+          "type": "string",
+          "description": "Only these libs, comma separated (durable,payments)"
+        },
+        {
+          "name": "deep",
+          "flagName": "deep",
+          "required": false,
+          "type": "boolean",
+          "description": "Also run checks that touch the database, Redis or the network"
+        },
+        {
+          "name": "only",
+          "flagName": "only",
+          "required": false,
+          "type": "string",
+          "description": "Run one check by id"
+        },
+        {
+          "name": "strict",
+          "flagName": "strict",
+          "required": false,
+          "type": "boolean",
+          "description": "Fail (exit 1) on warnings too"
+        },
+        {
+          "name": "verbose",
+          "flagName": "verbose",
+          "required": false,
+          "type": "boolean",
+          "description": "Show skipped checks and every message"
+        },
+        {
+          "name": "boot",
+          "flagName": "boot",
+          "required": false,
+          "type": "boolean",
+          "description": "Boot the app first; --no-boot checks the config only (when boot itself fails)",
+          "default": true,
+          "showNegatedVariantInHelp": true
+        }
+      ],
+      "args": [],
+      "options": {
+        "startApp": false
+      },
+      "filePath": "agora_doctor.js"
     }
   ]
 }
