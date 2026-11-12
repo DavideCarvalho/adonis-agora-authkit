@@ -360,7 +360,7 @@ function csrfProbeContext(endpoint: CsrfExemptEndpoint): unknown {
  * Whether shield's CSRF check (as configured in `config/shield.ts`) would reject a token-less POST
  * to `endpoint`, mirroring `@adonisjs/shield`: CSRF off → no; a non-empty `methods` without POST →
  * no (an empty or missing `methods` checks every method); `exceptRoutes` as a function → rejected
- * unless it returns `true` for that request; as an array → rejected unless it holds the route
+ * unless it returns a truthy value for that request; as an array → rejected unless it holds the route
  * pattern. `'unknown'` when the function throws on the probe context.
  */
 export function csrfRejects(
@@ -378,7 +378,8 @@ export function csrfRejects(
   const except = csrf.exceptRoutes ?? [];
   if (typeof except === 'function') {
     try {
-      return (except as (ctx: unknown) => unknown)(csrfProbeContext(endpoint)) !== true;
+      // Shield skips validation on any truthy return (`!this.#routesToIgnore(ctx)`).
+      return !(except as (ctx: unknown) => unknown)(csrfProbeContext(endpoint));
     } catch {
       return 'unknown';
     }

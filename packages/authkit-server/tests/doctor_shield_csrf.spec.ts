@@ -59,6 +59,15 @@ test.group('doctor: authkit.shield evaluates the real shield config', () => {
     assert.isFalse(csrfRejects(null, endpoint));
   });
 
+  test('a truthy non-boolean return exempts, like shield', ({ assert }) => {
+    const endpoint = { path: '/oidc/token', pattern: '/oidc/*' };
+    const shield = {
+      csrf: { enabled: true, exceptRoutes: (ctx: any) => ctx.request.url().match(/^\/oidc\//) },
+    };
+    assert.isFalse(csrfRejects(shield, endpoint));
+    assert.isTrue(csrfRejects(shield, { path: '/authkit/pat/introspect', pattern: '/x' }));
+  });
+
   test('an array exceptRoutes matches route patterns, like shield', ({ assert }) => {
     const ok = checkShield(
       input({
