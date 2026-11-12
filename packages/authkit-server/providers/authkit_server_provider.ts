@@ -202,9 +202,11 @@ export default class AuthkitServerProvider {
     // `services/booted_app.ts`).
     setBootedApp(this.app);
 
-    // Account console extensions: other packages register pages here from their `boot()`. A plain
-    // value (no config to resolve), so `hasBinding` + `make` never boots the auth server.
-    this.app.container.bindValue('authkit.accountExtensions', accountExtensionRegistry());
+    // Account console extensions: other packages register pages here from their `boot()`. No
+    // config to resolve, so `hasBinding` + `make` never boots the auth server.
+    this.app.container.singleton('authkit.accountExtensions', async () =>
+      accountExtensionRegistry(),
+    );
 
     this.app.container.singleton('authkit.server', async () => {
       const configProviderValue = this.app.config.get('authkit');

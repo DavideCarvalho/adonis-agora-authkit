@@ -1,5 +1,30 @@
 // Estado de auth (shared-prop do Inertia)
 
+// ─── Account console extensions ───────────────────────────────────────────────
+export type {
+  AccountExtensionPageProps,
+  AccountExtensionProviderComponentProps,
+} from './src/account_extensions/account_extension_page.js';
+export {
+  AccountExtensionPage,
+  useAccountExtensionActionMutationOptions,
+  useAccountExtensionPageQueryOptions,
+  useAccountExtensions,
+  useAccountExtensionsQueryOptions,
+} from './src/account_extensions/account_extension_page.js';
+export type {
+  AccountExtensionActionButton,
+  AccountExtensionActionDefinition,
+  AccountExtensionActionField,
+  AccountExtensionActionInput,
+  AccountExtensionActionResult,
+  AccountExtensionBlock,
+  AccountExtensionPageResult,
+  AccountExtensionPageView,
+  AccountExtensionsResult,
+  AccountExtensionValue,
+  AccountNavEntry,
+} from './src/account_extensions/types.js';
 export type { AuthkitProviderProps } from './src/authkit_provider.js';
 // Provider de config + headless hooks de URL/dados
 export { AuthkitProvider } from './src/authkit_provider.js';

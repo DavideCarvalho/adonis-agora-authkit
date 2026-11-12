@@ -67,6 +67,9 @@ export const authkitKeys = {
     org: (id: string) => ['authkit', 'account', 'orgs', id] as const,
     orgInvitations: () => ['authkit', 'account', 'orgs', 'invitations'] as const,
     loginMethods: () => ['authkit', 'account', 'login-methods'] as const,
+    extensions: () => ['authkit', 'account', 'extensions'] as const,
+    extensionPage: (pageId: string, query?: { cursor?: string; tab?: string }) =>
+      ['authkit', 'account', 'extensions', pageId, query ?? {}] as const,
 
     /**
      * Chaves de MUTATION da superfície de ESCRITA headless (orgs + segundo
