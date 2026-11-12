@@ -8,6 +8,7 @@ import type {
   AccountPageNav,
   AccountPageView,
   AccountSubject,
+  AccountTenantLevel,
   AccountTenantRef,
   Text,
 } from './contract.js';
@@ -198,7 +199,13 @@ function parseTenant(raw: unknown): AccountTenantRef | null {
     tenant.chain = raw.chain.filter(isObject).flatMap((level) => {
       const levelId = str(level.id);
       const levelKind = str(level.kind, 64);
-      return levelId && levelKind ? [{ id: levelId, kind: levelKind }] : [];
+      if (!levelId || !levelKind) return [];
+      const out: AccountTenantLevel = { id: levelId, kind: levelKind };
+      const levelSlug = str(level.slug);
+      if (levelSlug) out.slug = levelSlug;
+      const levelRole = str(level.role, 128);
+      if (levelRole) out.role = levelRole;
+      return [out];
     });
   }
   return tenant;
