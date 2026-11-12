@@ -131,6 +131,7 @@ defineConfig({
 | `replay` | `'database'` | Where seen `jti`s live: `'database'`, `'memory'`, `{ redis: 'main' }`, or your own `{ claim }`. Session JWTs are claimed too, so every verified request writes one entry. |
 | `rateLimit` | 120 sessions/min per agent, 10 mediated attempts/h per identifier | In-memory per process; `false` or your own limiter. Over the limit: HTTP 429 with `Retry-After`. |
 | `toActor` | — | Maps a verified principal to your actor (returned as `principal.actor`). |
+| `devTools` | offered when the app serves Agora dev tools | Offers the `agora:dev` scope ([below](#developer-tools-over-mcp)). `false` never offers it; `true` always does. |
 
 Four lib-owned tables back it — `auth_poppy_sessions`, `auth_poppy_tokens`,
 `auth_poppy_requests`, `auth_poppy_jtis` — created at boot with AuthKit's own tables
@@ -298,6 +299,27 @@ don't advertise DPoP. It is minted as an oidc-provider access token (`aud` = the
 granted scopes), so the existing `authKitAuth()` MCP integration accepts it with no extra code, and a
 sign-out revokes it. It works only at that server. MCP clients that don't implement Poppy sign in with
 MCP's own flow, and their requests belong to no Session.
+
+## Developer tools over MCP
+
+When the app serves `@adonis-agora/agent`'s developer tools (`/mcp/agora`), Poppy also offers the
+`agora:dev` scope. A personal agent that holds it may call those tools, within what each tool's
+own access rules allow.
+
+- On the consent screen `agora:dev` is **not ticked**: the person must tick it to grant it.
+  Unticked, the agent gets the other scopes and no dev tools.
+- Mediated Sign-In can't grant it (there is no consent screen); listing it in
+  `signIn.mediated.scopes` fails at boot.
+- A sign-in type with its own `{ scopes }` list only offers it if you add it there.
+- Set `devTools: false` to never offer it, or give it your own text in `scopes`:
+
+```ts title="config/authkit.ts"
+poppy({
+  // ...
+  scopes: { 'orders:read': 'See your orders', 'agora:dev': 'Read the shop internals' },
+  devTools: false,
+})
+```
 
 ## The company agent (`@adonis-agora/agent`)
 

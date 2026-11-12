@@ -165,6 +165,18 @@ export default class AuthkitServerProvider {
       warnAdminConsoleUnauthorized(logger);
     }
 
+    // Agora dev tools over MCP: the admin console's tools join the hub `@adonis-agora/agent`
+    // binds at `'agora.devTools'` (no import of the agent; nothing happens without it).
+    if (config.admin.enabled) {
+      const { registerAuthkitDevTools } = await import('../src/dev_tools/register.js');
+      try {
+        await registerAuthkitDevTools(this.app, config);
+      } catch (error) {
+        const logger = await this.app.container.make('logger').catch(() => null);
+        logger?.warn({ err: error }, 'authkit: could not register the Agora dev tools');
+      }
+    }
+
     // `personalAgents.extensions`: o boot de cada uma (slots globais, etc.).
     for (const extension of config.personalAgents?.extensions ?? []) {
       await extension.boot?.();

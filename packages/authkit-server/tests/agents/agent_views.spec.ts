@@ -59,6 +59,34 @@ test.group('views de personal agents', () => {
     assert.notInclude(html, '<img src=x');
   });
 
+  test('consent: an opt-in scope is not ticked and shows its translated text', async ({
+    assert,
+  }) => {
+    const edge = makeEdge();
+    edge.global('t', (key: string, params?: Record<string, string | number>) =>
+      translate({ ...DEFAULT_MESSAGES, 'ext.dev': 'Use the dev tools' }, key, params),
+    );
+    const html = await edge.render('authkit::agents/consent', {
+      csrfToken: 'csrf',
+      action: '/agents/consent',
+      request: {
+        ...request,
+        scopes: [
+          { id: 'orders:read', description: 'Look up your orders' },
+          { id: 'agora:dev', description: 'raw', descriptionKey: 'ext.dev', optIn: true },
+        ],
+      },
+      account: null,
+      error: null,
+    });
+    assert.include(html, 'value="orders:read" checked');
+    assert.notInclude(html, 'value="agora:dev" checked');
+    assert.include(html, 'value="agora:dev"');
+    assert.include(html, 'Use the dev tools');
+    assert.notInclude(html, '>raw<');
+    assert.include(html, DEFAULT_MESSAGES['agents.consent.opt_in_hint']);
+  });
+
   test('consent sem pedido: formulário do código, com erro quando houver', async ({ assert }) => {
     const edge = makeEdge();
     const blank = await edge.render('authkit::agents/consent', {

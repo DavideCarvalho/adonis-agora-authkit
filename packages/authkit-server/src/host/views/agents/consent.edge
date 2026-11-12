@@ -28,8 +28,17 @@
           <legend class="text-sm font-medium text-gray-900">{{ t('agents.consent.scopes_label') }}</legend>
           @each(scope in request.scopes)
             <label class="flex items-start gap-3 rounded-lg border border-gray-200 p-3">
-              <input type="checkbox" name="scope" value="{{ scope.id }}" checked class="mt-0.5">
-              <span class="text-sm text-gray-800">{{ scope.description }}</span>
+              @if(scope.optIn)
+                <input type="checkbox" name="scope" value="{{ scope.id }}" class="mt-0.5">
+              @else
+                <input type="checkbox" name="scope" value="{{ scope.id }}" checked class="mt-0.5">
+              @end
+              <span class="text-sm text-gray-800">
+                {{ scope.descriptionKey ? t(scope.descriptionKey) : scope.description }}
+                @if(scope.optIn)
+                  <span class="mt-1 block text-xs text-gray-500">{{ t('agents.consent.opt_in_hint') }}</span>
+                @end
+              </span>
             </label>
           @end
         </fieldset>

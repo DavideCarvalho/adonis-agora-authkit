@@ -22,6 +22,7 @@ export type {
   PoppySignInType,
   ResolvedPoppyConfig,
 } from './src/config.js';
+export { AGORA_DEV_SCOPE } from './src/config.js';
 export {
   accessTokenHash,
   type DpopNonceSource,
@@ -69,6 +70,7 @@ export {
 export type {
   PoppyAuthError,
   PoppyGrantSummary,
+  PoppyScopeDescription,
   PoppyService,
   PoppySessionState,
   PoppyTokenResponse,

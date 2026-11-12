@@ -278,6 +278,13 @@ export interface PoppyConfigInput {
    * global devolvem `actor`.
    */
   toActor?: (principal: PoppyPrincipalBase) => unknown | Promise<unknown>;
+  /**
+   * Offer the `agora:dev` scope: a personal agent the person grants it to may use the app's Agora
+   * developer tools over MCP (`@adonis-agora/agent`, `/mcp/agora`). It is never ticked for the
+   * person on the consent screen and Mediated Sign-In can never grant it. Default: offered when the
+   * app serves those dev tools (the `'agora.devTools'` binding exists). `false` never offers it.
+   */
+  devTools?: boolean;
 }
 
 /**
@@ -354,6 +361,8 @@ export interface ResolvedPoppyConfig {
   replay: 'database' | 'memory' | { redis: string } | PoppyReplayStore;
   rateLimit: false | { sessionsPerMinute: number; mediatedPerHour: number } | PoppyLimiter;
   toActor?: PoppyConfigInput['toActor'];
+  /** `agora:dev` offered: `true`/`false` as configured, `null` = when the app serves dev tools. */
+  devTools: boolean | null;
 }
 
 /** Parâmetros que um campo do Mediated Sign-In não pode usar (extensão, §2). */
@@ -478,6 +487,11 @@ export function resolvePoppyConfig(
     }
     if (typeof m.verify !== 'function') fail('signIn.mediated.verify é obrigatório.');
     if (!Array.isArray(m.scopes)) fail('signIn.mediated.scopes é obrigatório.');
+    if (m.scopes.includes(AGORA_DEV_SCOPE)) {
+      fail(
+        `signIn.mediated.scopes — "${AGORA_DEV_SCOPE}" needs the consent screen; Mediated Sign-In cannot grant it.`,
+      );
+    }
     const mediatedScopes = typeScopes({ scopes: m.scopes }, all, 'mediated')!.scopes;
     mediated = {
       fields: m.fields.map((f) => ({ name: f.name, label: f.label, secret: f.secret })),
@@ -544,7 +558,7 @@ export function resolvePoppyConfig(
     };
   }
 
-  return {
+  const resolved: ResolvedPoppyConfig = {
     organization: { name: org.name, domain: domains[0], aliases: domains.slice(1) },
     prefix: normalizePoppyPrefix(input.prefix),
     scopes,
@@ -592,5 +606,57 @@ export function resolvePoppyConfig(
     replay: input.replay ?? 'database',
     rateLimit,
     toActor: input.toActor,
+    devTools: null,
+  };
+  resolved.devTools = input.devTools ?? null;
+  return input.devTools === true ? withAgoraDevScope(resolved, input) : resolved;
+}
+
+/** The scope that lets a personal agent use the app's Agora developer tools over MCP. */
+export const AGORA_DEV_SCOPE = 'agora:dev';
+
+/** The catalog description of {@link AGORA_DEV_SCOPE} (the consent screen shows a translated text). */
+export const AGORA_DEV_SCOPE_DESCRIPTION =
+  "Use this app's developer tools: read its accounts, sessions, workflows and logs over MCP";
+
+/** The message key the consent screen shows for {@link AGORA_DEV_SCOPE}. */
+export const AGORA_DEV_SCOPE_MESSAGE = 'poppy.scope.agora_dev';
+
+/**
+ * `cfg` with {@link AGORA_DEV_SCOPE} offered: in the catalog, and in the Direct and Device sign-in
+ * lists that were left to their default (every scope). Never in Mediated Sign-In.
+ */
+export function withAgoraDevScope(
+  cfg: ResolvedPoppyConfig,
+  input: Pick<PoppyConfigInput, 'signIn'>,
+): ResolvedPoppyConfig {
+  const add = (
+    current: { scopes: string[] } | null,
+    configured: boolean | { scopes?: string[] } | undefined,
+  ) => {
+    if (current === null) return null;
+    const explicit = typeof configured === 'object' && Array.isArray(configured.scopes);
+    if (explicit || current.scopes.includes(AGORA_DEV_SCOPE)) return current;
+    return { scopes: [...current.scopes, AGORA_DEV_SCOPE] };
+  };
+  return {
+    ...cfg,
+    devTools: true,
+    scopes: {
+      ...cfg.scopes,
+      [AGORA_DEV_SCOPE]: cfg.scopes[AGORA_DEV_SCOPE] ?? AGORA_DEV_SCOPE_DESCRIPTION,
+    },
+    scopeHints: {
+      ...cfg.scopeHints,
+      [AGORA_DEV_SCOPE]: cfg.scopeHints[AGORA_DEV_SCOPE] ?? {
+        changes: 'irreversible',
+        personal_data: true,
+      },
+    },
+    signIn: {
+      ...cfg.signIn,
+      direct: add(cfg.signIn.direct, input.signIn?.direct),
+      device: add(cfg.signIn.device, input.signIn?.device),
+    },
   };
 }

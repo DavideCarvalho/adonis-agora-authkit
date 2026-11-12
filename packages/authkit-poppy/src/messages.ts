@@ -13,6 +13,9 @@ export const POPPY_MESSAGES = {
     'mail.poppy_sign_in.code_label': 'Your code:',
     'mail.poppy_sign_in.fallback':
       'If you did not ask for this, ignore this email — nobody gets in without the code. Never share it with anyone else.',
+    // O scope `agora:dev` na tela de consentimento.
+    'poppy.scope.agora_dev':
+      "Use this app's developer tools: read its accounts, sessions, workflows and logs (and, if the app allows it, act on them)",
   },
   'pt-BR': {
     'mail.poppy_sign_in.subject': 'Seu código para conectar {agent}',
@@ -22,5 +25,7 @@ export const POPPY_MESSAGES = {
     'mail.poppy_sign_in.code_label': 'Seu código:',
     'mail.poppy_sign_in.fallback':
       'Se não foi você, ignore este e-mail — ninguém entra sem o código. Nunca o compartilhe com outra pessoa.',
+    'poppy.scope.agora_dev':
+      'Usar as ferramentas de desenvolvedor deste app: ler contas, sessões, workflows e logs (e, se o app permitir, agir sobre eles)',
   },
 } as const;

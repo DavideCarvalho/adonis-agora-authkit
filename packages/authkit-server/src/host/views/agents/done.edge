@@ -8,7 +8,7 @@
       <h1 class="text-xl font-semibold text-gray-900">{{ t('agents.done.approved_title', { agent: agentName }) }}</h1>
       <ul class="mt-4 space-y-1 text-sm text-gray-700">
         @each(scope in scopes)
-          <li>• {{ scope.description }}</li>
+          <li>• {{ scope.descriptionKey ? t(scope.descriptionKey) : scope.description }}</li>
         @end
       </ul>
       <p class="mt-4 text-sm text-gray-600">{{ t('agents.done.return') }}</p>

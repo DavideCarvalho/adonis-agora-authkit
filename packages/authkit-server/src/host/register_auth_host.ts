@@ -1,10 +1,5 @@
 import type { Router } from '@adonisjs/core/http';
-import { getBootedApp } from '../../services/booted_app.js';
-import {
-  type ConsoleAuthorize,
-  type ConsoleAuthorizeDecision,
-  resolveConsoleAuthorize,
-} from '../console_authorize.js';
+import type { ConsoleAuthorizeDecision } from '../console_authorize.js';
 import type { AuthSocialConfig, RateLimitConfigInput } from '../define_config.js';
 import { resolveRateLimit } from '../define_config.js';
 import { accountHome } from './account_home.js';
@@ -21,6 +16,7 @@ import {
 import { resolveAccountRoles } from './account_roles.js';
 import { ACCOUNT_SESSION_KEY } from './account_session_key.js';
 import { adminApiGuard } from './admin_api/admin_api_guard.js';
+import { adminAuthorizeChecker, appInProduction } from './admin_authorize.js';
 import {
   normalizeAdminApiPrefix,
   normalizeAdminPrefix,
@@ -270,18 +266,6 @@ export const adminGuard = async (ctx: any, next: () => Promise<void>) => {
   return next();
 };
 
-/**
- * Whether the app runs in production. Unknown (the provider did not register the
- * app) counts as production, so an omitted `admin.authorize` fails closed.
- */
-function appInProduction(): boolean {
-  try {
-    return getBootedApp().inProduction !== false;
-  } catch {
-    return true;
-  }
-}
-
 /** The response for an `admin.authorize` denial: same rules in every `@adonis-agora` console. */
 function consoleDenied(
   ctx: any,
@@ -304,20 +288,6 @@ function consoleDenied(
   if (json) return ctx.response.status(403).send({ error: 'forbidden' });
   ctx.response.header('Content-Type', 'text/html; charset=utf-8');
   return ctx.response.status(403).send(consoleDeniedPage(403));
-}
-
-/** One checker per configured `admin.authorize`, so a lazy import runs once. */
-const adminAuthorizeCheckers = new WeakMap<
-  object,
-  (ctx: any) => Promise<ConsoleAuthorizeDecision>
->();
-function adminAuthorizeChecker(authorize: ConsoleAuthorize) {
-  let checker = adminAuthorizeCheckers.get(authorize);
-  if (!checker) {
-    checker = resolveConsoleAuthorize(authorize);
-    adminAuthorizeCheckers.set(authorize, checker);
-  }
-  return checker;
 }
 
 /**

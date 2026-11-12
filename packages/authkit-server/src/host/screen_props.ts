@@ -207,13 +207,23 @@ export interface ThrottledProps extends WithMessages {
 }
 
 /** The agent asking for access, on `agents/consent`. */
+/** One scope on the personal-agent consent screen. */
+export interface AgentConsentScope {
+  id: string;
+  description: string;
+  /** i18n key shown instead of `description` (an extension's message). */
+  descriptionKey?: string;
+  /** Not ticked for the person: granted only if they tick it themselves. */
+  optIn?: boolean;
+}
+
 export interface AgentConsentRequest {
   /** Device-flow user code, when the agent uses it. */
   userCode?: string;
   agentName: string | null;
   agentOrigin: string | null;
   logoUri?: string | null;
-  scopes: Array<{ id: string; description: string }>;
+  scopes: Array<AgentConsentScope>;
   /** Extra hidden form fields to send back. */
   hidden?: Array<{ name: string; value: string }>;
 }
@@ -234,7 +244,7 @@ export interface AgentsConsentProps extends WithMessages {
 export interface AgentsDoneProps extends WithMessages {
   status: 'approved' | 'denied' | 'expired' | 'invalid';
   agentName: string | null;
-  scopes: Array<{ id: string; description: string }>;
+  scopes: Array<AgentConsentScope>;
 }
 
 /** `account/apps` — apps and personal agents with access to the account. */

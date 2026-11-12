@@ -22,8 +22,11 @@ import { resolveEffectiveRolesCatalog } from '../runtime_toggles.js';
 export interface AdminActor {
   actorId: string | null;
   ip: string | null;
-  /** Marca metadata da auditoria — 'admin-api' nas escritas via REST, 'admin' no console HTML. */
-  source?: 'admin-api' | 'admin';
+  /**
+   * Marca metadata da auditoria — 'admin-api' nas escritas via REST, 'admin' no console HTML,
+   * 'mcp' nas ações dos dev tools (endpoint MCP do Agora).
+   */
+  source?: 'admin-api' | 'admin' | 'mcp';
 }
 
 /** Resultado da deleção via admin: false quando o store não suporta hard delete. */
