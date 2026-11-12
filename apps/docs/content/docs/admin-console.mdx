@@ -485,6 +485,8 @@ under `{prefix}/api/*`. All endpoints are protected by the `adminGuard`.
 | `GET {prefix}/api/keys` | Managed signing-key status |
 | `POST {prefix}/api/keys/rotate` | Rotate the managed signing key |
 | `GET {prefix}/api/impersonation/:userId` | Get impersonation panel data |
+| `GET {prefix}/api/consoles` | The other `@adonis-agora` consoles this viewer may open |
+| `GET {prefix}/api/consoles/search?q=` | Global search across this console and the others the viewer may open |
 
 <Callout type="info">
   Registration order matters here and is intentional: the assets route and every
@@ -493,6 +495,62 @@ under `{prefix}/api/*`. All endpoints are protected by the `adminGuard`.
   catch-all swallow API calls and answer them with HTML — which surfaces in the browser as a
   JSON parse error rather than as a routing bug.
 </Callout>
+
+## Switching between consoles
+
+When the app also runs other `@adonis-agora` consoles (durable, telescope, media, payments,
+agent), the console finds them on its own. Nothing to configure.
+
+- The **AuthKit brand** at the top of the sidebar becomes a menu listing the other consoles
+  this viewer may open. Each is only listed when its own `authorize` allows the viewer.
+- The **Overview** page shows the same consoles as a "Consoles" card grid.
+- **Ctrl/Cmd-K** (or the Search button in the top bar) searches users (by email) and organizations here,
+  plus whatever the other consoles expose (runs, payments, files…), again only in consoles the
+  viewer may open.
+
+With no other console in the app, the brand stays a plain brand and no request is made.
+
+While a console's menu checks whether to list the others, it runs their `authorize` with
+`ctx.agoraProbe` set to `true`. An `authorize` that writes an audit entry on every call can
+skip it then with `isAgoraProbe(ctx)`:
+
+```ts title="config/authkit.ts"
+import { isAgoraProbe } from '@adonis-agora/authkit-server'
+
+admin: {
+  authorize: async (ctx) => {
+    const allowed = await isStaff(ctx)
+    if (!isAgoraProbe(ctx)) await audit.log('admin.console.open', { allowed })
+    return allowed
+  },
+},
+```
+
+A console you mount yourself can join the menu with `registerAgoraConsole` from a provider's
+`boot()`:
+
+```ts title="providers/reports_provider.ts"
+import { registerAgoraConsole } from '@adonis-agora/authkit-server'
+
+export default class ReportsProvider {
+  constructor(protected app: ApplicationService) {}
+
+  async boot() {
+    await registerAgoraConsole(this.app, {
+      id: 'reports',
+      title: 'Reports',
+      icon: 'generic',
+      path: '/reports',
+      order: 100,
+      authorize: async (ctx) => ({ allowed: await isStaff(ctx) }),
+      // Optional: hits for Ctrl/Cmd-K (same-origin links only).
+      search: async (ctx, query, limit) => findReports(query, limit),
+    })
+  }
+}
+```
+
+`icon` is one of `workflow`, `telescope`, `media`, `payments`, `agent`, `identity` or `generic`.
 
 ## Dashboard
 

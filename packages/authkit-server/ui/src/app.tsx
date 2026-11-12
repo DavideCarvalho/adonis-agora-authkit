@@ -1,4 +1,5 @@
 import React, { Suspense } from 'react';
+import { ConsoleSearch } from './components/ConsoleSearch';
 import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
 import { useRouter } from './lib/router';
@@ -62,7 +63,7 @@ export function App() {
     <div className="app-shell">
       <Sidebar />
       <main className="main">
-        <Topbar title={PAGE_TITLES[route] ?? 'AuthKit Admin'} />
+        <Topbar title={PAGE_TITLES[route] ?? 'AuthKit Admin'} actions={<ConsoleSearch />} />
         <div className="content">
           <Suspense
             fallback={

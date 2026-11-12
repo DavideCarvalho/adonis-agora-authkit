@@ -1,9 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
 import type { HttpContext } from '@adonisjs/core/http';
+import { countOtherConsoles } from '../../console_switcher.js';
 import { accountPath } from '../account_paths.js';
 import { resolveAccountRoles, rolesManagedExternally } from '../account_roles.js';
 import { getAdminPrefix } from '../admin_prefix.js';
+import { ADMIN_CONSOLE_ID, consoleRegistry } from './admin_console_entry.js';
 
 // ─── Shell HTML cache ─────────────────────────────────────────────────────────
 
@@ -156,6 +158,9 @@ export default class AdminShellController {
     }
 
     const adminBase = getAdminPrefix();
+    // Console switcher: only announced when other `@adonis-agora` consoles are registered; the SPA
+    // then asks the endpoint which of them this viewer may open.
+    const others = countOtherConsoles(await consoleRegistry(), ADMIN_CONSOLE_ID);
     const authkitConfig = {
       adminBase,
       csrfToken: (ctx.request as any).csrfToken ?? null,
@@ -167,6 +172,9 @@ export default class AdminShellController {
         // Confirmação de identidade (sudo) das ações destrutivas.
         confirm: accountPath('confirm'),
       },
+      ...(others > 0 ? { switcher: { endpoint: `${adminBase}/api/consoles`, others } } : {}),
+      // Global search (Ctrl/Cmd-K) across this console and every other one the viewer may open.
+      search: { endpoint: `${adminBase}/api/consoles/search` },
       features: {
         // A página de personal agents só aparece com `personalAgents` no config.
         personalAgents: !!cfg.personalAgents,
