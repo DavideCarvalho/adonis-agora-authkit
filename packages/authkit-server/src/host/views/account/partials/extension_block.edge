@@ -172,7 +172,7 @@
   <section class="rounded-xl bg-white p-4 shadow-xs ring-1 ring-black/5">
     <div id="{{ block.mountId }}" data-block="component" data-provider="{{ block.provider }}" data-props="{{ block.mountId }}-props">
       @if(block.submit)
-        <form method="POST" action="{{ block.submit.href }}" data-component-form>
+        <form method="POST" action="{{ block.submit.postHref }}" data-component-form>
           <input type="hidden" name="_csrf" value="{{ csrfToken }}">
           @if(block.submit.target)
             <input type="hidden" name="target" value="{{ block.submit.target }}">

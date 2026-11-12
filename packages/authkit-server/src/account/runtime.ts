@@ -38,6 +38,8 @@ export interface AccountConsoleConfig {
   extensions?: Record<string, AccountExtensionOverride>;
   /** Budget of one page's `load()`, in ms. Default 5000. */
   loadTimeoutMs?: number;
+  /** Budget of one action's `handle()`, in ms. Default 15000. */
+  actionTimeoutMs?: number;
 }
 
 // ── process state (set when the console routes are mounted) ──────────────────────────────────────
@@ -270,6 +272,8 @@ export interface ResolvedAction {
   step: boolean;
   /** POST target (no step) or the confirmation step (step). */
   href: string;
+  /** Always the POST target of the action (forms that collect the fields themselves). */
+  postHref: string;
   /** JSON endpoint for this action. */
   apiHref: string;
 }
@@ -400,6 +404,7 @@ export function resolveAction(
     sudo: action.sudo === true,
     step,
     href: step ? `${base}/confirm${qs}` : base,
+    postHref: base,
     apiHref: `${joinAccountPath('api')}/x/${encodeURIComponent(page.page.id)}/actions/${encodeURIComponent(ref.action)}`,
   };
 }
@@ -753,11 +758,15 @@ export async function loadResolvedPage(
   const t = translatorFor(request, page);
   let view: AccountPageView;
   try {
-    view = await withTimeout(
+    const loaded = await withTimeout(
       page.page.load(extensionContext(request, query)),
       request.config.loadTimeoutMs ?? 5000,
       'load()',
     );
+    if (!loaded || typeof loaded !== 'object' || !Array.isArray(loaded.blocks)) {
+      throw new Error('load() must return { blocks: [...] }');
+    }
+    view = loaded;
   } catch (error) {
     logExtensionError(page, 'load', error);
     view = {

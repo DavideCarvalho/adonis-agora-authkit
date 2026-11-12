@@ -230,7 +230,8 @@ const payments: AccountExtension = {
 AuthKit renders:
 
 - a mount point `<div data-block="component" data-provider="stripe" data-props="…">`, holding a
-  `<form>` that posts to the `submit` action (with the CSRF token) and the fallback link;
+  `<form>` that posts straight to the `submit` action (with the CSRF token, skipping its
+  confirmation step) and the fallback link;
 - the props as `<script type="application/json">` (data, never executed);
 - each script with the response's CSP `nonce` when your shield sets one.
 
@@ -267,7 +268,8 @@ accountConsole: {
       },
     },
   },
-  loadTimeoutMs: 8000,
+  loadTimeoutMs: 8000, // a page's load(), default 5000
+  actionTimeoutMs: 20000, // an action's handle(), default 15000
 },
 ```
 

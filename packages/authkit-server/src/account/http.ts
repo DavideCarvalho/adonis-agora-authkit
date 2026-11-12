@@ -329,9 +329,14 @@ async function runAction(
     if (!(await isSudoSatisfied(ctx, settings))) return 'sudo';
   }
   const input = validateActionInput(action, raw, t);
+  // The step keeps the posted target even when the fields were refused, so the user can fix them.
+  const rawTarget =
+    typeof raw.target === 'string' && raw.target !== '' && raw.target.length <= 512
+      ? raw.target
+      : null;
   const button = resolveAction(
     page,
-    { action: name, ...(input.ok && input.target ? { target: input.target } : {}) },
+    { action: name, ...(rawTarget ? { target: rawTarget } : {}) },
     t,
   );
   const stepHref = button?.step ? button.href : back;
@@ -347,7 +352,7 @@ async function runAction(
   try {
     result = await withTimeout(
       action.handle(extensionContext(request, {}), { target: input.target, fields: input.fields }),
-      Math.max(request.config.loadTimeoutMs ?? 5000, 15_000),
+      request.config.actionTimeoutMs ?? 15_000,
       'handle()',
     );
   } catch (error) {
@@ -474,9 +479,13 @@ export async function apiAction(ctx: HttpContext) {
   const body = ctx.request.body() as Record<string, unknown>;
   const outcome = await runAction(ctx, found.request, found.page, name, body, true);
   if (outcome === 'sudo') {
+    // Back to the action's confirmation step (target included) when it has one, like the forms.
+    const t = translatorFor(found.request, found.page);
+    const target = typeof body.target === 'string' && body.target !== '' ? body.target : undefined;
+    const button = resolveAction(found.page, { action: name, ...(target ? { target } : {}) }, t);
     return ctx.response.status(403).send(
       apiError('sudo_required', 'Identity confirmation required.', {
-        confirmUrl: sudoUrl(pageHref(found.page)),
+        confirmUrl: sudoUrl(button?.step ? button.href : pageHref(found.page)),
       }),
     );
   }

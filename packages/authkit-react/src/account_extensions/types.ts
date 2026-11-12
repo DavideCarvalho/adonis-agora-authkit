@@ -25,6 +25,8 @@ export interface AccountExtensionActionButton {
   step: boolean;
   /** Server-rendered form target or confirmation step (Edge). */
   href: string;
+  /** Always the POST target of the action. */
+  postHref: string;
   /** JSON endpoint of the action. */
   apiHref: string;
 }

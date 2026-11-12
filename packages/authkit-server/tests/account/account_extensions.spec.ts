@@ -651,6 +651,86 @@ test.group('account extensions | actions', (group) => {
   });
 });
 
+test.group('account extensions | review fixes', (group) => {
+  group.each.teardown(() => resetAccountConsoleState());
+
+  test('a load() that returns no view is isolated too', async ({ assert }) => {
+    const ext = sampleExtension({
+      pages: [{ id: 'billing.a', segment: 'a', title: 'A', load: async () => null as never }],
+    });
+    serve([ext]);
+    const original = console.error;
+    console.error = () => {};
+    try {
+      const { ctx, rendered } = fakeCtx();
+      await showPage(ctx, findPageById('billing.a')!);
+      assert.include(rendered.html ?? '', 'could not be loaded');
+    } finally {
+      console.error = original;
+    }
+  });
+
+  test('refused fields send the user back to the step with the target', async ({ assert }) => {
+    serve([sampleExtension()]);
+    const { ctx, out } = fakeCtx({
+      sudo: true,
+      params: { action: 'cancel' },
+      body: { target: 'sub-a', field_reason: 'nope' },
+    });
+    await postAction(ctx, findPageById('billing.subscription')!);
+    assert.equal(out.location, '/account/billing/actions/cancel/confirm?target=sub-a');
+  });
+
+  test('JSON sudo refusal returns to the step of the attempted action', async ({ assert }) => {
+    serve([sampleExtension()]);
+    const { ctx, out } = fakeCtx({
+      params: { pageId: 'billing.subscription', action: 'cancel' },
+      body: { target: 'sub-a' },
+    });
+    await apiAction(ctx);
+    assert.equal(
+      (out.body as any).error.confirmUrl,
+      `/account/confirm?return_to=${encodeURIComponent('/account/billing/actions/cancel/confirm?target=sub-a')}`,
+    );
+  });
+
+  test('a component form posts to the action even when it has a confirmation step', async ({
+    assert,
+  }) => {
+    const ext = sampleExtension();
+    (ext.pages[1] as any).load = async () => ({
+      blocks: [{ kind: 'component', provider: 'stripe', scripts: [], submit: { action: 'x' } }],
+    });
+    (ext.pages[1] as any).actions = {
+      x: { label: 'X', confirm: 'Sure?', handle: async () => ({ ok: true }) },
+    };
+    serve([ext]);
+    const { ctx, rendered } = fakeCtx();
+    await showPage(ctx, findPageById('billing.other')!);
+    assert.include(rendered.html ?? '', 'action="/account/invoices/actions/x" data-component-form');
+  });
+
+  test('actionTimeoutMs bounds handle()', async ({ assert }) => {
+    const ext = sampleExtension();
+    (ext.pages[1] as any).actions = {
+      slow: { label: 'Slow', handle: () => new Promise(() => {}) },
+    };
+    serve([ext]);
+    const original = console.error;
+    console.error = () => {};
+    try {
+      const { ctx, out } = fakeCtx({
+        params: { pageId: 'billing.other', action: 'slow' },
+        config: { accountConsole: { actionTimeoutMs: 20 } },
+      });
+      await apiAction(ctx);
+      assert.equal(out.statusCode, 400);
+    } finally {
+      console.error = original;
+    }
+  });
+});
+
 test.group('account extensions | JSON API', (group) => {
   group.each.teardown(() => resetAccountConsoleState());
 

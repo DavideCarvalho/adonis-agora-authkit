@@ -20,6 +20,7 @@ const button = {
   sudo: true,
   step: true,
   href: '/account/billing/actions/cancel/confirm?target=sub-a',
+  postHref: '/account/billing/actions/cancel',
   apiHref: '/account/api/x/billing.main/actions/cancel',
 };
 const direct = {
