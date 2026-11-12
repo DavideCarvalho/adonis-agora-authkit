@@ -60,9 +60,10 @@ Ids are stable: use them with `--only` and in CI allowlists.
 
 | Id | What it looks at |
 | --- | --- |
-| `authkit.registered` | The authkit provider is in `adonisrc.ts`. |
+| `authkit.registered` | The authkit provider is in `adonisrc.ts`. An installed lib whose provider is missing shows a warning here. |
 | `authkit.peers` | Every peer dependency is installed in a matching version; optional peers may be absent. |
-| `authkit.agora-siblings` | The app does not mix 0.x and 1.x `@adonis-agora` libs. |
+| `authkit.agora-siblings` | The app does not mix 0.x and 1.x `@adonis-agora` libs (checked on pnpm installs; `@adonis-agora/authkit-poppy` and `@adonis-agora/cms` keep their own version line). |
+| `authkit.doctor-entry` | With `--no-boot`: authkit's checks could be loaded. |
 | `authkit.config-resolves` | `config/authkit.ts` resolves. |
 | `authkit.issuer` | `issuer` is a valid URL and matches `mountPath`. |
 | `authkit.clients` | Where OIDC clients live. |
