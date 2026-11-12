@@ -280,6 +280,63 @@ Organizations 50) and the visible extension pages (100 and up by default), group
 billing, AI and content. Translate an extension's texts with your own `i18n.messages`: your keys
 win over the package's.
 
+## Pages from an app that signs in elsewhere
+
+When the IdP (authkit-server) runs in one app and billing, files or agents run in another app that
+signs in through it with authkit-client, the second app serves its pages to the IdP's console.
+Packages register exactly as they would next to authkit-server: authkit-client binds the same
+`authkit.accountExtensions` registry.
+
+In the app, turn it on:
+
+```ts title="config/authkit_client.ts"
+export default defineConfig({
+  issuer: env.get('AUTHKIT_ISSUER'),
+  clientId: env.get('AUTHKIT_CLIENT_ID'),
+  // ...
+  accountConsole: {
+    remote: true,
+    // optional: how an IdP account maps to your app (default { type: 'User', id: account.id })
+    subject: (account, { tenant }) => ({ type: 'User', id: account.id }),
+  },
+})
+```
+
+`registerOidcClient(router)` mounts `GET`/`POST /.well-known/agora-account-extensions` (use
+`registerAccountExtensionsEndpoint(router)` if you mount the client routes yourself). The IdP posts
+without a CSRF token, so exempt the path in shield:
+
+```ts title="config/shield.ts"
+csrf: {
+  enabled: true,
+  exceptRoutes: ['/.well-known/agora-account-extensions'],
+},
+```
+
+On the IdP, list the app:
+
+```ts title="config/authkit.ts"
+accountConsole: {
+  remote: [
+    { clientId: 'eduliberta', url: 'https://eduliberta.example.com' },
+  ],
+},
+```
+
+| Option | Default | |
+| --- | --- | --- |
+| `clientId` | — | The app's OIDC client id. |
+| `url` | — | The app's base URL (https). |
+| `ttlMs` | `300000` | How long the app's page list is reused before it is fetched again. |
+| `timeoutMs` | `5000` | Budget of one call to the app. Actions use `actionTimeoutMs`. |
+
+The app's pages then appear in the IdP's navigation and URLs (`/account/billing`), next to the
+in-process ones, with the same sign-in, CSRF, sudo, rate limit, impersonation and redirect rules,
+all enforced by the IdP. The app only answers requests signed by the IdP for its own client id with
+the scope `authkit:account-extensions`; browsers never call it. A page whose segment or extension id
+is already used on the IdP is skipped (and logged). When the app is down, its pages stay listed and
+show "could not be loaded"; an app the IdP never reached adds nothing.
+
 ## React (Inertia) hosts
 
 Add the view to your renderer and render the page with `<AccountExtensionPage>`:

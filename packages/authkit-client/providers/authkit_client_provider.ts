@@ -8,6 +8,11 @@ import { RuntimeException } from '@adonisjs/core/exceptions';
 import type { HttpContext } from '@adonisjs/core/http';
 import type { ApplicationService } from '@adonisjs/core/types';
 import { decodeJwt, type JWTVerifyGetKey } from 'jose';
+import {
+  ACCOUNT_EXTENSIONS_BINDING,
+  ClientAccountExtensionRegistry,
+  serveAccountExtensions,
+} from '../src/account_extensions.js';
 import { Authenticator } from '../src/authenticator.js';
 import {
   type AuthorizationRequest,
@@ -425,6 +430,48 @@ export class AuthkitClientManager {
     return {};
   }
 
+  /**
+   * Answers the IdP's account console (`GET`/`POST /.well-known/agora-account-extensions`): the
+   * manifest of this app's account extensions, or one call to them. 404 unless
+   * `accountConsole.remote` is on. Mounted by {@link registerOidcClient}.
+   */
+  async handleAccountExtensions(ctx: HttpContext): Promise<unknown> {
+    const { request, response } = ctx;
+    response.header('Cache-Control', 'no-store');
+    const settings = this.config.accountConsole;
+    if (!settings?.remote) return response.status(404).send({ error: { code: 'not_found' } });
+    let idp: ResolvedIdp;
+    try {
+      idp = await this.#idp();
+    } catch (error) {
+      this.#logger.warn(
+        { err: error, issuer: this.config.issuer },
+        'authkit-client: account extensions called while discovery is failing',
+      );
+      return response.status(503).send({ error: { code: 'temporarily_unavailable' } });
+    }
+    const resolver = ctx.containerResolver;
+    const registry = (await resolver.make(ACCOUNT_EXTENSIONS_BINDING as never)) as {
+      contract: number;
+      extensions?: () => readonly any[];
+    };
+    const method = request.method();
+    const raw = method === 'POST' ? request.raw() : null;
+    const answer = await serveAccountExtensions({
+      method,
+      authorization: request.header('authorization'),
+      rawBody: typeof raw === 'string' ? raw : null,
+      extensions: typeof registry.extensions === 'function' ? registry.extensions() : [],
+      contract: registry.contract,
+      verifier: { issuer: idp.endpoints.issuer, clientId: this.config.clientId, keys: idp.keys },
+      config: settings,
+      make: (binding) => resolver.make(binding as never),
+      log: (message) => this.#logger.warn({}, message),
+    });
+    for (const [name, value] of Object.entries(answer.headers ?? {})) response.header(name, value);
+    return response.status(answer.status).send(answer.body);
+  }
+
   /** Chave de sessão onde o token set ORIGINAL fica guardado durante a impersonação. */
   get #impersonatorKey(): string {
     return `${this.config.sessionKey}_impersonator`;
@@ -620,6 +667,17 @@ export default class AuthkitClientProvider {
     // bound by class, would silently get the real one. Not cached here, so a `swap` of the class
     // also reaches the string key, even after its first use.
     this.app.container.bind('authkit.client', (resolver) => resolver.make(AuthkitClientManager));
+    // Account console extensions register here from their `boot()`, exactly as next to
+    // authkit-server. When authkit-server is in this app too, its registry is the one bound.
+    if (!this.app.container.hasBinding(ACCOUNT_EXTENSIONS_BINDING as never)) {
+      const registry = new ClientAccountExtensionRegistry({
+        production: () => this.app.inProduction === true,
+      });
+      this.app.container.singleton(
+        ACCOUNT_EXTENSIONS_BINDING as never,
+        async () => registry as never,
+      );
+    }
   }
 }
 

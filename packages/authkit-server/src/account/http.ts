@@ -491,3 +491,21 @@ export async function apiAction(ctx: HttpContext) {
   }
   return ctx.response.status(outcome.status).send(outcome.body);
 }
+
+/** A remote app's page (mounted on the catch-all route; `undefined` when it went away). */
+export async function showRemotePage(ctx: HttpContext, page: RegisteredAccountPage | undefined) {
+  return page ? showPage(ctx, page) : notFound(ctx, false);
+}
+
+/** The confirmation step of a remote app's action. */
+export async function showRemoteActionStep(
+  ctx: HttpContext,
+  page: RegisteredAccountPage | undefined,
+) {
+  return page ? showActionStep(ctx, page) : notFound(ctx, false);
+}
+
+/** Runs a remote app's action. */
+export async function postRemoteAction(ctx: HttpContext, page: RegisteredAccountPage | undefined) {
+  return page ? postAction(ctx, page) : notFound(ctx, false);
+}

@@ -21,6 +21,7 @@ import type {
   Value,
 } from './extension.js';
 import type { AccountExtensionRegistryImpl, RegisteredAccountPage } from './registry.js';
+import type { RemoteAccountExtensionSource, RemoteAccountExtensions } from './remote.js';
 
 // ── config ────────────────────────────────────────────────────────────────────────────────────────
 
@@ -40,6 +41,11 @@ export interface AccountConsoleConfig {
   loadTimeoutMs?: number;
   /** Budget of one action's `handle()`, in ms. Default 15000. */
   actionTimeoutMs?: number;
+  /**
+   * Apps that sign in through this IdP and serve their own pages (billing, files…) for this
+   * console. Each must turn on `accountConsole.remote` in its `config/authkit_client.ts`.
+   */
+  remote?: RemoteAccountExtensionSource[];
 }
 
 // ── process state (set when the console routes are mounted) ──────────────────────────────────────
@@ -59,9 +65,19 @@ interface ConsoleState {
   pages: readonly RegisteredAccountPage[];
   builtins: Partial<Record<BuiltinNavId, string>>;
   registry: AccountExtensionRegistryImpl | null;
+  remote: RemoteAccountExtensions | null;
+  /** Segments of the mounted built-in screens. */
+  builtinSegments: readonly string[];
+  overrides?: Readonly<Record<string, AccountExtensionOverride>>;
 }
 
-let state: ConsoleState = { pages: [], builtins: {}, registry: null };
+let state: ConsoleState = {
+  pages: [],
+  builtins: {},
+  registry: null,
+  remote: null,
+  builtinSegments: [],
+};
 
 /** Called by `registerAuthHost` with the mounted screens and the frozen pages. */
 export function setAccountConsoleState(next: Partial<ConsoleState>): void {
@@ -70,20 +86,31 @@ export function setAccountConsoleState(next: Partial<ConsoleState>): void {
 
 /** The served extension pages. */
 export function accountExtensionPages(): readonly RegisteredAccountPage[] {
-  return state.pages;
+  if (!state.remote) return state.pages;
+  const remote = state.remote.pages({
+    taken: new Set([...state.builtinSegments, ...state.pages.map((p) => p.segment)]),
+    takenIds: new Set(state.pages.map((p) => p.extensionId)),
+    ...(state.overrides ? { overrides: state.overrides } : {}),
+  });
+  return remote.length === 0 ? state.pages : [...state.pages, ...remote];
+}
+
+/** The remote pages currently served (for the catch-all routes). */
+export function remoteAccountPageBySegment(segment: string): RegisteredAccountPage | undefined {
+  return accountExtensionPages().find((p) => p.remote !== undefined && p.segment === segment);
 }
 
 /** Resets the process state (tests). */
 export function resetAccountConsoleState(): void {
-  state = { pages: [], builtins: {}, registry: null };
+  state = { pages: [], builtins: {}, registry: null, remote: null, builtinSegments: [] };
 }
 
 export function findPageById(pageId: string): RegisteredAccountPage | undefined {
-  return state.pages.find((p) => p.page.id === pageId);
+  return accountExtensionPages().find((p) => p.page.id === pageId);
 }
 
 export function findPageBySegment(segment: string): RegisteredAccountPage | undefined {
-  return state.pages.find((p) => p.segment === segment);
+  return accountExtensionPages().find((p) => p.segment === segment);
 }
 
 /** Same-origin path of an extension page. */
@@ -696,10 +723,10 @@ export function translatorFor(
   request: ConsoleRequest,
   page: RegisteredAccountPage | null,
 ): (text: Text | undefined | null) => string {
-  const registry = state.registry;
+  const all = [...(state.registry?.extensions() ?? []), ...(state.remote?.extensions() ?? [])];
   const catalogs = page
-    ? [registry?.extensions().find((e) => e.id === page.extensionId)?.messages]
-    : (registry?.extensions().map((e) => e.messages) ?? []);
+    ? [all.find((e) => e.id === page.extensionId)?.messages]
+    : all.map((e) => e.messages);
   return makeTranslator(request.hostMessages, request.locale, catalogs);
 }
 
@@ -822,8 +849,9 @@ export async function buildAccountNav(
     });
   }
   if (request) {
-    const visible = await Promise.all(state.pages.map((p) => isPageVisible(request, p)));
-    state.pages.forEach((page, index) => {
+    const pages = accountExtensionPages();
+    const visible = await Promise.all(pages.map((p) => isPageVisible(request, p)));
+    pages.forEach((page, index) => {
       if (!visible[index] || page.page.nav === false) return;
       const nav = page.page.nav ?? {};
       entries.push({

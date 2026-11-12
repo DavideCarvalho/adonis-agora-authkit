@@ -1,4 +1,4 @@
-import type { Identity } from '@adonis-agora/authkit-core';
+import { ACCOUNT_EXTENSIONS_WELL_KNOWN, type Identity } from '@adonis-agora/authkit-core';
 import type { HttpContext, Router } from '@adonisjs/core/http';
 import { OidcCallbackError } from './authorization.js';
 import type { OidcEndpoints } from './discovery.js';
@@ -33,6 +33,11 @@ export interface RegisterOidcClientOptions {
   postLogoutRedirect?: string | ((ctx: HttpContext) => string);
   /** Registra também `POST {prefix}/backchannel-logout` (OIDC Back-Channel Logout). Default: true. */
   backchannelLogout?: boolean;
+  /**
+   * Registra também `GET`/`POST /.well-known/agora-account-extensions` (account console pages this
+   * app serves to the IdP; 404 until `accountConsole.remote` is on). Default: true.
+   */
+  accountExtensions?: boolean;
   /**
    * Middleware(s) aplicados à rota de login (ex.: `middleware.guest()`). Array no
    * formato aceito por `.use()` do AdonisJS.
@@ -169,6 +174,23 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
       })
       .as('auth.backchannel_logout');
   }
+
+  if (options.accountExtensions !== false) registerAccountExtensionsEndpoint(router);
+}
+
+/**
+ * Mounts `GET`/`POST /.well-known/agora-account-extensions`, where the IdP's account console
+ * fetches this app's account extension pages (answers 404 until `accountConsole.remote` is on).
+ * {@link registerOidcClient} calls it; call it yourself when you mount the client routes by hand.
+ * The IdP POSTs without a CSRF token: add the path to shield's `csrf.exceptRoutes`.
+ */
+export function registerAccountExtensionsEndpoint(router: Router): void {
+  const handle = async (ctx: HttpContext) => {
+    const manager = await ctx.containerResolver.make('authkit.client');
+    return manager.handleAccountExtensions(ctx);
+  };
+  router.get(ACCOUNT_EXTENSIONS_WELL_KNOWN, handle).as('authkit.account_extensions');
+  router.post(ACCOUNT_EXTENSIONS_WELL_KNOWN, handle).as('authkit.account_extensions.call');
 }
 
 /** Resolve o destino pós-login a partir do mapa de redirects por role global (do token). */

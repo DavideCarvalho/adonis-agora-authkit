@@ -5,6 +5,17 @@ export type {
   AuthkitClientManagerDeps,
 } from './providers/authkit_client_provider.js';
 export { AuthkitClientManager } from './providers/authkit_client_provider.js';
+export type {
+  AccountExtensionsAnswer,
+  AccountExtensionsVerifier,
+  ServeAccountExtensionsInput,
+} from './src/account_extensions.js';
+export {
+  ACCOUNT_EXTENSIONS_BINDING,
+  ClientAccountExtensionRegistry,
+  serveAccountExtensions,
+  verifyAccountExtensionsToken,
+} from './src/account_extensions.js';
 export { Authenticator } from './src/authenticator.js';
 export type {
   AuthorizationRequest,
@@ -34,6 +45,7 @@ export {
 export type {
   BackchannelLogoutCallback,
   BackchannelLogoutInput,
+  ClientAccountConsoleConfig,
   ClientConfigInput,
   ResolvedClientConfig,
 } from './src/define_config.js';
@@ -94,7 +106,10 @@ export type {
   PostLoginRedirects,
   RegisterOidcClientOptions,
 } from './src/register_oidc_client.js';
-export { registerOidcClient } from './src/register_oidc_client.js';
+export {
+  registerAccountExtensionsEndpoint,
+  registerOidcClient,
+} from './src/register_oidc_client.js';
 export type {
   LucidRevocationStoreOptions,
   RevocationStore,
