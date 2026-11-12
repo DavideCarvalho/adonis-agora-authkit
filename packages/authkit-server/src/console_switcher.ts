@@ -9,16 +9,6 @@ import type { HttpContext } from '@adonisjs/core/http';
  * structural), so no lib imports another.
  */
 
-declare module '@adonisjs/core/http' {
-  interface HttpContext {
-    /**
-     * `true` while a console switcher runs this console's `authorize` on behalf of another console
-     * (it only asks whether to list it). An authorizer that audits every call can skip then.
-     */
-    agoraProbe?: boolean;
-  }
-}
-
 /** The container binding the registry lives at. */
 export const AGORA_CONSOLES_BINDING = 'agora.consoles';
 
@@ -66,7 +56,7 @@ export interface AgoraConsoleEntry {
   order: number;
   /**
    * The console's resolved gate (the one its own routes run). While a switcher runs it for another
-   * console, `ctx.agoraProbe` is `true`, so an authorizer that writes an audit entry per call can skip.
+   * console, ``ctx.agoraProbe` is `true` (see `isAgoraProbe`), so an authorizer that writes an audit entry per call can skip.
    */
   authorize(ctx: HttpContext): Promise<AgoraConsoleDecision>;
   /** Global search provider. Only called after `authorize` allowed the viewer. */
@@ -226,6 +216,15 @@ async function race<T>(
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+/**
+ * Whether a console switcher is running this `authorize` on behalf of another console (it only asks
+ * whether to list it). The marker is `ctx.agoraProbe === true`, set structurally by every
+ * `@adonis-agora` console; an authorizer that audits every call can skip then.
+ */
+export function isAgoraProbe(ctx: unknown): boolean {
+  return (ctx as { agoraProbe?: unknown } | null)?.agoraProbe === true;
 }
 
 /** Runs `fn` with `ctx.agoraProbe = true`, restoring the previous value afterwards. */

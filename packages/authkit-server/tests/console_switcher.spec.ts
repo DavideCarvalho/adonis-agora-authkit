@@ -1,10 +1,11 @@
 import { test } from '@japa/runner';
-import { setBootedApp } from '../services/booted_app.js';
+import { getBootedApp, setBootedApp } from '../services/booted_app.js';
 import {
   AGORA_CONSOLES_BINDING,
   type AgoraConsoleEntry,
   type AgoraConsoleRegistry,
   countOtherConsoles,
+  isAgoraProbe,
   listVisibleConsoles,
   registerAgoraConsole,
   searchConsoles,
@@ -61,6 +62,15 @@ function registryOf(...entries: AgoraConsoleEntry[]): AgoraConsoleRegistry {
 }
 
 const ctx = () => ({}) as any;
+
+/** The booted app other suites may have left in place, so this file restores it. */
+function currentBootedApp(): any {
+  try {
+    return getBootedApp();
+  } catch {
+    return undefined;
+  }
+}
 
 test.group('registerAgoraConsole', () => {
   test('creates the binding when absent and reuses it when present', async ({ assert }) => {
@@ -171,13 +181,16 @@ test.group('listVisibleConsoles', () => {
     const c = ctx();
     await listVisibleConsoles(
       registryOf(
-        entry('a', { authorize: async (x: any) => (seen.push(x.agoraProbe), { allowed: true }) }),
+        entry('a', {
+          authorize: async (x: any) => (seen.push(isAgoraProbe(x)), { allowed: true }),
+        }),
       ),
       'authkit',
       c,
     );
     assert.deepEqual(seen, [true]);
     assert.notProperty(c, 'agoraProbe');
+    assert.isFalse(isAgoraProbe(c));
   });
 
   test('unknown icon → generic; unsafe path dropped', async ({ assert }) => {
@@ -320,8 +333,9 @@ function adminCtx(opts: {
 
 test.group('adminConsoleDecision (the admin console entry gate)', (group) => {
   group.each.setup(() => {
+    const previous = currentBootedApp();
     setBootedApp({ inProduction: false } as any);
-    return () => setBootedApp(undefined as any);
+    return () => setBootedApp(previous);
   });
 
   test('admin → allowed', async ({ assert }) => {
@@ -429,8 +443,12 @@ test.group('admin console entry', () => {
 });
 
 test.group('admin console switcher routes and shell', (group) => {
+  let previous: any;
+  group.each.setup(() => {
+    previous = currentBootedApp();
+  });
   group.each.teardown(() => {
-    setBootedApp(undefined as any);
+    setBootedApp(previous);
     setAdminPrefix('/admin');
   });
 

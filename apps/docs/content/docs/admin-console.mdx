@@ -510,14 +510,17 @@ agent), the console finds them on its own. Nothing to configure.
 
 With no other console in the app, the brand stays a plain brand and no request is made.
 
-While the menu checks the other consoles, `ctx.agoraProbe` is `true`. An `authorize` that
-writes an audit entry on every call can skip it then:
+While a console's menu checks whether to list the others, it runs their `authorize` with
+`ctx.agoraProbe` set to `true`. An `authorize` that writes an audit entry on every call can
+skip it then with `isAgoraProbe(ctx)`:
 
 ```ts title="config/authkit.ts"
+import { isAgoraProbe } from '@adonis-agora/authkit-server'
+
 admin: {
   authorize: async (ctx) => {
     const allowed = await isStaff(ctx)
-    if (!ctx.agoraProbe) await audit.log('admin.console.open', { allowed })
+    if (!isAgoraProbe(ctx)) await audit.log('admin.console.open', { allowed })
     return allowed
   },
 },

@@ -148,7 +148,11 @@ export type {
   AgoraConsoleRegistry,
   AgoraConsoleSearchHit,
 } from './src/console_switcher.js';
-export { AGORA_CONSOLES_BINDING, registerAgoraConsole } from './src/console_switcher.js';
+export {
+  AGORA_CONSOLES_BINDING,
+  isAgoraProbe,
+  registerAgoraConsole,
+} from './src/console_switcher.js';
 export type {
   AdminApiConfigInput,
   AdminConfigInput,

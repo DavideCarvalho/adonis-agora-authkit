@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
 import RedisMock from 'ioredis-mock';
+import { getBootedApp, setBootedApp } from '../../../services/booted_app.js';
 import { adapters, defineConfig } from '../../../src/define_config.js';
 import ConsoleKeysController from '../../../src/host/admin_console/console_keys_controller.js';
 import { ACCOUNT_SESSION_KEY } from '../../../src/host/middleware/account_auth.js';
@@ -269,7 +270,14 @@ test.group('Console API /keys (session-authed)', (group) => {
     assert.equal(captured.status(), 302);
   });
 
-  test('sessão com role admin → adminGuard deixa passar', async ({ assert }) => {
+  test('sessão com role admin → adminGuard deixa passar', async ({ assert, cleanup }) => {
+    // `admin.authorize` is omitted here, so the console is open only outside production.
+    let previous: ReturnType<typeof getBootedApp> | undefined;
+    try {
+      previous = getBootedApp();
+    } catch {}
+    setBootedApp({ inProduction: false } as never);
+    cleanup(() => setBootedApp(previous as never));
     const { service } = await makeService(path, 9984);
     const account = await service.config.accountStore.create({
       email: 'admin@example.com',
