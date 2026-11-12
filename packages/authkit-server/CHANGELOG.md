@@ -1,5 +1,13 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.15
+
+### Patch Changes
+
+- [#477](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/477) [`c17adde`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/c17addeef2bbc80a1fea41ab5b6848b37fad7f24) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The `authkit:accounts:expire-scan --warn` inactivity warning now goes through the default mailer like every other built-in email: the `mail.onAccountExpirationWarning` hook still wins, otherwise it is sent in the host locale with the host branding (new `mail.account_expiration.*` messages, en + pt-BR) instead of a hardcoded English email.
+  
+  `branding` without `default` (or without `firstParty`) is now resolved once: the default brand falls back to `branding.company`, then `'AuthKit'`, the same precedence the mailer used. Screens without a known client (session expired, throttled, login/consent for an unlisted client) now show the company name and a theme accent instead of the generic fallback, and a missing `firstParty` no longer crashes the consent check. `BrandingConfigInput` makes both fields optional in `defineConfig`.
+
 ## 1.0.0-rc.14
 
 ### Patch Changes
