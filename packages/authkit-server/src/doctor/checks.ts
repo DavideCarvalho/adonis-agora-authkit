@@ -31,6 +31,11 @@ export interface DoctorInput {
    */
   settingsTablePresent?: boolean;
   /**
+   * The app's `config('shield')` (only its `csrf` block is read). `null` = no shield config;
+   * `undefined` = not collected (the CSRF check then cannot tell, and says so).
+   */
+  shieldConfig?: Record<string, any> | null;
+  /**
    * Classes de adapter para detecção de volatilidade (injetadas pelo doctor command
    * em runtime). Quando ausente, o check de volatilidade usa heurística conservadora.
    * Uso interno — não deve ser definido pelo host.
@@ -284,7 +289,109 @@ export function checkSession(input: DoctorInput): Finding[] {
   return findings;
 }
 
-/** Hint de exceções de CSRF do shield para o mountPath. */
+/** A POST endpoint authkit mounts that is called without a browser CSRF token. */
+export interface CsrfExemptEndpoint {
+  /** A concrete request path (what `ctx.request.url()` returns). */
+  path: string;
+  /** The route pattern shield compares against an `exceptRoutes` array (`ctx.route.pattern`). */
+  pattern: string;
+}
+
+/**
+ * The server-to-server POST endpoints authkit mounts, which shield's CSRF check must not reject:
+ * the OIDC provider's token, introspection and revocation endpoints (under the `${mountPath}/*`
+ * wildcard route), PAT introspection, and — with `personalAgents` on — the agents' OAuth
+ * endpoints plus every extension's `csrfExemptPaths`.
+ */
+export function authkitCsrfExemptEndpoints(
+  authkitConfig: Record<string, any> | null,
+): CsrfExemptEndpoint[] {
+  const mount = String(authkitConfig?.mountPath ?? '/oidc').replace(/\/+$/, '') || '/oidc';
+  const endpoints: CsrfExemptEndpoint[] = ['token', 'token/introspection', 'token/revocation'].map(
+    (rest) => ({ path: `${mount}/${rest}`, pattern: `${mount}/*` }),
+  );
+  endpoints.push({ path: '/authkit/pat/introspect', pattern: '/authkit/pat/introspect' });
+  const agents = authkitConfig?.personalAgents as
+    | { prefix?: string; extensions?: Array<{ csrfExemptPaths?: readonly string[] }> }
+    | undefined;
+  if (agents?.prefix) {
+    for (const rest of ['device_authorization', 'token']) {
+      const path = `${agents.prefix}/oauth/${rest}`;
+      endpoints.push({ path, pattern: path });
+    }
+    for (const extension of agents.extensions ?? []) {
+      for (const path of extension.csrfExemptPaths ?? []) endpoints.push({ path, pattern: path });
+    }
+  }
+  return endpoints;
+}
+
+/** A minimal HttpContext for a token-less `POST path`, enough for an `exceptRoutes` function. */
+function csrfProbeContext(endpoint: CsrfExemptEndpoint): unknown {
+  const [pathname, query = ''] = endpoint.path.split('?');
+  const completeUrl = `http://localhost${endpoint.path}`;
+  const request = {
+    url: (includeQueryString?: boolean) =>
+      includeQueryString && query ? `${pathname}?${query}` : pathname,
+    completeUrl: () => completeUrl,
+    method: () => 'POST',
+    intended: () => 'POST',
+    parsedUrl: { pathname, query, href: endpoint.path },
+    header: () => undefined,
+    headers: () => ({}),
+    hostname: () => 'localhost',
+    host: () => 'localhost',
+    protocol: () => 'http',
+    ip: () => '127.0.0.1',
+    input: () => undefined,
+    qs: () => ({}),
+    all: () => ({}),
+    matchesRoute: (identifier: string | string[]) =>
+      (Array.isArray(identifier) ? identifier : [identifier]).includes(endpoint.pattern),
+  };
+  return {
+    request,
+    route: { pattern: endpoint.pattern, methods: ['POST'] },
+    routeKey: `POST-${endpoint.pattern}`,
+  };
+}
+
+/**
+ * Whether shield's CSRF check (as configured in `config/shield.ts`) would reject a token-less POST
+ * to `endpoint`, mirroring `@adonisjs/shield`: CSRF off → no; a non-empty `methods` without POST →
+ * no (an empty or missing `methods` checks every method); `exceptRoutes` as a function → rejected
+ * unless it returns a truthy value for that request; as an array → rejected unless it holds the route
+ * pattern. `'unknown'` when the function throws on the probe context.
+ */
+export function csrfRejects(
+  shieldConfig: Record<string, any> | null | undefined,
+  endpoint: CsrfExemptEndpoint,
+): boolean | 'unknown' {
+  const csrf = shieldConfig?.csrf as
+    | { enabled?: boolean; methods?: string[]; exceptRoutes?: unknown }
+    | undefined;
+  if (!csrf || csrf.enabled !== true) return false;
+  const methods = Array.isArray(csrf.methods)
+    ? csrf.methods.map((m) => String(m).toLowerCase())
+    : [];
+  if (methods.length > 0 && !methods.includes('post')) return false;
+  const except = csrf.exceptRoutes ?? [];
+  if (typeof except === 'function') {
+    try {
+      // Shield skips validation on any truthy return (`!this.#routesToIgnore(ctx)`).
+      return !(except as (ctx: unknown) => unknown)(csrfProbeContext(endpoint));
+    } catch {
+      return 'unknown';
+    }
+  }
+  if (Array.isArray(except)) return !except.includes(endpoint.pattern);
+  return true;
+}
+
+/**
+ * `authkit.shield`: evaluates the app's real `config/shield.ts` against the server-to-server POST
+ * endpoints authkit mounts, and warns only about the ones shield would actually reject.
+ */
 export function checkShield(input: DoctorInput): Finding {
   if (!input.peers.shield) {
     return {
@@ -293,9 +400,39 @@ export function checkShield(input: DoctorInput): Finding {
     };
   }
   const mountPath = input.authkitConfig?.mountPath ?? '/oidc';
+  const helper = `authkitCsrfExceptions(ctx.request.url(), { mountPath: '${mountPath}' })`;
+  if (input.shieldConfig === undefined) {
+    return {
+      level: 'warn',
+      message: `config('shield') was not read, so the CSRF exemptions could not be checked. Make sure config/shield.ts's csrf.exceptRoutes exempts the IdP POST routes under "${mountPath}" (e.g. with ${helper}).`,
+    };
+  }
+  const endpoints = authkitCsrfExemptEndpoints(input.authkitConfig);
+  const rejected: string[] = [];
+  const unknown: string[] = [];
+  for (const endpoint of endpoints) {
+    const verdict = csrfRejects(input.shieldConfig, endpoint);
+    if (verdict === 'unknown') unknown.push(endpoint.path);
+    else if (verdict) rejected.push(endpoint.path);
+  }
+  if (rejected.length > 0) {
+    return {
+      level: 'warn',
+      message: `Shield's CSRF check rejects POST ${rejected.join(', ')} — server-to-server calls to these authkit endpoints fail. Exempt them in config/shield.ts's csrf.exceptRoutes, e.g. \`exceptRoutes: (ctx) => ${helper}\` (combine with your own exemptions using ||).`,
+    };
+  }
+  if (unknown.length > 0) {
+    return {
+      level: 'warn',
+      message: `csrf.exceptRoutes in config/shield.ts threw when probed with POST ${unknown.join(', ')}, so the doctor cannot tell whether they are exempt. Make sure it exempts them (e.g. with ${helper}).`,
+    };
+  }
+  const csrfOn = input.shieldConfig?.csrf?.enabled === true;
   return {
-    level: 'warn',
-    message: `Make sure the IdP POST routes under "${mountPath}" are in the shield CSRF exceptions (e.g. the /token endpoint), otherwise server-to-server calls fail. Use the exported authkitCsrfExceptions(url, { mountPath: '${mountPath}' }) helper in config/shield.ts's exceptRoutes instead of hand-writing the route-pattern check.`,
+    level: 'ok',
+    message: csrfOn
+      ? `shield's CSRF check exempts authkit's server-to-server POST endpoints (${endpoints.length} checked).`
+      : 'shield CSRF is off: authkit endpoints are not affected.',
   };
 }
 

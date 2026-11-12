@@ -51,9 +51,11 @@ export async function buildDoctorInput(
   // senão todo campo aparece como "ausente" (provider cru não tem issuer etc.).
   const authkitConfig = await resolveAuthkitConfig(app, config.get('authkit', null));
   const sessionConfig = (config.get('session', null) as Record<string, any> | null) ?? null;
+  const shieldConfig = (config.get('shield', null) as Record<string, any> | null) ?? null;
   return {
     authkitConfig,
     sessionConfig,
+    shieldConfig,
     peers: {
       session: await canImport('@adonisjs/session', logger),
       shield: await canImport('@adonisjs/shield', logger),

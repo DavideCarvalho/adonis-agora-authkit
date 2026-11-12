@@ -70,7 +70,7 @@ Ids are stable: use them with `--only` and in CI allowlists.
 | `authkit.account-store` | The account store and its capabilities. |
 | `authkit.account-store-columns` | The model behind the account store has the columns authkit reads. |
 | `authkit.session` | `@adonisjs/session` is configured. |
-| `authkit.shield` | Shield's CSRF exceptions for `mountPath`. |
+| `authkit.shield` | Reads `config/shield.ts` and warns only when shield's CSRF check would reject authkit's server-to-server POSTs (`{mountPath}/token`, introspection, revocation, PAT introspection, personal-agent OAuth). An empty `methods` list checks every method; `exceptRoutes` may be a function or a route-pattern array. |
 | `authkit.ally` | `@adonisjs/ally` is present when social login is on. |
 | `authkit.rate-limit` | `@adonisjs/limiter` is present when rate limiting is on. |
 | `authkit.admin` | Admin console roles and `admin.authorize`. |
