@@ -361,6 +361,37 @@ test.group('agora doctor | built-in checks', (group) => {
     assert.notInclude(result.message, 'other');
   });
 
+  test('siblings: npm/yarn nested copies warn too', async ({ assert }) => {
+    const info = {
+      lib: 'demo',
+      package: '@adonis-agora/demo',
+      from: pathToFileURL(join(libDir, 'x.js')).href,
+    };
+    const top = join(root, 'node_modules', '@adonis-agora', 'demo');
+    const nested = join(
+      root,
+      'node_modules',
+      '@adonis-agora',
+      'host',
+      'node_modules',
+      '@adonis-agora',
+      'demo',
+    );
+    await mkdir(top, { recursive: true });
+    await mkdir(nested, { recursive: true });
+    await writeFile(
+      join(top, 'package.json'),
+      JSON.stringify({ name: '@adonis-agora/demo', version: '1.0.0' }),
+    );
+    await writeFile(
+      join(nested, 'package.json'),
+      JSON.stringify({ name: '@adonis-agora/demo', version: '0.9.0' }),
+    );
+    const result = await checkSiblings(fakeApp({ root }), info);
+    assert.equal(result.status, 'warn');
+    assert.include(result.message, '@adonis-agora/demo (0.9.0, 1.0.0)');
+  });
+
   test('built-ins run for every registered lib', async ({ assert }) => {
     const reg: AgoraDoctorRegistry = {
       version: 1,
@@ -393,6 +424,10 @@ test.group('agora doctor | satisfiesRange', () => {
       ['0.4.0', '^0.3.0', false],
       ['1.2.9', '~1.2.0', true],
       ['1.3.0', '~1.2.0', false],
+      ['1.5.0', '~1', true],
+      ['2.0.0', '~1', false],
+      ['1.2.7', '~1.2', true],
+      ['1.3.0', '~1.2', false],
       ['1.0.0-rc.3', '>=0.7.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0', true],
       ['2.0.0-rc.1', '>=0.7.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0', false],
       ['0.6.0', '>=0.7.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0', false],
@@ -559,5 +594,55 @@ test.group('agora doctor | in an app', () => {
     assert.isFalse(booted);
     assert.equal(code, 0);
     assert.equal(JSON.parse(out[0]!).results[0].message, 'registered');
+  });
+
+  test('--no-boot reports a provider whose register() throws', async ({ assert }) => {
+    class Throws {
+      register() {
+        throw new Error('bad register');
+      }
+    }
+    const app = new IgnitorFactory()
+      .withCoreConfig()
+      .merge({
+        config: { app: { appKey: 'a'.repeat(32) } },
+        rcFileContents: { providers: [async () => ({ default: Throws })] },
+      })
+      .create(BOOT_APP)
+      .createApp('console');
+    await app.init();
+    const out: string[] = [];
+    const err: string[] = [];
+    const code = await executeAgoraDoctor(
+      app,
+      { json: true, boot: false },
+      { out: (l) => out.push(l), err: (l) => err.push(l) },
+    );
+    assert.equal(code, 1);
+    assert.match(err.join('\n'), /Throws failed to register: bad register/);
+    const parsed = JSON.parse(out[0]!);
+    assert.equal(parsed.results[0].id, 'agora.no-boot');
+    assert.equal(parsed.summary.error, 1);
+  });
+
+  test('a boot failure exits 2 with a message', async ({ assert }) => {
+    class BootFails {
+      async boot() {
+        throw new Error('cannot boot');
+      }
+    }
+    const app = new IgnitorFactory()
+      .withCoreConfig()
+      .merge({
+        config: { app: { appKey: 'a'.repeat(32) } },
+        rcFileContents: { providers: [async () => ({ default: BootFails })] },
+      })
+      .create(BOOT_APP)
+      .createApp('console');
+    await app.init();
+    const err: string[] = [];
+    const code = await executeAgoraDoctor(app, {}, { out: () => {}, err: (l) => err.push(l) });
+    assert.equal(code, 2);
+    assert.match(err.join('\n'), /failed to boot: cannot boot/);
   });
 });

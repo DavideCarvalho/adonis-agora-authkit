@@ -404,14 +404,27 @@ export async function checkSiblings(
   } catch {
     entries = [];
   }
+  const add = (name: string, version: string) => {
+    if (!watched.has(name)) return;
+    const set = versions.get(name) ?? new Set<string>();
+    set.add(version);
+    versions.set(name, set);
+  };
+  // pnpm: one store directory per installed version.
   for (const entry of entries) {
     const match = /^@adonis-agora\+([^@]+)@([^_]+)/.exec(entry);
-    if (!match) continue;
-    const name = `@adonis-agora/${match[1]}`;
-    if (!watched.has(name)) continue;
-    const set = versions.get(name) ?? new Set<string>();
-    set.add(match[2]!);
-    versions.set(name, set);
+    if (match) add(`@adonis-agora/${match[1]}`, match[2]!);
+  }
+  // npm / yarn: the hoisted copy, plus copies nested under another @adonis-agora package.
+  const scope = join(appRootOf(app), 'node_modules', '@adonis-agora');
+  for (const dir of await readdir(scope).catch(() => [] as string[])) {
+    const top = await readJson(join(scope, dir, 'package.json'));
+    if (top?.name && top.version) add(top.name, top.version);
+    const nestedScope = join(scope, dir, 'node_modules', '@adonis-agora');
+    for (const nested of await readdir(nestedScope).catch(() => [] as string[])) {
+      const pkgJson = await readJson(join(nestedScope, nested, 'package.json'));
+      if (pkgJson?.name && pkgJson.version) add(pkgJson.name, pkgJson.version);
+    }
   }
   const dupes = [...versions.entries()].filter(([, set]) => set.size > 1);
   if (dupes.length === 0) {
@@ -508,7 +521,8 @@ function comparatorOk(version: Parsed, comparator: string): boolean | null {
     }
     case '~':
       return (
-        cmp >= 0 && compare(version, { nums: [low.nums[0], low.nums[1] + 1, 0], pre: [0] }) < 0
+        cmp >= 0 &&
+        compare(version, high ?? { nums: [low.nums[0], low.nums[1] + 1, 0], pre: [0] }) < 0
       );
     default:
       return high ? cmp >= 0 && compare(version, high) < 0 : cmp === 0;
@@ -646,41 +660,55 @@ export interface AgoraDoctorIo {
  * `boot: false`: config is loaded and every provider's `register()` runs, but no `boot()` and no
  * preload, so the registry is filled even when a provider's `boot()` is what fails.
  */
-export async function prepareAgoraDoctorApp(app: ApplicationService, boot: boolean): Promise<void> {
+export async function prepareAgoraDoctorApp(
+  app: ApplicationService,
+  boot: boolean,
+): Promise<AgoraDoctorResult[]> {
+  const problems: AgoraDoctorResult[] = [];
   // Already booted (a test, or a command run from another one): use the app as it is.
   const state = (app as { getState?(): string }).getState?.();
-  if (app.isReady || (state !== undefined && state !== 'initiated')) return;
+  if (app.isReady || (state !== undefined && state !== 'initiated')) return problems;
   if (boot) {
     await app.boot();
     await app.start(() => {});
-    return;
+    return problems;
   }
+  const failed = (provider: string, step: string, error: unknown) =>
+    problems.push({
+      status: 'error',
+      message: `provider ${provider} failed to ${step}: ${error instanceof Error ? error.message : String(error)}`,
+      fix: 'Fix this provider first: its lib registered no checks',
+    });
   type Entry = { file: () => Promise<{ default: new (app: unknown) => object }> };
   const rc = app.rcFile as unknown as { providers: Entry[] };
-  rc.providers = rc.providers.map((entry) => ({
+  const original = rc.providers;
+  rc.providers = original.map((entry) => ({
     ...entry,
     file: async () => {
       let Provider: (new (app: unknown) => { register?(): unknown }) | undefined;
       try {
         Provider = (await entry.file()).default as typeof Provider;
-      } catch {
+      } catch (error) {
         Provider = undefined;
+        failed(`#${original.indexOf(entry) + 1} in adonisrc.ts`, 'load', error);
       }
+      const name = Provider?.name || 'provider';
       return {
         default: class RegisterOnly {
           #inner: { register?(): unknown } | undefined;
           constructor(target: unknown) {
             try {
               this.#inner = Provider ? new Provider(target) : undefined;
-            } catch {
+            } catch (error) {
               this.#inner = undefined;
+              failed(name, 'construct', error);
             }
           }
           async register() {
             try {
               await this.#inner?.register?.();
-            } catch {
-              // --no-boot is best effort: a provider that cannot register contributes no checks.
+            } catch (error) {
+              failed(name, 'register', error);
             }
           }
         },
@@ -688,6 +716,7 @@ export async function prepareAgoraDoctorApp(app: ApplicationService, boot: boole
     },
   }));
   await app.boot();
+  return problems;
 }
 
 export async function executeAgoraDoctor(
@@ -701,7 +730,19 @@ export async function executeAgoraDoctor(
         .map((lib) => lib.trim())
         .filter(Boolean)
     : undefined;
-  await prepareAgoraDoctorApp(app, flags.boot !== false);
+  let problems: AgoraDoctorResult[];
+  try {
+    problems = await prepareAgoraDoctorApp(app, flags.boot !== false);
+  } catch (error) {
+    io.err(
+      `agora:doctor: the app failed to boot: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    io.err('agora:doctor: fix the boot error first, or run with --no-boot');
+    return 2;
+  }
+  for (const problem of problems) io.err(`agora:doctor: ${problem.message}`);
+  // Registrations into an existing registry land a few microtasks after register(): let them settle.
+  await new Promise((resolve) => setImmediate(resolve));
   const container = app.container as unknown as ContainerLike;
   const registry = container.hasBinding(AGORA_DOCTOR_BINDING)
     ? await container.make(AGORA_DOCTOR_BINDING)
@@ -709,6 +750,16 @@ export async function executeAgoraDoctor(
   let result: AgoraDoctorReport;
   try {
     result = await runAgoraDoctor(app, registry, { deep: flags.deep, libs, only: flags.only });
+    for (const problem of problems) {
+      result.results.unshift({
+        id: 'agora.no-boot',
+        lib: 'agora',
+        title: 'Provider register()',
+        ms: 0,
+        ...problem,
+      });
+      result.summary.error++;
+    }
   } catch (error) {
     if (error instanceof AgoraDoctorUsageError) {
       io.err(`agora:doctor: ${error.message}`);

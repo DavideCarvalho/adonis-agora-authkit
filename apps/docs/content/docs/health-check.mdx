@@ -40,7 +40,7 @@ and prints the authkit findings only.
 | `--no-boot` | Loads the config and runs the providers' `register()` only. Use it when the app does not boot. |
 
 Exit codes: `0` no error (warnings allowed), `1` at least one error (or a warning with `--strict`),
-`2` the doctor could not run (an unknown `--lib` or `--only`).
+`2` the doctor could not run (the app failed to boot, or an unknown `--lib` or `--only`). With `--no-boot`, a provider whose `register()` fails is reported as an `agora.no-boot` error.
 
 ## In CI
 
