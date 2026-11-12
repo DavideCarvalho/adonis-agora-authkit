@@ -201,6 +201,12 @@ export function createRemoteAuthkit(opts: RemoteOptions): Authkit {
           `/clients/${encodeURIComponent(id)}/regenerate-secret`,
         );
       },
+      disable(id: string) {
+        return request<AuthkitClient>('POST', `/clients/${encodeURIComponent(id)}/disable`);
+      },
+      enable(id: string) {
+        return request<AuthkitClient>('POST', `/clients/${encodeURIComponent(id)}/enable`);
+      },
       delete(id: string) {
         return request<DeletedClient>('DELETE', `/clients/${encodeURIComponent(id)}`);
       },

@@ -231,6 +231,15 @@ export function useDeleteClientMutationOptions(id: string) {
   } satisfies UseMutationOptions<DeletedResult, AuthkitClientError, void>;
 }
 
+export function useSetClientDisabledMutationOptions(id: string) {
+  const client = useAuthkitClient();
+  return {
+    mutationKey: ['authkit', 'admin', 'clients', id, 'disabled'],
+    mutationFn: (disabled: boolean) =>
+      disabled ? client.admin.clients.disable(id) : client.admin.clients.enable(id),
+  } satisfies UseMutationOptions<AdminClient, AuthkitClientError, boolean>;
+}
+
 export function useRegenerateClientSecretMutationOptions(id: string) {
   const client = useAuthkitClient();
   return {

@@ -163,6 +163,8 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
       tokenEndpointAuthMethod: client.tokenEndpointAuthMethod,
       clientName: client.clientName ?? null,
       logoUri: client.logoUri ?? null,
+      disabled: client.disabled ?? false,
+      serviceTenant: client.serviceTenant ?? null,
     };
   }
 
@@ -207,9 +209,42 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
       clientId: input.clientId?.trim() || undefined,
       redirectUris: input.redirectUris ?? [],
       postLogoutRedirectUris: input.postLogoutRedirectUris ?? [],
-      grantTypes: input.grantTypes ?? [],
+      // A service tenant only uses client_credentials: that is its default grant.
+      grantTypes: input.grantTypes ?? (input.serviceTenant ? ['client_credentials'] : []),
       tokenEndpointAuthMethod: input.tokenEndpointAuthMethod ?? 'client_secret_basic',
+      ...(input.serviceTenant ? { serviceTenant: input.serviceTenant } : {}),
     };
+  }
+
+  /** PATCH: only the fields sent; the service keeps the rest. */
+  function partialClientInput(input: ClientInput) {
+    const out: Record<string, unknown> = {};
+    for (const key of [
+      'redirectUris',
+      'postLogoutRedirectUris',
+      'grantTypes',
+      'tokenEndpointAuthMethod',
+      'serviceTenant',
+    ] as const) {
+      if (input[key] !== undefined) out[key] = input[key];
+    }
+    return out;
+  }
+
+  async function setClientDisabled(id: string, disabled: boolean): Promise<AuthkitClient> {
+    const svc = new AdminClientsService(service);
+    if (!(await svc.setDisabled(id, disabled))) throw new Error('Client não encontrado.');
+    const client = await svc.find(id);
+    await cfg.audit?.record({
+      type: disabled ? 'client.disabled' : 'client.enabled',
+      clientId: id,
+      ip: null,
+      metadata: {
+        actor: 'admin-api',
+        ...(client?.serviceTenant ? { partition: client.serviceTenant.partition } : {}),
+      },
+    });
+    return clientDto(client);
   }
 
   return {
@@ -343,7 +378,7 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
         const svc = new AdminClientsService(service);
         const existing = await svc.find(id);
         if (!existing) throw new Error('Client não encontrado.');
-        await svc.update(id, normalizeClientInput(input));
+        await svc.update(id, partialClientInput(input));
         await cfg.audit?.record({
           type: 'client.updated',
           clientId: id,
@@ -363,6 +398,8 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
         });
         return { clientId: id, clientSecret: secret };
       },
+      disable: (id: string) => setClientDisabled(id, true),
+      enable: (id: string) => setClientDisabled(id, false),
       async delete(id: string): Promise<DeletedClient> {
         const svc = new AdminClientsService(service);
         await svc.delete(id);

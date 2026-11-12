@@ -132,6 +132,7 @@ export type {
   // Admin – Roles
   RoleCatalogEntry,
   RoleListResult,
+  ServiceTenantSettings,
   // Admin – Settings
   SettingEntry,
   SettingListResult,
@@ -366,6 +367,7 @@ export {
   usePersonalAgentConnectionsQueryOptions,
   usePersonalAgentsQueryOptions,
   useRegenerateClientSecretMutationOptions,
+  useSetClientDisabledMutationOptions,
   useRemoveOrgMemberMutationOptions,
   useRemovePersonalAgentEntryMutationOptions,
   useRemoveSettingMutationOptions,

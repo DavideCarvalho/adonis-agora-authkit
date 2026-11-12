@@ -49,12 +49,14 @@ interface ClientsListContainerProps {
   onEdit: (c: AdminClient) => void;
   onDelete: (c: AdminClient) => void;
   onRegenerate: (c: AdminClient) => void;
+  onToggleDisabled: (c: AdminClient) => void;
 }
 
 export function ClientsListContainer({
   onEdit,
   onDelete,
   onRegenerate,
+  onToggleDisabled,
 }: ClientsListContainerProps) {
   const { data, isLoading, error, refetch } = useQuery(useClientsQueryOptions());
   const clients = data?.data ?? [];
@@ -112,7 +114,22 @@ export function ClientsListContainer({
                     <span className={`badge ${c.confidential ? 'badge-accent' : 'badge-muted'}`}>
                       {c.confidential ? 'confidential' : 'public'}
                     </span>
+                    {c.serviceTenant && (
+                      <span className="badge badge-accent" title="Service tenant partition">
+                        tenant: {c.serviceTenant.partition}
+                      </span>
+                    )}
+                    {c.disabled && <span className="badge badge-muted">disabled</span>}
                   </div>
+                  {c.serviceTenant && c.serviceTenant.capabilities.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+                      {c.serviceTenant.capabilities.map((cap) => (
+                        <span key={cap} className="code">
+                          {cap}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
                     {c.grantTypes.map((g) => (
                       <span key={g} className="badge badge-muted">
@@ -141,6 +158,9 @@ export function ClientsListContainer({
                 <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                   <button className="btn btn-sm" onClick={() => onEdit(c)}>
                     Edit
+                  </button>
+                  <button className="btn btn-sm" onClick={() => onToggleDisabled(c)}>
+                    {c.disabled ? 'Enable' : 'Disable'}
                   </button>
                   <button
                     className="btn btn-sm"
