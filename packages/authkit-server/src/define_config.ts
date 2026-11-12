@@ -26,7 +26,7 @@ import {
   type ResolvedBotProtectionConfig,
   resolveBotProtection,
 } from './host/bot_protection.js';
-import { type BrandingConfig, resolveBranding } from './host/branding.js';
+import { type BrandingConfig, type BrandingConfigInput, resolveBranding } from './host/branding.js';
 import {
   deriveLockedRouteOptions,
   deriveLockedSettingKeys,
@@ -1286,8 +1286,8 @@ export interface AuthServerConfigInput {
    * {@link InteractionRecoveryConfigInput}.
    */
   interactionRecovery?: InteractionRecoveryConfigInput;
-  /** Configuração de branding por cliente. */
-  branding?: BrandingConfig;
+  /** Configuração de branding por cliente (`default`/`firstParty` opcionais). */
+  branding?: BrandingConfigInput;
   /**
    * Allowlist dos clients FIRST-PARTY: quem recebe as claims de AUTORIZAÇÃO
    * (`<globalRolesClaim>`, `org_id`, `org_slug`, `org_role`) nos tokens.

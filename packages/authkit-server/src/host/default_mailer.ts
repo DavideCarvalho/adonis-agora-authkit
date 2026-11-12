@@ -2,7 +2,7 @@ import type { HttpContext } from '@adonisjs/core/http';
 import { getBootedApp } from '../../services/booted_app.js';
 import type { ResolvedServerConfig } from '../define_config.js';
 import { accountPath } from './account_paths.js';
-import type { BrandingConfig } from './branding.js';
+import { type BrandingConfig, resolveDefaultBrand } from './branding.js';
 import { type EmailContent, renderTransactionalEmail } from './email_templates.js';
 import { type AuthMessages, resolveMessages, translate } from './i18n.js';
 import { authkitOrigin } from './origin.js';
@@ -167,12 +167,11 @@ async function resolveMailSettings(
     return { brand: { appName: 'AuthKit' }, messages: resolveMessages(), locale: 'en' };
   }
   const branding = resolved.branding as Partial<BrandingConfig> | undefined;
+  const defaultBrand = resolveDefaultBrand(branding);
   return {
     brand: {
-      // `branding.default` é opcional na prática (hosts declaram só `company` + `clients`):
-      // sem ele, o nome do app é a `company`.
-      appName: branding?.default?.appName || branding?.company || 'AuthKit',
-      accent: branding?.default?.accent,
+      appName: defaultBrand.appName,
+      accent: defaultBrand.accent,
       company: branding?.company,
     },
     messages: resolved.messages ?? resolveMessages(),
@@ -712,6 +711,49 @@ export async function sendOtpUnlockEmail(
     ctx.logger.error(
       { err: error, email: data.email },
       'authkit: falha ao enviar e-mail de desbloqueio OTP',
+    );
+  }
+}
+
+/**
+ * Envia o aviso "sua conta será desativada por inatividade em N dias" pelo mailer
+ * default do host, com branding e i18n. Chamado pelo `authkit:accounts:expire-scan --warn`
+ * quando o host não define `mail.onAccountExpirationWarning` — fora de uma request, então
+ * aceita só um `{ logger }` (pino-like) no lugar do `HttpContext`, e o config resolvido
+ * vem do comando. Best-effort: sem `@adonisjs/mail` loga o aviso; nunca lança.
+ */
+export async function sendAccountExpirationWarningEmail(
+  ctx: HttpContext | { logger: Pick<HttpContext['logger'], 'info' | 'error'> },
+  cfg: ResolvedServerConfig,
+  data: { email: string; expiresInDays: number },
+): Promise<void> {
+  const httpCtx = ctx as HttpContext;
+  try {
+    const settings = await resolveMailSettings(httpCtx, cfg);
+    const { brand, messages: t, locale } = settings;
+    const origin = authkitOrigin(cfg);
+    const content = renderTransactionalEmail({
+      brand,
+      locale,
+      linkFallback: translate(t, 'mail.common.link_fallback'),
+      subject: translate(t, 'mail.account_expiration.subject', { days: data.expiresInDays }),
+      heading: translate(t, 'mail.account_expiration.heading', { days: data.expiresInDays }),
+      intro: translate(t, 'mail.account_expiration.intro', { days: data.expiresInDays }),
+      ctaLabel: translate(t, 'mail.account_expiration.cta'),
+      ctaUrl: `${origin}${accountPath('login')}`,
+      footnote: translate(t, 'mail.account_expiration.fallback'),
+    });
+    const sent = await sendEmail(settings, data.email, content);
+    if (!sent) {
+      httpCtx.logger?.info(
+        { email: data.email, expiresInDays: data.expiresInDays },
+        'authkit: aviso de expiração por inatividade (dev — @adonisjs/mail ausente)',
+      );
+    }
+  } catch (error) {
+    httpCtx.logger?.error(
+      { err: error, email: data.email },
+      'authkit: falha ao enviar aviso de expiração por inatividade',
     );
   }
 }
