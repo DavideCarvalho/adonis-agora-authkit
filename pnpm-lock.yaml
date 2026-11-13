@@ -416,8 +416,8 @@ importers:
         specifier: 8.13.1
         version: 8.13.1(@types/ioredis-mock@8.2.8(ioredis@5.11.1(supports-color@10.2.2)))(ioredis@5.11.1(supports-color@10.2.2))
       tempura:
-        specifier: 0.4.1
-        version: 0.4.1
+        specifier: 1.0.1
+        version: 1.0.1(esbuild@0.28.2)(rolldown@1.2.18)(vite@8.3.7(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
       testcontainers:
         specifier: 12.2.1
         version: 12.2.1(bare-buffer@3.7.1)(supports-color@10.2.2)
@@ -777,8 +777,8 @@ importers:
         specifier: catalog:frontend
         version: 4.3.5
       tempura:
-        specifier: 0.4.1
-        version: 0.4.1
+        specifier: 1.0.1
+        version: 1.0.1(esbuild@0.28.2)(rolldown@1.2.18)(vite@8.3.7(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
       testcontainers:
         specifier: 12.2.1
         version: 12.2.1(bare-buffer@3.7.1)(supports-color@10.2.2)
@@ -6678,6 +6678,21 @@ packages:
   tempura@0.4.1:
     resolution: {integrity: sha512-NQ4Cs23jM6UUp3CcS5vjmyjTC6dtA5EsflBG2cyG0wZvP65AV26tJ920MGvTRYIImCY13RBpOhc7q4/pu+FG5A==}
     engines: {node: '>=10'}
+
+  tempura@1.0.1:
+    resolution: {integrity: sha512-e+UZLCLRyG6p5Pb7fK69emcrOaqncob8XoAePNWAH+Y+PeZKQX6fm2f4vaamBzhnQNOAQws2WFSDG7KNs2oRjQ==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      esbuild: '*'
+      rolldown: '*'
+      vite: '*'
+    peerDependenciesMeta:
+      esbuild:
+        optional: true
+      rolldown:
+        optional: true
+      vite:
+        optional: true
 
   terminal-size@4.0.1:
     resolution: {integrity: sha512-avMLDQpUI9I5XFrklECw1ZEUPJhqzcwSWsyyI8blhRLT+8N1jLJWLWWYQpB2q2xthq8xDvjZPISVh53T/+CLYQ==}
@@ -13062,6 +13077,12 @@ snapshots:
       - react-native-b4a
 
   tempura@0.4.1: {}
+
+  tempura@1.0.1(esbuild@0.28.2)(rolldown@1.2.18)(vite@8.3.7(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)):
+    optionalDependencies:
+      esbuild: 0.28.2
+      rolldown: 1.2.18
+      vite: 8.3.7(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)
 
   terminal-size@4.0.1: {}
 
