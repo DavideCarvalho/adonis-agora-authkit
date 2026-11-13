@@ -1,7 +1,13 @@
 import { test } from '@japa/runner';
+import { setBearerAccountId, setBearerImpersonation } from '../src/host/bearer_account.js';
 import { getAccountId, realAccountId } from '../src/host/console_session.js';
-import { rememberAccessToken, startImpersonation } from '../src/host/impersonation_session.js';
+import {
+  impersonationState,
+  rememberAccessToken,
+  startImpersonation,
+} from '../src/host/impersonation_session.js';
 import { ACCOUNT_SESSION_KEY } from '../src/host/middleware/account_auth.js';
+import { OidcService } from '../src/provider/oidc_service.js';
 
 /**
  * ctx falso com uma sessão in-memory (get/put/forget/regenerate) — mesmo harness
@@ -76,5 +82,47 @@ test.group('console_session — realAccountId', () => {
       TARGET,
       'NUNCA o alvo: um role check com o id do alvo entrega ao personificado os privilégios do admin',
     );
+  });
+});
+
+test.group('console_session — bindBearerAccount (bearer verificado fora do guard)', () => {
+  // O método não usa estado do service: chamado direto no prototype, sem montar um provider.
+  const bind = (ctx: object, id: string) =>
+    OidcService.prototype.bindBearerAccount.call({} as any, ctx, id);
+
+  test('getAccountId e realAccountId veem a conta vinculada', ({ assert }) => {
+    const { ctx } = makeCtx({});
+    assert.isNull(getAccountId(ctx), 'pré-condição: sem sessão nem bearer');
+    bind(ctx, 'acct-mcp-1');
+    assert.equal(getAccountId(ctx), 'acct-mcp-1');
+    assert.equal(realAccountId(ctx), 'acct-mcp-1');
+    assert.deepEqual(impersonationState(ctx), { active: false });
+  });
+
+  test('o vínculo é por request (outro ctx não vê a conta)', ({ assert }) => {
+    const { ctx } = makeCtx({});
+    const { ctx: other } = makeCtx({});
+    bind(ctx, 'acct-mcp-1');
+    assert.isNull(getAccountId(other));
+  });
+
+  test('a sessão do console continua ganhando', ({ assert }) => {
+    const { ctx } = makeCtx({ [ACCOUNT_SESSION_KEY]: 'session-acct' });
+    bind(ctx, 'acct-mcp-1');
+    assert.equal(getAccountId(ctx), 'session-acct');
+    assert.equal(realAccountId(ctx), 'session-acct');
+  });
+
+  test('esquece uma impersonation bearer anterior: o chamador não está personificando', ({
+    assert,
+  }) => {
+    const { ctx } = makeCtx({});
+    setBearerAccountId(ctx, 'target-9');
+    setBearerImpersonation(ctx, { actorId: 'admin-1', exp: null, jti: null });
+    assert.isTrue(impersonationState(ctx).active, 'pré-condição: impersonation bearer ativa');
+
+    bind(ctx, 'acct-mcp-1');
+    assert.isFalse(impersonationState(ctx).active);
+    assert.equal(realAccountId(ctx), 'acct-mcp-1');
   });
 });
