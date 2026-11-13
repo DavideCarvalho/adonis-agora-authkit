@@ -10,6 +10,12 @@ import type { HttpContext } from '@adonisjs/core/http';
 import type { ApplicationService, ConfigProvider } from '@adonisjs/core/types';
 import type { EmitterLike } from '@adonisjs/core/types/events';
 import {
+  MCP_RESOURCE_SCOPES,
+  protectedResourceMetadataUrl,
+  registerOAuthResource,
+  resourcePath,
+} from '../mcp/mcp_oauth.js';
+import {
   type AccessTokenVerifier,
   type InProcessIssuer,
   type IssueAccessTokenOptions,
@@ -51,10 +57,35 @@ export interface OidcBearerGuardPolicy {
   audience?: string | string[];
   /** Allowlist de `client_id` cujos tokens são aceitos. Ausente = qualquer client. */
   clientIds?: string[];
+  /**
+   * URL do protected resource (RFC 9728) que o guard protege, já resolvida — ou uma função que a
+   * resolve na primeira request. Com ela, o 401 ganha `resource_metadata` e o `aud` do token tem
+   * de conter o resource. O `oidcBearerGuard({ resource })` preenche isto.
+   */
+  resource?: string | (() => Promise<string>);
 }
 
+/**
+ * O protected resource que um `oidcBearerGuard` protege: a URL exata (`'https://app.example.com/api'`
+ * ou `{ url }`), ou um `path` na origem do issuer embarcado (`{ path: '/api' }`). `name` vira o
+ * `resource_name` do documento RFC 9728.
+ */
+export type OidcBearerGuardResource =
+  | string
+  | { url: string; path?: never; name?: string }
+  | { path: string; url?: never; name?: string };
+
 export type OidcBearerGuardOptions<UserProvider extends SessionUserProviderContract<unknown>> =
-  OidcBearerGuardPolicy & {
+  Omit<OidcBearerGuardPolicy, 'resource'> & {
+    /**
+     * O protected resource desta API (RFC 9728 + RFC 8707). Com ele:
+     *   - o 401 responde `WWW-Authenticate: Bearer …, resource_metadata="<origem>/.well-known/oauth-protected-resource<path>"`,
+     *     de onde um cliente OAuth/MCP descobre o issuer e abre o login;
+     *   - o authkit serve esse documento (modo in-process);
+     *   - o token precisa ter sido emitido para o resource (`aud`), além de qualquer `audience`.
+     * Ausente: comportamento de sempre.
+     */
+    resource?: OidcBearerGuardResource;
     /**
      * User provider — o MESMO tipo do `oidcRpGuard` (`sessionUserProvider(...)`
      * ou `authkitUserProvider()`): o `sub` do token vai para `findById`.
@@ -80,6 +111,30 @@ export type OidcBearerGuardEvents<User> = {
   };
   'oidc_bearer:authentication_failed': { ctx: HttpContext; guardName: string; error: Error };
 };
+
+const trimSlash = (value: string) => value.replace(/\/+$/, '');
+
+/** Valor de um quoted-string (RFC 9110 §5.6.4): escapa `"` e `\`. */
+function quoted(value: string): string {
+  return `"${value.replace(/["\\]/g, '\\$&')}"`;
+}
+
+/**
+ * Desafio `WWW-Authenticate` de um 401 (RFC 6750 §3 + RFC 9728 §5.1): `Bearer`, ou `Bearer` com os
+ * parâmetros presentes separados por vírgula — `error`, `scope`, `resource_metadata`.
+ */
+export function bearerChallenge(params: {
+  error?: string;
+  scope?: string;
+  resourceMetadata?: string;
+}): string {
+  const pairs: string[] = [];
+  if (params.error) pairs.push(`error=${quoted(params.error)}`);
+  if (params.scope) pairs.push(`scope=${quoted(params.scope)}`);
+  if (params.resourceMetadata) pairs.push(`resource_metadata=${quoted(params.resourceMetadata)}`);
+  if (!pairs.length) return 'Bearer';
+  return `Bearer ${pairs.join(', ')}`;
+}
 
 /** `Authorization: Bearer <token>` (RFC 6750 §2.1). Esquema case-insensitive. */
 const BEARER = /^Bearer\s+([A-Za-z0-9\-._~+/]+=*)\s*$/i;
@@ -123,6 +178,8 @@ export class OidcBearerGuard<UserProvider extends SessionUserProviderContract<un
   #userProvider: UserProvider;
   #verifier: AccessTokenVerifier;
   #policy: OidcBearerGuardPolicy;
+  /** URL do resource resolvida nesta request (ver `OidcBearerGuardPolicy.resource`). */
+  #resource?: string;
   #unauthorized?: UnauthorizedAccessConstructor;
 
   declare [symbols.GUARD_KNOWN_EVENTS]: OidcBearerGuardEvents<RealUser<UserProvider>>;
@@ -164,12 +221,17 @@ export class OidcBearerGuard<UserProvider extends SessionUserProviderContract<un
    * `error="invalid_token"` / `"insufficient_scope"`.
    */
   #fail(bearerError?: 'invalid_token' | 'insufficient_scope'): Error {
-    let challenge = 'Bearer';
-    if (bearerError) challenge += ` error="${bearerError}"`;
-    if (bearerError === 'insufficient_scope' && this.#policy.scopes?.length) {
-      challenge += `, scope="${this.#policy.scopes.join(' ')}"`;
-    }
-    this.#ctx.response?.header?.('WWW-Authenticate', challenge);
+    this.#ctx.response?.header?.(
+      'WWW-Authenticate',
+      bearerChallenge({
+        error: bearerError,
+        scope:
+          bearerError === 'insufficient_scope' && this.#policy.scopes?.length
+            ? this.#policy.scopes.join(' ')
+            : undefined,
+        resourceMetadata: this.#resource ? protectedResourceMetadataUrl(this.#resource) : undefined,
+      }),
+    );
     clearBearerAccountId(this.#ctx);
     const error = this.#unauthorizedError('Unauthorized access');
     this.#emitter.emit('oidc_bearer:authentication_failed', {
@@ -210,6 +272,12 @@ export class OidcBearerGuard<UserProvider extends SessionUserProviderContract<un
       const accepted = Array.isArray(audience) ? audience : [audience];
       if (!token.audience.some((a) => accepted.includes(a))) return 'invalid_token';
     }
+    // RFC 8707: o token tem de ter sido emitido PARA este resource. Barra final tolerada, como no
+    // issuer (`https://app/api` ≡ `https://app/api/`).
+    if (this.#resource !== undefined) {
+      const wanted = trimSlash(this.#resource);
+      if (!token.audience.some((a) => trimSlash(a) === wanted)) return 'invalid_token';
+    }
     if (scopes?.length) {
       const granted = new Set(token.scopes);
       if (!scopes.every((s) => granted.has(s))) return 'insufficient_scope';
@@ -223,6 +291,8 @@ export class OidcBearerGuard<UserProvider extends SessionUserProviderContract<un
     }
     this.authenticationAttempted = true;
     this.#unauthorized ??= await loadUnauthorizedAccess('oidcBearerGuard');
+    const { resource } = this.#policy;
+    this.#resource = typeof resource === 'function' ? await resource() : resource;
 
     const raw = this.#bearerToken();
     if (!raw) throw this.#fail();
@@ -288,9 +358,12 @@ export class OidcBearerGuard<UserProvider extends SessionUserProviderContract<un
       );
     }
     const guardUser = await this.#userProvider.createUserForGuard(user);
+    const { resource } = this.#policy;
+    const audience = typeof resource === 'function' ? await resource() : resource;
     const token = await this.#verifier.issue(String(guardUser.getId()), {
       ...options,
       scopes: options?.scopes ?? this.#policy.scopes,
+      audience: options?.audience ?? audience,
     });
     return { headers: { authorization: `Bearer ${token}` } };
   }
@@ -303,6 +376,7 @@ export class OidcBearerGuard<UserProvider extends SessionUserProviderContract<un
 export function oidcBearerGuard<UserProvider extends SessionUserProviderContract<unknown>>(
   config: OidcBearerGuardOptions<UserProvider>,
 ): GuardConfigProvider<(ctx: HttpContext) => OidcBearerGuard<UserProvider>> {
+  const resource = declareResource(config);
   return {
     async resolver(name: string, app: ApplicationService) {
       const emitter = await app.container.make('emitter');
@@ -330,6 +404,7 @@ export function oidcBearerGuard<UserProvider extends SessionUserProviderContract
         scopes: config.scopes,
         audience: config.audience,
         clientIds: config.clientIds,
+        resource: resource?.(app),
       };
 
       return (ctx: HttpContext) =>
@@ -343,5 +418,57 @@ export function oidcBearerGuard<UserProvider extends SessionUserProviderContract
           unauthorized,
         );
     },
+  };
+}
+
+/**
+ * Lê o `resource` do guard e o REGISTRA no authkit (com `metadata: true`): é o que faz o issuer
+ * aceitar o `resource` no authorize (com `mcp` ligado) e o host servir o documento RFC 9728. Roda
+ * quando o `config/auth.ts` é carregado — antes das rotas. Devolve quem resolve a URL do resource.
+ */
+function declareResource(config: {
+  resource?: OidcBearerGuardResource;
+  scopes?: string[];
+  remote?: RemoteAccessTokenVerifierOptions;
+}): ((app: ApplicationService) => () => Promise<string>) | undefined {
+  const declared = config.resource;
+  if (declared === undefined) return undefined;
+  const spec = typeof declared === 'string' ? { url: declared } : declared;
+  const scopes = [...new Set([...MCP_RESOURCE_SCOPES, ...(config.scopes ?? [])])];
+  if (spec.url !== undefined) {
+    let url: URL;
+    try {
+      url = new URL(spec.url);
+    } catch {
+      throw new RuntimeException(
+        `oidcBearerGuard: \`resource\` precisa ser uma URL absoluta, recebeu ${JSON.stringify(spec.url)}.`,
+      );
+    }
+    const resolved = trimSlash(url.href);
+    registerOAuthResource({ url: resolved, scopes, name: spec.name, metadata: true });
+    return () => async () => resolved;
+  }
+  if (!spec.path) {
+    throw new RuntimeException('oidcBearerGuard: `resource` precisa de `url` ou `path`.');
+  }
+  if (config.remote) {
+    throw new RuntimeException(
+      'oidcBearerGuard: `resource: { path }` só funciona com o issuer embarcado (a origem vem dele). No modo `remote`, passe a URL completa do resource.',
+    );
+  }
+  const path = resourcePath(spec.path);
+  registerOAuthResource({ path, scopes, name: spec.name, metadata: true });
+  return (app) => {
+    let url: Promise<string> | undefined;
+    return () => {
+      url ??= (async () => {
+        const issuer = (await app.container.make('authkit.server')) as InProcessIssuer;
+        return `${new URL(issuer.config.issuer).origin}${path}`;
+      })();
+      url.catch(() => {
+        url = undefined;
+      });
+      return url;
+    };
   };
 }

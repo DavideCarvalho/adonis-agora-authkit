@@ -83,6 +83,15 @@ export interface OAuthResourceRegistration {
   path?: string;
   /** Escopos do token para este resource. Default: {@link MCP_RESOURCE_SCOPES}. */
   scopes?: string[];
+  /** `resource_name` do documento RFC 9728, quando o authkit o serve (`metadata: true`). */
+  name?: string;
+  /**
+   * `true`: o authkit serve o documento RFC 9728 deste resource em
+   * `/.well-known/oauth-protected-resource<path>` (é o que o `oidcBearerGuard({ resource })` faz).
+   * Ausente: quem registrou serve o próprio documento (o MCP do `@adonis-agora/agent`), e o authkit
+   * não monta rota nesse path.
+   */
+  metadata?: boolean;
 }
 
 /**
@@ -101,11 +110,20 @@ export function registerOAuthResource(resource: OAuthResourceRegistration): void
   if (!resource.url && !resource.path) {
     throw new Error('authkit: registerOAuthResource precisa de `url` ou `path`.');
   }
-  registry().push({ ...resource });
+  const list = registry();
+  const same = (r: OAuthResourceRegistration) =>
+    r.url === resource.url && r.path === resource.path && !!r.metadata === !!resource.metadata;
+  if (list.some(same)) return;
+  list.push({ ...resource });
 }
 
 export function registeredOAuthResources(): readonly OAuthResourceRegistration[] {
   return registry();
+}
+
+/** `true` quando algum guard do app declarou um resource (`oidcBearerGuard({ resource })`). */
+export function hasGuardResources(): boolean {
+  return registry().some((r) => r.metadata);
 }
 
 const trim = (value: string) => value.replace(/\/+$/, '');
@@ -116,14 +134,18 @@ function normalizePath(path: string): string {
 
 /**
  * O resource MCP que `indicator` nomeia, ou `null`. Casa com `mcp.resources`, com uma URL
- * registrada, ou com um `path` registrado na origem do issuer. Barra final tolerada.
+ * registrada, ou com um `path` registrado na origem do issuer. Barra final tolerada. Com `mcp`
+ * desligado, só os resources que o próprio app declarou num guard (`metadata: true`) valem.
  */
 export function findMcpResource(
   indicator: string,
   issuer: string,
   config: ResolvedMcpOAuthConfig,
 ): { audience: string; scopes: string[] } | null {
-  if (!config.enabled) return null;
+  const resources = config.enabled
+    ? registeredOAuthResources()
+    : registeredOAuthResources().filter((r) => r.metadata);
+  if (resources.length === 0 && !config.enabled) return null;
   let url: URL;
   try {
     url = new URL(indicator);
@@ -131,11 +153,11 @@ export function findMcpResource(
     return null;
   }
   const wanted = trim(url.href);
-  for (const declared of config.resources) {
+  for (const declared of config.enabled ? config.resources : []) {
     if (trim(declared) === wanted) return { audience: trim(declared), scopes: MCP_RESOURCE_SCOPES };
   }
   const issuerOrigin = new URL(issuer).origin;
-  for (const resource of registeredOAuthResources()) {
+  for (const resource of resources) {
     const scopes = resource.scopes ?? MCP_RESOURCE_SCOPES;
     if (resource.url && trim(resource.url) === wanted)
       return { audience: trim(resource.url), scopes };
@@ -149,6 +171,107 @@ export function findMcpResource(
     }
   }
   return null;
+}
+
+/** Path de um resource no documento RFC 9728: `/api`, ou `''` para a raiz da origem. */
+export function resourcePath(path: string): string {
+  const normalized = normalizePath(path);
+  return normalized === '/' ? '' : normalized;
+}
+
+/** Prefixo do documento de um protected resource (RFC 9728 §3.1). */
+export const PROTECTED_RESOURCE_WELL_KNOWN = '/.well-known/oauth-protected-resource';
+
+/**
+ * Onde fica o documento RFC 9728 de `resource`: o segmento well-known entra entre a origem e o
+ * path (§3.1). `https://app/api` → `https://app/.well-known/oauth-protected-resource/api`.
+ */
+export function protectedResourceMetadataUrl(resource: string): string {
+  const url = new URL(resource);
+  return `${url.origin}${PROTECTED_RESOURCE_WELL_KNOWN}${resourcePath(url.pathname)}`;
+}
+
+/** Documento de metadata de um protected resource (RFC 9728 §2). */
+export interface ProtectedResourceMetadata {
+  resource: string;
+  authorization_servers: string[];
+  scopes_supported: string[];
+  bearer_methods_supported: string[];
+  resource_name?: string;
+}
+
+/**
+ * Monta o documento RFC 9728 de `resource` com `issuer` como servidor de autorização. Útil para um
+ * resource server REMOTO (que não hospeda o authkit) servir o próprio documento.
+ */
+export function protectedResourceMetadata(options: {
+  resource: string;
+  issuer: string;
+  scopes?: string[];
+  name?: string;
+}): ProtectedResourceMetadata {
+  return {
+    resource: options.resource,
+    authorization_servers: [options.issuer],
+    scopes_supported: options.scopes ?? MCP_RESOURCE_SCOPES,
+    bearer_methods_supported: ['header'],
+    ...(options.name ? { resource_name: options.name } : {}),
+  };
+}
+
+/** Um documento RFC 9728 que o authkit serve: o `path` da rota e o resource que ele descreve. */
+export interface ServedProtectedResource {
+  /** Sufixo depois de `/.well-known/oauth-protected-resource` (`/api`, ou `''`). */
+  path: string;
+  /** URL exata do resource; ausente = `path` na origem do issuer. */
+  url?: string;
+  scopes: string[];
+  name?: string;
+}
+
+/**
+ * Os documentos RFC 9728 que o authkit serve: os resources registrados com `metadata: true` (o
+ * `oidcBearerGuard({ resource })`) e os de `mcp.resources` na origem do issuer. Paths de resources
+ * registrados SEM `metadata` ficam de fora: a lib que os registrou serve o próprio documento (o MCP
+ * do `@adonis-agora/agent`), e uma segunda rota no mesmo path colidiria. Primeiro a declarar ganha.
+ */
+export function servedProtectedResources(options: {
+  issuer?: string;
+  mcpResources?: readonly string[];
+}): ServedProtectedResource[] {
+  const pathOf = (r: OAuthResourceRegistration) =>
+    resourcePath(r.url ? new URL(r.url).pathname : (r.path ?? ''));
+  const registered = registeredOAuthResources();
+  const taken = new Set(registered.filter((r) => !r.metadata).map(pathOf));
+  const served: ServedProtectedResource[] = [];
+  const add = (entry: ServedProtectedResource) => {
+    if (taken.has(entry.path)) return;
+    taken.add(entry.path);
+    served.push(entry);
+  };
+  for (const r of registered) {
+    if (!r.metadata) continue;
+    add({
+      path: pathOf(r),
+      ...(r.url ? { url: trim(r.url) } : {}),
+      scopes: r.scopes ?? MCP_RESOURCE_SCOPES,
+      ...(r.name ? { name: r.name } : {}),
+    });
+  }
+  const issuerOrigin = options.issuer ? new URL(options.issuer).origin : undefined;
+  for (const declared of options.mcpResources ?? []) {
+    let url: URL;
+    try {
+      url = new URL(declared);
+    } catch {
+      continue;
+    }
+    // Um servidor MCP em outra origem serve o próprio documento: o `resource` do RFC 9728 tem de
+    // bater com a URL de onde o documento foi lido (§3.3).
+    if (url.origin !== issuerOrigin || url.search) continue;
+    add({ path: resourcePath(url.pathname), url: trim(declared), scopes: MCP_RESOURCE_SCOPES });
+  }
+  return served;
 }
 
 /**

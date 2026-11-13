@@ -77,6 +77,8 @@ export interface IssueAccessTokenOptions {
   clientId?: string;
   /** Escopos do token. Default: `['openid']`. */
   scopes?: string[];
+  /** `aud` do token (o resource, RFC 8707). Default: sem `aud`. */
+  audience?: string;
 }
 
 /** O mínimo do `OidcService` que a verificação in-process usa. */
@@ -208,6 +210,7 @@ export function inProcessAccessTokenVerifier(
         clientId: options.clientId ?? 'authkit-test-client',
         scope: (options.scopes ?? ['openid']).join(' '),
         gty: 'authorization_code',
+        ...(options.audience ? { aud: options.audience } : {}),
       });
       return at.save();
     },

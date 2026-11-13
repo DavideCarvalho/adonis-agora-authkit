@@ -1,15 +1,18 @@
 import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
 import AuthorizationServerMetadataController from '../src/controllers/authorization_server_metadata_controller.js';
+import ProtectedResourceMetadataController from '../src/controllers/protected_resource_metadata_controller.js';
 import { adapters, defineConfig } from '../src/define_config.js';
-import { resetAuthHostConfig } from '../src/host/auth_host_config.js';
+import { resetAuthHostConfig, setAuthHostConfig } from '../src/host/auth_host_config.js';
 import { registerAuthHost } from '../src/host/register_auth_host.js';
 import {
   findMcpResource,
   MCP_CLIENT_REDIRECTS,
   mcpClientRegistration,
+  protectedResourceMetadataUrl,
   registerOAuthResource,
   resolveMcpOAuth,
+  servedProtectedResources,
   withOfflineAccess,
 } from '../src/mcp/mcp_oauth.js';
 import { fakeAccountStore } from './bootstrap.js';
@@ -200,5 +203,183 @@ test.group('RFC 8414 metadata at the root', () => {
       response: { response: res },
     } as any);
     assert.deepEqual(seen, ['/oidc/.well-known/oauth-authorization-server']);
+  });
+});
+
+const REGISTRY = Symbol.for('@adonis-agora/oauth:resources');
+
+/** Roda o grupo com o registro global vazio e o restaura no fim. */
+function isolatedRegistry(group: { setup: (fn: () => () => void) => void; each: any }) {
+  group.setup(() => {
+    const saved = (globalThis as Record<symbol, unknown>)[REGISTRY];
+    return () => {
+      (globalThis as Record<symbol, unknown>)[REGISTRY] = saved;
+    };
+  });
+  group.each.setup(() => {
+    (globalThis as Record<symbol, unknown>)[REGISTRY] = [];
+  });
+}
+
+test.group('RFC 9728 protected resource metadata', (group) => {
+  isolatedRegistry(group);
+
+  async function get(path: string, mcp = resolveMcpOAuth({ resources: [`${ORIGIN}/tools`] })) {
+    const headers: Record<string, string> = {};
+    let status = 200;
+    let body: unknown;
+    const response: any = {
+      header: (name: string, value: string) => {
+        headers[name] = value;
+      },
+      json: (b: unknown) => {
+        body = b;
+      },
+      notFound: (b: unknown) => {
+        status = 404;
+        body = b;
+      },
+    };
+    await new ProtectedResourceMetadataController().handle({
+      containerResolver: { make: async () => ({ config: { issuer: ISSUER, mcp } }) },
+      request: { url: () => path },
+      response,
+    } as any);
+    return { status, body, headers };
+  }
+
+  const ORIGIN = 'https://app.example.com';
+
+  test('metadata URL puts the well-known segment between origin and path', ({ assert }) => {
+    assert.equal(
+      protectedResourceMetadataUrl('https://app.example.com/api/v1/'),
+      'https://app.example.com/.well-known/oauth-protected-resource/api/v1',
+    );
+    assert.equal(
+      protectedResourceMetadataUrl('https://api.example.com'),
+      'https://api.example.com/.well-known/oauth-protected-resource',
+    );
+  });
+
+  test('guard resources and same-origin mcp.resources are served; self-serving ones are not', ({
+    assert,
+  }) => {
+    registerOAuthResource({ path: '/mcp/agora' }); // the agent: serves its own document
+    registerOAuthResource({
+      path: '/api',
+      scopes: ['openid', 'read'],
+      name: 'API',
+      metadata: true,
+    });
+    registerOAuthResource({ path: '/mcp/agora', metadata: true }); // would collide: dropped
+    const served = servedProtectedResources({
+      issuer: ISSUER,
+      mcpResources: [`${ORIGIN}/tools`, 'https://elsewhere.example.com/mcp', `${ORIGIN}/api`],
+    });
+    assert.deepEqual(served, [
+      { path: '/api', scopes: ['openid', 'read'], name: 'API' },
+      {
+        path: '/tools',
+        url: `${ORIGIN}/tools`,
+        scopes: ['openid', 'profile', 'email', 'offline_access'],
+      },
+    ]);
+  });
+
+  test('document: resource, issuer, scopes, header bearer, name, CORS', async ({ assert }) => {
+    registerOAuthResource({
+      path: '/api',
+      scopes: ['openid', 'read'],
+      name: 'API',
+      metadata: true,
+    });
+    const { status, body, headers } = await get('/.well-known/oauth-protected-resource/api');
+    assert.equal(status, 200);
+    assert.deepEqual(body, {
+      resource: `${ORIGIN}/api`,
+      authorization_servers: [ISSUER],
+      scopes_supported: ['openid', 'read'],
+      bearer_methods_supported: ['header'],
+      resource_name: 'API',
+    });
+    assert.equal(headers['Access-Control-Allow-Origin'], '*');
+  });
+
+  test('a guard resource declared by URL keeps that URL as `resource`', async ({ assert }) => {
+    registerOAuthResource({ url: 'https://api.example.com', metadata: true });
+    const { body } = await get('/.well-known/oauth-protected-resource');
+    assert.equal((body as any).resource, 'https://api.example.com');
+    assert.notProperty(body as object, 'resource_name');
+  });
+
+  test('mcp.resources on the issuer origin are served', async ({ assert }) => {
+    const { status, body } = await get('/.well-known/oauth-protected-resource/tools');
+    assert.equal(status, 200);
+    assert.equal((body as any).resource, `${ORIGIN}/tools`);
+  });
+
+  test('unknown or self-served paths → 404 (with CORS)', async ({ assert }) => {
+    registerOAuthResource({ path: '/mcp/agora' });
+    for (const path of ['/nope', '/mcp/agora']) {
+      const { status, headers } = await get(`/.well-known/oauth-protected-resource${path}`);
+      assert.equal(status, 404, path);
+      assert.equal(headers['Access-Control-Allow-Origin'], '*');
+    }
+    const off = await get('/.well-known/oauth-protected-resource/tools', resolveMcpOAuth(false));
+    assert.equal(off.status, 404);
+  });
+
+  test('registerAuthHost mounts one route per served resource, before the provider wildcard', ({
+    assert,
+  }) => {
+    registerOAuthResource({ path: '/mcp/agora' });
+    registerOAuthResource({ path: '/api', metadata: true });
+    resetAuthHostConfig();
+    setAuthHostConfig({
+      mountPath: '/oidc',
+      issuer: ISSUER,
+      mcpResources: [`${ORIGIN}/tools`],
+    } as any);
+    try {
+      const { router, routes } = recordingRouter();
+      registerAuthHost(router, { mountPath: '/oidc' } as any);
+      const patterns = routes
+        .filter((r) => r.pattern.startsWith('/.well-known/oauth-protected-resource'))
+        .map((r) => r.pattern);
+      assert.deepEqual(patterns, [
+        '/.well-known/oauth-protected-resource/api',
+        '/.well-known/oauth-protected-resource/tools',
+      ]);
+      const names = routes
+        .map((r) => r.name)
+        .filter((n) => n?.startsWith('authkit.oauth_protected'));
+      assert.lengthOf(new Set(names), 2);
+      const wildcard = routes.findIndex((r) => r.name === 'authkit.oidc.wildcard');
+      const last = routes.findIndex(
+        (r) => r.pattern === '/.well-known/oauth-protected-resource/tools',
+      );
+      assert.isBelow(last, wildcard);
+    } finally {
+      resetAuthHostConfig();
+    }
+  });
+
+  test('no guard resource and no mcp resources → no route', ({ assert }) => {
+    registerOAuthResource({ path: '/mcp/agora' });
+    resetAuthHostConfig();
+    const { router, routes } = recordingRouter();
+    registerAuthHost(router, { mountPath: '/oidc' } as any);
+    assert.isFalse(routes.some((r) => r.pattern.includes('oauth-protected-resource')));
+  });
+
+  test('issuer accepts a guard resource as RFC 8707 target even with mcp off', ({ assert }) => {
+    registerOAuthResource({ path: '/api', scopes: ['openid', 'read'], metadata: true });
+    registerOAuthResource({ path: '/mcp/agora' });
+    const off = resolveMcpOAuth(false);
+    assert.deepEqual(findMcpResource(`${ORIGIN}/api`, ISSUER, off), {
+      audience: `${ORIGIN}/api`,
+      scopes: ['openid', 'read'],
+    });
+    assert.isNull(findMcpResource(`${ORIGIN}/mcp/agora`, ISSUER, off));
   });
 });

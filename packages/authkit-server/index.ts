@@ -439,12 +439,17 @@ export type {
   OidcBearerGuardEvents,
   OidcBearerGuardOptions,
   OidcBearerGuardPolicy,
+  OidcBearerGuardResource,
 } from './src/host/oidc_bearer_guard.js';
 // @adonisjs/auth integration (opt-in) — guard de access token (Authorization:
 // Bearer) pra APIs chamadas por apps nativos (RFC 8252), SPAs e serviços. Par do
 // oidcRpGuard para clientes sem sessão web; verifica in-process (issuer embarcado)
 // ou como resource server remoto (JWKS / introspecção).
-export { OidcBearerGuard, oidcBearerGuard } from './src/host/oidc_bearer_guard.js';
+export {
+  bearerChallenge,
+  OidcBearerGuard,
+  oidcBearerGuard,
+} from './src/host/oidc_bearer_guard.js';
 export type { OidcRpGuardEvents, OidcRpGuardOptions } from './src/host/oidc_rp_guard.js';
 // @adonisjs/auth integration (opt-in) — guard pra Relying Parties OIDC.
 // O RP não autentica ninguém (sem senha); a identidade vem da sessão gravada
@@ -616,6 +621,9 @@ export {
   MCP_RESOURCE_SCOPES,
   type McpOAuthConfigInput,
   type OAuthResourceRegistration,
+  type ProtectedResourceMetadata,
+  protectedResourceMetadata,
+  protectedResourceMetadataUrl,
   registeredOAuthResources,
   registerOAuthResource,
 } from './src/mcp/mcp_oauth.js';

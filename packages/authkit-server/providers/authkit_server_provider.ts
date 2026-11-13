@@ -129,6 +129,8 @@ export default class AuthkitServerProvider {
     const { setAuthHostConfig } = await import('../src/host/auth_host_config.js');
     setAuthHostConfig({
       mountPath: config.mountPath,
+      issuer: config.issuer,
+      mcpResources: config.mcp?.enabled ? config.mcp.resources : [],
       social: config.social,
       rateLimit: config.rateLimit,
       adminEnabled: config.admin.enabled,

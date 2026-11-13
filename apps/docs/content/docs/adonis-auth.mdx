@@ -406,6 +406,10 @@ guards: {
 session. The full walkthrough — creating a native client, the Expo sign-in, refresh rotation,
 options and verification modes — is in [Native apps](/docs/native-apps).
 
+Add `resource: { path: '/api' }` (or a full URL) and the 401 also carries
+`resource_metadata="https://acme.com/.well-known/oauth-protected-resource/api"`, so an MCP or OAuth
+client finds your login by itself; see [MCP clients](/docs/mcp-clients#an-app-api-that-mcp-and-oauth-clients-call).
+
 ## The payoff
 
 From here, everything is ordinary AdonisJS. All three configurations produce the same three
