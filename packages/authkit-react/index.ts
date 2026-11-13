@@ -75,6 +75,8 @@ export type {
   AdminClient,
   AdminClientListResult,
   AdminGrantEntry,
+  // Lists
+  AdminListParams,
   AdminOrgDetail,
   // Admin – Orgs
   AdminOrgEntry,
@@ -83,6 +85,8 @@ export type {
   AdminOrgMember,
   AdminOverview,
   AdminSessionEntry,
+  AdminSessionListParams,
+  AdminSessionListResult,
   // Admin – Usuários
   AdminUser,
   AdminUserListResult,
@@ -103,6 +107,9 @@ export type {
   CreateRoleInput,
   CreateTokenInput,
   CreateUserInput,
+  CursorListParams,
+  CursorPageMeta,
+  CursorPageResponse,
   // Admin – Overview
   DailyPoint,
   DeactivateOrgResult,
@@ -116,14 +123,14 @@ export type {
   // Admin – Keys
   KeysStatus,
   LeaveOrgResult,
-  // Paginação
-  ListMeta,
   ManagedKeyInfo,
   // Account – MFA (escrita headless)
   MfaConfirmResult,
   MfaDisableResult,
   MfaEnrollResult,
   MfaRecoveryCodesResult,
+  OffsetPage,
+  OffsetPageMeta,
   OkResult,
   PasskeyRegistrationOptions,
   // Account – MFA / Passkeys

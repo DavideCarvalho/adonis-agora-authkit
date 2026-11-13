@@ -1,12 +1,62 @@
 import { createHash } from 'node:crypto';
-import { ADMIN_LIST_HTTP_DEFAULT_SIZE, normalizeListSize, resolveListPage } from '../pagination.js';
+import { decodeCursor, encodeCursor } from '@adonis-agora/filter';
+import { DateTime } from 'luxon';
+import { ADMIN_LIST_HTTP_DEFAULT_SIZE, normalizeListSize } from '../pagination.js';
 import type {
   AuditEvent,
   AuditPage,
   AuditSink,
+  CountAuditParams,
   ListAuditParams,
   StoredAuditEvent,
 } from './audit_sink.js';
+
+/** Narrows an audit query to the requested type(s) and subject. */
+function filtered(q: any, params: CountAuditParams): any {
+  const types = params.type === undefined ? [] : ([] as string[]).concat(params.type);
+  if (types.length === 1) q.where('type', types[0]);
+  else if (types.length > 1) q.whereIn('type', types);
+  if (params.subject) q.where('accountId', params.subject);
+  return q;
+}
+
+/** A Lucid `createdAt` (luxon), a `Date` or an ISO string, as an ISO string. */
+function isoOf(value: any): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value.toISO === 'function') return value.toISO();
+  if (value instanceof Date) return value.toISOString();
+  return String(value);
+}
+
+function toStored(row: any): StoredAuditEvent {
+  return {
+    id: String(row.id),
+    type: row.type,
+    accountId: row.accountId ?? null,
+    email: row.email ?? null,
+    clientId: row.clientId ?? null,
+    actorId: row.actorId ?? null,
+    ip: row.ip ?? null,
+    metadata: row.metadata ?? undefined,
+    createdAt: isoOf(row.createdAt),
+  };
+}
+
+/** The row's position in the log (`createdAt`, primary key), as an opaque cursor. */
+function encodeAuditCursor(row: any): string {
+  return encodeCursor([isoOf(row.createdAt), row.$primaryKeyValue ?? row.id]);
+}
+
+/** A cursor back to `{ at, id }`; `null` for anything this sink did not produce. */
+function decodeAuditCursor(cursor: string): { at: DateTime; id: unknown } | null {
+  const values = decodeCursor(cursor);
+  if (!values || values.length !== 2 || typeof values[0] !== 'string') return null;
+  const at = DateTime.fromISO(values[0]);
+  if (!at.isValid) return null;
+  const id = values[1];
+  if (typeof id !== 'string' && typeof id !== 'number') return null;
+  return { at, id };
+}
 
 /**
  * Pseudônimo estável para um accountId anonimizado: `anon:<sha256(accountId)[:16]>`.
@@ -45,38 +95,56 @@ export function lucidAuditSink(Model: any): AuditSink {
     },
 
     async list(params: ListAuditParams): Promise<AuditPage> {
-      const page = resolveListPage(params.page);
+      // The primary key breaks ties between events written in the same instant.
+      const pk: string = Model.primaryKey ?? 'id';
       const size = normalizeListSize(params.size, ADMIN_LIST_HTTP_DEFAULT_SIZE);
+      const after = params.after ? decodeAuditCursor(params.after) : null;
+      const before = !after && params.before ? decodeAuditCursor(params.before) : null;
+      const backward = before !== null;
+      const seek = after ?? before;
 
-      const base = () => {
-        const q = Model.query();
-        if (params.type) q.where('type', params.type);
-        if (params.subject) q.where('accountId', params.subject);
-        return q;
+      // Newest first: (createdAt, id) DESC. Going backward the seek and the order flip, and the
+      // rows are flipped back below. One extra row tells whether a further page exists.
+      const q = filtered(Model.query(), params);
+      if (seek) {
+        const op = backward ? '>' : '<';
+        // Formatted the way Lucid writes `createdAt` for this dialect: nested `where` callbacks
+        // do not convert a luxon value, and the comparison must be against the stored form.
+        const format = q.client?.dialect?.dateTimeFormat;
+        const at = format ? seek.at.toFormat(format) : seek.at.toJSDate();
+        q.where((w: any) => {
+          w.where('createdAt', op, at).orWhere((eq: any) => {
+            eq.where('createdAt', at).where(pk, op, seek.id);
+          });
+        });
+      }
+      const dir = backward ? 'asc' : 'desc';
+      const rows = await q
+        .orderBy('createdAt', dir)
+        .orderBy(pk, dir)
+        .limit(size + 1);
+
+      const hasMore = rows.length > size;
+      let page = hasMore ? rows.slice(0, size) : rows;
+      if (backward) page = page.slice().reverse();
+
+      const data: StoredAuditEvent[] = page.map(toStored);
+      const first = page[0];
+      const last = page[page.length - 1];
+      const hasNext = backward ? seek !== null : hasMore;
+      const hasPrev = backward ? hasMore : seek !== null;
+      return {
+        data,
+        nextCursor: hasNext && last ? encodeAuditCursor(last) : null,
+        prevCursor: hasPrev && first ? encodeAuditCursor(first) : null,
+        hasNext,
+        hasPrev,
       };
+    },
 
-      const countResult = await base().count('* as total');
-      const total = Number(countResult[0]?.$extras?.total ?? 0);
-
-      const rows = await base()
-        .orderBy('createdAt', 'desc')
-        .offset((page - 1) * size)
-        .limit(size);
-
-      const data: StoredAuditEvent[] = rows.map((row: any) => ({
-        id: String(row.id),
-        type: row.type,
-        accountId: row.accountId ?? null,
-        email: row.email ?? null,
-        clientId: row.clientId ?? null,
-        actorId: row.actorId ?? null,
-        ip: row.ip ?? null,
-        metadata: row.metadata ?? undefined,
-        // createdAt é um luxon DateTime no Lucid; normaliza para ISO string.
-        createdAt: row.createdAt?.toISO?.() ?? row.createdAt ?? null,
-      }));
-
-      return { data, total };
+    async count(params: CountAuditParams): Promise<number> {
+      const result = await filtered(Model.query(), params).count('* as total');
+      return Number(result[0]?.$extras?.total ?? 0);
     },
 
     /**

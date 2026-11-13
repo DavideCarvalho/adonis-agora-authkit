@@ -268,7 +268,7 @@ function DisableButton({ id }: { id: string }) {
 }
 
 function Users() {
-  const { data } = useQuery(useUsersQueryOptions({ page: 1 }))
+  const { data } = useQuery(useUsersQueryOptions({ page: 1, size: 20 }))
   return (
     <ul>
       {data?.data.map((user) => (
@@ -444,7 +444,7 @@ under `{prefix}/api/*`. All endpoints are protected by the `adminGuard`.
 | `GET {prefix}/*` | Shell HTML — catches all SPA deep links |
 | `GET {prefix}/assets/*` | Bundled JS/CSS/fonts (hashed names, `Cache-Control: immutable`) |
 | `GET {prefix}/api/overview` | Dashboard metrics (total users, MAU, sessions, daily charts) |
-| `GET {prefix}/api/users` | List/search users — `?search&page&size`, paginated `{ meta, data }` |
+| `GET {prefix}/api/users` | Page of users — `?search&sort&page&size` (see [list format](/docs/admin-api)) |
 | `GET {prefix}/api/users/:id` | User detail |
 | `POST {prefix}/api/users` | Create user |
 | `PATCH {prefix}/api/users/:id/roles` | Update roles |
@@ -454,9 +454,9 @@ under `{prefix}/api/*`. All endpoints are protected by the `adminGuard`.
 | `DELETE {prefix}/api/users/:id` | Delete user (cascade + anonymize) |
 | `GET {prefix}/api/users/:id/sessions` | List a single user's active sessions |
 | `POST {prefix}/api/users/:id/revoke-sessions` | Disconnect a user from all devices (revoke all their sessions + grants) |
-| `GET {prefix}/api/sessions` | List active sessions/grants (all accounts) |
+| `GET {prefix}/api/sessions` | Page of active sessions — `?filter[accountId]&search&sort&page&size`; `search` matches email or IP, `sort` is `-loginTs` (default) or `email` |
 | `POST {prefix}/api/sessions/revoke-all` | Revoke all sessions for an account |
-| `GET {prefix}/api/clients` | List adapter-stored OIDC clients |
+| `GET {prefix}/api/clients` | Page of adapter-stored OIDC clients — `?search&sort&page&size` |
 | `POST {prefix}/api/clients` | Create a dynamic client |
 | `GET {prefix}/api/clients/:id` | One client (`404` if unknown) |
 | `PATCH {prefix}/api/clients/:id` | Edit a dynamic client |
@@ -468,7 +468,7 @@ under `{prefix}/api/*`. All endpoints are protected by the `adminGuard`.
 | `POST {prefix}/api/roles` | Add a role to the catalog |
 | `PATCH {prefix}/api/roles/:name` | Update a catalog role |
 | `DELETE {prefix}/api/roles/:name` | Remove a catalog role |
-| `GET {prefix}/api/orgs` | List organizations |
+| `GET {prefix}/api/orgs` | Page of organizations — `?search&sort&page&size` |
 | `POST {prefix}/api/orgs` | Create an organization |
 | `GET {prefix}/api/orgs/:id` | Org detail |
 | `PATCH {prefix}/api/orgs/:id` | Update an organization (name, slug, logo) |
@@ -478,7 +478,7 @@ under `{prefix}/api/*`. All endpoints are protected by the `adminGuard`.
 | `DELETE {prefix}/api/orgs/:id/members/:accountId` | Remove a member |
 | `POST {prefix}/api/orgs/:id/invitations` | Create an email invitation |
 | `DELETE {prefix}/api/orgs/:id/invitations/:invitationId` | Revoke a pending invitation |
-| `GET {prefix}/api/audit` | Browse audit log — `?type&subject&page&size`, paginated `{ meta, data }` |
+| `GET {prefix}/api/audit` | Audit log, newest first, by cursor — `?filter[type]&filter[subject]&after&before&first&last` |
 | `GET {prefix}/api/settings` | Read all runtime settings (add `?organizationId=` for org-scoped) |
 | `PUT {prefix}/api/settings/:key` | Upsert a setting — **423** when locked by config |
 | `DELETE {prefix}/api/settings/:key` | Delete a setting (reset to lib default) — **423** when locked |
@@ -571,8 +571,8 @@ and the audit sink into one payload:
 
 Everything after the user count depends on optional capabilities, and the response says so
 rather than guessing: when the audit sink cannot be queried (`list` is not implemented) the
-payload reports `auditSupported: false`, MAU and the per-day series come back zeroed, the
-audit total is `0`, and the recent-activity list is empty. The static counts still render.
+payload reports `auditSupported: false`, MAU and the per-day series come back zeroed, and
+the recent-activity list is empty. The audit total is `null` when the sink has no `count`. The static counts still render.
 Active sessions behave the same way: the adapter's enumeration is optional, and the count
 is `null` rather than a fabricated zero when it is unavailable.
 
@@ -848,7 +848,7 @@ everywhere because they live in the database.
 | Route | |
 | --- | --- |
 | `GET {prefix}/api/personal-agents` | Agents, with config/console status and connection counts. |
-| `GET {prefix}/api/personal-agents/connections?clientId=&accountId=&protocol=&page=&size=` | Live connections (`{ meta, data }`). |
+| `GET {prefix}/api/personal-agents/connections?filter[clientId]=&filter[accountId]=&filter[protocol]=&page=&size=` | Page of live connections, newest first. |
 | `POST {prefix}/api/personal-agents/connections/:grantId/revoke` | Revoke one connection. |
 | `POST {prefix}/api/personal-agents/registry` | `{ protocol, identifier, status: 'allowed' \| 'blocked', name?, jwksUri? }`. |
 | `DELETE {prefix}/api/personal-agents/registry/:id` | Remove a console entry (unblock / un-allow). |
@@ -870,7 +870,7 @@ Claude Code, with no extra config. The admin console must be on.
 | `authkit_list_user_grants` | read | `accountId`: the apps the account granted, with live token counts. |
 | `authkit_list_orgs` / `authkit_get_org` | read | Organizations; one organization with members and pending invitations. |
 | `authkit_list_clients` | read | OIDC clients (never the secret). |
-| `authkit_list_audit` | read | `type`, `subject`, `page`, `limit`: the audit log. |
+| `authkit_list_audit` | read | `type`, `subject`, `cursor`, `limit`: the audit log, newest first; pass a result's `next` as `cursor` for the next page. |
 | `authkit_revoke_user_sessions` | action, destructive | `accountId`: ends every session and grant of the account. |
 | `authkit_disable_user` | action, destructive | `accountId`: disables the account (listed only when the store can). |
 

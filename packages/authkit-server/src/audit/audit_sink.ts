@@ -167,32 +167,38 @@ export interface StoredAuditEvent extends AuditEvent {
 }
 
 /**
- * Filtros de listagem do log de auditoria (console admin).
+ * What {@link AuditSink.list} returns: one page of the log, NEWEST FIRST, read by cursor.
  *
- * O par `{ page, size }` espelha INTENCIONALMENTE o shape de paginação por
- * offset de `@adonis-agora/filter` (`FilterInput.page`/`.size`), para manter a
- * mesma interface em todo o ecossistema `@adonis-agora/*`. É um casamento
- * ESTRUTURAL: não há dependência de `@adonis-agora/filter` aqui.
+ * The log is append-only and grows without bound, so it pages by an opaque cursor rather than
+ * by page number: `after` = the `nextCursor` of the previous page (older events), `before` =
+ * the `prevCursor` of a page (newer events). The cursor's content is the sink's business; the
+ * caller hands back what the sink returned.
  */
 export interface ListAuditParams {
-  /** Página (1-based). Default: 1. */
-  page?: number;
-  /**
-   * Itens por página. Default: 20; limitado a `ADMIN_LIST_MAX_SIZE` (200).
-   *
-   * Renomeado de `limit` para `size` para casar com `@adonis-agora/filter`.
-   */
-  size?: number;
-  /** Filtra por tipo de evento exato. */
-  type?: string;
-  /** Filtra pelo subject (accountId) do evento. */
+  /** Only events of this type (or of any of these types). */
+  type?: string | readonly string[];
+  /** Only events about this account (`accountId`). */
   subject?: string;
+  /** Events per page. Default 20. */
+  size?: number;
+  /** The page after this cursor (older events). Wins over `before`. */
+  after?: string;
+  /** The page before this cursor (newer events). */
+  before?: string;
 }
 
-/** Página de eventos + total absoluto. */
+/** The filters of {@link AuditSink.count}. */
+export type CountAuditParams = Pick<ListAuditParams, 'type' | 'subject'>;
+
+/** One page of events, newest first, and the cursors around it. */
 export interface AuditPage {
   data: StoredAuditEvent[];
-  total: number;
+  /** Cursor of the next (older) page, `null` on the last one. */
+  nextCursor: string | null;
+  /** Cursor of the previous (newer) page, `null` on the first one. */
+  prevCursor: string | null;
+  hasNext: boolean;
+  hasPrev: boolean;
 }
 
 /**
@@ -205,8 +211,10 @@ export interface AuditPage {
  */
 export interface AuditSink {
   record(event: AuditEvent): Promise<void>;
-  /** Lista eventos paginados (opcional — só sinks que suportam consulta). */
+  /** One page of events, newest first (optional: only sinks that can be queried). */
   list?(params: ListAuditParams): Promise<AuditPage>;
+  /** How many events match (optional; the admin overview shows it when present). */
+  count?(params: CountAuditParams): Promise<number>;
   /**
    * Anonimiza (LGPD/GDPR) os eventos de uma conta SEM apagar o histórico: remove
    * os identificadores pessoais (`email`, `ip`) e re-escreve o `accountId` para um

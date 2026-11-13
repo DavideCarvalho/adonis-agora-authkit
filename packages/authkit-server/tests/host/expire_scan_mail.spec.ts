@@ -6,6 +6,7 @@ import {
   __setMailLoaderForTests,
 } from '../../src/host/default_mailer.js';
 import { resolveMessages } from '../../src/host/i18n.js';
+import { auditPageOf } from '../helpers/memory_audit_list.js';
 
 /**
  * Regressão: o `authkit:accounts:expire-scan --warn` montava o PRÓPRIO e-mail de aviso,
@@ -44,12 +45,11 @@ function makeAudit(recorded: AuditEvent[]): AuditSink {
     },
     async list(params) {
       if (params.type === 'login.success' && params.subject === 'acc-warn') {
-        return {
-          data: [{ type: 'login.success', accountId: 'acc-warn', createdAt: lastLogin } as any],
-          total: 1,
-        };
+        return auditPageOf([
+          { type: 'login.success', accountId: 'acc-warn', createdAt: lastLogin } as any,
+        ]);
       }
-      return { data: [], total: 0 };
+      return auditPageOf([]);
     },
   };
 }

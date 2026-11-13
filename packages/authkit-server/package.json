@@ -122,6 +122,7 @@
   },
   "dependencies": {
     "@adonis-agora/authkit-core": "workspace:*",
+    "@adonis-agora/filter": "^1.0.0-rc.5",
     "@simplewebauthn/browser": "14.0.0",
     "@simplewebauthn/server": "14.1.0",
     "jose": "6.2.16",

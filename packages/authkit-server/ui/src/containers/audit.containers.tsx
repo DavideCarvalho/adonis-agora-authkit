@@ -1,7 +1,7 @@
 import { type AuditEventEntry, useAuditQueryOptions } from '@adonis-agora/authkit-react';
 import { useQuery } from '@tanstack/react-query';
 import React, { useState } from 'react';
-import { Pagination } from '../components/Pagination';
+import { CursorPagination } from '../components/Pagination';
 import { QueryBoundary } from '../components/QueryBoundary';
 import { SkeletonPanelTable } from '../components/Skeleton';
 
@@ -24,12 +24,25 @@ function eventBadgeClass(type: string) {
 
 const PAGE_SIZE = 30;
 
+function auditParams(typeFilter: string, cursor: AuditCursor) {
+  const type = typeFilter || undefined;
+  if (cursor.before) return { type, before: cursor.before, last: PAGE_SIZE };
+  if (cursor.after) return { type, after: cursor.after, first: PAGE_SIZE };
+  return { type, first: PAGE_SIZE };
+}
+
 // ── AuditTableContainer ───────────────────────────────────────────────────────
+
+/** Where the table is in the log: after / before a cursor, or the newest page. */
+export interface AuditCursor {
+  after?: string;
+  before?: string;
+}
 
 interface AuditTableContainerProps {
   typeFilter: string;
-  page: number;
-  onPage: (p: number) => void;
+  cursor: AuditCursor;
+  onCursor: (c: AuditCursor) => void;
   selected: AuditEventEntry | null;
   onSelect: (ev: AuditEventEntry | null) => void;
   onUnavailable: () => void;
@@ -37,8 +50,8 @@ interface AuditTableContainerProps {
 
 export function AuditTableContainer({
   typeFilter,
-  page,
-  onPage,
+  cursor,
+  onCursor,
   selected,
   onSelect,
   onUnavailable,
@@ -46,7 +59,7 @@ export function AuditTableContainer({
   const [checkedUnavailable, setCheckedUnavailable] = useState(false);
 
   const { data, isLoading, error, refetch } = useQuery({
-    ...useAuditQueryOptions({ type: typeFilter || undefined, page, size: PAGE_SIZE }),
+    ...useAuditQueryOptions(auditParams(typeFilter, cursor)),
     retry: (failureCount, err: unknown) => {
       if (
         err &&
@@ -65,7 +78,7 @@ export function AuditTableContainer({
   });
 
   const events = data?.data ?? [];
-  const total = data?.meta.total ?? 0;
+  const meta = data?.meta;
 
   const isNotFound =
     error &&
@@ -132,7 +145,12 @@ export function AuditTableContainer({
               </tbody>
             </table>
             <div style={{ padding: '0 16px 12px' }}>
-              <Pagination page={page} total={total} size={PAGE_SIZE} onPage={onPage} />
+              <CursorPagination
+                hasPrev={!!meta?.hasPrev}
+                hasNext={!!meta?.hasNext}
+                onPrev={() => meta?.prevCursor && onCursor({ before: meta.prevCursor })}
+                onNext={() => meta?.nextCursor && onCursor({ after: meta.nextCursor })}
+              />
             </div>
           </div>
         )}
@@ -179,12 +197,4 @@ export function AuditEventDetailContainer({ event, onClose }: AuditEventDetailCo
       </pre>
     </div>
   );
-}
-
-// Re-export count
-export function useAuditTotal(typeFilter: string, page: number) {
-  const { data } = useQuery(
-    useAuditQueryOptions({ type: typeFilter || undefined, page, size: PAGE_SIZE }),
-  );
-  return data?.meta.total ?? 0;
 }

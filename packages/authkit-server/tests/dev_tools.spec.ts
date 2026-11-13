@@ -4,6 +4,7 @@ import { DEV_TOOLS_BINDING, type DevTool, type DevToolCall } from '../src/dev_to
 import { authkitDevToolsAuthorize } from '../src/dev_tools/gate.js';
 import { registerAuthkitDevTools } from '../src/dev_tools/register.js';
 import { authkitDevTools } from '../src/dev_tools/tools.js';
+import { memoryAuditList } from './helpers/memory_audit_list.js';
 
 // ─── fakes ───────────────────────────────────────────────────────────────────
 
@@ -62,11 +63,11 @@ function makeAudit() {
     async record(event: any) {
       events.unshift({ id: `e${events.length + 1}`, createdAt: new Date(0), ...event });
     },
-    async list({ page = 1, size = 20, type, subject }: any) {
-      const all = events.filter(
-        (e) => (!type || e.type === type) && (!subject || e.accountId === subject),
-      );
-      return { data: all.slice((page - 1) * size, page * size), total: all.length };
+    async list(params: any) {
+      return memoryAuditList(events, params);
+    },
+    async count(params: any) {
+      return memoryAuditList(events, { ...params, size: 1e9 }).data.length;
     },
   };
 }
@@ -289,10 +290,15 @@ test.group('authkit dev tools — reads', () => {
     await audit.record({ type: 'login.success', accountId: 'u1' });
     const out: any = await tool('authkit_list_audit').run({ type: 'login.failure' }, call);
     assert.lengthOf(out.items, 20);
-    assert.equal(out.total, 25);
-    assert.equal(out.next, 2);
+    assert.isString(out.next);
+    const rest: any = await tool('authkit_list_audit').run(
+      { type: 'login.failure', cursor: out.next },
+      call,
+    );
+    assert.lengthOf(rest.items, 5);
+    assert.isNull(rest.next);
     const bySubject: any = await tool('authkit_list_audit').run({ subject: 'u1' }, call);
-    assert.equal(bySubject.total, 1);
+    assert.lengthOf(bySubject.items, 1);
   });
 });
 

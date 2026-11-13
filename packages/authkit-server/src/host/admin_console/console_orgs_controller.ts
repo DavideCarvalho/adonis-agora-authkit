@@ -10,6 +10,7 @@ import {
   orgMemberRoleValidator,
   orgUpdateValidator,
 } from '../admin_validators.js';
+import { listOrgsPage, withListQuery } from '../list_api.js';
 import { authkitOrigin } from '../origin.js';
 import type { SettingsCapability } from '../runtime_settings.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
@@ -18,7 +19,7 @@ import { resolveRuntimeSettings } from '../runtime_settings.js';
  * Endpoints JSON de organizações do console admin React.
  * 404 honesto quando o store não suporta organizações (`capability_unsupported`).
  *
- * GET    {prefix}/api/orgs                                → lista orgs com contagem de membros
+ * GET    {prefix}/api/orgs?search=&sort=&page=&size=     → página de orgs com contagem de membros
  * POST   {prefix}/api/orgs                                → cria uma org
  * GET    {prefix}/api/orgs/:id                            → detalhe da org (membros + convites)
  * PATCH  {prefix}/api/orgs/:id                            → edita nome/slug/logo
@@ -65,7 +66,10 @@ export default class ConsoleOrgsController {
       );
     }
 
-    return { data: result.map((o) => orgDto(o)) };
+    return withListQuery(ctx, async () => {
+      const page = await listOrgsPage(result, ctx.request.qs());
+      return { ...page, data: page.data.map((o) => orgDto(o)) };
+    });
   }
 
   /** POST {prefix}/api/orgs */

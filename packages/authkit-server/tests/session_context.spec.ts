@@ -2,6 +2,7 @@ import { test } from '@japa/runner';
 import type { StoredAuditEvent } from '../src/audit/audit_sink.js';
 import type { AdminSession } from '../src/host/admin_sessions_service.js';
 import { enrichSessionsWithContext } from '../src/host/session_context.js';
+import { auditPageOf } from './helpers/memory_audit_list.js';
 
 /** Cria uma sessão mínima para os testes. */
 function makeSession(overrides: Partial<AdminSession> = {}): AdminSession {
@@ -31,7 +32,7 @@ function cfgWithAudit(events: StoredAuditEvent[], resolveGeo?: any) {
       record: async () => {},
       list: async ({ subject }: any) => {
         const filtered = subject ? events.filter((e) => e.accountId === subject) : events;
-        return { data: filtered, total: filtered.length };
+        return auditPageOf(filtered);
       },
     },
     resolveGeo,
@@ -46,7 +47,7 @@ test.group('enrichSessionsWithContext — session context (UA + geo)', () => {
         record: async () => {},
         list: async () => {
           listed = true;
-          return { data: [], total: 0 };
+          return auditPageOf([]);
         },
       },
     };

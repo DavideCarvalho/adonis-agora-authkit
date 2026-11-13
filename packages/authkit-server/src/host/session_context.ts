@@ -1,5 +1,5 @@
 import type { ResolvedServerConfig } from '../define_config.js';
-import { ADMIN_LIST_MAX_SIZE, LIST_FIRST_PAGE } from '../pagination.js';
+import { ADMIN_LIST_MAX_SIZE } from '../pagination.js';
 import type { AdminSession } from './admin_sessions_service.js';
 import { resolveGeoSafe } from './geo.js';
 import { parseUserAgent } from './user_agent.js';
@@ -38,7 +38,6 @@ export async function enrichSessionsWithContext(
   const page = await cfg.audit.list({
     type: 'login.success',
     subject: accountId,
-    page: LIST_FIRST_PAGE,
     size: ADMIN_LIST_MAX_SIZE,
   });
 

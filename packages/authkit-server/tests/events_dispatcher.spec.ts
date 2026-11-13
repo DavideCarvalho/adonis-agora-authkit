@@ -94,13 +94,13 @@ test.group('events/dispatcher — composeAuditSink', () => {
     const original: AuditSink = {
       async record() {},
       async list() {
-        return { data: [], total: 0 };
+        return { data: [], nextCursor: null, prevCursor: null, hasNext: false, hasPrev: false };
       },
     };
     const sink = composeAuditSink(original, { onEvent: () => {} });
     assert.isFunction(sink.list);
-    const page = await sink.list!({ page: 1, size: 10 });
-    assert.equal(page.total, 0);
+    const page = await sink.list!({ size: 10 });
+    assert.lengthOf(page.data, 0);
   });
 
   test('webhook POST é capturado por servidor in-process com HMAC válido', async ({ assert }) => {

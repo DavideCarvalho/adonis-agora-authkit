@@ -146,9 +146,9 @@ export function authkitDevTools(deps: AuthkitDevToolsDeps = {}): DevTool[] {
         const clientSvc = clients(svc);
         const clientsCount = clientSvc.canList ? (await clientSvc.list()).length : 0;
         const recent =
-          typeof cfg.audit?.list === 'function'
-            ? await cfg.audit.list({ page: LIST_FIRST_PAGE, size: 5 })
-            : null;
+          typeof cfg.audit?.list === 'function' ? await cfg.audit.list({ size: 5 }) : null;
+        const auditTotal =
+          typeof cfg.audit?.count === 'function' ? await cfg.audit.count({}) : null;
         return {
           usersTotal: stats.totalUsers,
           activeSessions: stats.activeSessions,
@@ -160,7 +160,7 @@ export function authkitDevTools(deps: AuthkitDevToolsDeps = {}): DevTool[] {
           windowDays: stats.windowDays,
           auditSupported: stats.auditSupported,
           clientsCount,
-          auditTotal: recent?.total ?? 0,
+          auditTotal,
           recentEvents: (recent?.data ?? []).map(auditDto),
         };
       },
@@ -347,13 +347,13 @@ export function authkitDevTools(deps: AuthkitDevToolsDeps = {}): DevTool[] {
       name: 'authkit_list_audit',
       kind: 'read',
       description:
-        'The audit log, newest first: event type, account, actor, client, IP, metadata, time. Filter by `type` (e.g. "login.failure") and `subject` (an account id). Returns { supported, items, total, next }.',
+        'The audit log, newest first: event type, account, actor, client, IP, metadata, time. Filter by `type` (e.g. "login.failure") and `subject` (an account id). Pass the `next` of a result as `cursor` for the following (older) page. Returns { supported, items, next }.',
       input: {
         type: 'object',
         properties: {
           type: { type: 'string', description: 'Event type, e.g. "login.success".' },
           subject: { type: 'string', description: 'Account id the events are about.' },
-          page,
+          cursor: { type: 'string', description: 'The `next` of the previous page.' },
           limit,
         },
       },
@@ -361,20 +361,19 @@ export function authkitDevTools(deps: AuthkitDevToolsDeps = {}): DevTool[] {
         const cfg = (await service(call.ctx)).config;
         const sink = cfg.audit;
         if (!sink || typeof sink.list !== 'function') {
-          return { supported: false, items: [], total: 0, next: null };
+          return { supported: false, items: [], next: null };
         }
-        const p = pageOf(input);
+        const cursor = text(input, 'cursor');
         const result = await sink.list({
-          page: p.page,
-          size: p.limit,
+          size: pageOf(input).limit,
           type: text(input, 'type'),
           subject: text(input, 'subject'),
+          ...(cursor !== undefined && { after: cursor }),
         });
         return {
           supported: true,
           items: result.data.map(auditDto),
-          total: result.total,
-          next: nextPage(p.page, p.limit, result.total),
+          next: result.hasNext ? result.nextCursor : null,
         };
       },
     },

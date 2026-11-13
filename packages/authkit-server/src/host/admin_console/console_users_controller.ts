@@ -1,7 +1,6 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import { supportsAccountDeletion, supportsAccountStatus } from '../../accounts/account_store.js';
-import { ADMIN_LIST_HTTP_DEFAULT_SIZE, parseListPage, parseListSize } from '../../pagination.js';
 import { rolesManagedExternally } from '../account_roles.js';
 import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { AdminUsersService } from '../admin_api/admin_users_service.js';
@@ -18,6 +17,7 @@ import {
   adminUserRolesValidator,
   adminUserUpdateValidator,
 } from '../admin_validators.js';
+import { listAccountsPage, withListQuery } from '../list_api.js';
 import type { RuntimeSettings } from '../runtime_settings.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { resolveEffectiveRolesCatalog } from '../runtime_toggles.js';
@@ -48,7 +48,7 @@ async function gateSudo(ctx: HttpContext): Promise<unknown | null> {
 /**
  * Endpoints JSON de usuários do console admin React.
  *
- * GET  {prefix}/api/users?search=&page=&size=  → `{ meta: { page, size, total }, data }`
+ * GET  {prefix}/api/users?search=&sort=&page=&size= → `{ data, meta: { total, perPage, currentPage, lastPage, firstPage } }`
  * GET  {prefix}/api/users/:id                     → detalhe + sessões + identidades + MFA status
  * POST {prefix}/api/users                         → criar usuário
  * PATCH {prefix}/api/users/:id/roles              → substituir roles globais
@@ -66,23 +66,14 @@ export default class ConsoleUsersController {
   async index(ctx: HttpContext) {
     const service = await ctx.containerResolver.make('authkit.server');
     const cfg = service.config;
-
-    const search = (ctx.request.input('search', '') as string).trim();
-    const page = parseListPage(ctx.request.input('page'));
-    const size = parseListSize(ctx.request.input('size'), ADMIN_LIST_HTTP_DEFAULT_SIZE);
-
-    const result = await cfg.accountStore.listAccounts({
-      search,
-      page,
-      size,
+    return withListQuery(ctx, async () => {
+      const result = await listAccountsPage(cfg.accountStore, ctx.request.qs());
+      const users = new AdminUsersService(cfg);
+      const data = await Promise.all(
+        result.data.map(async (u: any) => userDtoWithRoles(cfg, u, await users.isDisabled(u.id))),
+      );
+      return { ...result, data };
     });
-    const users = new AdminUsersService(cfg);
-
-    const data = await Promise.all(
-      result.data.map(async (u: any) => userDtoWithRoles(cfg, u, await users.isDisabled(u.id))),
-    );
-
-    return { meta: { page, size, total: result.total }, data };
   }
 
   /** GET {prefix}/api/users/:id */

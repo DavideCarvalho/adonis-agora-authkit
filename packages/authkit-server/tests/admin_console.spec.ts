@@ -44,6 +44,7 @@ import { withPersonalAccessToken } from '../src/mixins/with_personal_access_toke
 import { lucidPatStore } from '../src/pat/lucid_pat_store.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { createTestDatabase } from './bootstrap.js';
+import { memoryAuditList } from './helpers/memory_audit_list.js';
 import { withClients } from './helpers/seed_clients.js';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -156,14 +157,8 @@ function memoryAuditSink(): AuditSink & { events: StoredAuditEvent[] } {
     record: async (e) => {
       events.push({ ...e, id: `ev-${events.length + 1}`, createdAt: new Date() });
     },
-    list: async ({ page = 1, size = 20, type, subject }) => {
-      let list = events;
-      if (type) list = list.filter((e) => e.type === type);
-      if (subject) list = list.filter((e) => e.accountId === subject);
-      const total = list.length;
-      const start = (page - 1) * size;
-      return { data: list.slice(start, start + size), total };
-    },
+    list: async (params) => memoryAuditList(events, params),
+    count: async (params) => memoryAuditList(events, { ...params, size: 1e9 }).data.length,
   };
 }
 
@@ -171,6 +166,8 @@ function memoryAuditSink(): AuditSink & { events: StoredAuditEvent[] } {
 function fakeCtx(opts: {
   service?: any;
   inputs?: Record<string, unknown>;
+  /** The decoded query string (`ctx.request.qs()`). */
+  qs?: Record<string, unknown>;
   params?: Record<string, string>;
   sessionUserId?: string;
   /**
@@ -199,7 +196,7 @@ function fakeCtx(opts: {
       protocol: () => 'http',
       host: () => 'localhost',
       body: () => opts.inputs ?? {},
-      qs: () => ({}) as Record<string, string>,
+      qs: () => opts.qs ?? {},
       url: () => '/admin/api/test',
       parsedUrl: { search: '' },
       // Vine compiled validators expõem `.validate(data)`; valida o body (inputs).
@@ -487,12 +484,18 @@ test.group('Console JSON API — controller unit tests', (group) => {
 
   test('GET /api/users — lista paginada', async ({ assert }) => {
     const ctrl = new ConsoleUsersController();
-    const { ctx } = fakeCtx({ service, inputs: { page: '1', size: '20', search: '' } });
+    const { ctx } = fakeCtx({ service, qs: { page: '1', size: '20', search: '' } });
     const result: any = await ctrl.index(ctx);
     assert.isArray(result.data);
-    assert.isNumber(result.meta.total);
-    assert.isNumber(result.meta.page);
-    assert.isNumber(result.meta.size);
+    assert.sameMembers(Object.keys(result.meta), [
+      'total',
+      'perPage',
+      'currentPage',
+      'lastPage',
+      'firstPage',
+    ]);
+    assert.equal(result.meta.perPage, 20);
+    assert.equal(result.meta.currentPage, 1);
   });
 
   test('GET /api/users/:id — detalhe inclui sessões e catalogRoles', async ({ assert }) => {
@@ -732,18 +735,19 @@ test.group('Console JSON API — controller unit tests', (group) => {
 
   test('GET /api/sessions sem accountId → listagem global (shape correta)', async ({ assert }) => {
     const ctrl = new ConsoleSessionsController();
-    const { ctx } = fakeCtx({ service, inputs: { accountId: '' } });
+    const { ctx } = fakeCtx({ service });
     const result: any = await ctrl.index(ctx);
     // Sem accountId: retorna lista global de todas as sessões (pode ser vazio em ambiente de teste)
     assert.isBoolean(result.supported);
-    assert.isArray(result.sessions);
+    assert.isArray(result.data);
+    assert.isNumber(result.meta.total);
     assert.isArray(result.grants);
     assert.isBoolean(result.truncated);
   });
 
   test('GET /api/sessions com accountId inexistente → 404', async ({ assert }) => {
     const ctrl = new ConsoleSessionsController();
-    const { ctx, captured } = fakeCtx({ service, inputs: { accountId: 'ghost-id' } });
+    const { ctx, captured } = fakeCtx({ service, qs: { filter: { accountId: 'ghost-id' } } });
     await ctrl.index(ctx);
     assert.equal(captured.status(), 404);
   });
@@ -755,11 +759,21 @@ test.group('Console JSON API — controller unit tests', (group) => {
     const created: any = await store.store(c.ctx);
 
     const ctrl = new ConsoleSessionsController();
-    const { ctx } = fakeCtx({ service, inputs: { accountId: created.id } });
+    const { ctx } = fakeCtx({ service, qs: { filter: { accountId: created.id } } });
     const result: any = await ctrl.index(ctx);
     assert.isBoolean(result.supported);
-    assert.isArray(result.sessions);
+    assert.isArray(result.data);
     assert.isArray(result.grants);
+  });
+
+  test('GET /api/sessions — unknown filter field or sort → 400', async ({ assert }) => {
+    const ctrl = new ConsoleSessionsController();
+    for (const qs of [{ filter: { ip: '1.2.3.4' } }, { sort: 'browser' }]) {
+      const { ctx, captured } = fakeCtx({ service, qs });
+      await ctrl.index(ctx);
+      assert.equal(captured.status(), 400, JSON.stringify(qs));
+      assert.equal(captured.body().error.code, 'invalid_list_query');
+    }
   });
 
   test('POST /api/sessions/revoke-all sem accountId → rejeitado pela validação (Vine, 422)', async ({
@@ -978,12 +992,28 @@ test.group('Console JSON API — controller unit tests', (group) => {
 
   test('GET /api/audit — com sink que suporta list → retorna shape', async ({ assert }) => {
     const ctrl = new ConsoleAuditController();
-    const { ctx } = fakeCtx({ service, inputs: { page: '1', size: '10' } });
+    const { ctx } = fakeCtx({ service, qs: { first: '10' } });
     const result: any = await ctrl.index(ctx);
     assert.isArray(result.data);
-    assert.isNumber(result.meta.total);
-    assert.isNumber(result.meta.page);
-    assert.isNumber(result.meta.size);
+    assert.sameMembers(Object.keys(result.meta), [
+      'nextCursor',
+      'prevCursor',
+      'hasNext',
+      'hasPrev',
+    ]);
+  });
+
+  test('GET /api/audit — page/size are not audit params; filter[type] is', async ({ assert }) => {
+    await service.config.audit.record({ type: 'login.failure', accountId: 'x1' });
+    await service.config.audit.record({ type: 'login.success', accountId: 'x1' });
+    const ctrl = new ConsoleAuditController();
+    const { ctx } = fakeCtx({ service, qs: { filter: { type: ['login.failure'] } } });
+    const result: any = await ctrl.index(ctx);
+    assert.isTrue(result.data.length > 0);
+    assert.isTrue(result.data.every((e: any) => e.type === 'login.failure'));
+    const bad = fakeCtx({ service, qs: { filter: { page: '2' } } });
+    await ctrl.index(bad.ctx);
+    assert.equal(bad.captured.status(), 400);
   });
 
   // ─── Settings ──────────────────────────────────────────────────────────────

@@ -188,10 +188,66 @@ test.group('Admin query options — queryKey e queryFn', () => {
         }) as any;
       },
     });
-    await client.admin.audit.list({ type: 'login.success', page: 1, size: 10 });
-    assert.include(capturedUrl, 'type=login.success');
-    assert.include(capturedUrl, 'page=1');
-    assert.include(capturedUrl, 'size=10');
+    await client.admin.audit.list({ type: 'login.success', first: 10 });
+    const qs = new URL(capturedUrl, 'http://x').searchParams;
+    assert.equal(qs.get('filter[type]'), 'login.success');
+    assert.equal(qs.get('first'), '10');
+    assert.isNull(qs.get('page'));
+  });
+
+  test('admin.audit.list() paginates by cursor (after / before)', async ({ assert }) => {
+    const urls: string[] = [];
+    const client = createAuthkitClient({
+      baseUrl: '/admin/api',
+      fetch: async (url) => {
+        urls.push(String(url));
+        return new Response(
+          JSON.stringify({
+            data: [],
+            meta: { nextCursor: null, prevCursor: null, hasNext: false, hasPrev: false },
+          }),
+          { status: 200 },
+        ) as any;
+      },
+    });
+    await client.admin.audit.list({ after: 'abc', first: 5 });
+    await client.admin.audit.list({ before: 'xyz', last: 5, type: ['a', 'b'] });
+    const a = new URL(urls[0], 'http://x').searchParams;
+    assert.equal(a.get('after'), 'abc');
+    assert.equal(a.get('first'), '5');
+    const b = new URL(urls[1], 'http://x').searchParams;
+    assert.equal(b.get('before'), 'xyz');
+    assert.equal(b.get('last'), '5');
+    assert.deepEqual(b.getAll('filter[type][]'), ['a', 'b']);
+  });
+
+  test('admin list methods send search, sort and filters in the filter wire format', async ({
+    assert,
+  }) => {
+    const urls: string[] = [];
+    const client = createAuthkitClient({
+      baseUrl: '/admin/api',
+      fetch: async (url) => {
+        urls.push(String(url));
+        return new Response(JSON.stringify({ data: [], meta: {} }), { status: 200 }) as any;
+      },
+    });
+    await client.admin.orgs.list({ search: 'acme', sort: '-createdAt', page: 2, size: 10 });
+    await client.admin.sessions.list({ accountId: 'u1', sort: 'email' });
+    await client.admin.personalAgents.connections({ protocol: 'pact', page: 1, size: 20 });
+    const orgs = new URL(urls[0], 'http://x');
+    assert.equal(orgs.pathname, '/admin/api/orgs');
+    assert.equal(orgs.searchParams.get('search'), 'acme');
+    assert.equal(orgs.searchParams.get('sort'), '-createdAt');
+    assert.equal(orgs.searchParams.get('page'), '2');
+    assert.equal(orgs.searchParams.get('size'), '10');
+    const sessions = new URL(urls[1], 'http://x').searchParams;
+    assert.equal(sessions.get('filter[accountId]'), 'u1');
+    assert.equal(sessions.get('sort'), 'email');
+    assert.isNull(sessions.get('accountId'));
+    const conns = new URL(urls[2], 'http://x').searchParams;
+    assert.equal(conns.get('filter[protocol]'), 'pact');
+    assert.isNull(conns.get('protocol'));
   });
 
   test('admin.settings.set() usa PUT e injeta valor', async ({ assert }) => {

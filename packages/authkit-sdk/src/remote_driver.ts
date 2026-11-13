@@ -1,4 +1,5 @@
 import { AuthkitApiError } from './errors.js';
+import { auditListQuery, offsetListQuery } from './list_query.js';
 import type {
   AddedOrgMember,
   AddOrgMemberInput,
@@ -25,7 +26,9 @@ import type {
   KeysStatus,
   ListAuditParams,
   ListAuditResult,
+  ListClientsParams,
   ListClientsResult,
+  ListOrganizationsParams,
   ListOrganizationsResult,
   ListSessionsResult,
   ListSettingsResult,
@@ -63,17 +66,6 @@ export interface RemoteOptions {
 }
 
 type FetchLike = typeof fetch;
-
-/** Drops `undefined` query params and stringifies the rest. */
-function buildQuery(params: Record<string, unknown>): string {
-  const search = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null) continue;
-    search.set(key, String(value));
-  }
-  const qs = search.toString();
-  return qs ? `?${qs}` : '';
-}
 
 /**
  * Remote driver: a thin typed fetch wrapper over the Admin REST API
@@ -144,7 +136,7 @@ export function createRemoteAuthkit(opts: RemoteOptions): Authkit {
   return {
     users: {
       list(params: ListUsersParams = {}) {
-        return request<ListUsersResult>('GET', `/users${buildQuery({ ...params })}`);
+        return request<ListUsersResult>('GET', `/users${offsetListQuery(params)}`);
       },
       get(id: string) {
         return request<AuthkitUser>('GET', `/users/${encodeURIComponent(id)}`);
@@ -183,8 +175,8 @@ export function createRemoteAuthkit(opts: RemoteOptions): Authkit {
       },
     },
     clients: {
-      list() {
-        return request<ListClientsResult>('GET', '/clients');
+      list(params: ListClientsParams = {}) {
+        return request<ListClientsResult>('GET', `/clients${offsetListQuery(params)}`);
       },
       get(id: string) {
         return request<AuthkitClient>('GET', `/clients/${encodeURIComponent(id)}`);
@@ -213,7 +205,7 @@ export function createRemoteAuthkit(opts: RemoteOptions): Authkit {
     },
     audit: {
       list(params: ListAuditParams = {}) {
-        return request<ListAuditResult>('GET', `/audit${buildQuery({ ...params })}`);
+        return request<ListAuditResult>('GET', `/audit${auditListQuery(params)}`);
       },
     },
     stats() {
@@ -239,8 +231,8 @@ export function createRemoteAuthkit(opts: RemoteOptions): Authkit {
       },
     },
     organizations: {
-      list() {
-        return request<ListOrganizationsResult>('GET', '/organizations');
+      list(params: ListOrganizationsParams = {}) {
+        return request<ListOrganizationsResult>('GET', `/organizations${offsetListQuery(params)}`);
       },
       create(input: CreateOrganizationInput) {
         return request<AuthkitOrganization>('POST', '/organizations', input);

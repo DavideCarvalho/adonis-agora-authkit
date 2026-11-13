@@ -217,7 +217,6 @@ async function getLastLoginMs(audit: AuditSink, accountId: string): Promise<numb
     const result = await audit.list!({
       type: 'login.success',
       subject: accountId,
-      page: LIST_FIRST_PAGE,
       size: 1,
     });
     if (result.data.length === 0) return null;
@@ -243,7 +242,6 @@ async function wasWarnedRecently(
     const result = await audit.list!({
       type: 'account.expiration_warned',
       subject: accountId,
-      page: LIST_FIRST_PAGE,
       size: 1,
     });
     if (result.data.length === 0) return false;

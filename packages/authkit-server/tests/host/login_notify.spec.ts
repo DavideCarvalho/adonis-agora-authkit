@@ -26,7 +26,7 @@ function memorySink(): AuditSink & { events: StoredAuditEvent[] } {
           (!params.type || e.type === params.type) &&
           (!params.subject || e.accountId === params.subject),
       );
-      return { data, total: data.length };
+      return { data, nextCursor: null, prevCursor: null, hasNext: false, hasPrev: false };
     },
   };
 }

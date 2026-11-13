@@ -11,7 +11,9 @@
  * - `page` é 1-based; default {@link LIST_FIRST_PAGE}.
  * - `size` é o tamanho da página; default {@link ADMIN_LIST_DEFAULT_SIZE} nas
  *   varreduras programáticas e {@link ADMIN_LIST_HTTP_DEFAULT_SIZE} na wire HTTP.
- * - Na wire HTTP os parâmetros são `?page=1&size=25`.
+ * - Na wire HTTP, a leitura dos parâmetros (`page`/`size`, `after`/`before` +
+ *   `first`/`last`, `filter[...]`, `sort`) e o envelope de resposta são os de
+ *   `@adonis-agora/filter` — ver `src/host/list_api.ts`.
  */
 
 /** Primeira página. A paginação é 1-based, como em `@adonis-agora/filter`. */
@@ -31,9 +33,8 @@ export const ADMIN_LIST_HTTP_DEFAULT_SIZE = 20;
 
 /**
  * Teto de `size` aceito de um caller NÃO CONFIÁVEL — ou seja, de query params
- * HTTP ({@link parseListSize}). Antes não havia teto nenhum no console admin
- * nem na Admin API além de um `Math.min` solto por controller; agora é um só
- * número, para que um `?size=100000` não vire um scan de tabela inteira.
+ * HTTP (`src/host/list_api.ts`), para que um `?size=100000` não vire um scan de
+ * tabela inteira.
  *
  * NÃO é aplicado a chamadas programáticas de dentro da lib (ex.: o export
  * LGPD/GDPR lê 1000 eventos de auditoria de uma vez): essas são confiáveis e
@@ -68,42 +69,4 @@ export function clampListSize(
   fallback: number = ADMIN_LIST_DEFAULT_SIZE,
 ): number {
   return Math.min(ADMIN_LIST_MAX_SIZE, normalizeListSize(size, fallback));
-}
-
-/** {@link resolveListPage} a partir do valor cru de um query param. */
-export function parseListPage(raw: unknown): number {
-  return resolveListPage(Number.parseInt(String(raw ?? ''), 10));
-}
-
-/** {@link clampListSize} a partir do valor cru de um query param. */
-export function parseListSize(
-  raw: unknown,
-  fallback: number = ADMIN_LIST_HTTP_DEFAULT_SIZE,
-): number {
-  return clampListSize(Number.parseInt(String(raw ?? ''), 10), fallback);
-}
-
-/**
- * Envelope de METADADOS de uma listagem paginada — a chave `meta` de toda
- * resposta paginada do authkit (`{ meta, data }`).
- *
- * O nome `meta` e a co-locação de `{ page, size }` dentro dele são a convenção
- * do `.paginate()` do Lucid (`{ meta, data }`) — que é onde o caminho por
- * offset de `@adonis-agora/filter` desemboca — e por isso a convenção adotada
- * por TODO o ecossistema `@adonis-agora/*`. Antes o authkit achatava
- * `total`/`page`/`size` ao lado de `data`, sem envelope.
- */
-export interface ListMeta {
-  /** Página devolvida (1-based). */
-  page: number;
-  /** Tamanho de página efetivamente aplicado (já normalizado/limitado). */
-  size: number;
-  /** Total absoluto de itens que casam com o filtro, através de todas as páginas. */
-  total: number;
-}
-
-/** Resposta paginada padrão: `{ meta, data }`, na ordem do `.paginate()` do Lucid. */
-export interface PaginatedResponse<T> {
-  meta: ListMeta;
-  data: T[];
 }

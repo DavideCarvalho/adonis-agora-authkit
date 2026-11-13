@@ -117,9 +117,9 @@ async function loadEventsInWindow(
 ): Promise<WindowEvent[]> {
   const out: WindowEvent[] = [];
   const size = ADMIN_LIST_MAX_SIZE;
-  let page = LIST_FIRST_PAGE;
+  let after: string | undefined;
   while (out.length < MAX_EVENTS) {
-    const result = await audit.list!({ type, page, size });
+    const result = await audit.list!({ type, size, ...(after !== undefined && { after }) });
     if (result.data.length === 0) break;
     let allBelowWindow = true;
     for (const e of result.data) {
@@ -133,8 +133,8 @@ async function loadEventsInWindow(
     }
     // Página inteira anterior à janela → não há mais nada relevante (ordem desc).
     if (allBelowWindow) break;
-    if (result.data.length < size) break;
-    page += 1;
+    if (!result.hasNext || !result.nextCursor) break;
+    after = result.nextCursor;
   }
   return out;
 }

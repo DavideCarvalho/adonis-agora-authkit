@@ -285,7 +285,7 @@ test.group('personal agents — extensions (superfície estável)', (group) => {
     }))!;
     await fake.connect('acct-1', 'https://agent.example');
     let status = 200;
-    const ctx = (body?: unknown, qs?: Record<string, string>) =>
+    const ctx = (body?: unknown, qs?: Record<string, unknown>) =>
       ({
         request: {
           body: () => body ?? {},
@@ -299,6 +299,7 @@ test.group('personal agents — extensions (superfície estável)', (group) => {
           status: (s: number) => ({ send: (b: unknown) => ((status = s), b) }),
           notFound: (b: unknown) => ((status = 404), b),
           unprocessableEntity: (b: unknown) => ((status = 422), b),
+          badRequest: (b: unknown) => ((status = 400), b),
         },
         session: { get: (k: string) => (k === ACCOUNT_SESSION_KEY ? 'admin' : undefined) },
         containerResolver: {
@@ -324,9 +325,20 @@ test.group('personal agents — extensions (superfície estável)', (group) => {
     });
     assert.include(agents['https://blocked.example'], { config: 'blocked', effective: 'blocked' });
 
-    const page: any = await controller.connections(ctx(undefined, { protocol: 'fake' }));
+    const page: any = await controller.connections(
+      ctx(undefined, { filter: { protocol: 'fake' } }),
+    );
     assert.equal(page.meta.total, 1);
+    assert.equal(page.meta.currentPage, 1);
     assert.include(page.data[0], { protocol: 'fake', agentName: 'Fake agent.example' });
+
+    status = 200;
+    await controller.connections(ctx(undefined, { filter: { protocol: 'nope' } }));
+    assert.equal(status, 400);
+    status = 200;
+    await controller.connections(ctx(undefined, { filter: { scope: 'x' } }));
+    assert.equal(status, 400);
+    status = 200;
 
     await controller.upsert(ctx({ protocol: 'other', identifier: 'https://a.example' }));
     assert.equal(status, 422);

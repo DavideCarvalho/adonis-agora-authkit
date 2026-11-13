@@ -8,6 +8,7 @@ import {
   clientPartialInput,
 } from '../admin_validators.js';
 import { ClientMetadataError } from '../client_metadata.js';
+import { listClientsPage, withListQuery } from '../list_api.js';
 
 /**
  * Metadata incoerente com o tipo de client (ex.: nativo com secret, redirect
@@ -34,11 +35,10 @@ export default class ConsoleClientsController {
   async index(ctx: HttpContext) {
     const service = await ctx.containerResolver.make('authkit.server');
     const svc = new AdminClientsService(service);
-    if (!svc.canList) {
-      return { data: [], canList: false };
-    }
-    const clients = await svc.list();
-    return { data: clients.map(clientDto), canList: true };
+    return withListQuery(ctx, async () => {
+      const page = await listClientsPage(svc.canList ? await svc.list() : [], ctx.request.qs());
+      return { ...page, data: page.data.map(clientDto), canList: svc.canList };
+    });
   }
 
   /** GET {prefix}/api/clients/:id */

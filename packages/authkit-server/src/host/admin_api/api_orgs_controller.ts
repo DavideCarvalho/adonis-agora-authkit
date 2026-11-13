@@ -7,6 +7,7 @@ import {
   orgMemberRoleValidator,
   orgUpdateValidator,
 } from '../admin_validators.js';
+import { listOrgsPage, withListQuery } from '../list_api.js';
 import { authkitOrigin } from '../origin.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { AdminOrgsService } from './admin_orgs_service.js';
@@ -32,20 +33,21 @@ function notSupported(ctx: HttpContext) {
  * Todas as rotas ficam sob `/api/authkit/v1/organizations`.
  */
 export default class ApiOrgsController {
-  /** GET /organizations — lista todas as orgs com contagem de membros. */
+  /**
+   * GET /organizations — `?search=&sort=name|slug|createdAt|memberCount&page=&size=` →
+   * `{ data, meta: { total, perPage, currentPage, lastPage, firstPage } }`, with member counts.
+   */
   async index(ctx: HttpContext) {
     const { cfg, service } = await ctxBits(ctx);
     const svc = new AdminOrgsService(cfg, service);
 
     const result = await svc.listOrgs();
-    if (!Array.isArray(result)) {
-      if (result.reason === 'not_supported') return notSupported(ctx);
-    }
+    if (!Array.isArray(result)) return notSupported(ctx);
 
-    const orgs = result as Awaited<ReturnType<AdminOrgsService['listOrgs']>>;
-    if (!Array.isArray(orgs)) return notSupported(ctx);
-
-    return { data: orgs.map(orgDto) };
+    return withListQuery(ctx, async () => {
+      const page = await listOrgsPage(result, ctx.request.qs());
+      return { ...page, data: page.data.map(orgDto) };
+    });
   }
 
   /** POST /organizations — cria uma org. Body: { name, slug, ownerAccountId, logoUrl? } */

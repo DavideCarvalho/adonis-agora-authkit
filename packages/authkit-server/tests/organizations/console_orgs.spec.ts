@@ -215,7 +215,13 @@ let mailCalls: any[];
 
 // ─── Fake HttpContext ─────────────────────────────────────────────────────────
 
-function fakeCtx(opts: { body?: Record<string, unknown>; params?: Record<string, string> } = {}) {
+function fakeCtx(
+  opts: {
+    body?: Record<string, unknown>;
+    params?: Record<string, string>;
+    qs?: Record<string, unknown>;
+  } = {},
+) {
   let status = 200;
   let responseBody: any;
   const captured = { status: () => status, body: () => responseBody };
@@ -232,6 +238,7 @@ function fakeCtx(opts: { body?: Record<string, unknown>; params?: Record<string,
     request: {
       body: () => opts.body ?? {},
       input: (k: string, def?: unknown) => opts.body?.[k] ?? def,
+      qs: () => opts.qs ?? {},
       param: (k: string) => opts.params?.[k],
       ip: () => '127.0.0.1',
       protocol: () => 'https',

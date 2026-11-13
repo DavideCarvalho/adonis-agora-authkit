@@ -1,13 +1,20 @@
 import '../augmentations.js';
+import { InvalidColumnFilterError, offsetPage } from '@adonis-agora/filter';
 import type { HttpContext } from '@adonisjs/core/http';
 import { displayNameFor } from '../../agents/agent_identity.js';
 import { parseScope } from '../../agents/config.js';
 import type { PersonalAgentConsoleSummary } from '../../agents/extension.js';
 import type { AgentProtocolId, AgentRegistryRow } from '../../agents/registry_store.js';
 import { type PersonalAgentsRuntime, personalAgentsFor } from '../../agents/runtime.js';
-import { parseListPage, parseListSize } from '../../pagination.js';
 import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { apiError } from '../admin_api/dto.js';
+import {
+  ConnectionListFilter,
+  listQueryError,
+  readListFilter,
+  readPage,
+  readSort,
+} from '../list_api.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { requireSudo } from '../sudo_mode.js';
 
@@ -234,19 +241,43 @@ export default class ConsolePersonalAgentsController {
     };
   }
 
-  /** GET {prefix}/api/personal-agents/connections */
+  /**
+   * GET {prefix}/api/personal-agents/connections — live grants, newest first:
+   * `?filter[protocol]=&filter[clientId]=&filter[accountId]=&sort=-createdAt&page=&size=` →
+   * `{ data, meta: { total, perPage, currentPage, lastPage, firstPage } }`.
+   */
   async connections(ctx: HttpContext) {
     const runtime = await runtimeFor(ctx);
     if (!runtime) return notSupported(ctx);
-    const qs = ctx.request.qs() as Record<string, string | undefined>;
-    const page = parseListPage(qs.page);
-    const size = parseListSize(qs.size);
-    const protocol =
-      qs.protocol && enabledProtocols(runtime).includes(qs.protocol) ? qs.protocol : undefined;
+    const qs = ctx.request.qs();
+    let query: {
+      page: number;
+      size: number;
+      protocol?: string;
+      clientId?: string;
+      accountId?: string;
+    };
+    try {
+      const f = await readListFilter(qs, ConnectionListFilter);
+      readSort(qs, { sortable: ['createdAt'], default: '-createdAt', fixed: true });
+      const protocol = f.first('protocol');
+      if (protocol !== undefined && !enabledProtocols(runtime).includes(protocol)) {
+        throw new InvalidColumnFilterError(`Unknown protocol: "${protocol}".`);
+      }
+      query = {
+        ...readPage(qs),
+        ...(protocol !== undefined && { protocol }),
+        ...(f.first('clientId') !== undefined && { clientId: f.first('clientId') }),
+        ...(f.first('accountId') !== undefined && { accountId: f.first('accountId') }),
+      };
+    } catch (error) {
+      return listQueryError(ctx, error);
+    }
+    const { page, size, protocol } = query;
     const filter = {
       idPrefix: protocol ? grantPrefixOf(runtime, protocol) : undefined,
-      clientId: qs.clientId?.trim() || undefined,
-      accountId: qs.accountId?.trim() || undefined,
+      clientId: query.clientId,
+      accountId: query.accountId,
     };
     const now = new Date();
     const [total, rows] = await Promise.all([
@@ -280,7 +311,7 @@ export default class ConsolePersonalAgentsController {
         };
       }),
     );
-    return { meta: { page, size, total }, data };
+    return offsetPage(data, { total, page, size });
   }
 
   /** POST {prefix}/api/personal-agents/connections/:grantId/revoke */

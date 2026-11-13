@@ -51,7 +51,7 @@ const authkit = await createAuthkit({ mode: 'embedded', app })
 
 ```ts
 // Users
-await authkit.users.list({ search: 'jane' })
+await authkit.users.list({ search: 'jane', page: 1, size: 20 }) // { data, meta }
 const user = await authkit.users.create({ email: 'jane@acme.dev' })
 await authkit.users.delete(user.id) // cascades sessions, grants, tokens (LGPD/GDPR)
 
@@ -68,7 +68,7 @@ await authkit.organizations.create({ name: 'Acme' })
 await authkit.organizations.members.add(orgId, { accountId, role: 'admin' })
 
 // Audit log, stats, settings, signing keys
-await authkit.audit.list({ action: 'user.login' })
+await authkit.audit.list({ type: 'login.success', first: 50 }) // { data, meta: { nextCursor, … } }
 await authkit.stats()
 await authkit.settings.set('branding.name', 'Acme')
 await authkit.keys.rotate({ retire: false })

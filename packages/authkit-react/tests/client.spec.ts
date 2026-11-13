@@ -101,6 +101,28 @@ test.group('AuthkitClient — URL construction', () => {
     assert.notInclude(calls[0].url, 'search');
     assert.include(calls[0].url, 'page=1');
   });
+
+  test('audit.list() e sessions.list() usam filter[...] e cursor', async ({ assert }) => {
+    const { calls, fetch: mockFetch } = captureFetch();
+    const client = createAuthkitClient({ baseUrl: '/admin/api', fetch: mockFetch });
+    await client.admin.audit.list({
+      type: ['login.success', 'login.failure'],
+      after: 'c1',
+      first: 5,
+    });
+    await client.admin.sessions.list({ accountId: 'acc-1', sort: '-loginTs', page: 2, size: 10 });
+    const audit = decodeURIComponent(calls[0].url);
+    assert.include(audit, 'filter[type][]=login.success');
+    assert.include(audit, 'filter[type][]=login.failure');
+    assert.include(audit, 'after=c1');
+    assert.include(audit, 'first=5');
+    assert.notInclude(audit, 'page=');
+    const sessions = decodeURIComponent(calls[1].url);
+    assert.include(sessions, 'filter[accountId]=acc-1');
+    assert.include(sessions, 'sort=-loginTs');
+    assert.include(sessions, 'page=2');
+    assert.include(sessions, 'size=10');
+  });
 });
 
 test.group('AuthkitClient — CSRF injection', () => {

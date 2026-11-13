@@ -4,7 +4,6 @@ import {
   supportsProviderIdentity,
 } from '../accounts/account_store.js';
 import type { ResolvedServerConfig } from '../define_config.js';
-import { LIST_FIRST_PAGE } from '../pagination.js';
 import type { OidcService } from '../provider/oidc_service.js';
 import { AdminSessionsService } from './admin_sessions_service.js';
 
@@ -162,7 +161,6 @@ export class AccountExportService {
       try {
         const page = await cfg.audit.list({
           subject: accountId,
-          page: LIST_FIRST_PAGE,
           size: AUDIT_EXPORT_SIZE,
         });
         auditLog = page.data.map((e) => ({

@@ -125,7 +125,7 @@ door you came through.
 
 | Resource | Method | Returns |
 | --- | --- | --- |
-| `users` | `list({ search?, page?, size? })` | `{ meta: { page, size, total }, data }` |
+| `users` | `list({ search?, sort?, page?, size? })` | `{ data, meta: { total, perPage, currentPage, lastPage, firstPage } }` |
 | `users` | `get(id)` | the user |
 | `users` | `create({ email, name?, password?, invite? })` | the user + `invited` |
 | `users` | `update(id, { globalRoles?, name?, avatarUrl? })` | the updated user |
@@ -134,16 +134,16 @@ door you came through.
 | `users` | `delete(id)` | cascade counts + `{ id, deleted }` |
 | `sessions` | `list(userId)` | `{ canList, sessions, grants }` |
 | `sessions` | `revokeAll(userId)` | `{ sessions, grants, accessTokens, refreshTokens }` |
-| `clients` | `list()` | `{ data, canList }` |
+| `clients` | `list({ search?, sort?, page?, size? })` | `{ data, meta, canList }` |
 | `clients` | `get(id)` | the client |
 | `clients` | `create(input)` | `{ clientId, clientSecret }` — secret shown **once** |
 | `clients` | `update(id, input)` | the updated client |
 | `clients` | `regenerateSecret(id)` | `{ clientId, clientSecret }` — new secret **once** |
 | `clients` | `delete(id)` | `{ clientId, deleted }` |
-| `audit` | `list({ type?, subject?, page?, size? })` | `{ meta: { page, size, total }, data }` |
+| `audit` | `list({ type?, subject?, after?, before?, first?, last? })` | `{ data, meta: { nextCursor, prevCursor, hasNext, hasPrev } }` |
 | `stats()` | — | MAU, daily sign-ins/sign-ups, totals (see below) |
 | `tokens` | `verify(token)` | introspection result (PAT or opaque access token) |
-| `organizations` | `list()` | `{ data: AuthkitOrganization[] }` |
+| `organizations` | `list({ search?, sort?, page?, size? })` | `{ data, meta }` |
 | `organizations` | `create({ name, slug, ownerAccountId, logoUrl? })` | the org |
 | `organizations` | `get(id)` | org + `members[]` + `pendingInvitations[]` |
 | `organizations` | `update(id, { name?, logoUrl? })` | the updated org |
@@ -164,22 +164,38 @@ door you came through.
 The `clientSecret` from `create`/`regenerateSecret` is the **only** time the secret is
 returned in clear text — store it immediately.
 
-### Paginated listings
+### Listings
 
-`users.list()` and `audit.list()` answer the `{ meta, data }` envelope Lucid's own
-`.paginate()` uses — the shape every `@adonis-agora/*` package returns for a paginated
-listing. Request side is `{ page, size }` (1-based `page`, `size` capped at `200`), matching
-`@adonis-agora/filter`.
+`users`, `clients` and `organizations` page by number. `page` is 1-based, `size` defaults to
+`20` and is capped at `200`; `meta` says where you are:
 
 ```ts
-const { meta, data } = await authkit.users.list({ page: 2, size: 50 })
-// meta.page  — the page returned (1-based)
-// meta.size  — the page size actually applied (already capped)
-// meta.total — total matching accounts across every page
-// data       — AuthkitUser[]
-
-const pageCount = Math.ceil(meta.total / meta.size)
+const { data, meta } = await authkit.users.list({ search: '@acme.com', page: 2, size: 50 })
+// meta.total       — matching accounts across every page
+// meta.currentPage — 2
+// meta.lastPage    — the last page number
 ```
+
+`search` matches the email for users, the client id or name for clients, and the name or slug
+for organizations. `sort` takes `-field` for descending: `email` for users, `clientId` /
+`clientName` for clients, `name` / `slug` / `createdAt` / `memberCount` for organizations.
+
+The audit log pages by cursor, newest first. Hand a page's `meta.nextCursor` back as `after`
+for the next (older) page:
+
+```ts
+let page = await authkit.audit.list({ type: 'login.failure', first: 100 })
+while (true) {
+  for (const event of page.data) report(event)
+  if (!page.meta.hasNext) break
+  page = await authkit.audit.list({ type: 'login.failure', first: 100, after: page.meta.nextCursor! })
+}
+```
+
+`type` takes one event type or an array of them; `subject` is an account id. A filter or sort
+the list does not support throws (`400 invalid_list_query` from the Admin API).
+
+The page types are exported as `OffsetPage<T>` and `CursorPageResponse<T>`.
 
 ### `keys`
 

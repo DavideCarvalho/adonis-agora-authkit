@@ -17,11 +17,14 @@ import { useAuthkitClient } from '../../client/context.js';
 import type {
   AdminClient,
   AdminClientListResult,
+  AdminListParams,
   AdminOrgDetail,
   AdminOrgEntry,
   AdminOrgInvitation,
   AdminOrgListResult,
   AdminOverview,
+  AdminSessionListParams,
+  AdminSessionListResult,
   AdminUser,
   AdminUserListResult,
   AuditListParams,
@@ -72,7 +75,7 @@ export function useOverviewQueryOptions() {
 // Users – Queries
 // ---------------------------------------------------------------------------
 
-export function useUsersQueryOptions(params?: { search?: string; page?: number; size?: number }) {
+export function useUsersQueryOptions(params?: AdminListParams) {
   const client = useAuthkitClient();
   return {
     queryKey: authkitKeys.admin.users(params),
@@ -166,12 +169,12 @@ export function useRevokeUserSessionsMutationOptions(id: string) {
 // Sessions – Query + Mutation
 // ---------------------------------------------------------------------------
 
-export function useSessionsQueryOptions(accountId?: string) {
+export function useSessionsQueryOptions(params?: AdminSessionListParams) {
   const client = useAuthkitClient();
   return {
-    queryKey: authkitKeys.admin.sessions(accountId),
-    queryFn: () => client.admin.sessions.list(accountId),
-  } satisfies UseQueryOptions<UserSessionsResult, AuthkitClientError>;
+    queryKey: authkitKeys.admin.sessions(params),
+    queryFn: () => client.admin.sessions.list(params),
+  } satisfies UseQueryOptions<AdminSessionListResult, AuthkitClientError>;
 }
 
 export function useRevokeAllSessionsMutationOptions(accountId?: string) {
@@ -186,11 +189,11 @@ export function useRevokeAllSessionsMutationOptions(accountId?: string) {
 // Clients – Queries + Mutations
 // ---------------------------------------------------------------------------
 
-export function useClientsQueryOptions() {
+export function useClientsQueryOptions(params: AdminListParams = {}) {
   const client = useAuthkitClient();
   return {
-    queryKey: authkitKeys.admin.clients(),
-    queryFn: () => client.admin.clients.list(),
+    queryKey: authkitKeys.admin.clients(params),
+    queryFn: () => client.admin.clients.list(params),
   } satisfies UseQueryOptions<AdminClientListResult, AuthkitClientError>;
 }
 
@@ -293,11 +296,11 @@ export function useDeleteRoleMutationOptions(name: string) {
 // Orgs – Queries + Mutations
 // ---------------------------------------------------------------------------
 
-export function useOrgsQueryOptions() {
+export function useOrgsQueryOptions(params: AdminListParams = {}) {
   const client = useAuthkitClient();
   return {
-    queryKey: authkitKeys.admin.orgs(),
-    queryFn: () => client.admin.orgs.list(),
+    queryKey: authkitKeys.admin.orgs(params),
+    queryFn: () => client.admin.orgs.list(params),
   } satisfies UseQueryOptions<AdminOrgListResult, AuthkitClientError>;
 }
 
