@@ -33,6 +33,7 @@
     "config-locks",
     "customizing-auth",
     "themed-screens",
+    "emails",
     "security",
     "---Frontend---",
     "react",

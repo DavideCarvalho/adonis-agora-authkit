@@ -1,0 +1,152 @@
+---
+icon: Mail
+title: Emails
+description: The transactional emails AuthKit sends, how they pick up your brand and language, and how to replace any of them with your own.
+---
+
+AuthKit sends every auth email itself: password reset, email verification, magic links,
+new-login and new-device alerts, security notices, organization invitations and more. You
+don't have to write any of them. You can replace any one of them with your own template
+through a hook in `config/authkit.ts`.
+
+## The default emails
+
+When `@adonisjs/mail` is installed and configured, AuthKit sends through the app's
+`default` mailer. Each email is a responsive HTML message with a plain-text fallback.
+Without `@adonisjs/mail`, AuthKit logs the email instead of sending it, which is enough for
+local development.
+
+The defaults take their look and language from the config you already have:
+
+- **Language**: `i18n.locale` picks the catalog (`'pt-BR'` and `'en'` are built in). Every
+  string lives under the `mail.*` keys and can be overridden with `i18n.messages`. See
+  [i18n](/docs/i18n).
+- **Brand name**: `branding.default.appName`, then `branding.company`, then `'AuthKit'`.
+- **Accent color**: `branding.default.accent`, or the neutral theme.
+- **Sender**: `mail.from`, then the `from` in `config/mail.ts`.
+
+```ts title="config/authkit.ts"
+import { defineConfig } from '@adonis-agora/authkit-server'
+
+export default defineConfig({
+  // ...
+  i18n: { locale: 'pt-BR' },
+  branding: {
+    company: 'Acme',
+    clients: {},
+    default: {
+      appName: 'Acme',
+      accent: '#6d28d9',
+      accentSoft: '#ede9fe',
+      tagline: '',
+    },
+  },
+  mail: {
+    from: { address: 'no-reply@acme.com', name: 'Acme Security' },
+  },
+})
+```
+
+Links in emails are built from the `issuer` origin, never from the request's `Host` header.
+Set `mail.origin` only when the same issuer is served under several hostnames and the links
+must always use one of them.
+
+<Callout type="warn">
+  If you see emails in English signed "AuthKit", AuthKit could not read your config. Make
+  sure `AuthkitServerProvider` is registered in `adonisrc.ts`. AuthKit logs a warning when
+  this happens.
+</Callout>
+
+## Replacing an email
+
+Every email has a hook under `mail` in `config/authkit.ts`. When a hook is set, AuthKit
+calls it instead of sending its own email, and your hook sends whatever it wants. Each hook
+is optional, so you can replace one email and keep the defaults for the rest.
+
+```ts title="config/authkit.ts"
+import { defineConfig } from '@adonis-agora/authkit-server'
+
+export default defineConfig({
+  // ...
+  mail: {
+    onPasswordReset: async ({ email, resetUrl }) => {
+      const { default: mail } = await import('@adonisjs/mail/services/main')
+      const { default: PasswordResetMail } = await import('#mails/password_reset_mail')
+      await mail.send(new PasswordResetMail({ email, resetUrl }))
+    },
+  },
+})
+```
+
+Import the mail service and your mail classes inside the hook, as above. `config/authkit.ts`
+is loaded while the app boots, before the mail service is ready.
+
+The `from` in `mail.from` only applies to the default emails. In a hook, your mail class
+sets its own sender.
+
+### Hooks
+
+| Hook | Sent when | Data |
+| --- | --- | --- |
+| `onPasswordReset` | A user asks to reset their password. | `email`, `resetUrl`, `token` |
+| `onEmailVerification` | A verification link is issued. | `email`, `verifyUrl`, `token` |
+| `onMagicLink` | A passwordless login or signup link is issued. | `email`, `magicUrl`, `token`, `code?`, `channel?`, `kind?` |
+| `onSudoLink` | A signed-in user confirms their identity by email. | `email`, `sudoUrl` |
+| `onNewLogin` | A sign-in comes from an IP the account has not used before. | `account`, `ip`, `userAgent?`, `timestamp` |
+| `onNewDeviceLogin` | A sign-in comes from a device without a trusted-device cookie. | `account`, `ip?`, `userAgent?`, `timestamp` |
+| `onOrgInvitation` | Someone is invited to an organization. | `email`, `invitationId`, `orgName`, `orgSlug`, `role`, `acceptUrl`, `token` |
+| `onEmailChangeConfirm` | A user asks to change their email (sent to the new address). | `email`, `confirmUrl`, `token`, `oldEmail` |
+| `onEmailChangeNotice` | A user asks to change their email (sent to the current address). | `email`, `newEmail` |
+| `onOtpUnlock` | The OTP factor is locked after too many failed attempts. | `email`, `unlockUrl`, `token` |
+| `onAccountExpirationWarning` | `authkit:expire-scan` finds an account about to be deactivated for inactivity. | `email`, `expiresInDays` |
+| `onSecurityNotice` | Password changed, MFA enabled or disabled, passkey added or removed, email changed. | `account`, `kind`, `ip?`, `userAgent?`, `timestamp`, `metadata?` |
+
+On `onMagicLink`:
+
+- `code` is only present when `login.otp.enabled` is on.
+- `channel` is `'code'` or `'link'` when the user picked one, so you can render only that one.
+- `kind: 'signup'` marks a signup confirmation rather than a login link.
+
+`onSecurityNotice` receives one of these `kind` values: `password_changed`, `mfa_enabled`,
+`mfa_disabled`, `passkey_added`, `passkey_removed`, `email_changed`.
+
+### Failures
+
+The default emails never throw: if sending fails, AuthKit logs the error and the auth flow
+carries on. Login alerts behave the same way with a hook: they are sent in the background,
+and an error from `onNewLogin` or `onNewDeviceLogin` never reaches the sign-in.
+
+For the other hooks, catch your own delivery errors if a failed email should not fail the
+request that triggered it.
+
+## Login alerts
+
+AuthKit sends two kinds of sign-in alert:
+
+- **New login**: the first successful sign-in from an IP the account has not used before.
+  AuthKit checks this against the account's `login.success` entries in the audit log, so it
+  needs an audit sink that can be queried (one with `list`). Without one, no new-login
+  alert is sent.
+- **New device**: a sign-in from a browser that does not carry a trusted-device cookie for
+  the account.
+
+Both are on by default. Turn either off with the `notifications` runtime setting:
+
+```bash
+node ace authkit:settings:set notifications '{"newLoginEmail":false}'
+```
+
+A sign-in from a new device is usually also from a new IP, so both alerts can fire for the
+same login. If you replace both with your own emails, you can skip the second one: keep a
+short-lived key of email and IP, and send only the first alert for that key.
+
+## Security notices
+
+The `security_notifications` runtime setting turns the security-notice emails on or off,
+and `kinds` limits them to some events:
+
+```bash
+node ace authkit:settings:set security_notifications '{"kinds":["password_changed","email_changed"]}'
+```
+
+See [Runtime Settings](/docs/settings) for the full list of setting keys.
