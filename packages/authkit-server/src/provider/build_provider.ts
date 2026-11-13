@@ -3,7 +3,7 @@ import { pickModelAdapterClass } from '../adapters/factory.js';
 import type { ResolvedServerConfig } from '../define_config.js';
 import { normalizeActiveOrg, readActiveOrgFromKoaCtx } from '../host/active_org_cookie.js';
 import { consoleSsoClientMetadata } from '../host/console_sso.js';
-import { findMcpResource, mcpAuthorizeMiddleware } from '../mcp/mcp_oauth.js';
+import { findMcpResource, hasGuardResources, mcpAuthorizeMiddleware } from '../mcp/mcp_oauth.js';
 import { hideDisabledClients } from '../service_tenants/client_metadata.js';
 import { createServiceTenantHooks } from '../service_tenants/provider_hooks.js';
 import { createDeviceSources } from './device_sources.js';
@@ -143,7 +143,13 @@ export function buildProvider(
   });
   const signAlg = config.jwks.keys[0]?.alg ?? 'RS256';
   const resourceIndicatorFeatures =
-    at.anyJwt || declaredResources.length > 0 || mcp.enabled || serviceTenants.enabled
+    at.anyJwt ||
+    declaredResources.length > 0 ||
+    mcp.enabled ||
+    serviceTenants.enabled ||
+    // `oidcBearerGuard({ resource })`: o cliente que leu o `resource_metadata` pede um token
+    // para esse resource (RFC 8707).
+    hasGuardResources()
       ? {
           resourceIndicators: {
             enabled: true,
@@ -168,7 +174,8 @@ export function buildProvider(
               if (serviceInfo) return serviceInfo;
               const found = findResource(resourceIndicator);
               const isDefault = at.anyJwt && resourceIndicator === at.audience;
-              // Servidores MCP (`mcp`): os declarados e os registrados em runtime.
+              // Servidores MCP (`mcp`): os declarados e os registrados em runtime; e os resources
+              // dos `oidcBearerGuard({ resource })`, com ou sem `mcp`.
               const mcpResource =
                 found || isDefault ? null : findMcpResource(resourceIndicator, config.issuer, mcp);
               if (mcpResource) {

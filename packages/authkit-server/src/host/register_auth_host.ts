@@ -6,6 +6,7 @@ import type { ConsoleAuthorizeDecision } from '../console_authorize.js';
 import { announceAgoraSignOut, registerAgoraConsole } from '../console_switcher.js';
 import type { AuthSocialConfig, RateLimitConfigInput } from '../define_config.js';
 import { resolveRateLimit } from '../define_config.js';
+import { PROTECTED_RESOURCE_WELL_KNOWN, servedProtectedResources } from '../mcp/mcp_oauth.js';
 import { accountHome } from './account_home.js';
 import { getAccountLoginUrl, setAccountLoginUrl } from './account_login_url.js';
 import {
@@ -733,6 +734,8 @@ const C = {
   oidc: () => import('../controllers/oidc_callback_controller.js'),
   authorizationServerMetadata: () =>
     import('../controllers/authorization_server_metadata_controller.js'),
+  protectedResourceMetadata: () =>
+    import('../controllers/protected_resource_metadata_controller.js'),
   interaction: () => import('./controllers/interaction_controller.js'),
   registration: () => import('./controllers/registration_controller.js'),
   social: () => import('./controllers/social_controller.js'),
@@ -1059,6 +1062,18 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
       .get(`/.well-known/oauth-authorization-server${issuerPath}`, [C.authorizationServerMetadata])
       .as('authkit.oauth_authorization_server');
   }
+
+  // Metadata dos protected resources declarados ao authkit (RFC 9728 §3.1): os do
+  // `oidcBearerGuard({ resource })` e os de `mcp.resources` na origem do issuer. O `resource_metadata`
+  // do 401 aponta para cá. Paths que outra lib serve (o MCP do agent) ficam de fora.
+  servedProtectedResources({
+    issuer: hostCfg?.issuer,
+    mcpResources: hostCfg?.mcpResources,
+  }).forEach((resource, index) => {
+    router
+      .get(`${PROTECTED_RESOURCE_WELL_KNOWN}${resource.path}`, [C.protectedResourceMetadata])
+      .as(`authkit.oauth_protected_resource.${index}`);
+  });
 
   // Provider OIDC (wildcard + root) — o que registerOidcRoutes fazia.
   router.any(`${mount}/*`, [C.oidc]).as('authkit.oidc.wildcard');

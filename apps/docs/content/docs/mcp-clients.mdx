@@ -57,6 +57,57 @@ mcp: {
 }
 ```
 
+## An app API that MCP and OAuth clients call
+
+Give `oidcBearerGuard` the resource it protects and a client that hits that API without a token
+can find your login on its own:
+
+```ts title="config/auth.ts"
+guards: {
+  web: oidcRpGuard({ provider }),
+  api: oidcBearerGuard({
+    provider,
+    scopes: ['openid'],
+    // a path on the issuer's origin...
+    resource: { path: '/api', name: 'Acme API' },
+    // ...or the full URL: resource: 'https://api.acme.com'
+  }),
+}
+```
+
+A request without a valid token now answers:
+
+```http
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer error="invalid_token", resource_metadata="https://acme.com/.well-known/oauth-protected-resource/api"
+```
+
+and AuthKit serves that document (with `Access-Control-Allow-Origin: *`):
+
+```json
+{
+  "resource": "https://acme.com/api",
+  "authorization_servers": ["https://acme.com/oidc"],
+  "scopes_supported": ["openid", "profile", "email", "offline_access"],
+  "bearer_methods_supported": ["header"],
+  "resource_name": "Acme API"
+}
+```
+
+The guard also requires the token to be issued **for** that resource: its `aud` must contain the
+resource URL, so a token for your MCP server or another API is refused with `invalid_token`.
+Clients get such a token by sending `resource=https://acme.com/api` on the authorize and token
+requests (RFC 8707), which AuthKit accepts for a guard's resource even without `mcp`.
+`guard.authenticateAsClient(user)` in tests issues a token with the right `aud`.
+
+Without `resource` the guard behaves as before: no `resource_metadata`, any `aud` accepted.
+With `remote` (the API does not run AuthKit), pass the full URL: `{ path }` needs the in-process
+issuer's origin, and the document is then yours to serve from the API.
+
+AuthKit serves `/.well-known/oauth-protected-resource<path>` for every guard `resource` and for each
+`mcp.resources` entry on the issuer's origin. Paths of servers that serve their own document, like
+the MCP server of `@adonis-agora/agent`, are left to them.
+
 ## Your own MCP server
 
 A server that is not `@adonis-agora/agent`'s registers its URL the same way, then serves the RFC 9728

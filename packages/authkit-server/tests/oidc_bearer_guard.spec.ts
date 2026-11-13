@@ -17,11 +17,13 @@ import { authkitUserProvider } from '../src/host/adonis_auth_user_provider.js';
 import { getAccountId, hasAccountSession, realAccountId } from '../src/host/console_session.js';
 import { impersonationState } from '../src/host/impersonation_session.js';
 import {
+  bearerChallenge,
   OidcBearerGuard,
   type OidcBearerGuardPolicy,
   oidcBearerGuard,
 } from '../src/host/oidc_bearer_guard.js';
 import { oidcRpGuard } from '../src/host/oidc_rp_guard.js';
+import { registeredOAuthResources } from '../src/mcp/mcp_oauth.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { fakeAccountStore } from './bootstrap.js';
 
@@ -229,6 +231,201 @@ test.group('OidcBearerGuard — política (escopos, audience, clients)', () => {
   });
 });
 
+const API = 'https://app.example.com/api';
+const API_METADATA = 'https://app.example.com/.well-known/oauth-protected-resource/api';
+
+const REGISTRY = Symbol.for('@adonis-agora/oauth:resources');
+let savedRegistry: unknown;
+function resetResourceRegistry() {
+  (globalThis as Record<symbol, unknown>)[REGISTRY] = [];
+}
+
+test.group('bearerChallenge — RFC 6750 §3 + RFC 9728 §5.1', () => {
+  test('sem parâmetros → só o esquema', ({ assert }) => {
+    assert.equal(bearerChallenge({}), 'Bearer');
+  });
+
+  test('parâmetros entre aspas, separados por vírgula, na ordem error/scope/resource_metadata', ({
+    assert,
+  }) => {
+    assert.equal(
+      bearerChallenge({ error: 'insufficient_scope', scope: 'openid read', resourceMetadata: 'u' }),
+      'Bearer error="insufficient_scope", scope="openid read", resource_metadata="u"',
+    );
+    assert.equal(bearerChallenge({ resourceMetadata: 'u' }), 'Bearer resource_metadata="u"');
+  });
+
+  test('aspas e barra invertida escapadas (quoted-string)', ({ assert }) => {
+    assert.equal(bearerChallenge({ scope: 'a"b\\c' }), 'Bearer scope="a\\"b\\\\c"');
+  });
+});
+
+test.group('OidcBearerGuard — resource (RFC 9728 resource_metadata + aud)', () => {
+  const policy: OidcBearerGuardPolicy = { resource: API, scopes: ['openid'] };
+
+  test('sem token → Bearer resource_metadata', async ({ assert }) => {
+    const { guard, headers } = makeGuard({ policy });
+    await assert.rejects(() => guard.authenticate(), 'Unauthorized access');
+    assert.equal(headers['WWW-Authenticate'], `Bearer resource_metadata="${API_METADATA}"`);
+  });
+
+  test('token inválido → error="invalid_token" + resource_metadata', async ({ assert }) => {
+    const { guard, headers } = makeGuard({ authorization: 'Bearer revoked', policy });
+    await assert.rejects(() => guard.authenticate(), 'Unauthorized access');
+    assert.equal(
+      headers['WWW-Authenticate'],
+      `Bearer error="invalid_token", resource_metadata="${API_METADATA}"`,
+    );
+  });
+
+  test('escopo faltando → insufficient_scope + scope + resource_metadata', async ({ assert }) => {
+    const { guard, headers } = makeGuard({
+      authorization: 'Bearer good',
+      policy: { resource: API, scopes: ['openid', 'exams:read'] },
+      verifier: fakeVerifier(verifiedToken({ audience: [API] })),
+    });
+    await assert.rejects(() => guard.authenticate(), 'Unauthorized access');
+    assert.equal(
+      headers['WWW-Authenticate'],
+      `Bearer error="insufficient_scope", scope="openid exams:read", resource_metadata="${API_METADATA}"`,
+    );
+  });
+
+  test('resource na raiz da origem → documento sem path', async ({ assert }) => {
+    const { guard, headers } = makeGuard({ policy: { resource: 'https://api.example.com' } });
+    await assert.rejects(() => guard.authenticate(), 'Unauthorized access');
+    assert.equal(
+      headers['WWW-Authenticate'],
+      'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"',
+    );
+  });
+
+  test('resource resolvido por função (path na origem do issuer)', async ({ assert }) => {
+    const { guard, headers } = makeGuard({ policy: { resource: async () => API } });
+    await assert.rejects(() => guard.authenticate(), 'Unauthorized access');
+    assert.equal(headers['WWW-Authenticate'], `Bearer resource_metadata="${API_METADATA}"`);
+  });
+
+  test('aud: sem aud, ou de outro resource → invalid_token', async ({ assert }) => {
+    for (const audience of [[], ['https://app.example.com/other']]) {
+      const { guard, headers } = makeGuard({
+        authorization: 'Bearer good',
+        policy,
+        verifier: fakeVerifier(verifiedToken({ audience })),
+      });
+      await assert.rejects(() => guard.authenticate(), 'Unauthorized access');
+      assert.equal(
+        headers['WWW-Authenticate'],
+        `Bearer error="invalid_token", resource_metadata="${API_METADATA}"`,
+      );
+    }
+  });
+
+  test('aud do resource (barra final tolerada) → ok', async ({ assert }) => {
+    for (const audience of [[API], [`${API}/`, 'outro']]) {
+      const { guard } = makeGuard({
+        authorization: 'Bearer good',
+        policy,
+        verifier: fakeVerifier(verifiedToken({ audience })),
+      });
+      assert.equal((await guard.authenticate()).id, 'u1');
+    }
+  });
+
+  test('resource + audience: o token precisa dos dois', async ({ assert }) => {
+    const both = { resource: API, audience: 'https://legacy.example.com' };
+    const onlyResource = makeGuard({
+      authorization: 'Bearer good',
+      policy: both,
+      verifier: fakeVerifier(verifiedToken({ audience: [API] })),
+    });
+    await assert.rejects(() => onlyResource.guard.authenticate(), 'Unauthorized access');
+    const ok = makeGuard({
+      authorization: 'Bearer good',
+      policy: both,
+      verifier: fakeVerifier(verifiedToken({ audience: [API, 'https://legacy.example.com'] })),
+    });
+    assert.equal((await ok.guard.authenticate()).id, 'u1');
+  });
+
+  test('sem resource: token com qualquer aud continua aceito (comportamento de sempre)', async ({
+    assert,
+  }) => {
+    const { guard } = makeGuard({
+      authorization: 'Bearer good',
+      verifier: fakeVerifier(verifiedToken({ audience: ['https://whatever.example.com'] })),
+    });
+    assert.equal((await guard.authenticate()).id, 'u1');
+  });
+});
+
+test.group('oidcBearerGuard({ resource }) — declaração', (group) => {
+  group.setup(() => {
+    savedRegistry = (globalThis as Record<symbol, unknown>)[REGISTRY];
+    return () => {
+      (globalThis as Record<symbol, unknown>)[REGISTRY] = savedRegistry;
+    };
+  });
+  group.each.setup(() => resetResourceRegistry());
+
+  const provider = makeUserProvider();
+  const ISSUER_APP = (issuer: string) =>
+    ({
+      container: {
+        make: async (key: string) =>
+          key === 'authkit.server'
+            ? { config: { issuer } }
+            : { emit: () => {}, on: () => {}, listenerCount: () => 0 },
+      },
+    }) as any;
+
+  test('URL: registra o resource com metadata, escopos e nome', ({ assert }) => {
+    oidcBearerGuard({
+      provider,
+      scopes: ['exams:read'],
+      resource: { url: `${API}/`, name: 'API' },
+    });
+    assert.deepEqual(registeredOAuthResources(), [
+      {
+        url: API,
+        scopes: ['openid', 'profile', 'email', 'offline_access', 'exams:read'],
+        name: 'API',
+        metadata: true,
+      },
+    ]);
+  });
+
+  test('path: a origem vem do issuer embarcado', async ({ assert }) => {
+    const config = oidcBearerGuard({ provider, resource: { path: 'api/' } });
+    assert.equal(registeredOAuthResources()[0]?.path, '/api');
+    const factory = await config.resolver('api', ISSUER_APP('https://app.example.com/oidc'));
+    const { ctx, headers } = makeCtx();
+    await assert.rejects(() => factory(ctx).authenticate(), 'Unauthorized access');
+    assert.equal(headers['WWW-Authenticate'], `Bearer resource_metadata="${API_METADATA}"`);
+  });
+
+  test('path no modo remote → erro de config', ({ assert }) => {
+    assert.throws(
+      () =>
+        oidcBearerGuard({
+          provider,
+          remote: { issuer: 'https://idp.example.com' },
+          resource: { path: '/api' },
+        }),
+      /remote/,
+    );
+  });
+
+  test('URL relativa → erro de config', ({ assert }) => {
+    assert.throws(() => oidcBearerGuard({ provider, resource: '/api' }), /URL absoluta/);
+  });
+
+  test('sem resource: nada registrado', ({ assert }) => {
+    oidcBearerGuard({ provider, scopes: ['openid'] });
+    assert.lengthOf(registeredOAuthResources(), 0);
+  });
+});
+
 test.group('OidcBearerGuard — check / getUserOrFail', () => {
   test('check() → false em falha de autenticação', async ({ assert }) => {
     const { guard } = makeGuard();
@@ -326,6 +523,26 @@ test.group('OidcBearerGuard — in-process contra o issuer embarcado', (group) =
     assert.equal((await guard.authenticate()).id, 'u1');
     assert.equal(guard.accessToken?.clientId, 'mobile');
     assert.equal(guard.accessToken?.format, 'opaque');
+  });
+
+  test('resource: authenticateAsClient emite o AT com aud do resource, e o guard o aceita', async ({
+    assert,
+  }) => {
+    const verifier = inProcessAccessTokenVerifier(async () => service);
+    const policy = { resource: API };
+    const issuing = makeGuard({ verifier, policy });
+    const { headers } = await issuing.guard.authenticateAsClient(USERS.get('u1')!);
+    const { guard } = makeGuard({ authorization: headers!.authorization, verifier, policy });
+    assert.equal((await guard.authenticate()).id, 'u1');
+    assert.deepEqual(guard.accessToken?.audience, [API]);
+
+    // O mesmo token num guard de OUTRO resource é recusado.
+    const other = makeGuard({
+      authorization: headers!.authorization,
+      verifier,
+      policy: { resource: 'https://app.example.com/other' },
+    });
+    assert.isFalse(await other.guard.check());
   });
 
   test('AT revogado (destroy do artefato) → 401', async ({ assert }) => {
