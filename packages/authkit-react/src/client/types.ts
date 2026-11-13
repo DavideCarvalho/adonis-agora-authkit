@@ -6,6 +6,15 @@
  * controllers/DTOs do authkit-server.
  */
 
+import type { CursorPageResponse, OffsetPage } from '@adonis-agora/filter-client';
+
+export type {
+  CursorPageMeta,
+  CursorPageResponse,
+  OffsetPage,
+  OffsetPageMeta,
+} from '@adonis-agora/filter-client';
+
 // ---------------------------------------------------------------------------
 // Erros
 // ---------------------------------------------------------------------------
@@ -35,29 +44,32 @@ export interface AdminUser {
   invited?: boolean;
 }
 
-/**
- * Pagination envelope of every paginated authkit listing: `{ meta, data }`.
- *
- * `{ page, size }` intentionally mirrors `@adonis-agora/filter`'s
- * `FilterInput.page`/`.size`, so every `@adonis-agora/*` package speaks the same
- * pagination interface. STRUCTURAL match — no dependency on the filter package.
- * The `meta` key itself is Lucid's `.paginate()` convention, which is where the
- * filter package's offset path lands.
- */
-export interface ListMeta {
-  /** 1-based page returned. */
-  page: number;
-  /** Page size actually applied (already normalized/capped). */
-  size: number;
-  /** Absolute number of matching items across all pages. */
-  total: number;
+/** Offset paging, search and sort of the console lists (users, clients, orgs, sessions). */
+export interface AdminListParams {
+  /** Free-text search (what it matches depends on the list). */
+  search?: string;
+  /** Sort, `-field` for descending: `'-loginTs'`, `'name'`. */
+  sort?: string;
+  /** 1-based page. Default 1. */
+  page?: number;
+  /** Page size. Default 20, at most 200. */
+  size?: number;
 }
 
-/** Offset-paginated user listing. */
-export interface AdminUserListResult {
-  meta: ListMeta;
-  data: AdminUser[];
+/** Cursor paging of a feed (the audit log). */
+export interface CursorListParams {
+  /** `meta.nextCursor` of a page → the next (older) page. */
+  after?: string;
+  /** `meta.prevCursor` of a page → the previous (newer) page. */
+  before?: string;
+  /** Page size going forward. Default 20, at most 200. */
+  first?: number;
+  /** Page size going backward. Default 20, at most 200. */
+  last?: number;
 }
+
+/** A page of users (`GET {base}/users`). */
+export type AdminUserListResult = OffsetPage<AdminUser>;
 
 export interface CreateUserInput {
   email: string;
@@ -93,11 +105,26 @@ export interface AdminGrantEntry {
   refreshTokens: number;
 }
 
+/** Sessions and grants of one user (`GET {base}/users/:id/sessions`). */
 export interface UserSessionsResult {
   supported: boolean;
-  /** true quando o número de sessões foi truncado ao limite máximo da listagem global. */
   truncated?: boolean;
   sessions: AdminSessionEntry[];
+  grants: AdminGrantEntry[];
+}
+
+/** `GET {base}/sessions`: `filter[accountId]`, `search` (email or IP), `sort` `loginTs`/`email`. */
+export interface AdminSessionListParams extends AdminListParams {
+  accountId?: string;
+}
+
+/**
+ * A page of active sessions. `truncated`: the global listing hit its cap. `grants`: the
+ * account's grants when filtered by `accountId` (`[]` otherwise).
+ */
+export interface AdminSessionListResult extends OffsetPage<AdminSessionEntry> {
+  supported: boolean;
+  truncated: boolean;
   grants: AdminGrantEntry[];
 }
 
@@ -147,8 +174,8 @@ export interface ServiceTenantSettings {
   capabilities: string[];
 }
 
-export interface AdminClientListResult {
-  data: AdminClient[];
+/** A page of clients; `canList` is `false` when the adapter cannot enumerate them. */
+export interface AdminClientListResult extends OffsetPage<AdminClient> {
   canList: boolean;
 }
 
@@ -251,9 +278,8 @@ export interface AdminOrgDetail extends AdminOrgEntry {
   pendingInvitations: AdminOrgInvitation[];
 }
 
-export interface AdminOrgListResult {
-  data: AdminOrgEntry[];
-}
+/** A page of organizations, with member counts. */
+export type AdminOrgListResult = OffsetPage<AdminOrgEntry>;
 
 export interface CreateOrgInput {
   name: string;
@@ -283,18 +309,12 @@ export interface AuditEventEntry {
   createdAt: string;
 }
 
-/** Offset-paginated audit listing — same `{ meta, data }` shape as {@link AdminUserListResult}. */
-export interface AuditListResult {
-  meta: ListMeta;
-  data: AuditEventEntry[];
-}
+/** A page of the audit log, newest first. */
+export type AuditListResult = CursorPageResponse<AuditEventEntry>;
 
-export interface AuditListParams {
-  type?: string;
-  /** 1-based page number. Default: 1. */
-  page?: number;
-  /** Page size. Default: 20; capped server-side at 200. */
-  size?: number;
+/** `GET {base}/audit`: `filter[type]`, `filter[subject]` and the cursor params. */
+export interface AuditListParams extends CursorListParams {
+  type?: string | string[];
   subject?: string;
 }
 
@@ -377,7 +397,8 @@ export interface AdminOverview {
   windowDays: number;
   auditSupported: boolean;
   clientsCount: number;
-  auditTotal: number;
+  /** `null` when the audit sink cannot count. */
+  auditTotal: number | null;
   recentEvents: AuditEventEntry[];
 }
 
@@ -943,10 +964,8 @@ export interface PersonalAgentConnectionsParams {
   size?: number;
 }
 
-export interface PersonalAgentConnectionsResult {
-  meta: ListMeta;
-  data: PersonalAgentConnection[];
-}
+/** A page of live connections, newest first. */
+export type PersonalAgentConnectionsResult = OffsetPage<PersonalAgentConnection>;
 
 /** Body de POST {base}/personal-agents/registry. */
 export interface PersonalAgentRegistryInput {

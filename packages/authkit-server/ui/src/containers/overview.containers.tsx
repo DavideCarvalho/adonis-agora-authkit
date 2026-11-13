@@ -187,7 +187,9 @@ export function RecentEventsContainer() {
         <div className="panel">
           <div className="panel-head">
             <h3>Recent Events</h3>
-            <span className="meta">{data.auditTotal.toLocaleString()} total</span>
+            {data.auditTotal !== null && (
+              <span className="meta">{data.auditTotal.toLocaleString()} total</span>
+            )}
           </div>
           <div className="panel-body" style={{ padding: 0 }}>
             <table>

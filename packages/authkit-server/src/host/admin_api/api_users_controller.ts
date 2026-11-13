@@ -1,10 +1,10 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import type { AuthAccount } from '../../accounts/account_store.js';
-import { ADMIN_LIST_HTTP_DEFAULT_SIZE, parseListPage, parseListSize } from '../../pagination.js';
 import { rolesManagedExternally } from '../account_roles.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
 import { adminUserCreateValidator, adminUserUpdateValidator } from '../admin_validators.js';
+import { listAccountsPage, withListQuery } from '../list_api.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { enrichSessionsWithContext } from '../session_context.js';
 import { AdminUsersService } from './admin_users_service.js';
@@ -38,21 +38,22 @@ async function ctxBits(ctx: HttpContext) {
  * envelope `{ error: { code, message } }`. Toda escrita audita com `actor: 'admin-api'`.
  */
 export default class ApiUsersController {
-  /** GET /users — `{ meta: { page, size, total }, data }`, com busca por e-mail. */
+  /**
+   * GET /users — `?search=&sort=email&page=&size=` →
+   * `{ data, meta: { total, perPage, currentPage, lastPage, firstPage } }`.
+   */
   async index(ctx: HttpContext) {
     const { cfg } = await ctxBits(ctx);
-    const search = (ctx.request.input('search', '') as string).trim();
-    const page = parseListPage(ctx.request.input('page'));
-    const size = parseListSize(ctx.request.input('size'), ADMIN_LIST_HTTP_DEFAULT_SIZE);
-
-    const result = await cfg.accountStore.listAccounts({ search, page, size });
-    const users = new AdminUsersService(cfg);
-    const data = await Promise.all(
-      result.data.map(async (u: AuthAccount) =>
-        userDtoWithRoles(cfg, u, await users.isDisabled(u.id)),
-      ),
-    );
-    return { meta: { page, size, total: result.total }, data };
+    return withListQuery(ctx, async () => {
+      const result = await listAccountsPage(cfg.accountStore, ctx.request.qs());
+      const users = new AdminUsersService(cfg);
+      const data = await Promise.all(
+        result.data.map(async (u: AuthAccount) =>
+          userDtoWithRoles(cfg, u, await users.isDisabled(u.id)),
+        ),
+      );
+      return { ...result, data };
+    });
   }
 
   /** GET /users/:id */

@@ -41,6 +41,7 @@ import { withPersonalAccessToken } from '../../src/mixins/with_personal_access_t
 import { lucidPatStore } from '../../src/pat/lucid_pat_store.js';
 import { OidcService } from '../../src/provider/oidc_service.js';
 import { createTestDatabase } from '../bootstrap.js';
+import { memoryAuditList } from '../helpers/memory_audit_list.js';
 import { withClients } from '../helpers/seed_clients.js';
 
 // ─── Test PAT model ──────────────────────────────────────────────────────────
@@ -130,14 +131,8 @@ function memoryAuditSink(): AuditSink & { events: StoredAuditEvent[] } {
     record: async (e) => {
       events.push({ ...e, id: `ev-${events.length + 1}`, createdAt: new Date() });
     },
-    list: async ({ page = 1, size = 20, type, subject }) => {
-      let list = events;
-      if (type) list = list.filter((e) => e.type === type);
-      if (subject) list = list.filter((e) => e.accountId === subject);
-      const total = list.length;
-      const start = (page - 1) * size;
-      return { data: list.slice(start, start + size), total };
-    },
+    list: async (params) => memoryAuditList(events, params),
+    count: async (params) => memoryAuditList(events, { ...params, size: 1e9 }).data.length,
   };
 }
 

@@ -517,6 +517,48 @@ For the full list of audit event types see [Events & Webhooks](/docs/events#even
 Each `AuditEvent` carries `accountId`, `email`, `clientId`, `actorId` (impersonation),
 `ip`, and free-form `metadata`. The timestamp is set by the sink.
 
+### A sink of your own
+
+`record` is the only required method. Implement `list` too and the admin console, the Admin
+API, new-login alerts, account expiration and session context can read the log back; add
+`count` and the console overview shows the total.
+
+`list` returns one page, **newest first**, and pages by cursor. The cursor is yours: return
+whatever string lets you find the page after (`nextCursor`) or before (`prevCursor`) the
+current one, and AuthKit hands it back as `after` / `before`.
+
+```ts title="app/audit/warehouse_audit_sink.ts"
+import type { AuditSink } from '@adonis-agora/authkit-server'
+
+export const warehouseAuditSink: AuditSink = {
+  async record(event) {
+    await warehouse.insert('auth_events', { ...event, createdAt: new Date() })
+  },
+
+  // params: { type?: string | string[], subject?: string, size?, after?, before? }
+  async list({ type, subject, size = 20, after, before }) {
+    const page = await warehouse.page('auth_events', {
+      where: { type, accountId: subject },
+      orderBy: 'createdAt desc',
+      size,
+      after,
+      before,
+    })
+    return {
+      data: page.rows, // { id, type, accountId, email, clientId, actorId, ip, metadata, createdAt }
+      nextCursor: page.nextCursor ?? null,
+      prevCursor: page.prevCursor ?? null,
+      hasNext: page.nextCursor != null,
+      hasPrev: page.prevCursor != null,
+    }
+  },
+
+  async count({ type, subject }) {
+    return warehouse.count('auth_events', { type, accountId: subject })
+  },
+}
+```
+
 ## RP-initiated logout
 
 Use `buildEndSessionUrl` from the client to end the IdP SSO session and bounce the browser

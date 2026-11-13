@@ -2,8 +2,18 @@ import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { apiError, grantDto, sessionDto } from '../admin_api/dto.js';
-import { AdminSessionsService } from '../admin_sessions_service.js';
+import { type AdminSession, AdminSessionsService } from '../admin_sessions_service.js';
 import { sessionAccountValidator } from '../admin_validators.js';
+import {
+  pageRows,
+  readListFilter,
+  readSearch,
+  readSort,
+  SessionListFilter,
+  searchRows,
+  sortRows,
+  withListQuery,
+} from '../list_api.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { enrichSessionsWithContext } from '../session_context.js';
 import { requireSudo } from '../sudo_mode.js';
@@ -27,7 +37,7 @@ async function gateSudo(ctx: HttpContext): Promise<unknown | null> {
 /**
  * Endpoints JSON de sessões/grants do console admin React.
  *
- * GET    {prefix}/api/sessions?accountId=      → lista sessões + grants de uma conta (ou global)
+ * GET    {prefix}/api/sessions?filter[accountId]=&search=&sort=&page=&size= → página de sessões ativas
  * POST   {prefix}/api/sessions/revoke-all      → revoga todas as sessões de ?accountId=
  * GET    {prefix}/api/users/:id/sessions       → lista sessões + grants de um usuário específico
  * POST   {prefix}/api/users/:id/revoke-sessions → revoga todas as sessões de um usuário específico
@@ -61,29 +71,53 @@ export default class ConsoleSessionsController {
     };
   }
 
-  /** GET {prefix}/api/sessions?accountId= */
+  /**
+   * GET {prefix}/api/sessions — active sessions, one page:
+   * `?filter[accountId]=&search=&sort=-loginTs|email&page=&size=` →
+   * `{ data, meta, supported, truncated, grants }`. `search` matches the email or the IP;
+   * `grants` lists the account's grants when `filter[accountId]` is set (`[]` otherwise).
+   */
   async index(ctx: HttpContext) {
     const service = await ctx.containerResolver.make('authkit.server');
-    const accountId = (ctx.request.input('accountId', '') as string).trim();
+    const cfg = service.config;
     const adminSvc = new AdminSessionsService(service);
+    const qs = ctx.request.qs();
 
-    if (!adminSvc.canList) {
-      return { supported: false, sessions: [], grants: [] };
-    }
+    return withListQuery(ctx, async () => {
+      const filter = await readListFilter(qs, SessionListFilter);
+      const sort = readSort(qs, { sortable: ['loginTs', 'email'], default: '-loginTs' });
 
-    // Sem accountId → listagem global de todas as sessões ativas
-    if (!accountId) {
-      const { sessions: rawSessions, truncated } = await adminSvc.listAllSessions();
-      return {
-        supported: true,
-        truncated,
-        sessions: rawSessions.map(sessionDto),
-        grants: [],
-      };
-    }
+      if (!adminSvc.canList) {
+        return { ...pageRows([], qs), supported: false, truncated: false, grants: [] };
+      }
 
-    // Com accountId → delega ao helper por-conta
-    return this.listForAccount(ctx, accountId);
+      const accountId = filter.first('accountId');
+      let sessions: AdminSession[];
+      let grants: ReturnType<typeof grantDto>[] = [];
+      let truncated = false;
+      if (accountId) {
+        const account = await cfg.accountStore.findById(accountId);
+        if (!account) {
+          return ctx.response.notFound(apiError('not_found', 'Usuário não encontrado.'));
+        }
+        sessions = (
+          await enrichSessionsWithContext(cfg, accountId, await adminSvc.listSessions(accountId))
+        ).map((s) => ({ ...s, email: s.email ?? account.email }));
+        grants = (await adminSvc.listGrants(accountId)).map(grantDto);
+      } else {
+        const all = await adminSvc.listAllSessions();
+        sessions = all.sessions;
+        truncated = all.truncated;
+      }
+
+      const found = searchRows(sessions, readSearch(qs), [(s) => s.email, (s) => s.ip]);
+      const sorted = sortRows(found, sort, {
+        loginTs: (s) => s.loginTs ?? null,
+        email: (s) => s.email ?? null,
+      });
+      const page = pageRows(sorted, qs);
+      return { ...page, data: page.data.map(sessionDto), supported: true, truncated, grants };
+    });
   }
 
   /** GET {prefix}/api/users/:id/sessions */

@@ -7,21 +7,47 @@
  * shapes — keep them in sync with the server DTOs.
  */
 
-/**
- * Shared offset-pagination constants for the Authkit SDK listings. They mirror
- * the `@adonis-agora/authkit-server` values of the same name (and, structurally,
- * `@adonis-agora/filter`'s `{ page, size }` contract) — declared locally so the
- * SDK keeps working against any supported server version.
- */
+import type { CursorPageResponse, OffsetPage } from '@adonis-agora/filter-client';
 
-/** First page — pagination is 1-based. */
+export type {
+  CursorPageMeta,
+  CursorPageResponse,
+  OffsetPage,
+  OffsetPageMeta,
+} from '@adonis-agora/filter-client';
+
+/** First page — offset pagination is 1-based. */
 export const LIST_FIRST_PAGE = 1;
 
-/** Default page size when a listing call omits `size`. */
+/** Page size the server uses when a listing call omits `size` (or `first`/`last`). */
 export const ADMIN_LIST_DEFAULT_SIZE = 20;
 
-/** Hard cap applied to a caller-supplied `size`. */
+/** Largest page size the server accepts; bigger values are clamped. */
 export const ADMIN_LIST_MAX_SIZE = 200;
+
+/** Offset paging and sort shared by `users.list`, `clients.list` and `organizations.list`. */
+export interface OffsetListParams {
+  /** Free-text search (what it matches depends on the list). */
+  search?: string;
+  /** Sort, `-field` for descending: `'-createdAt'`, `'name,slug'`. */
+  sort?: string;
+  /** 1-based page. Default 1. */
+  page?: number;
+  /** Page size. Default 20, at most 200. */
+  size?: number;
+}
+
+/** Cursor paging of the audit log (newest first). */
+export interface CursorListParams {
+  /** The `meta.nextCursor` of a page: returns the next (older) page. */
+  after?: string;
+  /** The `meta.prevCursor` of a page: returns the previous (newer) page. */
+  before?: string;
+  /** Page size when paging forward. Default 20, at most 200. */
+  first?: number;
+  /** Page size when paging backward. Default 20, at most 200. */
+  last?: number;
+}
 
 /** A user/account as projected by the Admin API (`userDto`). */
 export interface AuthkitUser {
@@ -38,43 +64,11 @@ export interface AuthkitCreatedUser extends AuthkitUser {
   invited: boolean;
 }
 
-/**
- * Offset pagination for `users.list`.
- *
- * `{ page, size }` intentionally mirrors `@adonis-agora/filter`'s
- * `FilterInput.page`/`.size` so every `@adonis-agora/*` package exposes the same
- * pagination interface. The match is STRUCTURAL on purpose — there is no
- * dependency on `@adonis-agora/filter` here.
- */
-export interface ListUsersParams {
-  search?: string;
-  /** 1-based page number. Default: 1. */
-  page?: number;
-  /** Page size. Default: 20; capped at {@link ADMIN_LIST_MAX_SIZE}. */
-  size?: number;
-}
+/** `users.list`: `search` matches the email; the list is sorted by email (`sort: 'email'`). */
+export type ListUsersParams = OffsetListParams;
 
-/**
- * Pagination envelope of every paginated authkit listing.
- *
- * The `meta` key (and keeping `{ page, size }` inside it) is Lucid's own
- * `.paginate()` convention — `{ meta, data }` — which is where
- * `@adonis-agora/filter`'s offset path lands, and therefore the envelope every
- * `@adonis-agora/*` package answers with.
- */
-export interface ListMeta {
-  /** 1-based page returned. */
-  page: number;
-  /** Page size actually applied (already normalized/capped). */
-  size: number;
-  /** Absolute number of matching items across all pages. */
-  total: number;
-}
-
-export interface ListUsersResult {
-  meta: ListMeta;
-  data: AuthkitUser[];
-}
+/** A page of users. */
+export type ListUsersResult = OffsetPage<AuthkitUser>;
 
 export interface CreateUserInput {
   email: string;
@@ -149,8 +143,11 @@ export interface AuthkitClient {
   serviceTenant: { partition: string; capabilities: string[] } | null;
 }
 
-export interface ListClientsResult {
-  data: AuthkitClient[];
+/** `clients.list`: `search` matches the client id or name; `sort` is `clientId` or `clientName`. */
+export type ListClientsParams = OffsetListParams;
+
+/** A page of clients. `canList` is `false` when the adapter cannot enumerate clients. */
+export interface ListClientsResult extends OffsetPage<AuthkitClient> {
   canList: boolean;
 }
 
@@ -198,23 +195,16 @@ export interface AuthkitAuditEvent {
   createdAt: string;
 }
 
-/**
- * Offset pagination for `audit.list` — same `{ page, size }` shape as
- * {@link ListUsersParams} and `@adonis-agora/filter`.
- */
-export interface ListAuditParams {
-  type?: string;
+/** `audit.list`: newest first, by cursor. */
+export interface ListAuditParams extends CursorListParams {
+  /** Only events of this type, or of any of these types. */
+  type?: string | string[];
+  /** Only events about this account id. */
   subject?: string;
-  /** 1-based page number. Default: 1. */
-  page?: number;
-  /** Page size. Default: 20; capped at {@link ADMIN_LIST_MAX_SIZE}. */
-  size?: number;
 }
 
-export interface ListAuditResult {
-  meta: ListMeta;
-  data: AuthkitAuditEvent[];
-}
+/** A page of audit events, newest first. */
+export type ListAuditResult = CursorPageResponse<AuthkitAuditEvent>;
 
 /** A daily series point (ISO `YYYY-MM-DD` day + count). */
 export interface AuthkitDailyPoint {
@@ -324,9 +314,14 @@ export interface AuthkitOrgInvitation {
   createdAt: string;
 }
 
-export interface ListOrganizationsResult {
-  data: AuthkitOrganization[];
-}
+/**
+ * `organizations.list`: `search` matches the name or slug; `sort` is `name`, `slug`,
+ * `createdAt` or `memberCount`.
+ */
+export type ListOrganizationsParams = OffsetListParams;
+
+/** A page of organizations, with their member counts. */
+export type ListOrganizationsResult = OffsetPage<AuthkitOrganization>;
 
 export interface CreateOrganizationInput {
   name: string;
@@ -449,7 +444,7 @@ export interface Authkit {
     revokeAll(userId: string): Promise<RevokeSessionsResult>;
   };
   clients: {
-    list(): Promise<ListClientsResult>;
+    list(params?: ListClientsParams): Promise<ListClientsResult>;
     get(id: string): Promise<AuthkitClient>;
     create(input: ClientInput): Promise<AuthkitCreatedClient>;
     update(id: string, input: ClientInput): Promise<AuthkitClient>;
@@ -468,7 +463,7 @@ export interface Authkit {
     verify(token: string): Promise<VerifyTokenResult>;
   };
   organizations: {
-    list(): Promise<ListOrganizationsResult>;
+    list(params?: ListOrganizationsParams): Promise<ListOrganizationsResult>;
     create(input: CreateOrganizationInput): Promise<AuthkitOrganization>;
     get(id: string): Promise<AuthkitOrganizationDetail>;
     update(id: string, input: UpdateOrganizationInput): Promise<AuthkitOrganization>;

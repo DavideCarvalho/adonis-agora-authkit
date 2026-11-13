@@ -216,7 +216,13 @@ let cfg: any;
 let mailInvitations: any[];
 
 // ─── fake HttpContext ─────────────────────────────────────────────────────
-function fakeCtx(opts: { inputs?: Record<string, unknown>; params?: Record<string, string> } = {}) {
+function fakeCtx(
+  opts: {
+    inputs?: Record<string, unknown>;
+    params?: Record<string, string>;
+    qs?: Record<string, unknown>;
+  } = {},
+) {
   let status = 200;
   let body: any;
   const captured = { status: () => status, body: () => body };
@@ -231,6 +237,7 @@ function fakeCtx(opts: { inputs?: Record<string, unknown>; params?: Record<strin
   const ctx = {
     request: {
       input: (k: string, def?: unknown) => opts.inputs?.[k] ?? def,
+      qs: () => opts.qs ?? {},
       param: (k: string) => opts.params?.[k],
       ip: () => '127.0.0.1',
       protocol: () => 'http',
@@ -575,6 +582,44 @@ test.group('ApiOrgsController', (group) => {
     assert.isArray(res.data);
     assert.lengthOf(res.data, 1);
     assert.equal(res.data[0].name, 'Acme');
+  });
+
+  test('GET /organizations: search, sort, offset envelope; unknown sort → 400', async ({
+    assert,
+  }) => {
+    const svc = new AdminOrgsService(cfg);
+    const actor = { actorId: null, ip: null, source: 'admin-api' as const };
+    for (const [name, slug] of [
+      ['Zulu', 'zulu'],
+      ['Alpha', 'alpha'],
+      ['Mike', 'mike'],
+    ]) {
+      await svc.createOrg({ name, slug, ownerAccountId: 'owner-1' }, actor);
+    }
+    const ctrl = new ApiOrgsController();
+    const page1: any = await ctrl.index(fakeCtx({ qs: { sort: '-name', size: '2' } }).ctx);
+    assert.deepEqual(
+      page1.data.map((o: any) => o.name),
+      ['Zulu', 'Mike'],
+    );
+    assert.deepEqual(page1.meta, {
+      total: 3,
+      perPage: 2,
+      currentPage: 1,
+      lastPage: 2,
+      firstPage: 1,
+    });
+    const found: any = await ctrl.index(fakeCtx({ qs: { search: 'alp' } }).ctx);
+    assert.deepEqual(
+      found.data.map((o: any) => o.slug),
+      ['alpha'],
+    );
+    const bad = fakeCtx({ qs: { sort: 'ownerAccountId' } });
+    await ctrl.index(bad.ctx);
+    assert.equal(bad.captured.status(), 400);
+    const badFilter = fakeCtx({ qs: { filter: { slug: 'alpha' } } });
+    await ctrl.index(badFilter.ctx);
+    assert.equal(badFilter.captured.status(), 400);
   });
 
   test('POST /organizations cria org (201)', async ({ assert }) => {

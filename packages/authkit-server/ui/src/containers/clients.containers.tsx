@@ -5,6 +5,8 @@ import React from 'react';
 import { QueryBoundary } from '../components/QueryBoundary';
 import { Skeleton } from '../components/Skeleton';
 
+const ALL_CLIENTS = { page: 1, size: 200 } as const;
+
 // ── Skeleton for client cards ─────────────────────────────────────────────────
 
 function ClientCardSkeleton() {
@@ -58,7 +60,8 @@ export function ClientsListContainer({
   onRegenerate,
   onToggleDisabled,
 }: ClientsListContainerProps) {
-  const { data, isLoading, error, refetch } = useQuery(useClientsQueryOptions());
+  // The console lists every client on one screen: one page of the largest size the API allows.
+  const { data, isLoading, error, refetch } = useQuery(useClientsQueryOptions(ALL_CLIENTS));
   const clients = data?.data ?? [];
   const canList = data?.canList ?? true;
 
@@ -196,6 +199,6 @@ export function ClientsListContainer({
 
 // Re-export count for the page header
 export function useClientsCount() {
-  const { data } = useQuery(useClientsQueryOptions());
-  return data?.data.length ?? 0;
+  const { data } = useQuery(useClientsQueryOptions(ALL_CLIENTS));
+  return data?.meta.total ?? 0;
 }

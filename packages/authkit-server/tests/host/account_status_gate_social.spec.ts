@@ -7,6 +7,7 @@
 
 import { test } from '@japa/runner';
 import AuthSocialController from '../../src/host/controllers/social_controller.js';
+import { auditPageOf } from '../helpers/memory_audit_list.js';
 
 const PROVIDER = 'google';
 const ACCOUNT_ID = 'acc-1';
@@ -192,7 +193,7 @@ test.group('account status gate — social login callback', () => {
       record: async (e: any) => {
         recorded.push(e);
       },
-      list: async () => ({ data: [{ createdAt: oldLogin }], total: 1 }),
+      list: async () => auditPageOf([{ createdAt: oldLogin } as any]),
     };
     const { service, completeLoginCalls } = buildService(store, { audit });
     const db = fakeSettingsDb({ account_expiration: { enabled: true, inactiveDays: 365 } });
@@ -236,7 +237,7 @@ test.group('account status gate — social login callback', () => {
       record: async (e: any) => {
         recorded.push(e);
       },
-      list: async () => ({ data: [], total: 0 }),
+      list: async () => auditPageOf([]),
     };
     const { service, completeLoginCalls } = buildService(store, { audit });
     const db = fakeSettingsDb({ password_expiration: { enabled: true, maxAgeDays: 90 } });

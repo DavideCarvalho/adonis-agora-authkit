@@ -158,7 +158,7 @@ export function OrgsTableContainer({
   const [checkedUnavailable, setCheckedUnavailable] = useState(false);
 
   const { data, isLoading, error, refetch } = useQuery({
-    ...useOrgsQueryOptions(),
+    ...useOrgsQueryOptions({ search: search || undefined, page, size: PAGE_SIZE }),
     retry: (failureCount, err: unknown) => {
       if (
         err &&
@@ -176,16 +176,8 @@ export function OrgsTableContainer({
     },
   });
 
-  const allOrgs = data?.data ?? [];
-  const filtered = search
-    ? allOrgs.filter(
-        (o) =>
-          o.name.toLowerCase().includes(search.toLowerCase()) ||
-          o.slug.toLowerCase().includes(search.toLowerCase()),
-      )
-    : allOrgs;
-  const total = filtered.length;
-  const orgs = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const orgs = data?.data ?? [];
+  const total = data?.meta.total ?? 0;
 
   const isNotFound =
     error &&
@@ -533,14 +525,8 @@ export function OrgDetailDrawer({ orgId, onClose }: OrgDetailDrawerProps) {
 // ── Re-export count for page header ──────────────────────────────────────────
 
 export function useOrgsTotal(search: string) {
-  const { data } = useQuery(useOrgsQueryOptions());
-  const allOrgs = data?.data ?? [];
-  const filtered = search
-    ? allOrgs.filter(
-        (o) =>
-          o.name.toLowerCase().includes(search.toLowerCase()) ||
-          o.slug.toLowerCase().includes(search.toLowerCase()),
-      )
-    : allOrgs;
-  return filtered.length;
+  const { data } = useQuery(
+    useOrgsQueryOptions({ search: search || undefined, page: 1, size: PAGE_SIZE }),
+  );
+  return data?.meta.total ?? 0;
 }

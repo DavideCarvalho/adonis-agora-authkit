@@ -64,5 +64,8 @@
     "@poppinss/ts-exec": "catalog:",
     "@types/node": "catalog:adonis",
     "typescript": "catalog:frontend"
+  },
+  "dependencies": {
+    "@adonis-agora/filter-client": "^1.0.0-rc.1"
   }
 }

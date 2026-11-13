@@ -1,9 +1,9 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
-import { ADMIN_LIST_HTTP_DEFAULT_SIZE, parseListPage, parseListSize } from '../../pagination.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
 import { computeAdminStats } from '../admin_stats_service.js';
 import { tokenVerifyValidator } from '../admin_validators.js';
+import { listAuditPage, withListQuery } from '../list_api.js';
 import { apiError, auditDto } from './dto.js';
 import { TokenVerifyService } from './token_verify_service.js';
 
@@ -12,7 +12,11 @@ import { TokenVerifyService } from './token_verify_service.js';
  * introspecção genérica de token (`POST /tokens/verify`).
  */
 export default class ApiMiscController {
-  /** GET /audit — `{ meta: { page, size, total }, data }` (501 JSON quando o sink não consulta). */
+  /**
+   * GET /audit — newest first, `?filter[type]=&filter[subject]=&after=&before=&first=&last=` →
+   * `{ data, meta: { nextCursor, prevCursor, hasNext, hasPrev } }` (501 JSON when the sink
+   * cannot be queried).
+   */
   async audit(ctx: HttpContext) {
     const service = await ctx.containerResolver.make('authkit.server');
     const cfg = service.config;
@@ -22,13 +26,10 @@ export default class ApiMiscController {
         .status(501)
         .send(apiError('not_implemented', 'O sink de auditoria configurado não suporta consulta.'));
     }
-    const page = parseListPage(ctx.request.input('page'));
-    const size = parseListSize(ctx.request.input('size'), ADMIN_LIST_HTTP_DEFAULT_SIZE);
-    const type = (ctx.request.input('type') as string | undefined)?.trim() || undefined;
-    const subject = (ctx.request.input('subject') as string | undefined)?.trim() || undefined;
-
-    const result = await sink.list({ page, size, type, subject });
-    return { meta: { page, size, total: result.total }, data: result.data.map(auditDto) };
+    return withListQuery(ctx, async () => {
+      const page = await listAuditPage(sink, ctx.request.qs());
+      return { ...page, data: page.data.map(auditDto) };
+    });
   }
 
   /** GET /stats — métricas-resumo do IdP (totais + MAU + séries de 30 dias). */

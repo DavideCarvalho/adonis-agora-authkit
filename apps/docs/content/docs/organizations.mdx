@@ -413,8 +413,8 @@ curl -X POST https://idp.example.com/api/authkit/v1/organizations/org-1/invitati
 ```ts
 const authkit = await createAuthkit({ mode: 'remote', baseUrl, apiKey })
 
-// List
-const { data: orgs } = await authkit.organizations.list()
+// List (a page: `search`, `sort`, `page`, `size`)
+const { data: orgs, meta } = await authkit.organizations.list({ search: 'acme', sort: 'name' })
 
 // Create
 const org = await authkit.organizations.create({

@@ -105,7 +105,7 @@ const client = createAuthkitClient({
 | Method | HTTP | Notes |
 | --- | --- | --- |
 | `admin.overview()` | `GET /overview` | Dashboard metrics |
-| `admin.users.list(params?)` | `GET /users` | `{ search?, page?, size? }` → `{ meta, data }` |
+| `admin.users.list(params?)` | `GET /users` | `{ search?, sort?, page?, size? }` → `OffsetPage<AdminUser>` |
 | `admin.users.get(id)` | `GET /users/:id` | Single user |
 | `admin.users.create(data)` | `POST /users` | Creates or invites |
 | `admin.users.update(id, data)` | `PATCH /users/:id` | Partial update |
@@ -115,9 +115,9 @@ const client = createAuthkitClient({
 | `admin.users.remove(id)` | `DELETE /users/:id` | Cascade delete; `{ ok, deleted }` |
 | `admin.users.getSessions(id)` | `GET /users/:id/sessions` | Active sessions |
 | `admin.users.revokeSessions(id)` | `POST /users/:id/revoke-sessions` | Revoke all |
-| `admin.sessions.list(accountId?)` | `GET /sessions` | All active sessions |
+| `admin.sessions.list(params?)` | `GET /sessions` | `{ accountId?, search?, sort?, page?, size? }` → `OffsetPage` + `supported`, `truncated`, `grants` |
 | `admin.sessions.revokeAll(accountId?)` | `POST /sessions/revoke-all` | — |
-| `admin.clients.list()` | `GET /clients` | — |
+| `admin.clients.list(params?)` | `GET /clients` | `{ search?, sort?, page?, size? }` → `OffsetPage` + `canList` |
 | `admin.clients.get(id)` | `GET /clients/:id` | One client; `404` when unknown |
 | `admin.clients.create(data?)` | `POST /clients` | — |
 | `admin.clients.update(id, data?)` | `PATCH /clients/:id` | — |
@@ -128,7 +128,7 @@ const client = createAuthkitClient({
 | `admin.roles.create(data)` | `POST /roles` | — |
 | `admin.roles.update(name, data)` | `PATCH /roles/:name` | — |
 | `admin.roles.remove(name)` | `DELETE /roles/:name` | — |
-| `admin.orgs.list()` | `GET /orgs` | — |
+| `admin.orgs.list(params?)` | `GET /orgs` | `{ search?, sort?, page?, size? }` → `OffsetPage<AdminOrgEntry>` |
 | `admin.orgs.get(id)` | `GET /orgs/:id` | — |
 | `admin.orgs.create(data)` | `POST /orgs` | — |
 | `admin.orgs.update(id, data)` | `PATCH /orgs/:id` | — |
@@ -138,7 +138,7 @@ const client = createAuthkitClient({
 | `admin.orgs.updateMemberRole(orgId, accountId, role)` | `PATCH /orgs/:id/members/:accountId` | Sends `{ role }` |
 | `admin.orgs.createInvitation(orgId, { email, role })` | `POST /orgs/:id/invitations` | For someone who has no account yet |
 | `admin.orgs.revokeInvitation(orgId, invitationId)` | `DELETE /orgs/:id/invitations/:invitationId` | — |
-| `admin.audit.list(params?)` | `GET /audit` | `{ type?, page?, size?, subject? }` → `{ meta, data }` |
+| `admin.audit.list(params?)` | `GET /audit` | `{ type?, subject?, after?, before?, first?, last? }` → `CursorPageResponse<AuditEventEntry>` |
 | `admin.settings.list(orgId?)` | `GET /settings` | `orgId` scopes to one org; omitted = global |
 | `admin.settings.set(key, value, orgId?)` | `PUT /settings/:key` | Same scoping |
 | `admin.settings.remove(key, orgId?)` | `DELETE /settings/:key` | Resets to the library default |
@@ -234,30 +234,39 @@ catch (err) {
 All query hooks return `UseQueryOptions` — pass them directly to `useQuery`:
 
 ```ts
-const { data } = useQuery(useUsersQueryOptions({ search: 'alice', page: 1 }))
+const { data } = useQuery(useUsersQueryOptions({ search: 'alice', page: 1, size: 20 }))
 // data.data — AdminUser[]
-// data.meta — { page, size, total }
+// data.meta — { total, perPage, currentPage, lastPage, firstPage }
 ```
 
-Paginated listings (`users`, `audit`) answer the `{ meta, data }` envelope Lucid's own
-`.paginate()` uses, which is the shape every `@adonis-agora/*` package returns. The request
-side is `{ page, size }`, matching `@adonis-agora/filter`.
+The users, sessions, clients and orgs lists page by number (`page`, `size`) and answer
+`{ data, meta: { total, perPage, currentPage, lastPage, firstPage } }`. `sort` takes `-field`
+for descending. The audit log pages by cursor, newest first:
+
+```ts
+const [cursor, setCursor] = useState<{ after?: string; before?: string }>({})
+const { data } = useQuery(useAuditQueryOptions({ type: 'login.failure', first: 50, ...cursor }))
+// next (older) page:  setCursor({ after: data.meta.nextCursor })
+// previous page:      setCursor({ before: data.meta.prevCursor })
+```
+
+An unsupported filter or sort is a `400` with code `invalid_list_query`.
 
 ### Admin query hooks
 
 | Hook | Query key | Notes |
 | --- | --- | --- |
 | `useOverviewQueryOptions()` | `authkitKeys.admin.overview()` | Dashboard metrics |
-| `useUsersQueryOptions(params?)` | `authkitKeys.admin.users(params)` | `{ search?, page?, size? }` → `{ meta, data }` |
+| `useUsersQueryOptions(params?)` | `authkitKeys.admin.users(params)` | `{ search?, sort?, page?, size? }` → `OffsetPage<AdminUser>` |
 | `useUserQueryOptions(id)` | `authkitKeys.admin.user(id)` | Disabled when `id` is empty |
 | `useUserSessionsQueryOptions(id)` | `authkitKeys.admin.userSessions(id)` | — |
-| `useSessionsQueryOptions(accountId?)` | `authkitKeys.admin.sessions(accountId)` | — |
-| `useClientsQueryOptions()` | `authkitKeys.admin.clients()` | — |
+| `useSessionsQueryOptions(params?)` | `authkitKeys.admin.sessions(params)` | `{ accountId?, search?, sort?, page?, size? }` |
+| `useClientsQueryOptions(params?)` | `authkitKeys.admin.clients(params)` | `{ search?, sort?, page?, size? }` |
 | `useClientQueryOptions(id)` | `authkitKeys.admin.client(id)` | — |
 | `useRolesQueryOptions()` | `authkitKeys.admin.roles()` | — |
-| `useOrgsQueryOptions()` | `authkitKeys.admin.orgs()` | — |
+| `useOrgsQueryOptions(params?)` | `authkitKeys.admin.orgs(params)` | `{ search?, sort?, page?, size? }` |
 | `useOrgQueryOptions(id)` | `authkitKeys.admin.org(id)` | — |
-| `useAuditQueryOptions(params?)` | `authkitKeys.admin.audit(params)` | `{ type?, page?, size?, subject? }` → `{ meta, data }` |
+| `useAuditQueryOptions(params?)` | `authkitKeys.admin.audit(params)` | `{ type?, subject?, after?, before?, first?, last? }` → `CursorPageResponse` |
 | `useSettingsQueryOptions(orgId?)` | `authkitKeys.admin.settings(orgId)` | `orgId` scopes to one org; omitted/`null` = global |
 | `useImpersonationQueryOptions(userId)` | `authkitKeys.admin.impersonation(userId)` | — |
 | `useKeysQueryOptions()` | `authkitKeys.admin.keys()` | Signing-key status |
@@ -666,7 +675,13 @@ const client = createAuthkitClient({
   baseUrl: 'http://localhost:3333/admin/api',
   csrfToken: 'test',
   fetch: vi.fn().mockResolvedValue(
-    new Response(JSON.stringify({ meta: { page: 1, size: 20, total: 0 }, data: [] }), { status: 200 })
+    new Response(
+      JSON.stringify({
+        data: [],
+        meta: { total: 0, perPage: 20, currentPage: 1, lastPage: 1, firstPage: 1 },
+      }),
+      { status: 200 },
+    ),
   ),
 })
 ```

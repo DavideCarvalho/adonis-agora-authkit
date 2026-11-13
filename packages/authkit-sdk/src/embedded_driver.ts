@@ -1,4 +1,5 @@
 import type { ApplicationService } from '@adonisjs/core/types';
+import { auditListObject, offsetListObject } from './list_query.js';
 import type {
   AddedOrgMember,
   AddOrgMemberInput,
@@ -17,6 +18,7 @@ import type {
   CreateOrganizationInput,
   CreateOrgInvitationInput,
   CreateUserInput,
+  CursorPageResponse,
   DeletedClient,
   DeletedOrganization,
   DeletedSetting,
@@ -26,12 +28,15 @@ import type {
   KeysStatus,
   ListAuditParams,
   ListAuditResult,
+  ListClientsParams,
   ListClientsResult,
+  ListOrganizationsParams,
   ListOrganizationsResult,
   ListSessionsResult,
   ListSettingsResult,
   ListUsersParams,
   ListUsersResult,
+  OffsetPage,
   RegeneratedSecret,
   RemovedOrgMember,
   ResetPasswordResult,
@@ -43,7 +48,6 @@ import type {
   UserStatusResult,
   VerifyTokenResult,
 } from './types.js';
-import { ADMIN_LIST_DEFAULT_SIZE, ADMIN_LIST_MAX_SIZE, LIST_FIRST_PAGE } from './types.js';
 
 /**
  * Where the server keeps `auth_settings`: `schema.connection` and `schema.name` of its resolved
@@ -131,6 +135,10 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
     computeAdminStats,
     buildKeysStatus,
     rotateNow,
+    listAccountsPage,
+    listAuditPage,
+    listClientsPage,
+    listOrgsPage,
   } = server as unknown as {
     AdminUsersService: any;
     AdminClientsService: any;
@@ -144,6 +152,10 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
       svc: any,
       body: any,
     ) => Promise<{ rotated: true; newKid: string; retiredKids: string[]; keptKids: string[] }>;
+    listAccountsPage: (store: any, qs: Record<string, unknown>) => Promise<OffsetPage<any>>;
+    listAuditPage: (sink: any, qs: Record<string, unknown>) => Promise<CursorPageResponse<any>>;
+    listClientsPage: (rows: any[], qs: Record<string, unknown>) => Promise<OffsetPage<any>>;
+    listOrgsPage: (rows: any[], qs: Record<string, unknown>) => Promise<OffsetPage<any>>;
   };
 
   const service = await app.container.make('authkit.server');
@@ -261,15 +273,8 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
   return {
     users: {
       async list(params: ListUsersParams = {}): Promise<ListUsersResult> {
-        const search = (params.search ?? '').trim();
-        const page = Math.max(LIST_FIRST_PAGE, params.page ?? LIST_FIRST_PAGE);
-        const size = Math.max(
-          1,
-          Math.min(ADMIN_LIST_MAX_SIZE, params.size ?? ADMIN_LIST_DEFAULT_SIZE),
-        );
-        const result = await cfg.accountStore.listAccounts({ search, page, size });
-        const data = await Promise.all(result.data.map((u: any) => userDto(u)));
-        return { meta: { page, size, total: result.total }, data };
+        const page = await listAccountsPage(cfg.accountStore, offsetListObject(params));
+        return { ...page, data: await Promise.all(page.data.map((u: any) => userDto(u))) };
       },
       async get(id: string): Promise<AuthkitUser> {
         const account = await cfg.accountStore.findById(id);
@@ -363,11 +368,11 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
       },
     },
     clients: {
-      async list(): Promise<ListClientsResult> {
+      async list(params: ListClientsParams = {}): Promise<ListClientsResult> {
         const svc = new AdminClientsService(service);
-        if (!svc.canList) return { data: [], canList: false };
-        const clients = await svc.list();
-        return { data: clients.map(clientDto), canList: true };
+        const rows = svc.canList ? await svc.list() : [];
+        const page = await listClientsPage(rows, offsetListObject(params));
+        return { ...page, data: page.data.map(clientDto), canList: svc.canList };
       },
       async get(id: string): Promise<AuthkitClient> {
         const client = await new AdminClientsService(service).find(id);
@@ -434,15 +439,8 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
         if (!sink || typeof sink.list !== 'function') {
           throw new Error('O sink de auditoria configurado não suporta consulta.');
         }
-        const page = Math.max(LIST_FIRST_PAGE, params.page ?? LIST_FIRST_PAGE);
-        const size = Math.max(
-          1,
-          Math.min(ADMIN_LIST_MAX_SIZE, params.size ?? ADMIN_LIST_DEFAULT_SIZE),
-        );
-        const type = params.type?.trim() || undefined;
-        const subject = params.subject?.trim() || undefined;
-        const result = await sink.list({ page, size, type, subject });
-        return { meta: { page, size, total: result.total }, data: result.data.map(auditDto) };
+        const page = await listAuditPage(sink, auditListObject(params));
+        return { ...page, data: page.data.map(auditDto) };
       },
     },
     async stats(): Promise<AuthkitStats> {
@@ -494,11 +492,12 @@ export async function createEmbeddedAuthkit(opts: EmbeddedOptions): Promise<Auth
       }
 
       return {
-        async list(): Promise<ListOrganizationsResult> {
+        async list(params: ListOrganizationsParams = {}): Promise<ListOrganizationsResult> {
           const result = await orgsService.listOrgs();
           if (!Array.isArray(result))
             throw new Error('Organizations não é suportado nesta instalação.');
-          return { data: result.map(orgDto) };
+          const page = await listOrgsPage(result, offsetListObject(params));
+          return { ...page, data: page.data.map(orgDto) };
         },
         async create(input: CreateOrganizationInput): Promise<AuthkitOrganization> {
           const result = await orgsService.createOrg(input, ACTOR);

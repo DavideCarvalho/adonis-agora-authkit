@@ -18,6 +18,7 @@ import { withPersonalAccessToken } from '../src/mixins/with_personal_access_toke
 import { lucidPatStore } from '../src/pat/lucid_pat_store.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { createTestDatabase } from './bootstrap.js';
+import { memoryAuditList } from './helpers/memory_audit_list.js';
 import { withClients } from './helpers/seed_clients.js';
 
 class TestPat extends compose(BaseModel, withPersonalAccessToken()) {
@@ -139,14 +140,8 @@ function memoryAuditSink(): AuditSink & { events: StoredAuditEvent[] } {
     record: async (e) => {
       events.push({ ...e, id: `ev-${events.length + 1}`, createdAt: new Date() });
     },
-    list: async ({ page = 1, size = 20, type, subject }) => {
-      let list = events;
-      if (type) list = list.filter((e) => e.type === type);
-      if (subject) list = list.filter((e) => e.accountId === subject);
-      const total = list.length;
-      const start = (page - 1) * size;
-      return { data: list.slice(start, start + size), total };
-    },
+    list: async (params) => memoryAuditList(events, params),
+    count: async (params) => memoryAuditList(events, { ...params, size: 1e9 }).data.length,
   };
 }
 
@@ -154,6 +149,8 @@ function memoryAuditSink(): AuditSink & { events: StoredAuditEvent[] } {
 function fakeCtx(opts: {
   service?: any;
   inputs?: Record<string, unknown>;
+  /** The decoded query string (`ctx.request.qs()`). */
+  qs?: Record<string, unknown>;
   params?: Record<string, string>;
   authHeader?: string;
   /** id NÃO-SENSÍVEL da API key, como o adminApiGuard anexaria (M9). */
@@ -173,6 +170,7 @@ function fakeCtx(opts: {
   const ctx = {
     request: {
       input: (k: string, def?: unknown) => opts.inputs?.[k] ?? def,
+      qs: () => opts.qs ?? {},
       param: (k: string) => opts.params?.[k],
       ip: () => '127.0.0.1',
       protocol: () => 'http',
@@ -683,12 +681,127 @@ test.group('Admin REST API (controllers)', (group) => {
     );
 
     const misc = new ApiMiscController();
-    const all: any = await misc.audit(fakeCtx({ service, inputs: {} }).ctx);
-    assert.isAtLeast(all.meta.total, 2);
+    const all: any = await misc.audit(fakeCtx({ service }).ctx);
+    assert.isAtLeast(all.data.length, 2);
+    assert.sameMembers(Object.keys(all.meta), ['nextCursor', 'prevCursor', 'hasNext', 'hasPrev']);
     const filtered: any = await misc.audit(
-      fakeCtx({ service, inputs: { type: 'user.created' } }).ctx,
+      fakeCtx({ service, qs: { filter: { type: 'user.created' } } }).ctx,
     );
+    assert.lengthOf(filtered.data, 2);
     assert.isTrue(filtered.data.every((e: any) => e.type === 'user.created'));
+  });
+
+  test('audit list: cursor walk forward and back', async ({ assert }) => {
+    for (let i = 0; i < 5; i++) {
+      await service.config.audit.record({ type: 'login.failure', accountId: `walk-${i}` });
+    }
+    const misc = new ApiMiscController();
+    const qs = (extra: Record<string, unknown>) => ({
+      filter: { type: 'login.failure' },
+      ...extra,
+    });
+    const p1: any = await misc.audit(fakeCtx({ service, qs: qs({ first: '2' }) }).ctx);
+    assert.lengthOf(p1.data, 2);
+    assert.isTrue(p1.meta.hasNext);
+    assert.isFalse(p1.meta.hasPrev);
+    const p2: any = await misc.audit(
+      fakeCtx({ service, qs: qs({ after: p1.meta.nextCursor, first: '2' }) }).ctx,
+    );
+    const p3: any = await misc.audit(
+      fakeCtx({ service, qs: qs({ after: p2.meta.nextCursor, first: '2' }) }).ctx,
+    );
+    assert.lengthOf(p3.data, 1);
+    assert.isFalse(p3.meta.hasNext);
+    const seen = [...p1.data, ...p2.data, ...p3.data].map((e: any) => e.accountId);
+    assert.lengthOf(new Set(seen), 5);
+    const back: any = await misc.audit(
+      fakeCtx({ service, qs: qs({ before: p3.meta.prevCursor, last: '2' }) }).ctx,
+    );
+    assert.deepEqual(
+      back.data.map((e: any) => e.id),
+      p2.data.map((e: any) => e.id),
+    );
+  });
+
+  test('audit list: unknown filter field, unsupported operator or sort → 400', async ({
+    assert,
+  }) => {
+    const misc = new ApiMiscController();
+    for (const qs of [
+      { filter: { actor: 'x' } },
+      { filter: { type: { contains: 'login' } } },
+      { sort: 'type' },
+      { sort: 'createdAt' },
+    ]) {
+      const c = fakeCtx({ service, qs });
+      await misc.audit(c.ctx);
+      assert.equal(c.captured.status(), 400, JSON.stringify(qs));
+      assert.equal(c.captured.body().error.code, 'invalid_list_query');
+    }
+    const ok = fakeCtx({ service, qs: { sort: '-createdAt' } });
+    await misc.audit(ok.ctx);
+    assert.equal(ok.captured.status(), 200);
+  });
+
+  test('users list: offset envelope, search and paging', async ({ assert }) => {
+    const users = new ApiUsersController();
+    for (const email of ['p1@x.com', 'p2@x.com', 'p3@x.com', 'other@y.com']) {
+      await users.store(fakeCtx({ service, inputs: { email, password: 'pw-secret-123' } }).ctx);
+    }
+    const page2: any = await users.index(
+      fakeCtx({ service, qs: { search: '@x.com', page: '2', size: '2' } }).ctx,
+    );
+    assert.deepEqual(page2.meta, {
+      total: 3,
+      perPage: 2,
+      currentPage: 2,
+      lastPage: 2,
+      firstPage: 1,
+    });
+    assert.lengthOf(page2.data, 1);
+    assert.equal(page2.data[0].email, 'p3@x.com');
+  });
+
+  test('users list: filter field or sort outside the allow-list → 400', async ({ assert }) => {
+    const users = new ApiUsersController();
+    for (const qs of [{ filter: { email: 'a@x.com' } }, { sort: '-createdAt' }]) {
+      const c = fakeCtx({ service, qs });
+      await users.index(c.ctx);
+      assert.equal(c.captured.status(), 400, JSON.stringify(qs));
+      assert.equal(c.captured.body().error.code, 'invalid_list_query');
+    }
+  });
+
+  test('clients list: search, sort and offset envelope', async ({ assert }) => {
+    const clients = new ApiClientsController();
+    for (const clientId of ['zeta-app', 'alpha-app', 'mid-app']) {
+      await clients.store(
+        fakeCtx({
+          service,
+          inputs: { clientId, redirectUris: ['https://x.example.com/cb'] },
+        }).ctx,
+      );
+    }
+    const asc: any = await clients.index(
+      fakeCtx({ service, qs: { search: '-app', sort: 'clientId' } }).ctx,
+    );
+    assert.deepEqual(
+      asc.data.map((c: any) => c.clientId),
+      ['alpha-app', 'mid-app', 'zeta-app'],
+    );
+    assert.equal(asc.meta.total, 3);
+    assert.isTrue(asc.canList);
+    const desc: any = await clients.index(
+      fakeCtx({ service, qs: { search: '-app', sort: '-clientId', size: '1' } }).ctx,
+    );
+    assert.deepEqual(
+      desc.data.map((c: any) => c.clientId),
+      ['zeta-app'],
+    );
+    assert.equal(desc.meta.lastPage, 3);
+    const bad = fakeCtx({ service, qs: { sort: 'secret' } });
+    await clients.index(bad.ctx);
+    assert.equal(bad.captured.status(), 400);
   });
 
   test('tokens/verify com PAT real → active', async ({ assert }) => {

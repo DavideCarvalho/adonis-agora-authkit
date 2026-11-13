@@ -1,12 +1,13 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
-import { ADMIN_LIST_HTTP_DEFAULT_SIZE, parseListPage, parseListSize } from '../../pagination.js';
 import { apiError, auditDto } from '../admin_api/dto.js';
+import { listAuditPage, withListQuery } from '../list_api.js';
 
 /**
  * Endpoints JSON do log de auditoria do console admin React.
  *
- * GET {prefix}/api/audit?type=&page=&size=  → `{ meta: { page, size, total }, data }`
+ * GET {prefix}/api/audit?filter[type]=&filter[subject]=&after=&before=&first=&last=
+ *   → `{ data, meta: { nextCursor, prevCursor, hasNext, hasPrev } }`, newest first
  *
  * 404 honesto (`capability_unsupported`) quando o sink não suporta consulta.
  */
@@ -22,12 +23,9 @@ export default class ConsoleAuditController {
       );
     }
 
-    const page = parseListPage(ctx.request.input('page'));
-    const size = parseListSize(ctx.request.input('size'), ADMIN_LIST_HTTP_DEFAULT_SIZE);
-    const type = (ctx.request.input('type') as string | undefined)?.trim() || undefined;
-    const subject = (ctx.request.input('subject') as string | undefined)?.trim() || undefined;
-
-    const result = await sink.list({ page, size, type, subject });
-    return { meta: { page, size, total: result.total }, data: result.data.map(auditDto) };
+    return withListQuery(ctx, async () => {
+      const page = await listAuditPage(sink, ctx.request.qs());
+      return { ...page, data: page.data.map(auditDto) };
+    });
   }
 }

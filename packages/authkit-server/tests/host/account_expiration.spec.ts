@@ -22,6 +22,7 @@ import type {
 import { isAccountExpired } from '../../src/host/login_attempt.js';
 import type { SettingsCapability } from '../../src/host/runtime_settings.js';
 import { resolveEffectiveAccountExpiration } from '../../src/host/runtime_toggles.js';
+import { memoryAuditList } from '../helpers/memory_audit_list.js';
 
 // ---------------------------------------------------------------------------
 // Stubs
@@ -40,16 +41,7 @@ function makeAuditWithList(events: StoredAuditEvent[]): AuditSink {
   return {
     async record(_event: AuditEvent) {},
     async list(params): Promise<AuditPage> {
-      const filtered = events
-        .filter((e) => !params.type || e.type === params.type)
-        .filter((e) => !params.subject || e.accountId === params.subject);
-      const page = params.page ?? 1;
-      const size = params.size ?? 20;
-      const offset = (page - 1) * size;
-      return {
-        data: filtered.slice(offset, offset + size),
-        total: filtered.length,
-      };
+      return memoryAuditList(events, params);
     },
   };
 }
@@ -225,10 +217,7 @@ test.group('expire-scan mechanics', () => {
         auditRecorded.push(e);
       },
       async list(params): Promise<AuditPage> {
-        const filtered = auditEvents
-          .filter((e) => !params.type || e.type === params.type)
-          .filter((e) => !params.subject || e.accountId === params.subject);
-        return { data: filtered.slice(0, params.size ?? 20), total: filtered.length };
+        return memoryAuditList(auditEvents, params);
       },
     };
 
@@ -261,7 +250,7 @@ test.group('expire-scan mechanics', () => {
     const warnSoon: any[] = [];
 
     for (const acc of accounts) {
-      const res = await audit.list!({ type: 'login.success', subject: acc.id, page: 1, size: 1 });
+      const res = await audit.list!({ type: 'login.success', subject: acc.id, size: 1 });
       if (res.data.length === 0) continue;
       const createdAt = res.data[0].createdAt;
       const lastMs =
@@ -300,7 +289,6 @@ test.group('expire-scan mechanics', () => {
     const res = await audit.list!({
       type: 'account.expiration_warned',
       subject: ACCOUNT_WARN,
-      page: 1,
       size: 1,
     });
     assert.lengthOf(res.data, 1);
@@ -328,7 +316,6 @@ test.group('expire-scan mechanics', () => {
     const res = await audit.list!({
       type: 'account.expiration_warned',
       subject: ACCOUNT_WARN,
-      page: 1,
       size: 1,
     });
     const lastMs = Date.parse(res.data[0].createdAt as string);

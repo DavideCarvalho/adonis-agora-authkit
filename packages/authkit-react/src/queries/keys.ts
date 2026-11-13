@@ -1,3 +1,5 @@
+import type { AdminListParams, AdminSessionListParams, AuditListParams } from '../client/types.js';
+
 /**
  * Query keys estruturadas para todas as queries do AuthKit.
  *
@@ -16,23 +18,30 @@ export const authkitKeys = {
 
     overview: () => ['authkit', 'admin', 'overview'] as const,
 
-    users: (params?: { search?: string; page?: number; size?: number }) =>
-      ['authkit', 'admin', 'users', params ?? {}] as const,
+    users: (params?: AdminListParams) => ['authkit', 'admin', 'users', params ?? {}] as const,
     user: (id: string) => ['authkit', 'admin', 'users', id] as const,
     userSessions: (id: string) => ['authkit', 'admin', 'users', id, 'sessions'] as const,
 
-    sessions: (accountId?: string) => ['authkit', 'admin', 'sessions', accountId ?? null] as const,
+    sessions: (params?: AdminSessionListParams) =>
+      ['authkit', 'admin', 'sessions', params ?? {}] as const,
 
-    clients: () => ['authkit', 'admin', 'clients'] as const,
+    /** Without `params`: every clients query (lists and details). */
+    clients: (params?: AdminListParams) =>
+      params === undefined
+        ? (['authkit', 'admin', 'clients'] as const)
+        : (['authkit', 'admin', 'clients', params] as const),
     client: (id: string) => ['authkit', 'admin', 'clients', id] as const,
 
     roles: () => ['authkit', 'admin', 'roles'] as const,
 
-    orgs: () => ['authkit', 'admin', 'orgs'] as const,
+    /** Without `params`: every orgs query (lists and details). */
+    orgs: (params?: AdminListParams) =>
+      params === undefined
+        ? (['authkit', 'admin', 'orgs'] as const)
+        : (['authkit', 'admin', 'orgs', params] as const),
     org: (id: string) => ['authkit', 'admin', 'orgs', id] as const,
 
-    audit: (params?: { type?: string; page?: number; size?: number; subject?: string }) =>
-      ['authkit', 'admin', 'audit', params ?? {}] as const,
+    audit: (params?: AuditListParams) => ['authkit', 'admin', 'audit', params ?? {}] as const,
 
     /**
      * Query key de settings. orgId undefined/null = global.

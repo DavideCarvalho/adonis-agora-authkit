@@ -13,10 +13,11 @@ interface SessionsTableContainerProps {
 }
 
 export function SessionsTableContainer({ page, onPage }: SessionsTableContainerProps) {
-  const { data, isLoading, error, refetch } = useQuery(useSessionsQueryOptions());
-  const allSessions = data?.sessions ?? [];
-  const total = allSessions.length;
-  const sessions = allSessions.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const { data, isLoading, error, refetch } = useQuery(
+    useSessionsQueryOptions({ page, size: PAGE_SIZE }),
+  );
+  const sessions = data?.data ?? [];
+  const total = data?.meta.total ?? 0;
 
   return (
     <div className="panel">
@@ -118,6 +119,6 @@ export function SessionsTableContainer({ page, onPage }: SessionsTableContainerP
 
 // Re-export total for the page header
 export function useSessionsTotal() {
-  const { data } = useQuery(useSessionsQueryOptions());
-  return data?.sessions.length ?? 0;
+  const { data } = useQuery(useSessionsQueryOptions({ page: 1, size: PAGE_SIZE }));
+  return data?.meta.total ?? 0;
 }

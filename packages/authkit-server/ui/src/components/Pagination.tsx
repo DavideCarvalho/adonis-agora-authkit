@@ -50,3 +50,43 @@ export function Pagination({ page, total, size, onPage }: PaginationProps) {
     </div>
   );
 }
+
+interface CursorPaginationProps {
+  hasPrev: boolean;
+  hasNext: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+}
+
+/** Previous / next buttons for a cursor-paged list (`meta.prevCursor` / `meta.nextCursor`). */
+export function CursorPagination({ hasPrev, hasNext, onPrev, onNext }: CursorPaginationProps) {
+  if (!hasPrev && !hasNext) return null;
+  return (
+    <div className="pagination">
+      <button className="btn btn-sm" disabled={!hasPrev} onClick={onPrev} aria-label="Newer">
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <path d="M10 12L6 8l4-4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      <button className="btn btn-sm" disabled={!hasNext} onClick={onNext} aria-label="Older">
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <path d="M6 12l4-4-4-4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+    </div>
+  );
+}

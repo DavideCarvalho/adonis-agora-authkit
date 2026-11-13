@@ -110,9 +110,17 @@ test.group('console admin — personal agents (Poppy)', () => {
       connections: 2,
     });
 
-    const list = consoleCtx(env.service, env.db, { qs: { clientId: CLIENT_ID, size: '1' } });
+    const list = consoleCtx(env.service, env.db, {
+      qs: { filter: { clientId: CLIENT_ID }, size: '1' },
+    });
     const page: any = await controller.connections(list.ctx);
-    assert.deepEqual(page.meta, { page: 1, size: 1, total: 2 });
+    assert.deepEqual(page.meta, {
+      total: 2,
+      perPage: 1,
+      currentPage: 1,
+      lastPage: 2,
+      firstPage: 1,
+    });
     assert.lengthOf(page.data, 1);
     assert.include(page.data[0], {
       protocol: 'poppy',

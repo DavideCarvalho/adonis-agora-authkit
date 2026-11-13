@@ -131,6 +131,7 @@ export type {
   AuditEventType,
   AuditPage,
   AuditSink,
+  CountAuditParams,
   ListAuditParams,
   StoredAuditEvent,
 } from './src/audit/audit_sink.js';
@@ -423,6 +424,17 @@ export {
 export type { KeysStatus as ServerKeysStatus } from './src/host/key_rotation_actions.js';
 // Key rotation actions — shared between the Admin REST API controller and the SDK embedded driver.
 export { buildKeysStatus, rotateNow } from './src/host/key_rotation_actions.js';
+export {
+  AuditListFilter,
+  ConnectionListFilter,
+  type ListQuery,
+  listAccountsPage,
+  listAuditPage,
+  listClientsPage,
+  listOrgsPage,
+  NoListFilter,
+  SessionListFilter,
+} from './src/host/list_api.js';
 export type {
   OidcBearerGuardEvents,
   OidcBearerGuardOptions,
@@ -621,7 +633,6 @@ export type {
   WebauthnCredentialRow,
 } from './src/mixins/with_webauthn_credential.js';
 export { withWebauthnCredential } from './src/mixins/with_webauthn_credential.js';
-export type { ListMeta, PaginatedResponse } from './src/pagination.js';
 export {
   ADMIN_LIST_DEFAULT_SIZE,
   ADMIN_LIST_HTTP_DEFAULT_SIZE,
@@ -629,8 +640,6 @@ export {
   clampListSize,
   LIST_FIRST_PAGE,
   normalizeListSize,
-  parseListPage,
-  parseListSize,
   resolveListPage,
 } from './src/pagination.js';
 export type {

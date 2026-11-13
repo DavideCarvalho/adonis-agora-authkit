@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { compose } from '@adonisjs/core/helpers';
 import { BaseModel, beforeCreate, column } from '@adonisjs/lucid/orm';
 import { test } from '@japa/runner';
+import { DateTime } from 'luxon';
 import { lucidAuditSink } from '../../src/audit/lucid_audit_sink.js';
 import { withAuditLog } from '../../src/mixins/with_audit_log.js';
 import { createTestDatabase } from '../bootstrap.js';
@@ -87,45 +88,94 @@ test.group('lucidAuditSink', (group) => {
 
   // ----- list (console admin — B6) -----
 
-  test('list retorna eventos paginados + total (record→list roundtrip)', async ({ assert }) => {
+  test('list pages newest first by cursor, forward and back', async ({ assert }) => {
     const sink = lucidAuditSink(TestAuditLog);
+    // Same second on purpose: the id breaks the tie, so no row is skipped or repeated.
+    const at = DateTime.fromISO('2026-11-13T12:00:00.000Z');
     for (let i = 0; i < 5; i++) {
-      await sink.record({ type: 'login.success', accountId: `u${i}`, email: `u${i}@x.com` });
+      await TestAuditLog.create({ id: `ev-${i}`, type: 'login.success', createdAt: at } as any);
     }
-    const firstPage = await sink.list!({ page: 1, size: 2 });
-    assert.equal(firstPage.total, 5);
-    assert.lengthOf(firstPage.data, 2);
-    // Cada evento devolvido carrega id + createdAt.
-    assert.isString(firstPage.data[0].id);
-    assert.isNotNull(firstPage.data[0].createdAt);
+    await TestAuditLog.create({
+      id: 'ev-newest',
+      type: 'login.success',
+      createdAt: at.plus({ minutes: 1 }),
+    } as any);
 
-    const thirdPage = await sink.list!({ page: 3, size: 2 });
-    assert.lengthOf(thirdPage.data, 1);
+    const first = await sink.list!({ size: 2 });
+    assert.deepEqual(
+      first.data.map((e) => e.id),
+      ['ev-newest', 'ev-4'],
+    );
+    assert.isTrue(first.hasNext);
+    assert.isFalse(first.hasPrev);
+    assert.isNull(first.prevCursor);
+    assert.isNotNull(first.data[0].createdAt);
+
+    const second = await sink.list!({ size: 2, after: first.nextCursor! });
+    assert.deepEqual(
+      second.data.map((e) => e.id),
+      ['ev-3', 'ev-2'],
+    );
+    assert.isTrue(second.hasPrev);
+
+    const third = await sink.list!({ size: 2, after: second.nextCursor! });
+    assert.deepEqual(
+      third.data.map((e) => e.id),
+      ['ev-1', 'ev-0'],
+    );
+    assert.isFalse(third.hasNext);
+    assert.isNull(third.nextCursor);
+
+    const back = await sink.list!({ size: 2, before: third.prevCursor! });
+    assert.deepEqual(
+      back.data.map((e) => e.id),
+      ['ev-3', 'ev-2'],
+    );
+    assert.isTrue(back.hasNext);
+    assert.isTrue(back.hasPrev);
+
+    const backToStart = await sink.list!({ size: 2, before: back.prevCursor! });
+    assert.deepEqual(
+      backToStart.data.map((e) => e.id),
+      ['ev-newest', 'ev-4'],
+    );
+    assert.isFalse(backToStart.hasPrev);
   });
 
-  test('list filtra por type', async ({ assert }) => {
+  test('list ignores a cursor it did not produce (first page)', async ({ assert }) => {
+    const sink = lucidAuditSink(TestAuditLog);
+    await sink.record({ type: 'login.success' });
+    const page = await sink.list!({ after: 'not-a-cursor' });
+    assert.lengthOf(page.data, 1);
+  });
+
+  test('list and count filter by type (one or several)', async ({ assert }) => {
     const sink = lucidAuditSink(TestAuditLog);
     await sink.record({ type: 'login.success', email: 'a@x.com' });
     await sink.record({ type: 'login.failure', email: 'b@x.com' });
     await sink.record({ type: 'login.failure', email: 'c@x.com' });
+    await sink.record({ type: 'signup', email: 'd@x.com' });
 
     const failures = await sink.list!({ type: 'login.failure' });
-    assert.equal(failures.total, 2);
+    assert.lengthOf(failures.data, 2);
     assert.isTrue(failures.data.every((e) => e.type === 'login.failure'));
+    assert.equal(await sink.count!({ type: 'login.failure' }), 2);
 
-    const success = await sink.list!({ type: 'login.success' });
-    assert.equal(success.total, 1);
+    const logins = await sink.list!({ type: ['login.success', 'login.failure'] });
+    assert.lengthOf(logins.data, 3);
+    assert.equal(await sink.count!({}), 4);
   });
 
-  test('list filtra por subject (accountId)', async ({ assert }) => {
+  test('list and count filter by subject (accountId)', async ({ assert }) => {
     const sink = lucidAuditSink(TestAuditLog);
     await sink.record({ type: 'pat.issued', accountId: 'target-1' });
     await sink.record({ type: 'pat.revoked', accountId: 'target-1' });
     await sink.record({ type: 'pat.issued', accountId: 'target-2' });
 
     const forTarget1 = await sink.list!({ subject: 'target-1' });
-    assert.equal(forTarget1.total, 2);
+    assert.lengthOf(forTarget1.data, 2);
     assert.isTrue(forTarget1.data.every((e) => e.accountId === 'target-1'));
+    assert.equal(await sink.count!({ subject: 'target-1' }), 2);
   });
 
   // ----- anonymizeAccount (LGPD/GDPR — deleção de conta) -----

@@ -129,7 +129,13 @@ test.group('embedded driver — same interface, same shapes', () => {
     const { service } = buildFakeServer();
     const sdk = await createAuthkit({ mode: 'embedded', app: fakeApp(service) });
     const res = await sdk.users.list();
-    assert.equal(res.meta.total, 1);
+    assert.deepEqual(res.meta, {
+      total: 1,
+      perPage: 20,
+      currentPage: 1,
+      lastPage: 1,
+      firstPage: 1,
+    });
     assert.deepEqual(Object.keys(res.data[0]).sort(), [
       'avatarUrl',
       'disabled',
@@ -217,6 +223,37 @@ test.group('embedded driver — same interface, same shapes', () => {
     assert.equal(stats.windowDays, 30);
   });
 
+  test('audit.list pages by cursor and filters by type', async ({ assert }) => {
+    const { service } = buildFakeServer();
+    const seen: any[] = [];
+    (service.config as any).audit.list = async (params: any) => {
+      seen.push(params);
+      return {
+        data: [{ id: 'ev1', type: 'login.success', createdAt: new Date(0) }],
+        nextCursor: 'n1',
+        prevCursor: null,
+        hasNext: true,
+        hasPrev: false,
+      };
+    };
+    const sdk = await createAuthkit({ mode: 'embedded', app: fakeApp(service) });
+    const res = await sdk.audit.list({ type: 'login.success', after: 'c0', first: 5 });
+    assert.deepEqual(res.meta, {
+      nextCursor: 'n1',
+      prevCursor: null,
+      hasNext: true,
+      hasPrev: false,
+    });
+    assert.equal(res.data[0].id, 'ev1');
+    assert.deepEqual(seen[0], { type: ['login.success'], after: 'c0', size: 5 });
+  });
+
+  test('users.list rejects a sort outside the allow-list', async ({ assert }) => {
+    const { service } = buildFakeServer();
+    const sdk = await createAuthkit({ mode: 'embedded', app: fakeApp(service) });
+    await assert.rejects(() => sdk.users.list({ sort: '-createdAt' }), /sort/i);
+  });
+
   test('stats() com audit.list → auditSupported=true + sign-ins contados', async ({ assert }) => {
     const { service } = buildFakeServer();
     // Adiciona audit.list ao config do fake server.
@@ -226,7 +263,7 @@ test.group('embedded driver — same interface, same shapes', () => {
     ];
     (service.config as any).audit.list = async ({ type }: any) => {
       const data = type ? loginEvents.filter((e) => e.type === type) : loginEvents;
-      return { data, total: data.length };
+      return { data, nextCursor: null, prevCursor: null, hasNext: false, hasPrev: false };
     };
 
     const sdk = await createAuthkit({ mode: 'embedded', app: fakeApp(service) });

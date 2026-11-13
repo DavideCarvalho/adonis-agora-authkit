@@ -7,6 +7,7 @@ import {
   clientPartialInput,
 } from '../admin_validators.js';
 import { ClientMetadataError } from '../client_metadata.js';
+import { listClientsPage, withListQuery } from '../list_api.js';
 import { apiError, clientDto, createdClientDto } from './dto.js';
 
 /** Resolve o serviço (== OidcService) + o AdminClientsService. */
@@ -29,13 +30,16 @@ function invalidMetadata(ctx: HttpContext, err: ClientMetadataError) {
  * em create/regenerate. Audita create/update/delete.
  */
 export default class ApiClientsController {
+  /**
+   * GET /clients — `?search=&sort=clientId|clientName&page=&size=` →
+   * `{ data, meta: { total, perPage, currentPage, lastPage, firstPage }, canList }`.
+   */
   async index(ctx: HttpContext) {
     const { svc } = await clientsService(ctx);
-    if (!svc.canList) {
-      return { data: [], canList: false };
-    }
-    const clients = await svc.list();
-    return { data: clients.map(clientDto), canList: true };
+    return withListQuery(ctx, async () => {
+      const page = await listClientsPage(svc.canList ? await svc.list() : [], ctx.request.qs());
+      return { ...page, data: page.data.map(clientDto), canList: svc.canList };
+    });
   }
 
   async show(ctx: HttpContext) {

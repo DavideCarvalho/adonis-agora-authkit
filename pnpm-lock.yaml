@@ -491,6 +491,9 @@ importers:
       '@adonis-agora/authkit-core':
         specifier: workspace:*
         version: link:../authkit-core
+      '@adonis-agora/filter-client':
+        specifier: ^1.0.0-rc.1
+        version: 1.0.0-rc.1
       '@simplewebauthn/browser':
         specifier: catalog:frontendPeers
         version: 14.0.0
@@ -536,6 +539,10 @@ importers:
         version: 7.0.2
 
   packages/authkit-sdk:
+    dependencies:
+      '@adonis-agora/filter-client':
+        specifier: ^1.0.0-rc.1
+        version: 1.0.0-rc.1
     devDependencies:
       '@adonis-agora/authkit-server':
         specifier: workspace:*
@@ -567,6 +574,9 @@ importers:
       '@adonis-agora/authkit-core':
         specifier: workspace:*
         version: link:../authkit-core
+      '@adonis-agora/filter':
+        specifier: ^1.0.0-rc.5
+        version: 1.0.0-rc.5(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@adonisjs/lucid@22.4.2(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(better-sqlite3@13.0.3)(luxon@3.7.2)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1)(supports-color@10.2.2))
       '@adonis-agora/media':
         specifier: '>=0.5.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0'
         version: 0.30.0(e3f0bd5d064ae67c0ea820663c2dfdf9)
@@ -944,8 +954,27 @@ packages:
       vitest:
         optional: true
 
+  '@adonis-agora/filter-client@1.0.0-rc.1':
+    resolution: {integrity: sha512-aTMnF8aElvXbok/7y9R24xoNG27zjeM1XVhmdiUCMu5L59RzTabmNQXQxfrF6sgjCjjRbYbSzZ2Q4JWi0xntiw==}
+    engines: {node: '>=24'}
+    peerDependencies:
+      '@tanstack/table-core': '>=8.0.0'
+    peerDependenciesMeta:
+      '@tanstack/table-core':
+        optional: true
+
   '@adonis-agora/filter@0.11.2':
     resolution: {integrity: sha512-wa88BebA1BPUoiTwMiXH/rvQjuUtO9AXX4Xl+oYCt0bKQhLafFllCIBGunQ4zWUdy/QlvOhgmK91Ih+YnqWsHQ==}
+    engines: {node: '>=24'}
+    peerDependencies:
+      '@adonisjs/core': ^7.3.0
+      '@adonisjs/lucid': ^22.0.0
+    peerDependenciesMeta:
+      '@adonisjs/lucid':
+        optional: true
+
+  '@adonis-agora/filter@1.0.0-rc.5':
+    resolution: {integrity: sha512-vG/5dLmJeVmHHqUQXh/ftoGN3mgNoXWaPdbor0vkD3LudVCTrS6ZQPedoX1yOc6Qq28SI8ZdUNsXzdkmSa5t3A==}
     engines: {node: '>=24'}
     peerDependencies:
       '@adonisjs/core': ^7.3.0
@@ -6940,7 +6969,15 @@ snapshots:
       '@opentelemetry/api': 1.10.0
       ioredis: 6.0.0(supports-color@10.2.2)
 
+  '@adonis-agora/filter-client@1.0.0-rc.1': {}
+
   '@adonis-agora/filter@0.11.2(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@adonisjs/lucid@22.4.2(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(better-sqlite3@13.0.3)(luxon@3.7.2)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1)(supports-color@10.2.2))':
+    dependencies:
+      '@adonisjs/core': 7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1)
+    optionalDependencies:
+      '@adonisjs/lucid': 22.4.2(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(better-sqlite3@13.0.3)(luxon@3.7.2)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1)(supports-color@10.2.2)
+
+  '@adonis-agora/filter@1.0.0-rc.5(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@adonisjs/lucid@22.4.2(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(better-sqlite3@13.0.3)(luxon@3.7.2)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1)(supports-color@10.2.2))':
     dependencies:
       '@adonisjs/core': 7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1)
     optionalDependencies:

@@ -78,12 +78,12 @@ test.group('remote driver — users', () => {
               disabled: false,
             },
           ],
-          meta: { page: 1, size: 20, total: 1 },
+          meta: { total: 1, perPage: 20, currentPage: 2, lastPage: 1, firstPage: 1 },
         },
       }),
       async (sdk, api) => {
         const res = await sdk.users.list({ search: 'ana', page: 2 });
-        assert.deepEqual(res.meta, { page: 1, size: 20, total: 1 });
+        assert.equal(res.meta.currentPage, 2);
         assert.equal(res.data[0].id, 'u1');
         assert.equal(api.last!.method, 'GET');
         assert.match(api.last!.url, /^\/api\/authkit\/v1\/users\?/);
@@ -668,6 +668,55 @@ test.group('remote driver — keys', () => {
           assert.equal((e as AuthkitApiError).status, 501);
           assert.equal((e as AuthkitApiError).code, 'not_implemented');
         }
+      },
+    );
+  });
+});
+
+test.group('remote driver — list wire format', () => {
+  test('audit.list sends filter[type] and cursor params', async ({ assert }) => {
+    await withApi(
+      () => ({
+        status: 200,
+        body: {
+          data: [],
+          meta: { nextCursor: null, prevCursor: 'p', hasNext: false, hasPrev: true },
+        },
+      }),
+      async (sdk, api) => {
+        const res = await sdk.audit.list({ type: 'login.failure', subject: 'u1', after: 'c1' });
+        assert.isTrue(res.meta.hasPrev);
+        const qs = new URL(api.last!.url, 'http://x').searchParams;
+        assert.equal(qs.get('filter[type]'), 'login.failure');
+        assert.equal(qs.get('filter[subject]'), 'u1');
+        assert.equal(qs.get('after'), 'c1');
+        assert.isNull(qs.get('type'));
+        assert.isNull(qs.get('page'));
+      },
+    );
+  });
+
+  test('organizations.list and clients.list send search, sort and page', async ({ assert }) => {
+    await withApi(
+      () => ({
+        status: 200,
+        body: {
+          data: [],
+          meta: { total: 0, perPage: 5, currentPage: 1, lastPage: 1, firstPage: 1 },
+        },
+      }),
+      async (sdk, api) => {
+        await sdk.organizations.list({ search: 'ac', sort: '-memberCount', size: 5 });
+        const orgs = new URL(api.last!.url, 'http://x');
+        assert.equal(orgs.pathname, '/api/authkit/v1/organizations');
+        assert.equal(orgs.searchParams.get('search'), 'ac');
+        assert.equal(orgs.searchParams.get('sort'), '-memberCount');
+        assert.equal(orgs.searchParams.get('page'), '1');
+        assert.equal(orgs.searchParams.get('size'), '5');
+        await sdk.clients.list({ sort: 'clientName' });
+        const clients = new URL(api.last!.url, 'http://x');
+        assert.equal(clients.pathname, '/api/authkit/v1/clients');
+        assert.equal(clients.searchParams.get('sort'), 'clientName');
       },
     );
   });

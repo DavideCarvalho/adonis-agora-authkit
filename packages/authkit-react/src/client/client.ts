@@ -21,6 +21,7 @@ import type {
   AccountExtensionPageResult,
   AccountExtensionsResult,
 } from '../account_extensions/types.js';
+import { listQuery } from './list_query.js';
 import type {
   AcceptOrgInvitationResult,
   AccountAgentsResult,
@@ -39,12 +40,15 @@ import type {
   ActivateOrgResult,
   AdminClient,
   AdminClientListResult,
+  AdminListParams,
   AdminOrgDetail,
   AdminOrgEntry,
   AdminOrgInvitation,
   AdminOrgListResult,
   // Admin
   AdminOverview,
+  AdminSessionListParams,
+  AdminSessionListResult,
   AdminUser,
   AdminUserListResult,
   AuditListParams,
@@ -292,9 +296,9 @@ class AuthkitClient {
     overview: () => this.get<AdminOverview>(this.b('/overview')),
 
     users: {
-      /** GET {base}/users?search&page&size */
-      list: (params?: { search?: string; page?: number; size?: number }) =>
-        this.get<AdminUserListResult>(this.b('/users'), params),
+      /** GET {base}/users?search=&sort=email&page=&size= */
+      list: (params: AdminListParams = {}) =>
+        this.get<AdminUserListResult>(this.b(`/users${listQuery(params)}`)),
       /** GET {base}/users/:id */
       get: (id: string) => this.get<AdminUser>(this.b(`/users/${encodeURIComponent(id)}`)),
       /** POST {base}/users */
@@ -324,9 +328,9 @@ class AuthkitClient {
     },
 
     sessions: {
-      /** GET {base}/sessions?accountId */
-      list: (accountId?: string) =>
-        this.get<UserSessionsResult>(this.b('/sessions'), accountId ? { accountId } : undefined),
+      /** GET {base}/sessions?filter[accountId]=&search=&sort=&page=&size= */
+      list: ({ accountId, ...params }: AdminSessionListParams = {}) =>
+        this.get<AdminSessionListResult>(this.b(`/sessions${listQuery(params, { accountId })}`)),
       /** POST {base}/sessions/revoke-all */
       revokeAll: (accountId?: string) =>
         this.post<RevokeSessionsResult>(
@@ -336,8 +340,9 @@ class AuthkitClient {
     },
 
     clients: {
-      /** GET {base}/clients */
-      list: () => this.get<AdminClientListResult>(this.b('/clients')),
+      /** GET {base}/clients?search=&sort=&page=&size= */
+      list: (params: AdminListParams = {}) =>
+        this.get<AdminClientListResult>(this.b(`/clients${listQuery(params)}`)),
       /** GET {base}/clients/:id */
       get: (id: string) => this.get<AdminClient>(this.b(`/clients/${encodeURIComponent(id)}`)),
       /** POST {base}/clients */
@@ -376,8 +381,9 @@ class AuthkitClient {
     },
 
     orgs: {
-      /** GET {base}/orgs */
-      list: () => this.get<AdminOrgListResult>(this.b('/orgs')),
+      /** GET {base}/orgs?search=&sort=&page=&size= */
+      list: (params: AdminListParams = {}) =>
+        this.get<AdminOrgListResult>(this.b(`/orgs${listQuery(params)}`)),
       /** POST {base}/orgs */
       create: (data: CreateOrgInput) => this.post<AdminOrgEntry>(this.b('/orgs'), data),
       /** GET {base}/orgs/:id */
@@ -418,9 +424,9 @@ class AuthkitClient {
     },
 
     audit: {
-      /** GET {base}/audit?type&page&size&subject */
-      list: (params?: AuditListParams) =>
-        this.get<AuditListResult>(this.b('/audit'), params as Record<string, unknown> | undefined),
+      /** GET {base}/audit?filter[type]=&filter[subject]=&after=&before=&first=&last= — newest first. */
+      list: ({ type, subject, ...params }: AuditListParams = {}) =>
+        this.get<AuditListResult>(this.b(`/audit${listQuery(params, { type, subject })}`)),
     },
 
     settings: {
@@ -474,16 +480,17 @@ class AuthkitClient {
       /** GET {base}/personal-agents */
       overview: () => this.get<PersonalAgentsOverview>(this.b('/personal-agents')),
       /** GET {base}/personal-agents/connections */
-      connections: (params: PersonalAgentConnectionsParams = {}) => {
-        const qs = new URLSearchParams();
-        for (const [k, v] of Object.entries(params)) {
-          if (v !== undefined && v !== null && v !== '') qs.set(k, String(v));
-        }
-        const query = qs.toString();
-        return this.get<PersonalAgentConnectionsResult>(
-          this.b(`/personal-agents/connections${query ? `?${query}` : ''}`),
-        );
-      },
+      connections: ({
+        protocol,
+        clientId,
+        accountId,
+        ...params
+      }: PersonalAgentConnectionsParams = {}) =>
+        this.get<PersonalAgentConnectionsResult>(
+          this.b(
+            `/personal-agents/connections${listQuery(params, { protocol, clientId, accountId })}`,
+          ),
+        ),
       /** POST {base}/personal-agents/connections/:grantId/revoke — exige sudo. */
       revokeConnection: (grantId: string) =>
         this.post<{ revoked: true }>(

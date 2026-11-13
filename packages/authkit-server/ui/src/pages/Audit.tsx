@@ -1,5 +1,5 @@
 import type { AuditEventEntry } from '@adonis-agora/authkit-react';
-import { parseAsInteger, parseAsString, useQueryState } from 'nuqs';
+import { parseAsString, useQueryState } from 'nuqs';
 import React, { useState } from 'react';
 import { AuditEventDetailContainer, AuditTableContainer } from '../containers/audit.containers';
 
@@ -19,8 +19,9 @@ const EVENT_TYPES = [
 ];
 
 export function Audit() {
-  // Estado de rota (URL): paginação e filtro de tipo via nuqs.
-  const [page, setPage] = useQueryState('page', parseAsInteger.withDefault(1));
+  // Estado de rota (URL): cursor e filtro de tipo via nuqs.
+  const [after, setAfter] = useQueryState('after', parseAsString);
+  const [before, setBefore] = useQueryState('before', parseAsString);
   const [typeFilter, setTypeFilter] = useQueryState('type', parseAsString.withDefault(''));
   // `selected` carrega o objeto inteiro do evento (não é deep-link) — fica local.
   const [selected, setSelected] = useState<AuditEventEntry | null>(null);
@@ -56,7 +57,8 @@ export function Audit() {
             value={typeFilter}
             onChange={(e) => {
               setTypeFilter(e.target.value);
-              setPage(1);
+              setAfter(null);
+              setBefore(null);
             }}
           >
             {EVENT_TYPES.map((t) => (
@@ -70,8 +72,11 @@ export function Audit() {
 
       <AuditTableContainer
         typeFilter={typeFilter}
-        page={page}
-        onPage={setPage}
+        cursor={{ ...(after ? { after } : {}), ...(before ? { before } : {}) }}
+        onCursor={(c) => {
+          setAfter(c.after ?? null);
+          setBefore(c.before ?? null);
+        }}
         selected={selected}
         onSelect={setSelected}
         onUnavailable={() => setUnavailable(true)}
