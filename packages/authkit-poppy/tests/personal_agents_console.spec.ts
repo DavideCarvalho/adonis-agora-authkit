@@ -23,7 +23,7 @@ function consoleCtx(
   opts: {
     body?: any;
     params?: Record<string, string>;
-    qs?: Record<string, string>;
+    qs?: Record<string, unknown>;
     sudo?: boolean;
   } = {},
 ) {
