@@ -1,4 +1,9 @@
-import React, { useState } from 'react';
+import { type ReactNode, useState } from 'react';
+import { XIcon } from '../agora-kit/icons';
+import { cn } from '../agora-kit/lib/utils';
+import { Badge } from '../agora-kit/ui/badge';
+import { Button } from '../agora-kit/ui/button';
+import { TextInput } from './primitives';
 
 /** Linha de campo com label + hint à esquerda e controle à direita. */
 export function FieldRow({
@@ -8,13 +13,13 @@ export function FieldRow({
 }: {
   label: string;
   hint?: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)' }}>{label}</div>
-        {hint && <div style={{ fontSize: 11, color: 'var(--faint)' }}>{hint}</div>}
+    <div className="flex items-center gap-2.5">
+      <div className="flex-1">
+        <div className="text-xs font-medium text-fg">{label}</div>
+        {hint && <div className="text-[11px] text-faint">{hint}</div>}
       </div>
       {children}
     </div>
@@ -25,38 +30,32 @@ export function FieldRow({
 export function Toggle({
   checked,
   onChange,
+  label,
+  disabled,
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
+  label?: string;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
-      style={{
-        position: 'relative',
-        width: 36,
-        height: 20,
-        borderRadius: 999,
-        border: 'none',
-        cursor: 'pointer',
-        background: checked ? 'var(--accent)' : 'var(--line)',
-        transition: 'background 0.15s',
-      }}
+      className={cn(
+        'relative h-5 w-[38px] shrink-0 rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+        checked ? 'border-primary bg-primary' : 'border-line-strong bg-panel-3',
+      )}
     >
       <span
-        style={{
-          position: 'absolute',
-          top: 2,
-          left: checked ? 18 : 2,
-          width: 16,
-          height: 16,
-          borderRadius: '50%',
-          background: '#fff',
-          transition: 'left 0.15s',
-        }}
+        className={cn(
+          'absolute top-0.5 left-0.5 size-3.5 rounded-full transition-transform',
+          checked ? 'translate-x-[18px] bg-white' : 'bg-faint',
+        )}
       />
     </button>
   );
@@ -82,38 +81,26 @@ export function ChipsEditor({
     setDraft('');
   }
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap gap-1.5">
         {values.map((v) => (
-          <span
-            key={v}
-            className="badge badge-muted"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}
-          >
+          <Badge key={v} variant="neutral">
             {v}
             {!locked.includes(v) && (
               <button
                 type="button"
                 onClick={() => onChange(values.filter((x) => x !== v))}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: 'inherit',
-                  padding: 0,
-                  lineHeight: 1,
-                }}
+                className="leading-none text-inherit hover:text-fg [&_svg]:size-2.5"
                 aria-label={`Remove ${v}`}
               >
-                ×
+                <XIcon />
               </button>
             )}
-          </span>
+          </Badge>
         ))}
       </div>
-      <div style={{ display: 'flex', gap: 6 }}>
-        <input
-          className="input"
+      <div className="flex gap-1.5">
+        <TextInput
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
@@ -123,11 +110,11 @@ export function ChipsEditor({
             }
           }}
           placeholder={placeholder ?? 'add…'}
-          style={{ maxWidth: 160 }}
+          className="max-w-40"
         />
-        <button type="button" className="btn btn-ghost btn-sm" onClick={add}>
+        <Button type="button" variant="ghost" size="sm" className="h-[34px]" onClick={add}>
           Add
-        </button>
+        </Button>
       </div>
     </div>
   );

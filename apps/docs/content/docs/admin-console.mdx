@@ -180,8 +180,9 @@ What that buys you, and what you can rely on:
 - **Cacheable assets** — hashed JS/CSS are served under `{prefix}/assets/*` with
   `Cache-Control: public, max-age=31536000, immutable`, so a browser fetches them once per
   release.
-- **Dark/light theme** — follows the operating-system preference
-  (`prefers-color-scheme`), with a violet accent (`#625fff`).
+- **Dark/light theme** — dark by default, with a toggle in the sidebar footer that the
+  browser remembers, and an indigo accent (`#625fff`). Fonts (Sora, JetBrains Mono) ship
+  inside the bundle: the console makes no request to a font CDN.
 
 <Callout type="info">
   Working inside a clone of the AuthKit repository rather than on an installed package? The
@@ -551,6 +552,34 @@ export default class ReportsProvider {
 ```
 
 `icon` is one of `workflow`, `telescope`, `media`, `payments`, `agent`, `identity` or `generic`.
+
+### Signed-in user and sign-out
+
+The sidebar footer shows who is signed in (email and first role) and a sign-out button. The
+button posts to the account console's logout route (`/account/logout`, or your
+`accountRoutes` path) with the CSRF token, so it ends the session instead of just leaving the
+page.
+
+The other `@adonis-agora` consoles (durable, telescope, media, payments, agent, flags) get the
+same sign-out in their own footer: AuthKit announces its logout route to them when it mounts
+the account login screen. With `account: { login: false }` there is no AuthKit logout route,
+so nothing is announced and no console shows a sign-out unless you configure one.
+
+When your app signs users out somewhere else, announce that route from a provider's `boot()`
+before AuthKit does. The first announcement wins:
+
+```ts title="providers/app_provider.ts"
+import { announceAgoraSignOut } from '@adonis-agora/authkit-server'
+
+export default class AppProvider {
+  constructor(protected app: ApplicationService) {}
+
+  async boot() {
+    // POST, same-origin path; each console sends its CSRF token as `_csrf`.
+    await announceAgoraSignOut(this.app, '/logout')
+  }
+}
+```
 
 ## Dashboard
 

@@ -7,9 +7,25 @@ import {
   useUpdateOrgMutationOptions,
 } from '@adonis-agora/authkit-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import React, { useState } from 'react';
+import type React from 'react';
+import { useState } from 'react';
+import { EmptyState } from '../agora-kit/blocks/empty-state';
+import { Panel } from '../agora-kit/blocks/panel';
+import { Badge } from '../agora-kit/ui/badge';
+import { Button } from '../agora-kit/ui/button';
 import { Drawer } from '../components/Drawer';
+import { Modal } from '../components/Modal';
 import { Pagination } from '../components/Pagination';
+import {
+  AdminTable,
+  Cell,
+  Code,
+  dangerButtonClass,
+  Field,
+  Row,
+  SectionLabel,
+  TextInput,
+} from '../components/primitives';
 import { QueryBoundary } from '../components/QueryBoundary';
 import { SkeletonDrawerSection, SkeletonPanelTable } from '../components/Skeleton';
 import { type PickedUser, PickedUserChip, UserPicker } from '../components/UserPicker';
@@ -79,60 +95,45 @@ export function CreateOrgModal({ open, onClose, onCreated }: CreateOrgModalProps
     }
   }
 
-  if (!open) return null;
-
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <span>New Organization</span>
-          <button className="icon-btn" onClick={onClose}>
-            ✕
-          </button>
+    <Modal open={open} onClose={onClose} title="New Organization">
+      <form onSubmit={handleSubmit} className="flex flex-col">
+        <Field label="Name">
+          <TextInput
+            value={name}
+            onChange={(e) => handleNameChange(e.target.value)}
+            placeholder="Acme Inc."
+            required
+          />
+        </Field>
+        <Field label="Slug">
+          <TextInput
+            value={slug}
+            onChange={(e) => {
+              setSlug(e.target.value);
+              setSlugTouched(true);
+            }}
+            placeholder="acme-inc"
+            required
+          />
+        </Field>
+        <Field label="Owner">
+          {owner ? (
+            <PickedUserChip user={owner} onClear={() => setOwner(null)} />
+          ) : (
+            <UserPicker onPick={setOwner} placeholder="Search the initial owner by email…" />
+          )}
+        </Field>
+        <div className="mt-1 flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={createMutation.isPending}>
+            {createMutation.isPending ? 'Creating…' : 'Create'}
+          </Button>
         </div>
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div>
-            <label className="field-label">Name</label>
-            <input
-              className="input"
-              value={name}
-              onChange={(e) => handleNameChange(e.target.value)}
-              placeholder="Acme Inc."
-              required
-            />
-          </div>
-          <div>
-            <label className="field-label">Slug</label>
-            <input
-              className="input"
-              value={slug}
-              onChange={(e) => {
-                setSlug(e.target.value);
-                setSlugTouched(true);
-              }}
-              placeholder="acme-inc"
-              required
-            />
-          </div>
-          <div>
-            <label className="field-label">Owner</label>
-            {owner ? (
-              <PickedUserChip user={owner} onClear={() => setOwner(null)} />
-            ) : (
-              <UserPicker onPick={setOwner} placeholder="Search the initial owner by email…" />
-            )}
-          </div>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
-            <button type="button" className="btn btn-ghost" onClick={onClose}>
-              Cancel
-            </button>
-            <button type="submit" className="btn btn-primary" disabled={createMutation.isPending}>
-              {createMutation.isPending ? 'Creating…' : 'Create'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -187,70 +188,49 @@ export function OrgsTableContainer({
   const displayError = error && !isNotFound ? error : undefined;
 
   return (
-    <div className="panel">
-      <QueryBoundary
-        isLoading={isLoading}
-        error={displayError}
-        onRetry={refetch}
-        skeleton={<SkeletonPanelTable rows={6} cols={4} />}
-      >
+    <QueryBoundary
+      label="Organizations"
+      isLoading={isLoading}
+      error={displayError}
+      onRetry={refetch}
+      skeleton={<SkeletonPanelTable rows={6} cols={4} />}
+    >
+      <Panel title="All organizations" description={`${total.toLocaleString()} total`} flush>
         {orgs.length === 0 ? (
-          <div className="empty-state">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <rect x="3" y="3" width="7" height="7" rx="1" />
-              <rect x="3" y="14" width="7" height="7" rx="1" />
-              <rect x="14" y="3" width="7" height="7" rx="1" />
-              <path d="M17.5 14v7M14 17.5h7" strokeLinecap="round" />
-            </svg>
-            <h4>No organizations</h4>
-            <p>{search ? 'No results for your search' : 'No organizations created yet'}</p>
-            {!search && (
-              <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={onCreateClick}>
-                New organization
-              </button>
-            )}
-          </div>
+          <EmptyState
+            icon={
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <rect x="3" y="3" width="7" height="7" rx="1" />
+                <rect x="3" y="14" width="7" height="7" rx="1" />
+                <rect x="14" y="3" width="7" height="7" rx="1" />
+                <path d="M17.5 14v7M14 17.5h7" strokeLinecap="round" />
+              </svg>
+            }
+            title="No organizations"
+            description={search ? 'No results for your search' : 'No organizations created yet'}
+            action={!search ? <Button onClick={onCreateClick}>New organization</Button> : undefined}
+          />
         ) : (
-          <div className="tbl-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Slug</th>
-                  <th>Members</th>
-                  <th>Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orgs.map((o) => (
-                  <tr key={o.id} onClick={() => onSelectOrg(o.id)}>
-                    <td>
-                      <b>{o.name}</b>
-                    </td>
-                    <td>
-                      <span className="code">{o.slug}</span>
-                    </td>
-                    <td>
-                      <span className="mono text-sm">{o.memberCount ?? '—'}</span>
-                    </td>
-                    <td>
-                      <span
-                        style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--faint)' }}
-                      >
-                        {o.createdAt ? new Date(o.createdAt).toLocaleDateString() : '—'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div style={{ padding: '0 16px 12px' }}>
-              <Pagination page={page} total={total} size={PAGE_SIZE} onPage={onPage} />
-            </div>
-          </div>
+          <>
+            <AdminTable head={['Name', 'Slug', 'Members', 'Created']} label="Organizations">
+              {orgs.map((o) => (
+                <Row key={o.id} onClick={() => onSelectOrg(o.id)}>
+                  <Cell strong>{o.name}</Cell>
+                  <Cell>
+                    <Code>{o.slug}</Code>
+                  </Cell>
+                  <Cell className="mono text-[11px]">{o.memberCount ?? '—'}</Cell>
+                  <Cell className="mono text-[11px] text-faint">
+                    {o.createdAt ? new Date(o.createdAt).toLocaleDateString() : '—'}
+                  </Cell>
+                </Row>
+              ))}
+            </AdminTable>
+            <Pagination page={page} total={total} size={PAGE_SIZE} onPage={onPage} />
+          </>
         )}
-      </QueryBoundary>
-    </div>
+      </Panel>
+    </QueryBoundary>
   );
 }
 
@@ -288,33 +268,35 @@ function EditOrgSection({ orgId, currentName, currentLogoUrl, onDone }: EditOrgS
   }
 
   return (
-    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div>
-        <label className="field-label">Name</label>
-        <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
-      </div>
-      <div>
-        <label className="field-label">Logo URL</label>
-        <input
-          className="input"
+    <form onSubmit={handleSubmit} className="flex flex-col">
+      <Field label="Name" className="mb-2.5">
+        <TextInput value={name} onChange={(e) => setName(e.target.value)} />
+      </Field>
+      <Field label="Logo URL" className="mb-2.5">
+        <TextInput
           value={logoUrl}
           onChange={(e) => setLogoUrl(e.target.value)}
           placeholder="https://…"
         />
-      </div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button
-          type="submit"
-          className="btn btn-primary btn-sm"
-          disabled={updateMutation.isPending}
-        >
+      </Field>
+      <div className="flex gap-2">
+        <Button type="submit" size="sm" disabled={updateMutation.isPending}>
           {updateMutation.isPending ? 'Saving…' : 'Save'}
-        </button>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onDone}>
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onDone}>
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
+  );
+}
+
+/** A drawer section's CAPS heading with an action on the right. */
+function DrawerSectionHead({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mb-2 flex items-center justify-between text-[10.5px] font-semibold tracking-[0.12em] text-faint uppercase">
+      {children}
+    </div>
   );
 }
 
@@ -349,35 +331,24 @@ function OrgDetailContent({ orgId, onDeleted }: OrgDetailContentProps) {
 
   return (
     <QueryBoundary
+      label="Organization"
       isLoading={isLoading}
       error={error}
       onRetry={refetch}
       skeleton={<SkeletonDrawerSection />}
     >
       {detail && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div className="flex flex-col gap-5">
           {/* ── Info / Edit ── */}
           <div>
-            <div
-              style={{
-                fontSize: 10.5,
-                letterSpacing: '0.12em',
-                textTransform: 'uppercase',
-                color: 'var(--faint)',
-                fontWeight: 600,
-                marginBottom: 8,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
+            <DrawerSectionHead>
               <span>Info</span>
               {!editing && (
-                <button className="btn btn-ghost btn-sm" onClick={() => setEditing(true)}>
+                <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
                   Edit
-                </button>
+                </Button>
               )}
-            </div>
+            </DrawerSectionHead>
             {editing ? (
               <EditOrgSection
                 orgId={orgId}
@@ -387,9 +358,9 @@ function OrgDetailContent({ orgId, onDeleted }: OrgDetailContentProps) {
               />
             ) : (
               <>
-                <div className="code">{detail.id}</div>
-                <div style={{ marginTop: 6, fontSize: 12 }}>
-                  <span className="badge badge-muted">{detail.slug}</span>
+                <Code className="block">{detail.id}</Code>
+                <div className="mt-1.5 text-xs">
+                  <Badge variant="neutral">{detail.slug}</Badge>
                 </div>
               </>
             )}
@@ -397,28 +368,16 @@ function OrgDetailContent({ orgId, onDeleted }: OrgDetailContentProps) {
 
           {/* ── Members ── */}
           <div>
-            <div
-              style={{
-                fontSize: 10.5,
-                letterSpacing: '0.12em',
-                textTransform: 'uppercase',
-                color: 'var(--faint)',
-                fontWeight: 600,
-                marginBottom: 8,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
+            <DrawerSectionHead>
               <span>Members ({detail.members.length})</span>
               {!addingMember && (
-                <button className="btn btn-ghost btn-sm" onClick={() => setAddingMember(true)}>
+                <Button variant="ghost" size="sm" onClick={() => setAddingMember(true)}>
                   + Add
-                </button>
+                </Button>
               )}
-            </div>
+            </DrawerSectionHead>
             {addingMember && (
-              <div style={{ marginBottom: 10 }}>
+              <div className="mb-2.5">
                 <AddMemberSection orgId={orgId} onDone={() => setAddingMember(false)} />
               </div>
             )}
@@ -429,33 +388,21 @@ function OrgDetailContent({ orgId, onDeleted }: OrgDetailContentProps) {
 
           {/* ── Pending Invitations ── */}
           <div>
-            <div
-              style={{
-                fontSize: 10.5,
-                letterSpacing: '0.12em',
-                textTransform: 'uppercase',
-                color: 'var(--faint)',
-                fontWeight: 600,
-                marginBottom: 8,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
+            <DrawerSectionHead>
               <span>Pending Invitations ({detail.pendingInvitations.length})</span>
               {!inviting && (
-                <button className="btn btn-ghost btn-sm" onClick={() => setInviting(true)}>
+                <Button variant="ghost" size="sm" onClick={() => setInviting(true)}>
                   + Invite
-                </button>
+                </Button>
               )}
-            </div>
+            </DrawerSectionHead>
             {inviting && (
-              <div style={{ marginBottom: 10 }}>
+              <div className="mb-2.5">
                 <InviteSection orgId={orgId} onDone={() => setInviting(false)} />
               </div>
             )}
             {detail.pendingInvitations.length === 0 && !inviting && (
-              <div style={{ fontSize: 12, color: 'var(--faint)' }}>No pending invitations</div>
+              <div className="text-xs text-faint">No pending invitations</div>
             )}
             {detail.pendingInvitations.map((inv) => (
               <InvitationRow key={inv.id} orgId={orgId} invitation={inv} />
@@ -466,37 +413,33 @@ function OrgDetailContent({ orgId, onDeleted }: OrgDetailContentProps) {
           <OrgSettingsSection orgId={orgId} />
 
           {/* ── Danger Zone ── */}
-          <div style={{ borderTop: '1px solid var(--line)', paddingTop: 16 }}>
-            <div
-              style={{
-                fontSize: 10.5,
-                letterSpacing: '0.12em',
-                textTransform: 'uppercase',
-                color: 'var(--danger, #e53e3e)',
-                fontWeight: 600,
-                marginBottom: 8,
-              }}
-            >
-              Danger Zone
-            </div>
+          <div className="border-t border-border pt-4">
+            <SectionLabel className="text-[10.5px] text-bad">Danger Zone</SectionLabel>
             {confirmDelete ? (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
-                <span style={{ color: 'var(--muted)' }}>Delete this organization?</span>
-                <button
-                  className="btn btn-danger btn-sm"
+              <div className="flex flex-wrap items-center gap-2 text-[13px]">
+                <span className="text-dim">Delete this organization?</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={dangerButtonClass}
                   onClick={handleDelete}
                   disabled={deleteMutation.isPending}
                 >
                   {deleteMutation.isPending ? 'Deleting…' : 'Yes, delete'}
-                </button>
-                <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDelete(false)}>
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>
                   Cancel
-                </button>
+                </Button>
               </div>
             ) : (
-              <button className="btn btn-danger btn-sm" onClick={() => setConfirmDelete(true)}>
+              <Button
+                variant="outline"
+                size="sm"
+                className={dangerButtonClass}
+                onClick={() => setConfirmDelete(true)}
+              >
                 Delete organization
-              </button>
+              </Button>
             )}
           </div>
         </div>

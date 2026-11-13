@@ -1,159 +1,89 @@
-import React from 'react';
+import type { CSSProperties } from 'react';
+import { Panel } from '../agora-kit/blocks/panel';
+import { cn } from '../agora-kit/lib/utils';
+import { Card } from '../agora-kit/ui/card';
+import { Skeleton as KitSkeleton } from '../agora-kit/ui/skeleton';
 
-// ── Base shimmer ──────────────────────────────────────────────────────────────
+// Shaped loading placeholders, all on the kit's shadcn `Skeleton`.
 
 interface SkeletonProps {
   width?: string | number;
   height?: string | number;
   borderRadius?: string | number;
-  style?: React.CSSProperties;
   className?: string;
 }
 
-export function Skeleton({
-  width,
-  height = 14,
-  borderRadius = 6,
-  style,
-  className,
-}: SkeletonProps) {
-  return (
-    <div
-      className={className}
-      style={{
-        width: width ?? '100%',
-        height,
-        borderRadius,
-        background: 'var(--bg3)',
-        backgroundImage: 'linear-gradient(90deg, var(--bg3) 0%, var(--bg2) 40%, var(--bg3) 100%)',
-        backgroundSize: '200% 100%',
-        animation: 'sk-shimmer 1.6s ease-in-out infinite',
-        flexShrink: 0,
-        ...style,
-      }}
-    />
-  );
+/** A sized block. Prefer the shaped variants below. */
+export function Skeleton({ width, height = 14, borderRadius, className }: SkeletonProps) {
+  const style: CSSProperties = {
+    width: width ?? '100%',
+    height,
+    ...(borderRadius !== undefined ? { borderRadius } : {}),
+  };
+  return <KitSkeleton className={cn('shrink-0', className)} style={style} />;
 }
 
-// ── Inject keyframes once ─────────────────────────────────────────────────────
-
-if (typeof document !== 'undefined') {
-  const id = '__sk_shimmer_kf';
-  if (!document.getElementById(id)) {
-    const style = document.createElement('style');
-    style.id = id;
-    style.textContent = `
-      @keyframes sk-shimmer {
-        0%   { background-position: 200% 0; }
-        100% { background-position: -200% 0; }
-      }
-    `;
-    document.head.appendChild(style);
-  }
-}
-
-// ── Variant: text lines ───────────────────────────────────────────────────────
-
-interface SkeletonLinesProps {
+export function SkeletonLines({
+  lines = 3,
+  lastWidth = '60%',
+}: {
   lines?: number;
   lastWidth?: string;
-}
-
-export function SkeletonLines({ lines = 3, lastWidth = '60%' }: SkeletonLinesProps) {
+}) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {Array.from({ length: lines }).map((_, i) => (
-        <Skeleton key={i} width={i === lines - 1 ? lastWidth : '100%'} height={13} />
+    <div className="flex flex-col gap-2 py-2" aria-hidden>
+      {Array.from({ length: lines }, (_, i) => `line-${i}`).map((key, i) => (
+        <Skeleton key={key} width={i === lines - 1 ? lastWidth : '100%'} height={13} />
       ))}
     </div>
   );
 }
 
-// ── Variant: stat card ────────────────────────────────────────────────────────
-
+/** One metric card placeholder. */
 export function SkeletonCard() {
   return (
-    <div
-      style={{
-        background: 'var(--bg2)',
-        border: '1px solid var(--line)',
-        borderRadius: 'var(--radius)',
-        padding: '14px 16px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-      }}
+    <Card
+      aria-hidden
+      className="agora-surface gap-2.5 rounded-lg border border-border px-[18px] pt-4 pb-3.5 shadow-none ring-0"
     >
       <Skeleton width={80} height={11} />
-      <Skeleton width={60} height={28} borderRadius={8} />
+      <Skeleton width={60} height={26} />
       <Skeleton width={100} height={11} />
-    </div>
+    </Card>
   );
 }
 
-// ── Variant: cards grid ───────────────────────────────────────────────────────
-
-interface SkeletonCardsProps {
-  count?: number;
-  columns?: number;
-}
-
-export function SkeletonCards({ count = 6, columns = 3 }: SkeletonCardsProps) {
+/** A metric-card row placeholder. */
+export function SkeletonCards({ count = 6 }: { count?: number; columns?: number }) {
   return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: `repeat(${columns}, 1fr)`,
-        gap: 12,
-      }}
-    >
-      {Array.from({ length: count }).map((_, i) => (
-        <SkeletonCard key={i} />
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-[repeat(auto-fit,minmax(160px,1fr))]">
+      {Array.from({ length: count }, (_, i) => `card-${i}`).map((key) => (
+        <SkeletonCard key={key} />
       ))}
     </div>
   );
 }
 
-// ── Variant: table rows ───────────────────────────────────────────────────────
-
-interface SkeletonTableProps {
-  rows?: number;
-  cols?: number;
-}
-
-export function SkeletonTable({ rows = 5, cols = 4 }: SkeletonTableProps) {
+/** Table rows placeholder (header + rows), for inside a panel. */
+export function SkeletonTable({ rows = 5, cols = 4 }: { rows?: number; cols?: number }) {
+  const grid = { gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` };
   return (
-    <div style={{ padding: '0 0 8px' }}>
-      {/* Header */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: `repeat(${cols}, 1fr)`,
-          gap: 12,
-          padding: '10px 16px',
-          borderBottom: '1px solid var(--line)',
-        }}
-      >
-        {Array.from({ length: cols }).map((_, i) => (
-          <Skeleton key={i} height={11} width="50%" />
+    <div className="pb-2" aria-hidden>
+      <div className="grid gap-3 border-b border-border px-4 py-2.5" style={grid}>
+        {Array.from({ length: cols }, (_, i) => `h-${i}`).map((key) => (
+          <Skeleton key={key} height={10} width="50%" />
         ))}
       </div>
-      {/* Rows */}
-      {Array.from({ length: rows }).map((_, r) => (
+      {Array.from({ length: rows }, (_, r) => `r-${r}`).map((rowKey) => (
         <div
-          key={r}
-          style={{
-            display: 'grid',
-            gridTemplateColumns: `repeat(${cols}, 1fr)`,
-            gap: 12,
-            padding: '12px 16px',
-            borderBottom: '1px solid var(--line)',
-          }}
+          key={rowKey}
+          className="grid gap-3 border-b border-border px-4 py-3 last:border-0"
+          style={grid}
         >
-          {Array.from({ length: cols }).map((_, c) => (
+          {Array.from({ length: cols }, (_, c) => `${rowKey}-${c}`).map((key, c) => (
             <Skeleton
-              key={c}
-              height={13}
+              key={key}
+              height={12}
               width={c === 0 ? '80%' : c === cols - 1 ? '40%' : '65%'}
             />
           ))}
@@ -163,55 +93,47 @@ export function SkeletonTable({ rows = 5, cols = 4 }: SkeletonTableProps) {
   );
 }
 
-// ── Variant: panel with header + table ───────────────────────────────────────
-
-interface SkeletonPanelTableProps {
-  rows?: number;
-  cols?: number;
-}
-
-export function SkeletonPanelTable({ rows = 5, cols = 4 }: SkeletonPanelTableProps) {
+/** A titled panel with table rows, while a list loads. */
+export function SkeletonPanelTable({ rows = 5, cols = 4 }: { rows?: number; cols?: number }) {
   return (
-    <div
-      style={{
-        background: 'var(--bg2)',
-        border: '1px solid var(--line)',
-        borderRadius: 'var(--radius)',
-        overflow: 'hidden',
-      }}
-    >
-      {/* Panel head */}
-      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)' }}>
-        <Skeleton width={200} height={13} />
-      </div>
+    <Panel title={<Skeleton width={160} height={12} />} flush>
       <SkeletonTable rows={rows} cols={cols} />
-    </div>
+    </Panel>
   );
 }
 
-// ── Variant: drawer section ───────────────────────────────────────────────────
-
+/** A drawer's detail placeholder: identity row + two sections. */
 export function SkeletonDrawerSection() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Avatar + info */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+    <div className="flex flex-col gap-5" aria-hidden>
+      <div className="flex items-center gap-3">
         <Skeleton width={44} height={44} borderRadius="50%" />
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div className="flex flex-1 flex-col gap-1.5">
           <Skeleton width="60%" height={14} />
           <Skeleton width="40%" height={11} />
         </div>
       </div>
-      {/* Section 1 */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div className="flex flex-col gap-2">
         <Skeleton width={80} height={10} />
-        <Skeleton height={32} borderRadius={8} />
+        <Skeleton height={32} />
       </div>
-      {/* Section 2 */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div className="flex flex-col gap-2">
         <Skeleton width={80} height={10} />
         <SkeletonLines lines={3} lastWidth="50%" />
       </div>
+    </div>
+  );
+}
+
+/** The whole page while its code chunk loads. */
+export function PageSkeleton() {
+  return (
+    <div className="flex flex-col gap-4 px-4 pt-5 pb-16 md:px-6 md:pt-6" aria-hidden>
+      <div className="flex flex-col gap-1.5">
+        <Skeleton width={160} height={18} />
+        <Skeleton width={240} height={11} />
+      </div>
+      <SkeletonPanelTable rows={6} cols={4} />
     </div>
   );
 }

@@ -1,4 +1,5 @@
-import React from 'react';
+import { PageHeader } from '../agora-kit/blocks/page-header';
+import { PageBody } from '../agora-kit/shell/app-shell';
 import { ConsolesContainer } from '../containers/consoles.containers';
 import {
   MetricsContainer,
@@ -9,24 +10,15 @@ import {
 
 export function Overview() {
   return (
-    <div>
-      <div className="page-header">
-        <div className="page-title">Overview</div>
-        <div className="page-sub">Identity provider metrics</div>
-      </div>
-
+    <PageBody>
+      <PageHeader title="Overview" description="Identity provider metrics" />
       <MetricsContainer />
-
-      <div className="grid-2" style={{ marginTop: 16 }}>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <SignInsChartContainer />
         <SignUpsChartContainer />
       </div>
-
-      <div style={{ marginTop: 16 }}>
-        <RecentEventsContainer />
-      </div>
-
+      <RecentEventsContainer />
       <ConsolesContainer />
-    </div>
+    </PageBody>
   );
 }

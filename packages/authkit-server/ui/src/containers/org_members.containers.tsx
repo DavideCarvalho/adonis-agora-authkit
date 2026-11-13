@@ -7,7 +7,12 @@ import {
   useUpdateOrgMemberRoleMutationOptions,
 } from '@adonis-agora/authkit-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import React, { useState } from 'react';
+import type React from 'react';
+import { useState } from 'react';
+import { XIcon } from '../agora-kit/icons';
+import { Badge } from '../agora-kit/ui/badge';
+import { Button } from '../agora-kit/ui/button';
+import { Field, InitialsAvatar, SelectInput, TextInput } from '../components/primitives';
 import { type PickedUser, PickedUserChip, UserPicker } from '../components/UserPicker';
 import { useToast } from '../lib/toast';
 import { DEFAULT_ORG_ROLES } from './org_settings.containers';
@@ -19,18 +24,18 @@ function OrgRoleSelect({ value, onChange }: { value: string; onChange: (v: strin
     ? DEFAULT_ORG_ROLES
     : [...DEFAULT_ORG_ROLES, value];
   return (
-    <select
-      className="input"
+    <SelectInput
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      style={{ width: 110 }}
+      className="w-[110px]"
+      aria-label="Role"
     >
       {roles.map((r) => (
         <option key={r} value={r}>
           {r}
         </option>
       ))}
-    </select>
+    </SelectInput>
   );
 }
 
@@ -64,25 +69,25 @@ export function AddMemberSection({ orgId, onDone }: AddMemberSectionProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <form onSubmit={handleSubmit} className="flex flex-col gap-2">
       {picked ? (
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="flex flex-wrap items-center gap-2">
           <PickedUserChip user={picked} onClear={() => setPicked(null)} />
           <OrgRoleSelect value={role} onChange={setRole} />
-          <button type="submit" className="btn btn-primary btn-sm" disabled={addMutation.isPending}>
+          <Button type="submit" size="sm" disabled={addMutation.isPending}>
             {addMutation.isPending ? 'Adding…' : 'Add member'}
-          </button>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={onDone}>
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={onDone}>
             Cancel
-          </button>
+          </Button>
         </div>
       ) : (
         <div>
           <UserPicker onPick={setPicked} />
-          <div style={{ marginTop: 6, display: 'flex', justifyContent: 'flex-end' }}>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={onDone}>
+          <div className="mt-1.5 flex justify-end">
+            <Button type="button" variant="ghost" size="sm" onClick={onDone}>
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -120,31 +125,25 @@ export function InviteSection({ orgId, onDone }: InviteSectionProps) {
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}
-    >
-      <div style={{ flex: 1, minWidth: 180 }}>
-        <label className="field-label">Email</label>
-        <input
-          className="input"
+    <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-2">
+      <Field label="Email" className="mb-0 min-w-[180px] flex-1">
+        <TextInput
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="user@example.com"
           required
         />
-      </div>
-      <div>
-        <label className="field-label">Role</label>
+      </Field>
+      <Field label="Role" className="mb-0">
         <OrgRoleSelect value={role} onChange={setRole} />
-      </div>
-      <button type="submit" className="btn btn-primary btn-sm" disabled={inviteMutation.isPending}>
+      </Field>
+      <Button type="submit" size="sm" className="h-[34px]" disabled={inviteMutation.isPending}>
         {inviteMutation.isPending ? 'Sending…' : 'Invite'}
-      </button>
-      <button type="button" className="btn btn-ghost btn-sm" onClick={onDone}>
+      </Button>
+      <Button type="button" variant="ghost" size="sm" className="h-[34px]" onClick={onDone}>
         Cancel
-      </button>
+      </Button>
     </form>
   );
 }
@@ -190,63 +189,53 @@ export function MemberRow({
   }
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        padding: '6px 0',
-        borderBottom: '1px solid var(--line)',
-      }}
-    >
-      <div className="avatar" style={{ width: 24, height: 24, fontSize: 9 }}>
-        {(member.email ?? '?').slice(0, 2).toUpperCase()}
-      </div>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 12, color: 'var(--text)' }}>{member.email ?? member.accountId}</div>
+    <div className="flex items-center gap-2 border-b border-border py-1.5">
+      <InitialsAvatar text={(member.email ?? '?').slice(0, 2).toUpperCase()} size={24} />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-xs text-fg">{member.email ?? member.accountId}</div>
       </div>
       {editingRole ? (
-        <form onSubmit={handleRoleSubmit} style={{ display: 'flex', gap: 4 }}>
-          <input
-            className="input"
+        <form onSubmit={handleRoleSubmit} className="flex gap-1">
+          <TextInput
             value={newRole}
             onChange={(e) => setNewRole(e.target.value)}
-            style={{ width: 80, padding: '2px 6px', fontSize: 11 }}
+            aria-label="Role"
+            className="h-[26px] w-20 px-1.5 text-[11px] md:text-[11px]"
           />
-          <button
-            type="submit"
-            className="btn btn-primary btn-sm"
-            disabled={roleMutation.isPending}
-          >
+          <Button type="submit" size="sm" disabled={roleMutation.isPending} aria-label="Save role">
             ✓
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className="btn btn-ghost btn-sm"
+            variant="ghost"
+            size="sm"
             onClick={() => setEditingRole(false)}
+            aria-label="Cancel"
           >
             ✕
-          </button>
+          </Button>
         </form>
       ) : (
         <>
-          <button
-            className="badge badge-muted"
+          <Badge
+            variant="neutral"
+            className="cursor-pointer bg-transparent hover:text-fg"
             title="Click to change role"
-            onClick={() => setEditingRole(true)}
-            style={{ cursor: 'pointer', background: 'none', border: '1px solid var(--line)' }}
+            render={<button type="button" onClick={() => setEditingRole(true)} />}
           >
             {member.role}
-          </button>
-          <button
-            className="icon-btn"
+          </Badge>
+          <Button
+            variant="ghost"
+            size="icon-xs"
             title="Remove member"
+            aria-label="Remove member"
             onClick={handleRemove}
             disabled={removeMutation.isPending}
-            style={{ color: 'var(--danger, #e53e3e)', fontSize: 13 }}
+            className="text-bad hover:text-bad"
           >
-            ✕
-          </button>
+            <XIcon />
+          </Button>
         </>
       )}
     </div>
@@ -278,26 +267,20 @@ export function InvitationRow({
   }
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        padding: '6px 0',
-        borderBottom: '1px solid var(--line)',
-      }}
-    >
-      <div style={{ flex: 1, fontSize: 12, color: 'var(--muted)' }}>{invitation.email}</div>
-      <span className="badge badge-amber">{invitation.role}</span>
-      <button
-        className="icon-btn"
+    <div className="flex items-center gap-2 border-b border-border py-1.5">
+      <div className="min-w-0 flex-1 truncate text-xs text-dim">{invitation.email}</div>
+      <Badge variant="warn">{invitation.role}</Badge>
+      <Button
+        variant="ghost"
+        size="icon-xs"
         title="Revoke invitation"
+        aria-label="Revoke invitation"
         onClick={handleRevoke}
         disabled={revokeMutation.isPending}
-        style={{ color: 'var(--danger, #e53e3e)', fontSize: 13 }}
+        className="text-bad hover:text-bad"
       >
-        ✕
-      </button>
+        <XIcon />
+      </Button>
     </div>
   );
 }

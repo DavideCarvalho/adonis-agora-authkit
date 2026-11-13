@@ -1,110 +1,60 @@
 import { useQueryErrorResetBoundary } from '@tanstack/react-query';
-import React from 'react';
-import { ErrorBoundary, type FallbackProps } from 'react-error-boundary';
-
-// ── Shared error-box style (matches globals.css .error-box) ──────────────────
-
-function ErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === 'object' && error !== null && 'message' in error
-        ? String((error as { message: unknown }).message)
-        : String(error);
-
-  return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 10,
-        padding: '14px 16px',
-        borderRadius: 'var(--radius)',
-        background: 'var(--red-soft)',
-        border: '1px solid rgba(255,84,112,0.20)',
-        color: 'var(--red)',
-        fontSize: 13,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <svg
-          width="15"
-          height="15"
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          style={{ flexShrink: 0 }}
-        >
-          <circle cx="8" cy="8" r="6.5" />
-          <path d="M8 5v3.5M8 10.5v.5" strokeLinecap="round" />
-        </svg>
-        <span style={{ fontWeight: 600 }}>Something went wrong</span>
-      </div>
-      <span style={{ color: 'var(--muted)', fontSize: 12 }}>{message}</span>
-      <button
-        onClick={resetErrorBoundary}
-        style={{
-          alignSelf: 'flex-start',
-          marginTop: 2,
-          padding: '5px 12px',
-          fontSize: 12,
-          fontWeight: 600,
-          background: 'var(--red-soft)',
-          border: '1px solid rgba(255,84,112,0.30)',
-          color: 'var(--red)',
-          borderRadius: 7,
-          cursor: 'pointer',
-          fontFamily: 'var(--sans)',
-        }}
-      >
-        Try again
-      </button>
-    </div>
-  );
-}
-
-// ── QueryBoundary ─────────────────────────────────────────────────────────────
-//
-// Pattern:
-//   - Wraps children in <ErrorBoundary> that auto-resets when the QueryClient
-//     resets errors (useQueryErrorResetBoundary), so "Try again" also refetches.
-//   - Accepts `isLoading`, `error`, `onRetry`, `skeleton` props to handle the
-//     fetch-state layer (query.error / query.isLoading) explicitly — these are
-//     rendered directly (no Suspense needed, keeps Strict Mode safe).
-//   - Render errors (bugs in child components) are caught by ErrorBoundary.
+import type { ReactNode } from 'react';
+import { ErrorBoundary, RegionError } from '../agora-kit/blocks/error-boundary';
+import { errorStatus } from '../agora-kit/blocks/query-boundary';
+import { SkeletonLines } from './Skeleton';
 
 interface QueryBoundaryProps {
   /** Whether the primary query is loading */
   isLoading?: boolean;
   /** Fetch error from the query (not a render error) */
   error?: unknown;
-  /** Called when the user clicks "Try again" in the fetch-error state */
+  /** Called when the user clicks "Retry" in the fetch-error state */
   onRetry?: () => void;
-  /** Skeleton shown while isLoading is true */
-  skeleton?: React.ReactNode;
-  children: React.ReactNode;
+  /** Shaped skeleton shown while isLoading is true */
+  skeleton?: ReactNode;
+  /** Region name for the error copy ("Users"). */
+  label?: string;
+  children: ReactNode;
 }
 
+/**
+ * One data region's states, on the kit's blocks: shaped skeleton while loading, a retryable
+ * {@link RegionError} on a fetch error (an access message on 401/403), then the content inside a
+ * kit {@link ErrorBoundary} that also resets react-query's error state, so a render crash stays in
+ * this region and "Retry" refetches.
+ */
 export function QueryBoundary({
   isLoading,
   error,
   onRetry,
   skeleton,
+  label,
   children,
 }: QueryBoundaryProps) {
   const { reset } = useQueryErrorResetBoundary();
 
-  if (isLoading) {
-    return <>{skeleton ?? <DefaultSkeleton />}</>;
-  }
+  if (isLoading) return <>{skeleton ?? <SkeletonLines lines={4} />}</>;
 
   if (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
+    const status = errorStatus(error);
+    if (status === 401 || status === 403) {
+      return (
+        <RegionError
+          title={status === 401 ? 'Signed out' : 'Not allowed'}
+          error={
+            status === 401
+              ? 'Your session ended. Sign in again to continue.'
+              : 'Your account is not allowed to read this.'
+          }
+        />
+      );
+    }
     return (
-      <ErrorFallback
-        error={err}
-        resetErrorBoundary={() => {
+      <RegionError
+        title={label ? `${label} could not be loaded` : 'Something went wrong'}
+        error={error}
+        onRetry={() => {
           reset();
           onRetry?.();
         }}
@@ -113,32 +63,8 @@ export function QueryBoundary({
   }
 
   return (
-    <ErrorBoundary FallbackComponent={ErrorFallback} onReset={reset}>
+    <ErrorBoundary {...(label ? { label } : {})} onReset={reset}>
       {children}
     </ErrorBoundary>
-  );
-}
-
-// ── Default skeleton (used when no skeleton prop is provided) ─────────────────
-
-function DefaultSkeleton() {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '16px 0' }}>
-      {Array.from({ length: 4 }).map((_, i) => (
-        <div
-          key={i}
-          style={{
-            height: 14,
-            borderRadius: 6,
-            background: 'var(--bg3)',
-            backgroundImage:
-              'linear-gradient(90deg, var(--bg3) 0%, var(--bg2) 40%, var(--bg3) 100%)',
-            backgroundSize: '200% 100%',
-            animation: 'sk-shimmer 1.6s ease-in-out infinite',
-            width: i === 3 ? '55%' : '100%',
-          }}
-        />
-      ))}
-    </div>
   );
 }

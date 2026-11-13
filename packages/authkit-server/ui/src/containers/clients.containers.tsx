@@ -1,32 +1,28 @@
 import type { AdminClient } from '@adonis-agora/authkit-react';
 import { useClientsQueryOptions } from '@adonis-agora/authkit-react';
 import { useQuery } from '@tanstack/react-query';
-import React from 'react';
+import { EmptyState } from '../agora-kit/blocks/empty-state';
+import { Badge } from '../agora-kit/ui/badge';
+import { Button } from '../agora-kit/ui/button';
+import { Code, dangerButtonClass, Notice } from '../components/primitives';
 import { QueryBoundary } from '../components/QueryBoundary';
 import { Skeleton } from '../components/Skeleton';
 
 const ALL_CLIENTS = { page: 1, size: 200 } as const;
 
+/** One client card's surface (authkit `.panel`, padded). */
+const cardClass = 'agora-surface agora-rise rounded-lg border border-border px-4 py-3.5';
+
 // ── Skeleton for client cards ─────────────────────────────────────────────────
 
 function ClientCardSkeleton() {
   return (
-    <div
-      style={{
-        background: 'var(--bg2)',
-        border: '1px solid var(--line)',
-        borderRadius: 'var(--radius)',
-        padding: '14px 16px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+    <div className={`${cardClass} flex flex-col gap-2`} aria-hidden>
+      <div className="flex items-center gap-2">
         <Skeleton width="30%" height={13} />
         <Skeleton width={60} height={18} borderRadius={20} />
       </div>
-      <div style={{ display: 'flex', gap: 6 }}>
+      <div className="flex gap-1.5">
         <Skeleton width={100} height={18} borderRadius={20} />
         <Skeleton width={80} height={18} borderRadius={20} />
       </div>
@@ -37,7 +33,7 @@ function ClientCardSkeleton() {
 
 function ClientsListSkeleton() {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div className="flex flex-col gap-2.5">
       {[1, 2, 3].map((i) => (
         <ClientCardSkeleton key={i} />
       ))}
@@ -67,110 +63,102 @@ export function ClientsListContainer({
 
   return (
     <QueryBoundary
+      label="Clients"
       isLoading={isLoading}
       error={error}
       onRetry={refetch}
       skeleton={<ClientsListSkeleton />}
     >
       {!canList ? (
-        <div className="error-box">
+        <Notice>
           Client store does not support listing (no dynamic registration adapter configured).
-        </div>
+        </Notice>
       ) : clients.length === 0 ? (
-        <div className="empty-state">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M18 13l4-3.5L18 6" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M22 9.5H9M6 5H4a1 1 0 00-1 1v12a1 1 0 001 1h2" strokeLinecap="round" />
-          </svg>
-          <h4>No clients yet</h4>
-          <p>Create an OAuth 2.0 / OIDC client to get started</p>
-        </div>
+        <EmptyState
+          icon={
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              aria-hidden="true"
+            >
+              <path d="M18 13l4-3.5L18 6" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M22 9.5H9M6 5H4a1 1 0 00-1 1v12a1 1 0 001 1h2" strokeLinecap="round" />
+            </svg>
+          }
+          title="No clients yet"
+          description="Create an OAuth 2.0 / OIDC client to get started"
+        />
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="flex flex-col gap-2.5">
           {clients.map((c) => (
-            <div key={c.clientId} className="panel" style={{ padding: '14px 16px' }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+            <div key={c.clientId} className={cardClass}>
+              <div className="flex flex-col items-start gap-3.5 sm:flex-row">
                 {c.logoUri && (
-                  <img
-                    src={c.logoUri}
-                    alt=""
-                    style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'contain' }}
-                  />
+                  <img src={c.logoUri} alt="" className="size-8 rounded-md object-contain" />
                 )}
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1.5 flex flex-wrap items-center gap-2">
                     {c.clientName && (
-                      <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>
-                        {c.clientName}
-                      </span>
+                      <span className="text-[13px] font-semibold text-fg">{c.clientName}</span>
                     )}
-                    <span
-                      style={{
-                        fontFamily: 'var(--mono)',
-                        fontWeight: 600,
-                        fontSize: 13,
-                        color: 'var(--text)',
-                      }}
-                    >
+                    <span className="mono text-[13px] font-semibold break-all text-fg">
                       {c.clientId}
                     </span>
-                    <span className={`badge ${c.confidential ? 'badge-accent' : 'badge-muted'}`}>
+                    <Badge variant={c.confidential ? 'brand' : 'neutral'}>
                       {c.confidential ? 'confidential' : 'public'}
-                    </span>
+                    </Badge>
                     {c.serviceTenant && (
-                      <span className="badge badge-accent" title="Service tenant partition">
+                      <Badge variant="brand" title="Service tenant partition">
                         tenant: {c.serviceTenant.partition}
-                      </span>
+                      </Badge>
                     )}
-                    {c.disabled && <span className="badge badge-muted">disabled</span>}
+                    {c.disabled && <Badge variant="neutral">disabled</Badge>}
                   </div>
                   {c.serviceTenant && c.serviceTenant.capabilities.length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+                    <div className="mb-1.5 flex flex-wrap gap-1">
                       {c.serviceTenant.capabilities.map((cap) => (
-                        <span key={cap} className="code">
-                          {cap}
-                        </span>
+                        <Code key={cap}>{cap}</Code>
                       ))}
                     </div>
                   )}
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+                  <div className="mb-1.5 flex flex-wrap gap-1">
                     {c.grantTypes.map((g) => (
-                      <span key={g} className="badge badge-muted">
+                      <Badge key={g} variant="neutral">
                         {g}
-                      </span>
+                      </Badge>
                     ))}
                   </div>
                   {c.redirectUris.length > 0 && (
-                    <div
-                      style={{
-                        fontSize: 11,
-                        color: 'var(--faint)',
-                        display: 'flex',
-                        flexWrap: 'wrap',
-                        gap: 4,
-                      }}
-                    >
+                    <div className="flex flex-wrap gap-1 text-[11px] text-faint">
                       {c.redirectUris.map((u) => (
-                        <span key={u} className="code">
-                          {u}
-                        </span>
+                        <Code key={u}>{u}</Code>
                       ))}
                     </div>
                   )}
                 </div>
-                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                  <button className="btn btn-sm" onClick={() => onEdit(c)}>
+                <div className="flex shrink-0 gap-1.5">
+                  <Button variant="outline" size="sm" onClick={() => onEdit(c)}>
                     Edit
-                  </button>
-                  <button className="btn btn-sm" onClick={() => onToggleDisabled(c)}>
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => onToggleDisabled(c)}>
                     {c.disabled ? 'Enable' : 'Disable'}
-                  </button>
-                  <button
-                    className="btn btn-sm"
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => onRegenerate(c)}
                     title="Regenerate secret"
+                    aria-label="Regenerate secret"
                   >
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <svg
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      aria-hidden="true"
+                    >
                       <path d="M2 8a6 6 0 016-6 6 6 0 014.24 1.76L14 5" strokeLinecap="round" />
                       <path
                         d="M14 2v3h-3M14 8a6 6 0 01-6 6 6 6 0 01-4.24-1.76L2 11"
@@ -178,15 +166,28 @@ export function ClientsListContainer({
                       />
                       <path d="M2 14v-3h3" strokeLinecap="round" />
                     </svg>
-                  </button>
-                  <button className="btn btn-sm btn-danger" onClick={() => onDelete(c)}>
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className={dangerButtonClass}
+                    onClick={() => onDelete(c)}
+                    aria-label="Delete client"
+                    title="Delete client"
+                  >
+                    <svg
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      aria-hidden="true"
+                    >
                       <path
                         d="M2 4.5h12M5.5 4.5V3h5v1.5M10.5 4.5v8a1 1 0 01-1 1h-3a1 1 0 01-1-1v-8"
                         strokeLinecap="round"
                       />
                     </svg>
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>

@@ -3,7 +3,7 @@ import { getBootedApp } from '../../services/booted_app.js';
 import { type AccountExtensionRouteEntry, mountAccountExtensions } from '../account/mount.js';
 import type { BuiltinNavId } from '../account/runtime.js';
 import type { ConsoleAuthorizeDecision } from '../console_authorize.js';
-import { registerAgoraConsole } from '../console_switcher.js';
+import { announceAgoraSignOut, registerAgoraConsole } from '../console_switcher.js';
 import type { AuthSocialConfig, RateLimitConfigInput } from '../define_config.js';
 import { resolveRateLimit } from '../define_config.js';
 import { accountHome } from './account_home.js';
@@ -15,6 +15,7 @@ import {
   accountPathsMap,
   accountPrefix,
   joinAccountPath,
+  setAccountLogoutMounted,
   setAccountPaths,
 } from './account_paths.js';
 import { resolveAccountRoles } from './account_roles.js';
@@ -354,6 +355,21 @@ function announceAdminConsole(adminPrefix: string): void {
       logger,
     );
   })().catch(() => {});
+}
+
+/**
+ * Announces the account console's sign-out (`POST <account>/logout`) on the shared
+ * `'agora.consoles'` registry, so durable, telescope and the other consoles offer a working
+ * sign-out in their footer. A no-op without a booted app (tests on a bare router).
+ */
+function announceAccountSignOut(action: string): void {
+  let app: ReturnType<typeof getBootedApp>;
+  try {
+    app = getBootedApp();
+  } catch {
+    return;
+  }
+  void announceAgoraSignOut(app as never, action).catch(() => {});
 }
 
 /** The response for an `admin.authorize` denial: same rules in every `@adonis-agora` console. */
@@ -923,6 +939,7 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
     return true;
   };
   const mountLogin = mountScreen('login');
+  setAccountLogoutMounted(mountLogin);
   const mountTokens = mountScreen('tokens');
   const mountOrgs = mountScreen('orgs');
   const mountSecurity = mountScreen('security');
@@ -1222,6 +1239,8 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
     // alinhado com as demais rotas de credencial (interaction, forgot, reset).
     withLogin(router.post(loginPath, [C.accountSession, 'login']));
     withLogin(router.post(logoutPath, [C.accountSession, 'logout']));
+    // Every other console's footer signs out through this route.
+    announceAccountSignOut(logoutPath);
   }
 
   // Confirmação de troca de e-mail (standalone, GET-only — consome o token do link;

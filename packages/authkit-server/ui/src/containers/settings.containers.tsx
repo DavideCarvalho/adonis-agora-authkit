@@ -5,7 +5,11 @@ import {
   useSettingsQueryOptions,
 } from '@adonis-agora/authkit-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import React, { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
+import { cn } from '../agora-kit/lib/utils';
+import { Button } from '../agora-kit/ui/button';
+import { Toggle } from '../components/forms';
+import { SelectInput, SettingsRow, TextInput } from '../components/primitives';
 import { QueryBoundary } from '../components/QueryBoundary';
 import { Skeleton } from '../components/Skeleton';
 import { useToast } from '../lib/toast';
@@ -40,27 +44,13 @@ export interface SettingSection {
 
 function SettingsSectionSkeleton({ rowCount = 4 }: { rowCount?: number }) {
   return (
-    <div
-      style={{
-        background: 'var(--bg2)',
-        border: '1px solid var(--line)',
-        borderRadius: 'var(--radius)',
-        overflow: 'hidden',
-      }}
-    >
-      {Array.from({ length: rowCount }).map((_, i) => (
+    <div className="overflow-hidden rounded-lg border border-border bg-panel-2" aria-hidden>
+      {Array.from({ length: rowCount }, (_, i) => `row-${i}`).map((key) => (
         <div
-          key={i}
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '14px 16px',
-            borderBottom: i < rowCount - 1 ? '1px solid var(--line)' : undefined,
-            gap: 16,
-          }}
+          key={key}
+          className="flex items-center justify-between gap-4 border-b border-border px-4 py-3.5 last:border-0"
         >
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div className="flex flex-1 flex-col gap-1.5">
             <Skeleton width="40%" height={13} />
             <Skeleton width="70%" height={11} />
           </div>
@@ -71,21 +61,42 @@ function SettingsSectionSkeleton({ rowCount = 4 }: { rowCount?: number }) {
   );
 }
 
-// ── Lock badge (setting travada via defineConfig) ─────────────────────────────
+// ── Badges ────────────────────────────────────────────────────────────────────
 
-function ConfigLockBadge() {
+/** authkit's small square `.settings-badge`, in a tone. */
+function SectionBadge({
+  tone = 'neutral',
+  title,
+  children,
+}: {
+  tone?: 'neutral' | 'brand' | 'warn';
+  title?: string;
+  children: ReactNode;
+}) {
+  const tones = {
+    neutral: 'border-border bg-hover text-faint',
+    brand: 'border-brand-border bg-brand-soft text-brand',
+    warn: 'border-warn/30 bg-warn/10 text-warn',
+  } as const;
   return (
     <span
-      className="settings-badge"
+      title={title}
+      className={cn(
+        'mono inline-flex items-center gap-1 rounded-sm border px-1.5 py-px text-[9.5px] font-normal',
+        tones[tone],
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+/** Lock badge (setting travada via defineConfig). */
+function ConfigLockBadge() {
+  return (
+    <SectionBadge
+      tone="brand"
       title="Definido via defineConfig() — gerenciado no código, não editável aqui"
-      style={{
-        background: 'var(--accent-soft, rgba(99,102,241,0.12))',
-        color: 'var(--accent, #6366f1)',
-        borderColor: 'rgba(99,102,241,0.3)',
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 4,
-      }}
     >
       <svg
         viewBox="0 0 16 16"
@@ -100,7 +111,7 @@ function ConfigLockBadge() {
         <path d="M5 7V5a3 3 0 016 0v2" strokeLinecap="round" />
       </svg>
       definido via config
-    </span>
+    </SectionBadge>
   );
 }
 
@@ -219,156 +230,130 @@ export function SettingsSectionContainer({
   const displayError = error && !isNotFound ? error : undefined;
 
   return (
-    <div className="settings-section">
-      <div className="settings-section-head">
+    <section className="mb-6">
+      <div className="mb-1 flex flex-col items-start justify-between gap-2.5 border-b border-border pb-2.5 sm:flex-row sm:items-center">
         <div>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <h3 className="flex flex-wrap items-center gap-2 text-[13px] font-semibold text-fg">
             {section.title}
             {locked && <ConfigLockBadge />}
-            {!locked && !isDefault && <span className="settings-badge">custom</span>}
-            {dirty && !locked && (
-              <span
-                className="settings-badge"
-                style={{
-                  background: 'var(--amber-soft)',
-                  color: 'var(--amber)',
-                  borderColor: 'rgba(255,180,84,0.3)',
-                }}
-              >
-                unsaved
-              </span>
-            )}
+            {!locked && !isDefault && <SectionBadge>custom</SectionBadge>}
+            {dirty && !locked && <SectionBadge tone="warn">unsaved</SectionBadge>}
           </h3>
-          <p style={{ marginTop: 2 }}>{section.description}</p>
+          <p className="mt-0.5 text-[11px] text-faint">{section.description}</p>
           {locked && (
-            <p style={{ marginTop: 4, color: 'var(--accent, #6366f1)', fontSize: 12 }}>
-              Travado no <code>defineConfig()</code> — o config tem prioridade sobre o runtime.
-              Remova de lá para editar por aqui.
+            <p className="mt-1 text-xs text-brand">
+              Travado no <code className="mono">defineConfig()</code> — o config tem prioridade
+              sobre o runtime. Remova de lá para editar por aqui.
             </p>
           )}
-          <div
-            style={{
-              fontSize: 10.5,
-              color: 'var(--faint)',
-              fontFamily: 'var(--mono)',
-              marginTop: 2,
-            }}
-          >
-            {section.settingKey}
-          </div>
+          <div className="mono mt-0.5 text-[10.5px] text-faint">{section.settingKey}</div>
         </div>
         {!locked && (
-          <div className="settings-control" style={{ gap: 8 }}>
+          <div className="flex shrink-0 items-center gap-2">
             {dirty && (
-              <button className="btn btn-primary btn-sm" disabled={saving} onClick={save}>
-                {saving ? <span className="spinner sm" /> : 'Salvar'}
-              </button>
+              <Button size="sm" disabled={saving} onClick={save}>
+                {saving ? 'Salvando…' : 'Salvar'}
+              </Button>
             )}
             {!isDefault && !dirty && (
-              <button
-                className="btn btn-ghost btn-sm"
+              <Button
+                variant="ghost"
+                size="sm"
                 disabled={saving}
                 onClick={reset}
                 title="Voltar ao default"
+                aria-label="Voltar ao default"
               >
                 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8">
                   <path d="M2 8a6 6 0 016-6 6 6 0 014.24 1.76L14 5" strokeLinecap="round" />
                   <path d="M14 2v3h-3" strokeLinecap="round" />
                 </svg>
-              </button>
+              </Button>
             )}
           </div>
         )}
       </div>
 
       <QueryBoundary
+        label={section.title}
         isLoading={isLoading}
         error={displayError}
         onRetry={refetch}
         skeleton={<SettingsSectionSkeleton rowCount={section.fields.length} />}
       >
-        <div className="panel">
-          <div className="panel-body" style={{ padding: 0 }}>
-            {section.fields.map((f) => {
-              const val = fieldValue(f);
-              return (
-                <div
-                  key={f.field}
-                  className="settings-row"
-                  style={locked ? { opacity: 0.85 } : undefined}
-                >
-                  <div className="settings-info">
-                    <div className="settings-key">{f.label}</div>
-                    <div className="settings-desc">{f.description}</div>
-                  </div>
-                  <div className="settings-control">
-                    {f.type === 'boolean' ? (
-                      <label className="toggle">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(val)}
-                          disabled={locked}
-                          onChange={(e) => setField(f, e.target.checked)}
-                        />
-                        <div className="toggle-track" />
-                        <div className="toggle-thumb" />
-                      </label>
-                    ) : f.type === 'select' ? (
-                      <select
-                        className="input"
-                        style={{ width: 220 }}
-                        value={String(val ?? f.defaultValue ?? '')}
-                        disabled={locked}
-                        onChange={(e) => setField(f, e.target.value)}
-                      >
-                        {(f.options ?? []).map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </select>
-                    ) : f.type === 'list' ? (
-                      <input
-                        className="input input-mono"
-                        style={{ width: 220 }}
-                        placeholder="ADMIN, COORDINATOR"
-                        value={(Array.isArray(val) ? val : []).join(', ')}
-                        disabled={locked}
-                        onChange={(e) =>
-                          setField(
-                            f,
-                            e.target.value
-                              .split(',')
-                              .map((item) => item.trim())
-                              .filter(Boolean),
-                          )
-                        }
-                      />
-                    ) : f.type === 'number' ? (
-                      <input
-                        className="input input-mono"
-                        type="number"
-                        style={{ width: 90, textAlign: 'right' }}
-                        value={String(val ?? f.defaultValue ?? 0)}
-                        disabled={locked}
-                        onChange={(e) => setField(f, Number(e.target.value))}
-                      />
-                    ) : (
-                      <input
-                        className="input"
-                        style={{ width: 220 }}
-                        value={String(val ?? f.defaultValue ?? '')}
-                        disabled={locked}
-                        onChange={(e) => setField(f, e.target.value)}
-                      />
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+        <div
+          className={cn(
+            'agora-surface agora-rise overflow-hidden rounded-lg border border-border px-4',
+            locked && 'opacity-85',
+          )}
+        >
+          {section.fields.map((f) => {
+            const val = fieldValue(f);
+            return (
+              <SettingsRow key={f.field} name={f.label} description={f.description}>
+                {f.type === 'boolean' ? (
+                  <Toggle
+                    label={f.label}
+                    checked={Boolean(val)}
+                    disabled={locked}
+                    onChange={(v) => setField(f, v)}
+                  />
+                ) : f.type === 'select' ? (
+                  <SelectInput
+                    aria-label={f.label}
+                    className="w-full sm:w-[220px]"
+                    value={String(val ?? f.defaultValue ?? '')}
+                    disabled={locked}
+                    onChange={(e) => setField(f, e.target.value)}
+                  >
+                    {(f.options ?? []).map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </SelectInput>
+                ) : f.type === 'list' ? (
+                  <TextInput
+                    mono
+                    aria-label={f.label}
+                    className="w-full sm:w-[220px]"
+                    placeholder="ADMIN, COORDINATOR"
+                    value={(Array.isArray(val) ? val : []).join(', ')}
+                    disabled={locked}
+                    onChange={(e) =>
+                      setField(
+                        f,
+                        e.target.value
+                          .split(',')
+                          .map((item) => item.trim())
+                          .filter(Boolean),
+                      )
+                    }
+                  />
+                ) : f.type === 'number' ? (
+                  <TextInput
+                    mono
+                    aria-label={f.label}
+                    type="number"
+                    className="w-[90px] text-right"
+                    value={String(val ?? f.defaultValue ?? 0)}
+                    disabled={locked}
+                    onChange={(e) => setField(f, Number(e.target.value))}
+                  />
+                ) : (
+                  <TextInput
+                    aria-label={f.label}
+                    className="w-full sm:w-[220px]"
+                    value={String(val ?? f.defaultValue ?? '')}
+                    disabled={locked}
+                    onChange={(e) => setField(f, e.target.value)}
+                  />
+                )}
+              </SettingsRow>
+            );
+          })}
         </div>
       </QueryBoundary>
-    </div>
+    </section>
   );
 }

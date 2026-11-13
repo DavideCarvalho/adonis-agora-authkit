@@ -1,9 +1,14 @@
 import type { RoleCatalogEntry } from '@adonis-agora/authkit-react';
 import { useRolesQueryOptions } from '@adonis-agora/authkit-react';
 import { useQuery } from '@tanstack/react-query';
-import React, { useState } from 'react';
+import { useState } from 'react';
+import { EmptyState } from '../agora-kit/blocks/empty-state';
+import { cn } from '../agora-kit/lib/utils';
+import { Badge } from '../agora-kit/ui/badge';
+import { Button } from '../agora-kit/ui/button';
+import { AdminTable, Cell, dangerButtonClass, Row, Surface } from '../components/primitives';
 import { QueryBoundary } from '../components/QueryBoundary';
-import { SkeletonPanelTable } from '../components/Skeleton';
+import { SkeletonTable } from '../components/Skeleton';
 
 const PROTECTED = 'ADMIN';
 
@@ -38,9 +43,13 @@ export function RolesTableContainer({ onEdit, onDelete, onUnavailable }: RolesTa
   });
   const roles = data?.data ?? [];
 
+  const builtin = (r: RoleCatalogEntry) =>
+    'builtin' in r && (r as { builtin?: boolean }).builtin === true;
+
   return (
-    <div className="panel">
+    <Surface>
       <QueryBoundary
+        label="Roles"
         isLoading={isLoading}
         error={
           error &&
@@ -53,85 +62,72 @@ export function RolesTableContainer({ onEdit, onDelete, onUnavailable }: RolesTa
             : undefined
         }
         onRetry={refetch}
-        skeleton={<SkeletonPanelTable rows={4} cols={4} />}
+        skeleton={<SkeletonTable rows={4} cols={4} />}
       >
         {roles.length === 0 ? (
-          <div className="empty-state">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <circle cx="12" cy="8" r="4" />
-              <path d="M2 20a10 10 0 0120 0" />
-            </svg>
-            <h4>No roles yet</h4>
-            <p>Create roles to assign permissions to users</p>
-          </div>
+          <EmptyState
+            title="No roles yet"
+            description="Create roles to assign permissions to users"
+            icon={
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <circle cx="12" cy="8" r="4" />
+                <path d="M2 20a10 10 0 0120 0" />
+              </svg>
+            }
+          />
         ) : (
-          <div className="tbl-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Description</th>
-                  <th>Type</th>
-                  <th style={{ width: 80 }} />
-                </tr>
-              </thead>
-              <tbody>
-                {roles.map((r) => (
-                  <tr key={r.name} style={{ cursor: 'default' }}>
-                    <td>
-                      <span
-                        style={{
-                          fontFamily: 'var(--mono)',
-                          fontWeight: 600,
-                          color: r.name === PROTECTED ? 'var(--accent)' : 'var(--text)',
-                        }}
+          <AdminTable head={['Name', 'Description', 'Type', '']} label="Roles">
+            {roles.map((r) => (
+              <Row key={r.name}>
+                <Cell>
+                  <span
+                    className={cn(
+                      'mono font-semibold',
+                      r.name === PROTECTED ? 'text-brand' : 'text-fg',
+                    )}
+                  >
+                    {r.name}
+                  </span>
+                </Cell>
+                <Cell className="text-xs whitespace-normal text-dim">{r.description ?? '—'}</Cell>
+                <Cell>
+                  <Badge variant={builtin(r) ? 'brand' : 'neutral'}>
+                    {builtin(r) ? 'built-in' : 'custom'}
+                  </Badge>
+                </Cell>
+                <Cell className="w-20 text-right">
+                  <div className="flex justify-end gap-1.5">
+                    <Button variant="outline" size="sm" onClick={() => onEdit(r)}>
+                      Edit
+                    </Button>
+                    {r.name !== PROTECTED && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={dangerButtonClass}
+                        onClick={() => onDelete(r)}
+                        aria-label={`Delete role ${r.name}`}
                       >
-                        {r.name}
-                      </span>
-                    </td>
-                    <td>
-                      <span style={{ color: 'var(--muted)', fontSize: 12 }}>
-                        {r.description ?? '—'}
-                      </span>
-                    </td>
-                    <td>
-                      <span
-                        className={`badge ${'builtin' in r && (r as { builtin?: boolean }).builtin ? 'badge-accent' : 'badge-muted'}`}
-                      >
-                        {'builtin' in r && (r as { builtin?: boolean }).builtin
-                          ? 'built-in'
-                          : 'custom'}
-                      </span>
-                    </td>
-                    <td className="no-click" style={{ textAlign: 'right' }}>
-                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                        <button className="btn btn-sm" onClick={() => onEdit(r)}>
-                          Edit
-                        </button>
-                        {r.name !== PROTECTED && (
-                          <button className="btn btn-sm btn-danger" onClick={() => onDelete(r)}>
-                            <svg
-                              viewBox="0 0 16 16"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="1.8"
-                            >
-                              <path
-                                d="M2 4.5h12M5.5 4.5V3h5v1.5M10.5 4.5v8a1 1 0 01-1 1h-3a1 1 0 01-1-1v-8"
-                                strokeLinecap="round"
-                              />
-                            </svg>
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                        <svg
+                          viewBox="0 0 16 16"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                        >
+                          <path
+                            d="M2 4.5h12M5.5 4.5V3h5v1.5M10.5 4.5v8a1 1 0 01-1 1h-3a1 1 0 01-1-1v-8"
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                      </Button>
+                    )}
+                  </div>
+                </Cell>
+              </Row>
+            ))}
+          </AdminTable>
         )}
       </QueryBoundary>
-    </div>
+    </Surface>
   );
 }

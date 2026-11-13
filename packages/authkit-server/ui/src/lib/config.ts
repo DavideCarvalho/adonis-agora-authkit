@@ -10,10 +10,14 @@ export interface AuthKitConfig {
   switcher?: { endpoint: string; others: number };
   /** Global search across the consoles this viewer may open. */
   search?: { endpoint: string };
+  /** Sidebar footer user row (read by the kit's `readShellConfig`). */
+  viewer?: { label: string; email?: string; role?: string };
+  /** Sidebar footer sign-out: POST form with `_csrf` (read by the kit's `readShellConfig`). */
+  signOut?: { action: string; csrfToken?: string } | { href: string };
 }
 
 /** Id of the JSON data block the server embeds (see `admin_shell_controller.ts`). */
-const CONFIG_ELEMENT_ID = 'authkit-admin-config';
+export const CONFIG_ELEMENT_ID = 'authkit-admin-config';
 
 let cached: AuthKitConfig | undefined;
 

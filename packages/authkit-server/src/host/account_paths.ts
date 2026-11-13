@@ -64,6 +64,8 @@ export interface AccountPathsOptions {
 
 let _prefix: string = DEFAULT_ACCOUNT_PREFIX;
 let _segments: Record<AccountPathKey, string> = { ...DEFAULT_ACCOUNT_SEGMENTS };
+/** Whether the `logout` route is mounted (it goes with the `login` screen). */
+let _logoutMounted = true;
 
 /**
  * Normaliza o prefixo: começa com '/', sem trailing slash. Mesma semântica de
@@ -171,8 +173,23 @@ export function accountPathsMap(): Record<AccountPathKey, string> {
   return out;
 }
 
+/** Records whether `registerAuthHost` mounted the account `logout` route (with the login screen). */
+export function setAccountLogoutMounted(mounted: boolean): void {
+  _logoutMounted = mounted;
+}
+
+/**
+ * The account console's sign-out action (`POST`, default `/account/logout`), or `null` when the
+ * host unmounted the login screen (`account: { login: false }` / `account: false`): then authkit
+ * has no route to sign out through, and the consoles show no sign-out button.
+ */
+export function accountSignOutPath(): string | null {
+  return _logoutMounted ? accountPath('logout') : null;
+}
+
 /** Restaura os defaults — uso em testes (isola o singleton entre casos). */
 export function resetAccountPaths(): void {
   _prefix = DEFAULT_ACCOUNT_PREFIX;
   _segments = { ...DEFAULT_ACCOUNT_SEGMENTS };
+  _logoutMounted = true;
 }

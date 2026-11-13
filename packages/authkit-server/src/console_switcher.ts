@@ -16,6 +16,19 @@ export const AGORA_CONSOLES_BINDING = 'agora.consoles';
 export interface AgoraConsoleRegistry {
   readonly version: 1;
   readonly entries: AgoraConsoleEntry[];
+  /**
+   * What the account console (authkit) announces to every other console. Optional: consoles read
+   * it structurally, so a registry without it (or created by an older lib) is still valid.
+   */
+  account?: AgoraConsoleAccount;
+}
+
+/**
+ * The account console's announcements. `signOut` is where every console's footer signs the viewer
+ * out: a same-origin POST action (the console adds its CSRF token as `_csrf`) or a link.
+ */
+export interface AgoraConsoleAccount {
+  signOut?: { action: string; method?: 'POST' } | { href: string };
 }
 
 export type AgoraConsoleIcon =
@@ -170,6 +183,32 @@ export async function registerAgoraConsole(
     return false;
   }
   registry.entries.push(entry);
+  return true;
+}
+
+/**
+ * Announce where the viewer signs out (`account.signOut` on the `'agora.consoles'` registry), so
+ * every other `@adonis-agora` console shows a working sign-out in its footer. Creates the registry
+ * when absent. Keeps a sign-out something else already announced (an app may set its own first),
+ * skips a registry of another version and never throws on one; throws on a non same-origin `action`
+ * (a programming error).
+ */
+export async function announceAgoraSignOut(app: AppLike, action: string): Promise<boolean> {
+  if (!isSameOriginPath(action)) {
+    throw new Error(
+      `announceAgoraSignOut: sign-out action ${JSON.stringify(action)} must be a same-origin absolute path`,
+    );
+  }
+  const container = app.container;
+  if (!container.hasBinding(AGORA_CONSOLES_BINDING)) {
+    container.bindValue(AGORA_CONSOLES_BINDING, { version: 1, entries: [] });
+  }
+  const registry = (await container.make(AGORA_CONSOLES_BINDING)) as Partial<AgoraConsoleRegistry>;
+  if (registry?.version !== 1 || !Array.isArray(registry.entries)) return false;
+  const account =
+    typeof registry.account === 'object' && registry.account !== null ? registry.account : {};
+  if (account.signOut !== undefined) return false;
+  registry.account = { ...account, signOut: { action, method: 'POST' } };
   return true;
 }
 

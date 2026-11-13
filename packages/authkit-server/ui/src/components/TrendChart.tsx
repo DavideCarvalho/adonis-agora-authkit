@@ -31,7 +31,7 @@ const fmtDay = (date: string) => {
  */
 export function TrendChart({
   data,
-  color = 'var(--accent)',
+  color = 'var(--agora-accent)',
   height = 150,
   label = 'events',
 }: TrendChartProps) {
@@ -47,25 +47,25 @@ export function TrendChart({
             <stop offset="100%" stopColor={color} stopOpacity={0.02} />
           </linearGradient>
         </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" vertical={false} />
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--agora-line)" vertical={false} />
         <XAxis
           dataKey="date"
           tickFormatter={fmtDay}
-          tick={{ fontSize: 10, fill: 'var(--faint)' }}
+          tick={{ fontSize: 10, fill: 'var(--agora-faint)' }}
           axisLine={false}
           tickLine={false}
           minTickGap={42}
         />
         <YAxis hide domain={[0, 'auto']} allowDecimals={false} />
         <Tooltip
-          cursor={{ stroke: 'var(--line)', strokeDasharray: '3 3' }}
+          cursor={{ stroke: 'var(--agora-line)', strokeDasharray: '3 3' }}
           content={({ active, payload, label: tipLabel }: TooltipContentProps) =>
             active && payload?.length ? (
-              <div className="chart-tip">
-                <div className="chart-tip-label">{fmtDay(String(tipLabel))}</div>
-                <div className="chart-tip-row">
-                  <span className="chart-tip-dot" style={{ background: color }} />
-                  {label} <b>{payload[0].value}</b>
+              <div className="rounded-md border border-border bg-popover px-2.5 py-[7px] text-[11.5px] text-fg shadow-(--agora-shadow)">
+                <div className="mb-1 text-[10.5px] text-faint">{fmtDay(String(tipLabel))}</div>
+                <div className="flex items-center gap-1.5 text-dim">
+                  <span className="size-2 rounded-xs" style={{ background: color }} />
+                  {label} <b className="mono font-semibold text-fg">{payload[0].value}</b>
                 </div>
               </div>
             ) : null
