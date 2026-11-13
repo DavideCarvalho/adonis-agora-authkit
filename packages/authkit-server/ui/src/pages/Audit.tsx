@@ -1,6 +1,9 @@
 import type { AuditEventEntry } from '@adonis-agora/authkit-react';
 import { parseAsString, useQueryState } from 'nuqs';
-import React, { useState } from 'react';
+import { useState } from 'react';
+import { PageHeader, Toolbar } from '../agora-kit/blocks/page-header';
+import { PageBody } from '../agora-kit/shell/app-shell';
+import { Notice, SelectInput } from '../components/primitives';
 import { AuditEventDetailContainer, AuditTableContainer } from '../containers/audit.containers';
 
 const EVENT_TYPES = [
@@ -29,46 +32,36 @@ export function Audit() {
 
   if (unavailable) {
     return (
-      <div>
-        <div className="page-title" style={{ marginBottom: 8 }}>
-          Audit Log
-        </div>
-        <div className="error-box">
-          Audit log is not configured. Add an audit sink to your AuthKit config.
-        </div>
-      </div>
+      <PageBody>
+        <PageHeader title="Audit Log" />
+        <Notice>Audit log is not configured. Add an audit sink to your AuthKit config.</Notice>
+      </PageBody>
     );
   }
 
   return (
-    <div>
-      <div className="page-header-row">
-        <div>
-          <div className="page-title">Audit Log</div>
-        </div>
-      </div>
+    <PageBody>
+      <PageHeader title="Audit Log" />
 
       {/* Filter bar */}
-      <div className="panel" style={{ marginBottom: 0 }}>
-        <div className="panel-head">
-          <select
-            className="input"
-            style={{ width: 240 }}
-            value={typeFilter}
-            onChange={(e) => {
-              setTypeFilter(e.target.value);
-              setAfter(null);
-              setBefore(null);
-            }}
-          >
-            {EVENT_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t || 'All event types'}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+      <Toolbar label="Audit filters">
+        <SelectInput
+          aria-label="Event type"
+          className="w-full sm:w-60"
+          value={typeFilter}
+          onChange={(e) => {
+            setTypeFilter(e.target.value);
+            setAfter(null);
+            setBefore(null);
+          }}
+        >
+          {EVENT_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {t || 'All event types'}
+            </option>
+          ))}
+        </SelectInput>
+      </Toolbar>
 
       <AuditTableContainer
         typeFilter={typeFilter}
@@ -82,11 +75,7 @@ export function Audit() {
         onUnavailable={() => setUnavailable(true)}
       />
 
-      {selected && (
-        <div style={{ marginTop: 12 }}>
-          <AuditEventDetailContainer event={selected} onClose={() => setSelected(null)} />
-        </div>
-      )}
-    </div>
+      {selected && <AuditEventDetailContainer event={selected} onClose={() => setSelected(null)} />}
+    </PageBody>
   );
 }

@@ -1,4 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import { PageHeader } from '../agora-kit/blocks/page-header';
+import { PageBody } from '../agora-kit/shell/app-shell';
+import { Notice } from '../components/primitives';
 import { type SettingSection, SettingsSectionContainer } from '../containers/settings.containers';
 
 // Seções plugadas nas settings REAIS de `auth_settings` (SETTING_KEYS). Cada seção é
@@ -209,35 +212,37 @@ export function Settings() {
 
   if (unavailable) {
     return (
-      <div>
-        <div className="page-title" style={{ marginBottom: 8 }}>
-          Settings
-        </div>
-        <div className="error-box">
-          Runtime settings exigem a tabela <code>auth_settings</code>. Rode a migration para
-          habilitar.
-        </div>
-      </div>
+      <PageBody>
+        <PageHeader title="Settings" />
+        <Notice>
+          Runtime settings exigem a tabela <code className="mono">auth_settings</code>. Rode a
+          migration para habilitar.
+        </Notice>
+      </PageBody>
     );
   }
 
   return (
-    <div>
-      <div className="page-header">
-        <div className="page-title">Settings</div>
-        <div className="page-sub">
-          Configuração de runtime — mudanças valem na hora. Settings definidas no{' '}
-          <code>defineConfig()</code> ficam travadas (config &gt; runtime).
-        </div>
-      </div>
+    <PageBody>
+      <PageHeader
+        title="Settings"
+        description={
+          <>
+            Configuração de runtime — mudanças valem na hora. Settings definidas no{' '}
+            <code className="mono">defineConfig()</code> ficam travadas (config &gt; runtime).
+          </>
+        }
+      />
 
-      {SETTING_SECTIONS.map((section) => (
-        <SettingsSectionContainer
-          key={section.settingKey}
-          section={section}
-          onUnavailable={() => setUnavailable(true)}
-        />
-      ))}
-    </div>
+      <div>
+        {SETTING_SECTIONS.map((section) => (
+          <SettingsSectionContainer
+            key={section.settingKey}
+            section={section}
+            onUnavailable={() => setUnavailable(true)}
+          />
+        ))}
+      </div>
+    </PageBody>
   );
 }

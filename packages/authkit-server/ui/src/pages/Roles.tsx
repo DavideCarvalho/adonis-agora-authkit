@@ -6,7 +6,11 @@ import {
 } from '@adonis-agora/authkit-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import React, { useState } from 'react';
+import { PageHeader } from '../agora-kit/blocks/page-header';
+import { PageBody } from '../agora-kit/shell/app-shell';
+import { Button } from '../agora-kit/ui/button';
 import { Modal } from '../components/Modal';
+import { Field, Notice, TextInput } from '../components/primitives';
 import { RolesTableContainer } from '../containers/roles.containers';
 import { useToast } from '../lib/toast';
 
@@ -73,28 +77,23 @@ export function Roles() {
 
   if (unavailable) {
     return (
-      <div>
-        <div className="page-title" style={{ marginBottom: 8 }}>
-          Roles
-        </div>
-        <div className="error-box">
-          Role catalog requires the <code>auth_settings</code> table (runtime settings). Run the
-          migration to enable this feature.
-        </div>
-      </div>
+      <PageBody>
+        <PageHeader title="Roles" />
+        <Notice>
+          Role catalog requires the <code className="mono">auth_settings</code> table (runtime
+          settings). Run the migration to enable this feature.
+        </Notice>
+      </PageBody>
     );
   }
 
   return (
-    <div>
-      <div className="page-header-row">
-        <div>
-          <div className="page-title">Roles</div>
-          <div className="page-sub">Global role catalog</div>
-        </div>
-        <div className="page-actions">
-          <button
-            className="btn btn-primary"
+    <PageBody>
+      <PageHeader
+        title="Roles"
+        description="Global role catalog"
+        actions={
+          <Button
             onClick={() => {
               setForm({ name: '', description: '' });
               setCreateOpen(true);
@@ -104,9 +103,9 @@ export function Roles() {
               <path d="M8 2v12M2 8h12" strokeLinecap="round" />
             </svg>
             New Role
-          </button>
-        </div>
-      </div>
+          </Button>
+        }
+      />
 
       <RolesTableContainer
         onEdit={(r) => {
@@ -124,36 +123,35 @@ export function Roles() {
         title="New Role"
         footer={
           <>
-            <button className="btn" onClick={() => setCreateOpen(false)}>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>
               Cancel
-            </button>
-            <button className="btn btn-primary" onClick={handleCreate} disabled={saving}>
-              {saving ? <span className="spinner sm" /> : 'Create Role'}
-            </button>
+            </Button>
+            <Button onClick={handleCreate} disabled={saving}>
+              {saving ? 'Creating…' : 'Create Role'}
+            </Button>
           </>
         }
       >
         <form onSubmit={handleCreate}>
-          <div className="field">
-            <label>Name * (uppercase)</label>
-            <input
-              className="input input-mono"
+          <Field
+            label="Name * (uppercase)"
+            hint="Letters, digits, underscore. E.g. ADMIN, CONTENT_MANAGER"
+          >
+            <TextInput
+              mono
               required
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value.toUpperCase() }))}
               placeholder="EDITOR"
             />
-            <div className="hint">Letters, digits, underscore. E.g. ADMIN, CONTENT_MANAGER</div>
-          </div>
-          <div className="field">
-            <label>Description</label>
-            <input
-              className="input"
+          </Field>
+          <Field label="Description">
+            <TextInput
               value={form.description}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
               placeholder="Can edit content"
             />
-          </div>
+          </Field>
         </form>
       </Modal>
 
@@ -164,24 +162,22 @@ export function Roles() {
         title={`Edit Role — ${editRole?.name}`}
         footer={
           <>
-            <button className="btn" onClick={() => setEditRole(null)}>
+            <Button variant="outline" onClick={() => setEditRole(null)}>
               Cancel
-            </button>
-            <button className="btn btn-primary" onClick={handleUpdate} disabled={saving}>
-              {saving ? <span className="spinner sm" /> : 'Save'}
-            </button>
+            </Button>
+            <Button onClick={handleUpdate} disabled={saving}>
+              {saving ? 'Saving…' : 'Save'}
+            </Button>
           </>
         }
       >
-        <div className="field">
-          <label>Description</label>
-          <input
-            className="input"
+        <Field label="Description">
+          <TextInput
             value={form.description}
             onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
           />
-        </div>
+        </Field>
       </Modal>
-    </div>
+    </PageBody>
   );
 }

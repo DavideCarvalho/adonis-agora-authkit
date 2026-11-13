@@ -1,5 +1,9 @@
 import { parseAsInteger, parseAsString, useQueryState } from 'nuqs';
-import React, { useState } from 'react';
+import { useState } from 'react';
+import { PageHeader, Toolbar } from '../agora-kit/blocks/page-header';
+import { PageBody } from '../agora-kit/shell/app-shell';
+import { Button } from '../agora-kit/ui/button';
+import { Notice, SearchInput } from '../components/primitives';
 import {
   CreateOrgModal,
   OrgDetailDrawer,
@@ -22,52 +26,33 @@ export function Orgs() {
 
   if (unavailable) {
     return (
-      <div>
-        <div className="page-title" style={{ marginBottom: 8 }}>
-          Organizations
-        </div>
-        <div className="error-box">Organizations are not enabled in this AuthKit installation.</div>
-      </div>
+      <PageBody>
+        <PageHeader title="Organizations" />
+        <Notice>Organizations are not enabled in this AuthKit installation.</Notice>
+      </PageBody>
     );
   }
 
   return (
-    <div>
-      <div className="page-header-row">
-        <div>
-          <div className="page-title">Organizations</div>
-          <div className="page-sub">{total.toLocaleString()} orgs</div>
-        </div>
-        <button className="btn btn-primary" onClick={() => setCreateOpen(true)}>
-          New organization
-        </button>
-      </div>
+    <PageBody>
+      <PageHeader
+        title="Organizations"
+        description={`${total.toLocaleString()} orgs`}
+        actions={<Button onClick={() => setCreateOpen(true)}>New organization</Button>}
+      />
 
-      <div className="panel" style={{ marginBottom: 0 }}>
-        <div className="panel-head">
-          <div className="search-input" style={{ flex: 1, maxWidth: 300 }}>
-            <svg
-              className="search-ico"
-              viewBox="0 0 16 16"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-            >
-              <circle cx="7" cy="7" r="4.5" />
-              <path d="M10 10l3 3" strokeLinecap="round" />
-            </svg>
-            <input
-              className="input"
-              placeholder="Search organizations…"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-            />
-          </div>
-        </div>
-      </div>
+      <Toolbar label="Filter organizations">
+        <SearchInput
+          wrapperClassName="w-full sm:max-w-[300px]"
+          placeholder="Search organizations…"
+          aria-label="Search organizations"
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(1);
+          }}
+        />
+      </Toolbar>
 
       <OrgsTableContainer
         search={dSearch}
@@ -85,6 +70,6 @@ export function Orgs() {
         onClose={() => setCreateOpen(false)}
         onCreated={() => setCreateOpen(false)}
       />
-    </div>
+    </PageBody>
   );
 }

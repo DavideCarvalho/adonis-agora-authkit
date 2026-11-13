@@ -54,6 +54,10 @@
   },
   "overrides": [
     {
+      "includes": ["**/agora-kit/ui/**", "**/agora-kit/hooks/**"],
+      "linter": { "enabled": false }
+    },
+    {
       "includes": ["**/test/**", "**/*.spec.ts", "**/*.test.ts"],
       "linter": {
         "rules": {

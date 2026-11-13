@@ -144,6 +144,7 @@ export type {
 } from './src/console_authorize.js';
 export { authorizeByToken } from './src/console_authorize.js';
 export type {
+  AgoraConsoleAccount,
   AgoraConsoleDecision,
   AgoraConsoleEntry,
   AgoraConsoleIcon,
@@ -152,6 +153,7 @@ export type {
 } from './src/console_switcher.js';
 export {
   AGORA_CONSOLES_BINDING,
+  announceAgoraSignOut,
   isAgoraProbe,
   registerAgoraConsole,
 } from './src/console_switcher.js';

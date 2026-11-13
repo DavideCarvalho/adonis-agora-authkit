@@ -5,11 +5,23 @@ import {
   useSetSettingMutationOptions,
 } from '@adonis-agora/authkit-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import React, { useState } from 'react';
+import { type ReactNode, useState } from 'react';
+import { cn } from '../agora-kit/lib/utils';
+import { Button } from '../agora-kit/ui/button';
+import { Toggle } from '../components/forms';
+import {
+  dangerButtonClass,
+  Notice,
+  SettingsRow,
+  SettingsSection,
+  Surface,
+  TextInput,
+} from '../components/primitives';
 import { QueryBoundary } from '../components/QueryBoundary';
 import { Skeleton } from '../components/Skeleton';
 import { useToast } from '../lib/toast';
 
+/** A bordered surface holding settings rows (authkit `.panel` with no head). */
 export function KeysContainer() {
   const toast = useToast();
   const qc = useQueryClient();
@@ -42,12 +54,12 @@ export function KeysContainer() {
     (error as { status: number }).status === 501;
   if (isNotManaged) {
     return (
-      <div className="error-box">
-        Rotação indisponível: o <code>jwks</code> não é <code>managed</code> com um{' '}
-        <code>store</code> persistente (ex.:{' '}
-        <code>{`{ source: 'managed', store: { driver: 'lucid' } }`}</code>). Chaves inline (
-        <code>source: 'jwks'</code>) não rotacionam.
-      </div>
+      <Notice>
+        Rotação indisponível: o <code className="mono">jwks</code> não é{' '}
+        <code className="mono">managed</code> com um <code className="mono">store</code> persistente
+        (ex.: <code className="mono">{`{ source: 'managed', store: { driver: 'lucid' } }`}</code>).
+        Chaves inline (<code className="mono">source: 'jwks'</code>) não rotacionam.
+      </Notice>
     );
   }
 
@@ -94,195 +106,138 @@ export function KeysContainer() {
 
   return (
     <QueryBoundary
+      label="Signing keys"
       isLoading={isLoading}
       error={isNotManaged ? undefined : error}
       onRetry={refetch}
       skeleton={<Skeleton width="100%" height={220} />}
     >
       {data && (
-        <>
+        <div className="flex flex-col gap-6">
           {/* Status */}
-          <div className="panel" style={{ marginBottom: 16 }}>
-            <div className="panel-body">
-              <div className="settings-row">
-                <div className="settings-info">
-                  <div className="settings-key">Chave de assinatura ativa</div>
-                  <div style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>
-                    {data.keys.find((k) => k.active)?.kid ?? '—'}
-                  </div>
+          <Surface className="px-4">
+            <div className="flex flex-col items-start justify-between gap-3 py-3 sm:flex-row sm:gap-5">
+              <div className="min-w-0">
+                <div className="mono text-xs font-medium text-fg">Chave de assinatura ativa</div>
+                <div className="mono text-xs break-all text-dim">
+                  {data.keys.find((k) => k.active)?.kid ?? '—'}
                 </div>
-                <div className="settings-info" style={{ textAlign: 'right' }}>
-                  <div className="settings-desc">Idade: {data.ageDays} dia(s)</div>
-                  <div className="settings-desc">
-                    Próxima rotação:{' '}
-                    {data.nextRotationInDays === null
-                      ? '— (auto off)'
-                      : `~${data.nextRotationInDays} dia(s)`}
-                  </div>
+              </div>
+              <div className="text-[11px] text-faint sm:text-right">
+                <div>Idade: {data.ageDays} dia(s)</div>
+                <div className="mt-0.5">
+                  Próxima rotação:{' '}
+                  {data.nextRotationInDays === null
+                    ? '— (auto off)'
+                    : `~${data.nextRotationInDays} dia(s)`}
                 </div>
               </div>
             </div>
-          </div>
+          </Surface>
 
           {/* Política de rotação */}
-          <div className="settings-section">
-            <div className="settings-section-head">
-              <div>
-                <h3>Rotação automática</h3>
-                <p style={{ marginTop: 2 }}>
-                  Gera uma chave nova quando a ativa passa da idade máxima; mantém as N mais
-                  recentes (janela de grace).
-                </p>
-              </div>
-            </div>
-            <div className="panel">
-              <div className="panel-body" style={{ padding: 0 }}>
-                <div className="settings-row">
-                  <div className="settings-info">
-                    <div className="settings-key">Habilitar rotação agendada</div>
-                    <div className="settings-desc">key_rotation.enabled</div>
-                  </div>
-                  <div className="settings-control">
-                    <label className="toggle">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(policy?.enabled)}
-                        disabled={busy === 'policy'}
-                        onChange={(e) => savePolicy({ enabled: e.target.checked })}
-                      />
-                      <div className="toggle-track" />
-                      <div className="toggle-thumb" />
-                    </label>
-                  </div>
-                </div>
-                <div className="settings-row">
-                  <div className="settings-info">
-                    <div className="settings-key">Idade máxima (dias)</div>
-                    <div className="settings-desc">key_rotation.maxAgeDays</div>
-                  </div>
-                  <div className="settings-control">
-                    <input
-                      className="input input-mono"
-                      type="number"
-                      style={{ width: 90, textAlign: 'right' }}
-                      value={String(effMaxAge)}
-                      onChange={(e) => setMaxAgeDays(Number(e.target.value))}
-                    />
-                    {maxAgeDays !== null && (
-                      <button
-                        className="btn btn-primary btn-sm"
-                        disabled={busy === 'policy'}
-                        onClick={() => savePolicy({ maxAgeDays: effMaxAge })}
-                      >
-                        Save
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div className="settings-row">
-                  <div className="settings-info">
-                    <div className="settings-key">Manter N chaves (grace)</div>
-                    <div className="settings-desc">key_rotation.keep</div>
-                  </div>
-                  <div className="settings-control">
-                    <input
-                      className="input input-mono"
-                      type="number"
-                      style={{ width: 90, textAlign: 'right' }}
-                      value={String(effKeep)}
-                      onChange={(e) => setKeep(Number(e.target.value))}
-                    />
-                    {keep !== null && (
-                      <button
-                        className="btn btn-primary btn-sm"
-                        disabled={busy === 'policy'}
-                        onClick={() => savePolicy({ keep: effKeep })}
-                      >
-                        Save
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <SettingsSection
+            title="Rotação automática"
+            description="Gera uma chave nova quando a ativa passa da idade máxima; mantém as N mais recentes (janela de grace)."
+          >
+            <Surface className="px-4 mt-3">
+              <SettingsRow name="Habilitar rotação agendada" description="key_rotation.enabled">
+                <Toggle
+                  label="Habilitar rotação agendada"
+                  checked={Boolean(policy?.enabled)}
+                  disabled={busy === 'policy'}
+                  onChange={(v) => {
+                    if (busy !== 'policy') void savePolicy({ enabled: v });
+                  }}
+                />
+              </SettingsRow>
+              <SettingsRow name="Idade máxima (dias)" description="key_rotation.maxAgeDays">
+                <TextInput
+                  mono
+                  type="number"
+                  aria-label="Idade máxima (dias)"
+                  className="w-[90px] text-right"
+                  value={String(effMaxAge)}
+                  onChange={(e) => setMaxAgeDays(Number(e.target.value))}
+                />
+                {maxAgeDays !== null && (
+                  <Button
+                    size="sm"
+                    disabled={busy === 'policy'}
+                    onClick={() => savePolicy({ maxAgeDays: effMaxAge })}
+                  >
+                    Save
+                  </Button>
+                )}
+              </SettingsRow>
+              <SettingsRow name="Manter N chaves (grace)" description="key_rotation.keep">
+                <TextInput
+                  mono
+                  type="number"
+                  aria-label="Manter N chaves (grace)"
+                  className="w-[90px] text-right"
+                  value={String(effKeep)}
+                  onChange={(e) => setKeep(Number(e.target.value))}
+                />
+                {keep !== null && (
+                  <Button
+                    size="sm"
+                    disabled={busy === 'policy'}
+                    onClick={() => savePolicy({ keep: effKeep })}
+                  >
+                    Save
+                  </Button>
+                )}
+              </SettingsRow>
+            </Surface>
+          </SettingsSection>
 
           {/* Chaves */}
-          <div className="settings-section">
-            <div className="settings-section-head">
-              <div>
-                <h3>Chaves no keyset</h3>
-                <p style={{ marginTop: 2 }}>
-                  A primeira é a ativa (assina); as demais ainda validam tokens (grace).
-                </p>
-              </div>
-            </div>
-            <div className="panel">
-              <div className="panel-body" style={{ padding: 0 }}>
-                {data.keys.map((k) => (
-                  <div key={k.kid} className="settings-row">
-                    <div className="settings-info">
-                      <div
-                        className="settings-key"
-                        style={{ fontFamily: 'var(--mono)', fontSize: 12 }}
-                      >
-                        {k.kid}
-                        <span
-                          className="settings-badge"
-                          style={
-                            k.active
-                              ? {
-                                  background: 'var(--accent-soft, rgba(99,102,241,0.12))',
-                                  color: 'var(--accent, #6366f1)',
-                                }
-                              : undefined
-                          }
-                        >
-                          {k.active ? 'ativa' : 'grace'}
-                        </span>
-                      </div>
-                      <div className="settings-desc">
-                        {k.alg} · {k.ageDays} dia(s)
-                      </div>
-                    </div>
+          <SettingsSection
+            title="Chaves no keyset"
+            description="A primeira é a ativa (assina); as demais ainda validam tokens (grace)."
+          >
+            <Surface className="px-4 mt-3">
+              {data.keys.map((k) => (
+                <div key={k.kid} className="border-b border-border py-3 last:border-0">
+                  <div className="mono text-xs font-medium break-all text-fg">
+                    {k.kid}
+                    <span
+                      className={cn(
+                        'mono ml-1.5 rounded-sm border px-1.5 py-px text-[9.5px]',
+                        k.active
+                          ? 'border-brand-border bg-brand-soft text-brand'
+                          : 'border-border bg-hover text-faint',
+                      )}
+                    >
+                      {k.active ? 'ativa' : 'grace'}
+                    </span>
                   </div>
-                ))}
-              </div>
-            </div>
-          </div>
+                  <div className="mt-0.5 text-[11px] text-faint">
+                    {k.alg} · {k.ageDays} dia(s)
+                  </div>
+                </div>
+              ))}
+            </Surface>
+          </SettingsSection>
 
           {/* Ações */}
-          <div className="settings-section">
-            <div className="settings-section-head">
-              <div>
-                <h3>Ações</h3>
-              </div>
-            </div>
-            <div className="panel">
-              <div className="panel-body" style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                <button
-                  className="btn btn-primary"
-                  disabled={!!busy}
-                  onClick={() => doRotate(false)}
-                >
-                  {busy === 'rotate' ? <span className="spinner sm" /> : 'Rotacionar agora'}
-                </button>
-                <button
-                  className="btn btn-ghost"
-                  disabled={!!busy}
-                  onClick={() => doRotate(true)}
-                  style={{ color: 'var(--danger, #e5484d)', borderColor: 'var(--danger, #e5484d)' }}
-                >
-                  {busy === 'retire' ? (
-                    <span className="spinner sm" />
-                  ) : (
-                    'Desabilitar todas + criar nova'
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </>
+          <SettingsSection title="Ações">
+            <Surface className="px-4 mt-3 flex flex-wrap gap-3 py-4">
+              <Button disabled={!!busy} onClick={() => doRotate(false)}>
+                {busy === 'rotate' ? 'Rotacionando…' : 'Rotacionar agora'}
+              </Button>
+              <Button
+                variant="outline"
+                className={cn('border-bad/40 text-bad', dangerButtonClass)}
+                disabled={!!busy}
+                onClick={() => doRotate(true)}
+              >
+                {busy === 'retire' ? 'Desabilitando…' : 'Desabilitar todas + criar nova'}
+              </Button>
+            </Surface>
+          </SettingsSection>
+        </div>
       )}
     </QueryBoundary>
   );

@@ -1,8 +1,13 @@
 import { authkitKeys, useCreateUserMutationOptions } from '@adonis-agora/authkit-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { parseAsInteger, parseAsString, useQueryState } from 'nuqs';
-import React, { useState } from 'react';
+import type React from 'react';
+import { useState } from 'react';
+import { PageHeader } from '../agora-kit/blocks/page-header';
+import { PageBody } from '../agora-kit/shell/app-shell';
+import { Button } from '../agora-kit/ui/button';
 import { Modal } from '../components/Modal';
+import { CheckboxRow, Field, SearchInput, TextInput } from '../components/primitives';
 import { UserDetailDrawer, UsersTableContainer } from '../containers/users.containers';
 import { useToast } from '../lib/toast';
 import { useDebounce } from '../lib/use_debounce';
@@ -47,46 +52,37 @@ export function Users() {
   }
 
   return (
-    <div>
-      <div className="page-header-row">
-        <div>
-          <div className="page-title">Users</div>
-        </div>
-        <div className="page-actions">
-          <button className="btn btn-primary" onClick={() => setCreateOpen(true)}>
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M8 2v12M2 8h12" strokeLinecap="round" />
-            </svg>
-            New User
-          </button>
-        </div>
-      </div>
-
-      {/* Search bar */}
-      <div className="panel" style={{ marginBottom: 0 }}>
-        <div className="panel-head">
-          <div className="search-input" style={{ flex: 1, maxWidth: 320 }}>
+    <PageBody>
+      <PageHeader
+        title="Users"
+        actions={
+          <Button onClick={() => setCreateOpen(true)}>
             <svg
-              className="search-ico"
               viewBox="0 0 16 16"
               fill="none"
               stroke="currentColor"
-              strokeWidth="1.7"
+              strokeWidth="2"
+              aria-hidden="true"
             >
-              <circle cx="7" cy="7" r="4.5" />
-              <path d="M10 10l3 3" strokeLinecap="round" />
+              <path d="M8 2v12M2 8h12" strokeLinecap="round" />
             </svg>
-            <input
-              className="input"
-              placeholder="Search by email or name…"
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-            />
-          </div>
-        </div>
+            New User
+          </Button>
+        }
+      />
+
+      {/* Search bar */}
+      <div className="agora-surface rounded-lg border border-border px-4 py-3">
+        <SearchInput
+          wrapperClassName="max-w-[320px] flex-1"
+          placeholder="Search by email or name…"
+          aria-label="Search by email or name"
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(1);
+          }}
+        />
       </div>
 
       {/* Users table container */}
@@ -105,58 +101,48 @@ export function Users() {
         title="Create User"
         footer={
           <>
-            <button className="btn" onClick={() => setCreateOpen(false)}>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>
               Cancel
-            </button>
-            <button
-              className="btn btn-primary"
-              onClick={handleCreate}
-              disabled={createMutation.isPending}
-            >
-              {createMutation.isPending ? <span className="spinner sm" /> : 'Create User'}
-            </button>
+            </Button>
+            <Button onClick={handleCreate} disabled={createMutation.isPending}>
+              {createMutation.isPending ? 'Creating…' : 'Create User'}
+            </Button>
           </>
         }
       >
         <form onSubmit={handleCreate}>
-          <div className="field">
-            <label>Email *</label>
-            <input
-              className="input"
+          <Field label="Email *" htmlFor="create-user-email">
+            <TextInput
+              id="create-user-email"
               type="email"
               required
               value={createForm.email}
               onChange={(e) => setCreateForm((f) => ({ ...f, email: e.target.value }))}
               placeholder="user@example.com"
             />
-          </div>
-          <div className="field">
-            <label>Name</label>
-            <input
-              className="input"
+          </Field>
+          <Field label="Name" htmlFor="create-user-name">
+            <TextInput
+              id="create-user-name"
               value={createForm.name}
               onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
               placeholder="Full name (optional)"
             />
-          </div>
-          <div className="field">
-            <label>Password</label>
-            <input
-              className="input"
+          </Field>
+          <Field label="Password" htmlFor="create-user-password">
+            <TextInput
+              id="create-user-password"
               type="password"
               value={createForm.password}
               onChange={(e) => setCreateForm((f) => ({ ...f, password: e.target.value }))}
               placeholder="Leave blank to send invite"
             />
-          </div>
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={createForm.invite}
-              onChange={(e) => setCreateForm((f) => ({ ...f, invite: e.target.checked }))}
-            />
-            <span className="chk-label">Send invitation email</span>
-          </label>
+          </Field>
+          <CheckboxRow
+            checked={createForm.invite}
+            onChange={(invite) => setCreateForm((f) => ({ ...f, invite }))}
+            label="Send invitation email"
+          />
         </form>
       </Modal>
 
@@ -168,6 +154,6 @@ export function Users() {
           onMutated={() => queryClient.invalidateQueries({ queryKey: authkitKeys.admin.users() })}
         />
       )}
-    </div>
+    </PageBody>
   );
 }

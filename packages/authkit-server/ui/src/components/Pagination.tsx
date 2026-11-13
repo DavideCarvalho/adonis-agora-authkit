@@ -1,4 +1,6 @@
-import React from 'react';
+import { Pager } from '../agora-kit/blocks/pager';
+import { ChevronLeftIcon, ChevronRightIcon } from '../agora-kit/icons';
+import { Button } from '../agora-kit/ui/button';
 
 interface PaginationProps {
   page: number;
@@ -8,46 +10,16 @@ interface PaginationProps {
   onPage: (p: number) => void;
 }
 
+/** Offset pager for the list envelopes (the kit's `Pager`); hidden on a single page. */
 export function Pagination({ page, total, size, onPage }: PaginationProps) {
-  const pages = Math.ceil(total / size);
-  if (pages <= 1) return null;
-
-  const start = (page - 1) * size + 1;
-  const end = Math.min(page * size, total);
-
+  const lastPage = Math.ceil(total / size);
+  if (lastPage <= 1) return null;
   return (
-    <div className="pagination">
-      <span className="pag-info">
-        {start}–{end} of {total}
-      </span>
-      <button className="btn btn-sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <path d="M10 12L6 8l4-4" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
-      <span style={{ fontFamily: 'var(--mono)', fontSize: '11px', color: 'var(--muted)' }}>
-        {page} / {pages}
-      </span>
-      <button className="btn btn-sm" disabled={page >= pages} onClick={() => onPage(page + 1)}>
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <path d="M6 12l4-4-4-4" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
-    </div>
+    <Pager
+      meta={{ total, perPage: size, currentPage: page, lastPage }}
+      onPage={onPage}
+      className="border-t border-border px-4"
+    />
   );
 }
 
@@ -62,31 +34,15 @@ interface CursorPaginationProps {
 export function CursorPagination({ hasPrev, hasNext, onPrev, onNext }: CursorPaginationProps) {
   if (!hasPrev && !hasNext) return null;
   return (
-    <div className="pagination">
-      <button className="btn btn-sm" disabled={!hasPrev} onClick={onPrev} aria-label="Newer">
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <path d="M10 12L6 8l4-4" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
-      <button className="btn btn-sm" disabled={!hasNext} onClick={onNext} aria-label="Older">
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <path d="M6 12l4-4-4-4" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </button>
+    <div className="flex items-center justify-end gap-1.5 border-t border-border px-4 py-2">
+      <Button variant="ghost" size="sm" disabled={!hasPrev} onClick={onPrev} aria-label="Newer">
+        <ChevronLeftIcon />
+        <span className="hidden sm:inline">Newer</span>
+      </Button>
+      <Button variant="ghost" size="sm" disabled={!hasNext} onClick={onNext} aria-label="Older">
+        <span className="hidden sm:inline">Older</span>
+        <ChevronRightIcon />
+      </Button>
     </div>
   );
 }

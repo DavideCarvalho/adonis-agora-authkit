@@ -1,0 +1,381 @@
+/* ══════════════════════════════════════════════════════════════════════════════════════════════
+   Agora console kit: tokens + Tailwind 4 theme. COPIED VERBATIM into every @adonis-agora console
+   (canonical copy: _1x/shared/console-kit). Do not edit in one console only.
+
+   Import it from the console's own stylesheet, right after Tailwind and tw-animate-css:
+
+     @import "tailwindcss";
+     @import "tw-animate-css";
+     @import "../agora-kit/tokens.css";
+     @source "../agora-kit";
+
+   The palette is authkit admin's (`authkit-server/ui/src/styles/globals.css`): surfaces bg0–bg3,
+   hairline lines, text/muted/faint, green/red/amber/blue + their soft fills, radius 10px, sidebar
+   240px, topbar 54px, the radial accent glow behind the page.
+
+   Dark is the default (`:root`); light applies on `html.light` / `[data-theme="light"]` (the
+   kit's ThemeProvider sets both). The ONE per-console input is `--agora-accent` (ThemeProvider
+   `accent="…"`): its soft fill, hover, border, focus ring, light-mode ink (AA on white) and the
+   colour of text placed on it are all derived from it below.
+   ══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  color-scheme: dark;
+
+  /* Surfaces (authkit --bg0..3) */
+  --agora-bg: #07070d;
+  --agora-panel: #0c0c16;
+  --agora-panel-2: #12121f; /* elevated: dialog, popover, menu */
+  --agora-panel-3: #181828;
+  --agora-sunken: #000000; /* inset wells, used with an opacity modifier */
+  --agora-hover: rgba(151, 151, 196, 0.06);
+  --agora-sidebar: rgba(10, 10, 18, 0.75);
+  --agora-topbar: rgba(9, 9, 16, 0.6);
+  /* Card / panel fill: a faint top-lit gradient over the page, like authkit's `.card`. */
+  --agora-surface: linear-gradient(180deg, rgba(151, 151, 196, 0.04), rgba(151, 151, 196, 0.012));
+
+  /* Lines */
+  --agora-line: rgba(151, 151, 196, 0.1);
+  --agora-line-soft: rgba(151, 151, 196, 0.06);
+  --agora-line-strong: rgba(151, 151, 196, 0.18);
+
+  /* Text */
+  --agora-text: #e9e9f4;
+  --agora-text-2: #c3c3d6;
+  --agora-muted: #9292ac;
+  --agora-faint: #5b5b74;
+
+  /* Semantic hues (status, never decoration) */
+  --agora-good: #3ecf8e;
+  --agora-warn: #ffb454;
+  --agora-bad: #ff5470;
+  --agora-info: #4cc2ff;
+  --agora-violet: #a5a3ff;
+  --agora-teal: #4fd1c5;
+  --agora-live: #4cc2ff;
+
+  /* The console accent: the only per-console input (authkit's indigo by default). */
+  --agora-accent: #625fff;
+  /* Derived — do not set per console. */
+  --agora-accent-soft: color-mix(in oklab, var(--agora-accent) 14%, transparent);
+  --agora-accent-hover: color-mix(in oklab, var(--agora-accent) 82%, white);
+  --agora-accent-border: color-mix(in oklab, var(--agora-accent) 26%, transparent);
+  /* The accent as TEXT (links, highlighted numbers). Dark: the accent itself. */
+  --agora-accent-ink: var(--agora-accent);
+  /* Text placed ON a solid accent fill: black on a light accent, white on a dark one. */
+  --agora-accent-contrast: oklch(from var(--agora-accent) clamp(0, calc((0.7 - l) * 1000), 1) 0 0);
+
+  --agora-radius: 10px;
+  --agora-sidebar-w: 240px;
+  --agora-topbar-h: 54px;
+  --agora-shadow: 0 16px 48px -12px rgb(0 0 0 / 0.65);
+}
+
+html.light,
+[data-theme="light"] {
+  color-scheme: light;
+
+  --agora-bg: #f7f7fb;
+  --agora-panel: #ffffff;
+  --agora-panel-2: #ffffff;
+  --agora-panel-3: #e7e7f0;
+  --agora-sunken: #e7e7f0;
+  --agora-hover: rgba(40, 40, 70, 0.05);
+  --agora-sidebar: rgba(255, 255, 255, 0.85);
+  --agora-topbar: rgba(255, 255, 255, 0.7);
+  --agora-surface: linear-gradient(180deg, #ffffff, #fdfdff);
+
+  --agora-line: rgba(40, 40, 70, 0.1);
+  --agora-line-soft: rgba(40, 40, 70, 0.06);
+  --agora-line-strong: rgba(40, 40, 70, 0.18);
+
+  --agora-text: #1c1c28;
+  --agora-text-2: #34344a;
+  --agora-muted: #55556c;
+  --agora-faint: #8a8aa0;
+
+  /* authkit keeps its hues in light mode; as TEXT they are darkened just enough for AA on white. */
+  --agora-good: #13865a;
+  --agora-warn: #a8620a;
+  --agora-bad: #d6223f;
+  --agora-info: #0b77b0;
+  --agora-violet: #4f4ccc;
+  --agora-teal: #0f766e;
+  --agora-live: #0b77b0;
+
+  --agora-accent-soft: color-mix(in oklab, var(--agora-accent) 12%, transparent);
+  --agora-accent-border: color-mix(in oklab, var(--agora-accent) 30%, transparent);
+  --agora-accent-ink: oklch(from var(--agora-accent) min(l, 0.52) c h);
+  --agora-shadow: 0 16px 48px -16px rgb(20 20 40 / 0.22);
+}
+
+/* shadcn/ui's semantic variables, mapped onto the Agora tokens: a component pasted from the shadcn
+   registry (Base UI flavour) renders on this console's palette with no edit. Note the two traps:
+   shadcn `--accent` is a subtle HOVER SURFACE (not the brand hue, which is `--agora-accent` /
+   `--primary`), and shadcn `--muted` is a SURFACE (dim text is `--muted-foreground`). */
+:root {
+  --background: var(--agora-bg);
+  --foreground: var(--agora-text);
+  --card: var(--agora-panel);
+  --card-foreground: var(--agora-text);
+  --popover: var(--agora-panel-2);
+  --popover-foreground: var(--agora-text);
+  --primary: var(--agora-accent);
+  --primary-foreground: var(--agora-accent-contrast);
+  --secondary: var(--agora-panel-2);
+  --secondary-foreground: var(--agora-text);
+  --muted: var(--agora-panel-2);
+  --muted-foreground: var(--agora-muted);
+  --accent: var(--agora-hover);
+  --accent-foreground: var(--agora-text);
+  --destructive: var(--agora-bad);
+  --border: var(--agora-line);
+  --input: var(--agora-line);
+  --ring: var(--agora-accent);
+  --radius: var(--agora-radius);
+  --chart-1: var(--agora-accent);
+  --chart-2: var(--agora-info);
+  --chart-3: var(--agora-good);
+  --chart-4: var(--agora-warn);
+  --chart-5: var(--agora-violet);
+  --sidebar: var(--agora-sidebar);
+  --sidebar-foreground: var(--agora-muted);
+  --sidebar-primary: var(--agora-accent);
+  --sidebar-primary-foreground: var(--agora-accent-contrast);
+  --sidebar-accent: var(--agora-accent-soft);
+  --sidebar-accent-foreground: var(--agora-text);
+  --sidebar-border: var(--agora-line);
+  --sidebar-ring: var(--agora-accent-ink);
+}
+
+/* shadcn's dark variant: class-based, driven by ThemeProvider (`html.dark` / `html.light`). */
+@custom-variant dark (&:is(.dark *));
+
+/* Tailwind 4: every utility emits `var(--…)` directly and opacity modifiers work on all of them
+   (`bg-bad/10` → color-mix). */
+@theme inline {
+  --font-sans: "Sora", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* shadcn semantic colours */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* Agora names, for console code (no shadcn equivalent) */
+  --color-canvas: var(--agora-bg);
+  --color-panel: var(--agora-panel);
+  --color-panel-2: var(--agora-panel-2);
+  --color-sunken: var(--agora-sunken);
+  --color-hover: var(--agora-hover);
+  --color-line: var(--agora-line);
+  --color-line-soft: var(--agora-line-soft);
+  --color-line-strong: var(--agora-line-strong);
+  --color-fg: var(--agora-text);
+  --color-fg-2: var(--agora-text-2);
+  --color-dim: var(--agora-muted);
+  --color-faint: var(--agora-faint);
+  --color-good: var(--agora-good);
+  --color-warn: var(--agora-warn);
+  --color-bad: var(--agora-bad);
+  --color-info: var(--agora-info);
+  --color-violet: var(--agora-violet);
+  --color-teal: var(--agora-teal);
+  --color-live: var(--agora-live);
+  /* The accent as INK (text, tints, borders); solid fills use `bg-primary`. */
+  --color-brand: var(--agora-accent-ink);
+  --color-brand-soft: var(--agora-accent-soft);
+  --color-brand-border: var(--agora-accent-border);
+  --color-brand-hover: var(--agora-accent-hover);
+  --color-panel-3: var(--agora-panel-3);
+}
+
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--agora-line);
+    box-sizing: border-box;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background: var(--agora-bg);
+    color: var(--agora-text);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--agora-accent) 30%, transparent);
+  }
+  :focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--agora-accent-ink) 70%, transparent);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  .mono {
+    font-family: var(--font-mono);
+  }
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Smooth theme switch: ThemeProvider adds this class for ~250ms around a toggle only, so ordinary
+   hovers keep their own (faster) transitions. */
+html.agora-theme-switching,
+html.agora-theme-switching * {
+  transition:
+    background-color 0.22s ease,
+    border-color 0.22s ease,
+    color 0.22s ease,
+    /* biome-ignore lint/complexity/noImportantStyles: a theme switch must win over every component transition for its 250ms */
+    fill 0.22s ease !important;
+}
+
+/* Atmosphere: authkit's radial accent glow behind the whole page (dark only). */
+.agora-glow {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      1100px 500px at 15% -10%,
+      color-mix(in oklab, var(--agora-accent) 10%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(
+      900px 420px at 90% 0%,
+      color-mix(in oklab, var(--agora-good) 4%, transparent),
+      transparent 55%
+    );
+}
+html.light .agora-glow,
+[data-theme="light"] .agora-glow {
+  display: none;
+}
+
+/* Card / panel / metric surface (authkit `.card` / `.panel`). */
+.agora-surface {
+  background: var(--agora-surface);
+}
+
+/* A console's glyph on a soft tile in that console's accent (switcher, ⌘K). `--agora-tile` is set
+   inline per console; without it the tile is neutral. Light mode darkens the glyph for AA. */
+.agora-tile {
+  --agora-tile: var(--agora-muted);
+  display: inline-grid;
+  flex-shrink: 0;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--agora-tile);
+  background: color-mix(in oklab, var(--agora-tile) 14%, transparent);
+  border: 1px solid color-mix(in oklab, var(--agora-tile) 26%, transparent);
+}
+html.light .agora-tile,
+[data-theme="light"] .agora-tile {
+  color: oklch(from var(--agora-tile) min(l, 0.52) c h);
+}
+
+/* The brand tile's pulsing ring (authkit `.brand-logo .ring`). */
+.agora-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in oklab, var(--agora-accent) 35%, transparent);
+  animation: agora-ring 3s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes agora-ring {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.9;
+  }
+  70%,
+  100% {
+    transform: scale(1.15);
+    opacity: 0;
+  }
+}
+
+@keyframes agora-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.agora-rise {
+  animation: agora-rise 0.28s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agora-ring,
+  .agora-rise {
+    animation: none;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--agora-line-strong);
+  border: 3px solid var(--agora-bg);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}

@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
 import type { HttpContext } from '@adonisjs/core/http';
 import { countOtherConsoles } from '../../console_switcher.js';
-import { accountPath } from '../account_paths.js';
+import { accountPath, accountSignOutPath } from '../account_paths.js';
 import { resolveAccountRoles, rolesManagedExternally } from '../account_roles.js';
 import { getAdminPrefix } from '../admin_prefix.js';
 import { ADMIN_CONSOLE_ID, consoleRegistry } from './admin_console_entry.js';
@@ -97,6 +97,24 @@ export function prepareShell(html: string, config: Record<string, unknown>): str
   return rewritten.slice(0, closeIdx + 1) + script + rewritten.slice(closeIdx + 1);
 }
 
+// ─── Console shell fields ─────────────────────────────────────────────────────
+
+/** The request's CSRF token, when `@adonisjs/shield` put a non-empty one on the request. */
+function csrfTokenOf(ctx: HttpContext): string | undefined {
+  const token = (ctx.request as unknown as { csrfToken?: unknown }).csrfToken;
+  return typeof token === 'string' && token !== '' ? token : undefined;
+}
+
+/** The shell's `viewer` (the sidebar footer's user row) for the signed-in admin. */
+export function viewerOf(user: { email: string; roles: string[] }): {
+  label: string;
+  email: string;
+  role?: string;
+} {
+  const role = user.roles.find((r) => typeof r === 'string' && r.trim() !== '');
+  return { label: user.email, email: user.email, ...(role ? { role } : {}) };
+}
+
 // ─── MIME types for static assets ────────────────────────────────────────────
 
 const MIME: Record<string, string> = {
@@ -161,12 +179,19 @@ export default class AdminShellController {
     // Console switcher: only announced when other `@adonis-agora` consoles are registered; the SPA
     // then asks the endpoint which of them this viewer may open.
     const others = countOtherConsoles(await consoleRegistry(), ADMIN_CONSOLE_ID);
+    const csrfToken = csrfTokenOf(ctx);
+    const signOutAction = accountSignOutPath();
     const authkitConfig = {
       adminBase,
-      csrfToken: (ctx.request as any).csrfToken ?? null,
+      csrfToken: csrfToken ?? null,
       locale: (cfg as any).locale ?? 'en',
       messages: cfg.messages ?? {},
       currentUser,
+      // Console shell (CONSOLE-SHELL-SPEC): the footer's user row and sign-out.
+      ...(currentUser ? { viewer: viewerOf(currentUser) } : {}),
+      ...(signOutAction
+        ? { signOut: { action: signOutAction, ...(csrfToken ? { csrfToken } : {}) } }
+        : {}),
       endpoints: {
         api: `${adminBase}/api`,
         // Confirmação de identidade (sudo) das ações destrutivas.

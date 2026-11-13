@@ -8,8 +8,22 @@ import {
   useUpdateClientMutationOptions,
 } from '@adonis-agora/authkit-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import React, { useState } from 'react';
+import type React from 'react';
+import { useState } from 'react';
+import { PageHeader } from '../agora-kit/blocks/page-header';
+import { XIcon } from '../agora-kit/icons';
+import { PageBody } from '../agora-kit/shell/app-shell';
+import { Button } from '../agora-kit/ui/button';
 import { Modal } from '../components/Modal';
+import {
+  CheckboxRow,
+  dangerButtonClass,
+  Field,
+  Notice,
+  SecretBox,
+  SelectInput,
+  TextInput,
+} from '../components/primitives';
 import { ClientsListContainer, useClientsCount } from '../containers/clients.containers';
 import { useToast } from '../lib/toast';
 
@@ -259,25 +273,83 @@ export function Clients() {
     }
   }
 
+  /** A list of URIs (read-only rows with a remove button) plus an input to add one. */
+  const UriList = ({
+    id,
+    type,
+    uris,
+    value,
+    onValue,
+    placeholder,
+  }: {
+    id: string;
+    type: 'redirect' | 'logout';
+    uris: string[];
+    value: string;
+    onValue: (v: string) => void;
+    placeholder: string;
+  }) => (
+    <>
+      {uris.map((uri, i) => (
+        <div key={i} className="mb-1 flex gap-1.5">
+          <TextInput mono value={uri} readOnly className="flex-1" />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={`h-[34px] ${dangerButtonClass}`}
+            aria-label={`Remove ${uri}`}
+            onClick={() => removeUri(type, i)}
+          >
+            <XIcon />
+          </Button>
+        </div>
+      ))}
+      <div className="flex gap-1.5">
+        <TextInput
+          id={id}
+          mono
+          value={value}
+          onChange={(e) => onValue(e.target.value)}
+          placeholder={placeholder}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              addUri(type);
+            }
+          }}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-[34px]"
+          onClick={() => addUri(type)}
+        >
+          Add
+        </Button>
+      </div>
+    </>
+  );
+
   const ClientForm = () => (
     <form onSubmit={editClient ? handleUpdate : handleCreate}>
       {!editClient && (
-        <div className="field">
-          <label>Client ID (optional — auto-generated if blank)</label>
-          <input
-            className="input input-mono"
+        <Field label="Client ID (optional — auto-generated if blank)" htmlFor="client-id">
+          <TextInput
+            id="client-id"
+            mono
             value={formData.clientIdOverride}
             onChange={(e) => setFormData((f) => ({ ...f, clientIdOverride: e.target.value }))}
             placeholder="my-app (auto if blank)"
           />
-        </div>
+        </Field>
       )}
 
       {!editClient && (
-        <div className="field">
-          <label>Kind</label>
-          <select
-            className="input"
+        <Field label="Kind" htmlFor="client-kind">
+          <SelectInput
+            id="client-kind"
             value={formData.kind}
             onChange={(e) =>
               setFormData((f) => ({
@@ -288,67 +360,63 @@ export function Clients() {
           >
             <option value="app">Application (sign-in, APIs)</option>
             <option value="serviceTenant">Service tenant (client_credentials + partition)</option>
-          </select>
-        </div>
+          </SelectInput>
+        </Field>
       )}
 
       {formData.kind === 'serviceTenant' ? (
         <>
-          <div className="field">
-            <label>Partition</label>
-            <input
-              className="input input-mono"
+          <Field label="Partition" htmlFor="client-partition">
+            <TextInput
+              id="client-partition"
+              mono
               value={formData.partition}
               onChange={(e) => setFormData((f) => ({ ...f, partition: e.target.value }))}
               placeholder="acme"
               required
             />
-          </div>
-          <div className="field">
-            <label>Capabilities (optional, comma-separated)</label>
-            <input
-              className="input input-mono"
+          </Field>
+          <Field label="Capabilities (optional, comma-separated)" htmlFor="client-capabilities">
+            <TextInput
+              id="client-capabilities"
+              mono
               value={formData.capabilities}
               onChange={(e) => setFormData((f) => ({ ...f, capabilities: e.target.value }))}
               placeholder="reports, billing"
             />
-          </div>
-          <div className="field">
-            <label>Name</label>
-            <input
-              className="input"
+          </Field>
+          <Field label="Name" htmlFor="client-name">
+            <TextInput
+              id="client-name"
               value={formData.clientName}
               onChange={(e) => setFormData((f) => ({ ...f, clientName: e.target.value }))}
               placeholder="Acme worker"
             />
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--faint)' }}>
+          </Field>
+          <div className="text-xs text-faint">
             Confidential client with only the client_credentials grant. Its tokens carry the
             partition and capabilities as claims.
           </div>
         </>
       ) : (
         <>
-          <div className="field">
-            <label>Grant Types</label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+          <Field label="Grant Types">
+            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1.5">
               {GRANT_TYPES.map((g) => (
-                <label key={g} className="checkbox-row" style={{ padding: '4px 0' }}>
-                  <input
-                    type="checkbox"
-                    checked={formData.grantTypes.includes(g)}
-                    onChange={() => toggleGrant(g)}
-                  />
-                  <span className="chk-label mono">{g}</span>
-                </label>
+                <CheckboxRow
+                  key={g}
+                  className="py-1"
+                  checked={formData.grantTypes.includes(g)}
+                  onChange={() => toggleGrant(g)}
+                  label={<span className="mono">{g}</span>}
+                />
               ))}
             </div>
-          </div>
+          </Field>
 
-          <div className="field">
-            <label>Application Type</label>
-            <select
-              className="input"
+          <Field label="Application Type" htmlFor="client-app-type">
+            <SelectInput
+              id="client-app-type"
               value={formData.applicationType}
               onChange={(e) => {
                 const applicationType = e.target.value === 'native' ? 'native' : 'web';
@@ -363,13 +431,12 @@ export function Clients() {
             >
               <option value="web">web</option>
               <option value="native">native (mobile / desktop app)</option>
-            </select>
-          </div>
+            </SelectInput>
+          </Field>
 
-          <div className="field">
-            <label>Token Endpoint Auth Method</label>
-            <select
-              className="input"
+          <Field label="Token Endpoint Auth Method" htmlFor="client-auth-method">
+            <SelectInput
+              id="client-auth-method"
               value={formData.tokenEndpointAuthMethod}
               disabled={formData.applicationType === 'native'}
               onChange={(e) =>
@@ -381,144 +448,96 @@ export function Clients() {
                   {m}
                 </option>
               ))}
-            </select>
-          </div>
+            </SelectInput>
+          </Field>
 
-          <div className="field">
-            <label>Redirect URIs</label>
-            {formData.redirectUris.map((uri, i) => (
-              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
-                <input className="input input-mono" value={uri} readOnly style={{ flex: 1 }} />
-                <button
-                  type="button"
-                  className="btn btn-sm btn-danger"
-                  onClick={() => removeUri('redirect', i)}
-                >
-                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M3 3l10 10M13 3L3 13" strokeLinecap="round" />
-                  </svg>
-                </button>
-              </div>
-            ))}
-            <div style={{ display: 'flex', gap: 6 }}>
-              <input
-                className="input input-mono"
-                value={redirectInput}
-                onChange={(e) => setRedirectInput(e.target.value)}
-                placeholder={
-                  formData.applicationType === 'native'
-                    ? 'com.example.app:/oauth or http://127.0.0.1/callback'
-                    : 'https://app.example.com/callback'
-                }
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    addUri('redirect');
-                  }
-                }}
-              />
-              <button type="button" className="btn btn-sm" onClick={() => addUri('redirect')}>
-                Add
-              </button>
-            </div>
-          </div>
+          <Field label="Redirect URIs" htmlFor="client-redirect-input">
+            <UriList
+              id="client-redirect-input"
+              type="redirect"
+              uris={formData.redirectUris}
+              value={redirectInput}
+              onValue={setRedirectInput}
+              placeholder={
+                formData.applicationType === 'native'
+                  ? 'com.example.app:/oauth or http://127.0.0.1/callback'
+                  : 'https://app.example.com/callback'
+              }
+            />
+          </Field>
 
-          <div className="field">
-            <label>Post-Logout Redirect URIs</label>
-            {formData.postLogoutRedirectUris.map((uri, i) => (
-              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
-                <input className="input input-mono" value={uri} readOnly style={{ flex: 1 }} />
-                <button
-                  type="button"
-                  className="btn btn-sm btn-danger"
-                  onClick={() => removeUri('logout', i)}
-                >
-                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M3 3l10 10M13 3L3 13" strokeLinecap="round" />
-                  </svg>
-                </button>
-              </div>
-            ))}
-            <div style={{ display: 'flex', gap: 6 }}>
-              <input
-                className="input input-mono"
-                value={logoutInput}
-                onChange={(e) => setLogoutInput(e.target.value)}
-                placeholder="https://app.example.com/logged-out"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    addUri('logout');
-                  }
-                }}
-              />
-              <button type="button" className="btn btn-sm" onClick={() => addUri('logout')}>
-                Add
-              </button>
-            </div>
-          </div>
+          <Field label="Post-Logout Redirect URIs" htmlFor="client-logout-input">
+            <UriList
+              id="client-logout-input"
+              type="logout"
+              uris={formData.postLogoutRedirectUris}
+              value={logoutInput}
+              onValue={setLogoutInput}
+              placeholder="https://app.example.com/logged-out"
+            />
+          </Field>
 
-          <div className="field">
-            <label>Name</label>
-            <input
-              className="input"
+          <Field label="Name" htmlFor="client-name">
+            <TextInput
+              id="client-name"
               value={formData.clientName}
               onChange={(e) => setFormData((f) => ({ ...f, clientName: e.target.value }))}
               placeholder="Shown on consent and authorized-app screens"
             />
-          </div>
+          </Field>
 
-          <div className="field">
-            <label>Logo URL</label>
-            <input
-              className="input input-mono"
+          <Field label="Logo URL" htmlFor="client-logo">
+            <TextInput
+              id="client-logo"
+              mono
               value={formData.logoUri}
               onChange={(e) => setFormData((f) => ({ ...f, logoUri: e.target.value }))}
               placeholder="https://app.example.com/logo.png"
             />
-          </div>
+          </Field>
 
-          <div className="field">
-            <label>Backchannel Logout URI</label>
-            <input
-              className="input input-mono"
+          <Field label="Backchannel Logout URI" htmlFor="client-backchannel">
+            <TextInput
+              id="client-backchannel"
+              mono
               value={formData.backchannelLogoutUri}
               onChange={(e) => setFormData((f) => ({ ...f, backchannelLogoutUri: e.target.value }))}
               placeholder="https://app.example.com/backchannel-logout"
             />
-          </div>
+          </Field>
 
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={formData.backchannelLogoutSessionRequired}
-              onChange={(e) =>
-                setFormData((f) => ({ ...f, backchannelLogoutSessionRequired: e.target.checked }))
-              }
-            />
-            <span className="chk-label">Require session ID in backchannel logout</span>
-          </label>
+          <CheckboxRow
+            checked={formData.backchannelLogoutSessionRequired}
+            onChange={(checked) =>
+              setFormData((f) => ({ ...f, backchannelLogoutSessionRequired: checked }))
+            }
+            label="Require session ID in backchannel logout"
+          />
         </>
       )}
     </form>
   );
 
   return (
-    <div>
-      <div className="page-header-row">
-        <div>
-          <div className="page-title">OAuth Clients</div>
-          <div className="page-sub">{clientsCount} clients</div>
-        </div>
-        <div className="page-actions">
-          <button className="btn btn-primary" onClick={openCreate}>
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+    <PageBody>
+      <PageHeader
+        title="OAuth Clients"
+        description={`${clientsCount} clients`}
+        actions={
+          <Button onClick={openCreate}>
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
               <path d="M8 2v12M2 8h12" strokeLinecap="round" />
             </svg>
             New Client
-          </button>
-        </div>
-      </div>
+          </Button>
+        }
+      />
 
       {/* Clients list container */}
       <ClientsListContainer
@@ -536,16 +555,12 @@ export function Clients() {
         large
         footer={
           <>
-            <button className="btn" onClick={() => setCreateOpen(false)}>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>
               Cancel
-            </button>
-            <button
-              className="btn btn-primary"
-              onClick={handleCreate}
-              disabled={createMutation.isPending}
-            >
-              {createMutation.isPending ? <span className="spinner sm" /> : 'Create Client'}
-            </button>
+            </Button>
+            <Button onClick={handleCreate} disabled={createMutation.isPending}>
+              {createMutation.isPending ? 'Creating…' : 'Create Client'}
+            </Button>
           </>
         }
       >
@@ -560,16 +575,12 @@ export function Clients() {
         large
         footer={
           <>
-            <button className="btn" onClick={() => setEditClient(null)}>
+            <Button variant="outline" onClick={() => setEditClient(null)}>
               Cancel
-            </button>
-            <button
-              className="btn btn-primary"
-              onClick={handleUpdate}
-              disabled={updateMutation.isPending}
-            >
-              {updateMutation.isPending ? <span className="spinner sm" /> : 'Save Changes'}
-            </button>
+            </Button>
+            <Button onClick={handleUpdate} disabled={updateMutation.isPending}>
+              {updateMutation.isPending ? 'Saving…' : 'Save Changes'}
+            </Button>
           </>
         }
       >
@@ -581,36 +592,26 @@ export function Clients() {
         open={!!createdSecret}
         onClose={() => setCreatedSecret(null)}
         title="Client Secret — Save Now"
-        footer={
-          <button className="btn btn-primary" onClick={() => setCreatedSecret(null)}>
-            I've saved it
-          </button>
-        }
+        footer={<Button onClick={() => setCreatedSecret(null)}>I've saved it</Button>}
       >
-        <div
-          className="error-box"
-          style={{
-            background: 'var(--amber-soft)',
-            borderColor: 'rgba(255,180,84,0.3)',
-            color: 'var(--amber)',
-          }}
-        >
-          This secret will not be shown again. Copy it now.
+        <Notice tone="warn">This secret will not be shown again. Copy it now.</Notice>
+        <div className="mt-3">
+          <SecretBox label="Client ID">{createdSecret?.clientId}</SecretBox>
         </div>
-        <div className="secret-box" style={{ marginTop: 12 }}>
-          <small>Client ID</small>
-          {createdSecret?.clientId}
-        </div>
-        <div className="secret-box">
-          <small>Client Secret</small>
-          {createdSecret?.secret}
-        </div>
-        <button
-          className="btn btn-sm"
-          style={{ marginTop: 4 }}
+        <SecretBox label="Client Secret">{createdSecret?.secret}</SecretBox>
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-1"
           onClick={() => navigator.clipboard.writeText(createdSecret?.secret ?? '')}
         >
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7">
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            aria-hidden="true"
+          >
             <rect x="5" y="5" width="9" height="9" rx="1.5" />
             <path
               d="M3.5 11H3a1.5 1.5 0 01-1.5-1.5V3A1.5 1.5 0 013 1.5h6.5A1.5 1.5 0 0111 3v.5"
@@ -618,8 +619,8 @@ export function Clients() {
             />
           </svg>
           Copy secret
-        </button>
+        </Button>
       </Modal>
-    </div>
+    </PageBody>
   );
 }

@@ -13,12 +13,26 @@ import {
   useUsersQueryOptions,
 } from '@adonis-agora/authkit-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { EmptyState } from '../agora-kit/blocks/empty-state';
+import { Badge } from '../agora-kit/ui/badge';
+import { Button } from '../agora-kit/ui/button';
 import { Drawer } from '../components/Drawer';
 import { Modal } from '../components/Modal';
 import { Pagination } from '../components/Pagination';
+import {
+  AdminTable,
+  Cell,
+  CheckboxRow,
+  Code,
+  dangerButtonClass,
+  InitialsAvatar,
+  Row,
+  SectionLabel,
+  Surface,
+} from '../components/primitives';
 import { QueryBoundary } from '../components/QueryBoundary';
-import { SkeletonDrawerSection, SkeletonPanelTable } from '../components/Skeleton';
+import { Skeleton, SkeletonTable } from '../components/Skeleton';
 import { getConfig } from '../lib/config';
 import { useToast } from '../lib/toast';
 
@@ -51,86 +65,76 @@ export function UsersTableContainer({
     <>
       {/* Sub-count shown outside the boundary */}
       {!isLoading && !error && (
-        <div style={{ marginBottom: 4 }}>
-          <span className="page-sub" style={{ fontSize: 12, color: 'var(--faint)' }}>
-            {total.toLocaleString()} accounts
-          </span>
-        </div>
+        <div className="-mt-2 text-xs text-faint">{total.toLocaleString()} accounts</div>
       )}
 
-      <div className="panel">
+      <Surface>
         <QueryBoundary
+          label="Users"
           isLoading={isLoading}
           error={error}
           onRetry={refetch}
-          skeleton={<SkeletonPanelTable rows={6} cols={3} />}
+          skeleton={<SkeletonTable rows={6} cols={3} />}
         >
           {users.length === 0 ? (
-            <div className="empty-state">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <circle cx="12" cy="8" r="4" />
-                <path d="M4 20c0-4.42 3.58-8 8-8s8 3.58 8 8" />
-              </svg>
-              <h4>No users found</h4>
-              <p>{search ? 'Try a different search term' : 'No accounts registered yet'}</p>
-            </div>
+            <EmptyState
+              icon={
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="8" r="4" />
+                  <path d="M4 20c0-4.42 3.58-8 8-8s8 3.58 8 8" />
+                </svg>
+              }
+              title="No users found"
+              description={search ? 'Try a different search term' : 'No accounts registered yet'}
+            />
           ) : (
-            <div className="tbl-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>User</th>
-                    <th>Roles</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {users.map((u) => (
-                    <tr key={u.id} onClick={() => onSelectUser(u.id)}>
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <div className="avatar" style={{ width: 26, height: 26, fontSize: 10 }}>
-                            {u.email.slice(0, 2).toUpperCase()}
+            <>
+              <AdminTable head={['User', 'Roles', 'Status']} label="Users">
+                {users.map((u) => (
+                  <Row key={u.id} onClick={() => onSelectUser(u.id)}>
+                    <Cell>
+                      <div className="flex items-center gap-2.5">
+                        <InitialsAvatar text={u.email.slice(0, 2).toUpperCase()} size={26} />
+                        <div className="min-w-0">
+                          <div className="truncate text-[12.5px] font-medium text-fg">
+                            {u.email}
                           </div>
-                          <div>
-                            <div style={{ color: 'var(--text)', fontWeight: 500, fontSize: 12.5 }}>
-                              {u.email}
-                            </div>
-                            {u.name && (
-                              <div style={{ color: 'var(--faint)', fontSize: 11 }}>{u.name}</div>
-                            )}
-                          </div>
+                          {u.name && <div className="text-[11px] text-faint">{u.name}</div>}
                         </div>
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                          {(u.roles ?? u.globalRoles).length === 0 ? (
-                            <span className="badge badge-muted">no roles</span>
-                          ) : (
-                            (u.roles ?? u.globalRoles).map((r) => (
-                              <span key={r} className="badge badge-accent">
-                                {r}
-                              </span>
-                            ))
-                          )}
-                        </div>
-                      </td>
-                      <td>
-                        <span className={`badge ${u.disabled ? 'badge-red' : 'badge-green'}`}>
-                          {u.disabled ? 'disabled' : 'active'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div style={{ padding: '0 16px 12px' }}>
-                <Pagination page={page} total={total} size={PAGE_SIZE} onPage={onPage} />
-              </div>
-            </div>
+                      </div>
+                    </Cell>
+                    <Cell>
+                      <div className="flex flex-wrap gap-1">
+                        {(u.roles ?? u.globalRoles).length === 0 ? (
+                          <Badge variant="neutral">no roles</Badge>
+                        ) : (
+                          (u.roles ?? u.globalRoles).map((r) => (
+                            <Badge key={r} variant="brand">
+                              {r}
+                            </Badge>
+                          ))
+                        )}
+                      </div>
+                    </Cell>
+                    <Cell>
+                      <Badge variant={u.disabled ? 'destructive' : 'good'}>
+                        {u.disabled ? 'disabled' : 'active'}
+                      </Badge>
+                    </Cell>
+                  </Row>
+                ))}
+              </AdminTable>
+              <Pagination page={page} total={total} size={PAGE_SIZE} onPage={onPage} />
+            </>
           )}
         </QueryBoundary>
-      </div>
+      </Surface>
     </>
   );
 }
@@ -258,47 +262,13 @@ export function UserInfoContainer({ userId, onMutated, onClose }: UserInfoContai
       isLoading={isLoading}
       error={error}
       onRetry={refetch}
+      label="User"
       skeleton={
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-            <div
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: '50%',
-                background: 'var(--bg3)',
-                backgroundImage:
-                  'linear-gradient(90deg, var(--bg3) 0%, var(--bg2) 40%, var(--bg3) 100%)',
-                backgroundSize: '200% 100%',
-                animation: 'sk-shimmer 1.6s ease-in-out infinite',
-              }}
-            />
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div
-                style={{
-                  height: 14,
-                  width: '60%',
-                  borderRadius: 6,
-                  background: 'var(--bg3)',
-                  backgroundImage:
-                    'linear-gradient(90deg, var(--bg3) 0%, var(--bg2) 40%, var(--bg3) 100%)',
-                  backgroundSize: '200% 100%',
-                  animation: 'sk-shimmer 1.6s ease-in-out infinite',
-                }}
-              />
-              <div
-                style={{
-                  height: 11,
-                  width: '40%',
-                  borderRadius: 6,
-                  background: 'var(--bg3)',
-                  backgroundImage:
-                    'linear-gradient(90deg, var(--bg3) 0%, var(--bg2) 40%, var(--bg3) 100%)',
-                  backgroundSize: '200% 100%',
-                  animation: 'sk-shimmer 1.6s ease-in-out infinite',
-                }}
-              />
-            </div>
+        <div className="mb-4 flex items-center gap-3" aria-hidden>
+          <Skeleton width={44} height={44} borderRadius="50%" />
+          <div className="flex flex-1 flex-col gap-1.5">
+            <Skeleton width="60%" height={14} />
+            <Skeleton width="40%" height={11} />
           </div>
         </div>
       }
@@ -306,74 +276,67 @@ export function UserInfoContainer({ userId, onMutated, onClose }: UserInfoContai
       {user && (
         <div>
           {/* Info */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-            <div className="avatar" style={{ width: 44, height: 44, fontSize: 15 }}>
-              {user.email.slice(0, 2).toUpperCase()}
-            </div>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>{user.email}</div>
-              {user.name && <div style={{ color: 'var(--faint)', fontSize: 12 }}>{user.name}</div>}
-              <div style={{ marginTop: 4 }}>
-                <span className={`badge ${user.disabled ? 'badge-red' : 'badge-green'}`}>
+          <div className="mb-4 flex items-center gap-3">
+            <InitialsAvatar text={user.email.slice(0, 2).toUpperCase()} size={44} />
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-fg">{user.email}</div>
+              {user.name && <div className="text-xs text-faint">{user.name}</div>}
+              <div className="mt-1">
+                <Badge variant={user.disabled ? 'destructive' : 'good'}>
                   {user.disabled ? 'disabled' : 'active'}
-                </span>
+                </Badge>
               </div>
             </div>
           </div>
-          <div className="code" style={{ fontSize: 11, padding: '6px 10px' }}>
-            ID: {user.id}
-          </div>
+          <Code className="block px-2.5 py-1.5 text-[11px]">ID: {user.id}</Code>
 
           {/* Actions */}
-          <div style={{ marginTop: 16 }}>
-            <div
-              style={{
-                fontSize: 10.5,
-                letterSpacing: '0.12em',
-                textTransform: 'uppercase',
-                color: 'var(--faint)',
-                fontWeight: 600,
-                marginBottom: 8,
-              }}
-            >
-              Actions
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              <button
-                className={`btn btn-sm ${user.disabled ? '' : 'btn-danger'}`}
+          <div className="mt-4">
+            <SectionLabel className="text-[10.5px]">Actions</SectionLabel>
+            <div className="flex flex-wrap gap-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                className={user.disabled ? undefined : dangerButtonClass}
                 onClick={handleToggleDisable}
                 disabled={disableMutation.isPending || enableMutation.isPending}
               >
                 {user.disabled ? 'Enable account' : 'Disable account'}
-              </button>
-              <button
-                className="btn btn-sm"
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={handleResetPassword}
                 disabled={resetPwMutation.isPending}
               >
                 Reset password
-              </button>
-              <button
-                className="btn btn-sm"
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={handleImpersonate}
                 disabled={impersonationQuery.isFetching}
               >
                 Impersonate
-              </button>
-              <button
-                className="btn btn-sm btn-danger"
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className={dangerButtonClass}
                 onClick={handleRevokeSessions}
                 disabled={revokeSessionsMutation.isPending}
               >
                 Disconnect all devices
-              </button>
-              <button
-                className="btn btn-sm btn-danger"
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className={dangerButtonClass}
                 onClick={handleDelete}
                 disabled={deleteMutation.isPending}
               >
                 Delete user
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -383,14 +346,14 @@ export function UserInfoContainer({ userId, onMutated, onClose }: UserInfoContai
             title={`Impersonate ${impersonationPanel?.targetEmail ?? ''}`}
             large
             footer={
-              <button className="btn btn-sm" onClick={() => setImpersonationPanel(null)}>
+              <Button variant="outline" size="sm" onClick={() => setImpersonationPanel(null)}>
                 Close
-              </button>
+              </Button>
             }
           >
             {impersonationPanel && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <p style={{ margin: 0, fontSize: 13, color: 'var(--faint)' }}>
+              <div className="flex flex-col gap-3.5">
+                <p className="m-0 text-[13px] text-faint [&_code]:mono [&_code]:text-dim">
                   Impersonation runs through the RFC 8693 token exchange. The exchange has to be
                   signed with <strong>your own admin access token</strong> as the{' '}
                   <code>subject_token</code>, which this console does not hold — so run the request
@@ -398,7 +361,7 @@ export function UserInfoContainer({ userId, onMutated, onClose }: UserInfoContai
                   carries <code>act</code> with your subject, and the exchange is audited.
                 </p>
 
-                <div style={{ display: 'grid', gap: 6 }}>
+                <div className="grid gap-1.5">
                   <PanelRow label="Token endpoint" value={impersonationPanel.tokenEndpoint} />
                   <PanelRow label="Client" value={impersonationPanel.clientId} />
                   <PanelRow label="Grant type" value={impersonationPanel.grantType} />
@@ -410,26 +373,17 @@ export function UserInfoContainer({ userId, onMutated, onClose }: UserInfoContai
                 </div>
 
                 <div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      marginBottom: 6,
-                    }}
-                  >
-                    <span style={{ fontSize: 12, color: 'var(--faint)' }}>Request</span>
-                    <button
-                      className="btn btn-sm"
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <span className="text-xs text-faint">Request</span>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={() => copyToClipboard(impersonationPanel.curl, 'Command')}
                     >
                       Copy
-                    </button>
+                    </Button>
                   </div>
-                  <pre
-                    className="code"
-                    style={{ fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}
-                  >
+                  <pre className="mono m-0 rounded-md border border-border bg-panel-2 px-2 py-0.5 text-[11px] break-all whitespace-pre-wrap text-dim">
                     {impersonationPanel.curl}
                   </pre>
                 </div>
@@ -445,11 +399,9 @@ export function UserInfoContainer({ userId, onMutated, onClose }: UserInfoContai
 /** One label/value line of the impersonation panel. */
 function PanelRow({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ display: 'flex', gap: 10, fontSize: 12 }}>
-      <span style={{ color: 'var(--faint)', minWidth: 140 }}>{label}</span>
-      <span className="code" style={{ fontSize: 11, padding: '2px 6px', wordBreak: 'break-all' }}>
-        {value}
-      </span>
+    <div className="flex flex-col gap-1 text-xs sm:flex-row sm:gap-2.5">
+      <span className="min-w-[140px] text-faint">{label}</span>
+      <Code className="px-1.5 text-[11px]">{value}</Code>
     </div>
   );
 }
@@ -493,55 +445,33 @@ export function UserRolesContainer({ userId, onMutated }: UserRolesContainerProp
 
   return (
     <div>
-      <div
-        style={{
-          fontSize: 10.5,
-          letterSpacing: '0.12em',
-          textTransform: 'uppercase',
-          color: 'var(--faint)',
-          fontWeight: 600,
-          marginBottom: 8,
-        }}
-      >
-        Global Roles
-      </div>
+      <SectionLabel className="text-[10.5px]">Global Roles</SectionLabel>
       <QueryBoundary
+        label="Roles"
         isLoading={isLoading}
         error={error}
         onRetry={refetch}
         skeleton={
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {[1, 2].map((i) => (
-              <div
-                key={i}
-                style={{
-                  height: 20,
-                  borderRadius: 6,
-                  background: 'var(--bg3)',
-                  backgroundImage:
-                    'linear-gradient(90deg, var(--bg3) 0%, var(--bg2) 40%, var(--bg3) 100%)',
-                  backgroundSize: '200% 100%',
-                  animation: 'sk-shimmer 1.6s ease-in-out infinite',
-                }}
-              />
-            ))}
+          <div className="flex flex-col gap-2" aria-hidden>
+            <Skeleton height={20} />
+            <Skeleton height={20} />
           </div>
         }
       >
         {user && rolesManagedExternally && (
           <>
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
+            <div className="mb-2 flex flex-wrap gap-1">
               {(user.roles ?? []).length === 0 ? (
-                <span className="badge badge-muted">no roles</span>
+                <Badge variant="neutral">no roles</Badge>
               ) : (
                 (user.roles ?? []).map((r) => (
-                  <span key={r} className="badge badge-accent">
+                  <Badge key={r} variant="brand">
                     {r}
-                  </span>
+                  </Badge>
                 ))
               )}
             </div>
-            <div style={{ fontSize: 12, color: 'var(--faint)' }}>
+            <div className="text-xs text-faint">
               Roles come from the application (resolveTokenRoles) and are managed there.
             </div>
           </>
@@ -549,30 +479,24 @@ export function UserRolesContainer({ userId, onMutated }: UserRolesContainerProp
         {user && !rolesManagedExternally && (
           <>
             {selectedRoles.length === 0 && (
-              <div style={{ fontSize: 12, color: 'var(--faint)', marginBottom: 8 }}>
-                No roles assigned
-              </div>
+              <div className="mb-2 text-xs text-faint">No roles assigned</div>
             )}
             {user.globalRoles.map((r) => (
-              <label key={r} className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={selectedRoles.includes(r)}
-                  onChange={() => toggleRole(r)}
-                />
-                <div>
-                  <div className="chk-label">{r}</div>
-                </div>
-              </label>
+              <CheckboxRow
+                key={r}
+                checked={selectedRoles.includes(r)}
+                onChange={() => toggleRole(r)}
+                label={r}
+              />
             ))}
-            <button
-              className="btn btn-primary btn-sm"
-              style={{ marginTop: 10 }}
+            <Button
+              size="sm"
+              className="mt-2.5"
               onClick={handleUpdateRoles}
               disabled={updateRolesMutation.isPending}
             >
-              {updateRolesMutation.isPending ? <span className="spinner sm" /> : 'Save roles'}
-            </button>
+              {updateRolesMutation.isPending ? 'Saving…' : 'Save roles'}
+            </Button>
           </>
         )}
       </QueryBoundary>
@@ -597,69 +521,48 @@ export function UserSessionsContainer({ userId }: UserSessionsContainerProps) {
 
   return (
     <div>
-      <div
-        style={{
-          fontSize: 10.5,
-          letterSpacing: '0.12em',
-          textTransform: 'uppercase',
-          color: 'var(--faint)',
-          fontWeight: 600,
-          marginBottom: 8,
-        }}
-      >
+      <SectionLabel className="text-[10.5px]">
         Sessions {!isLoading && !error ? `(${sessions.length})` : ''}
-      </div>
+      </SectionLabel>
       <QueryBoundary
+        label="Sessions"
         isLoading={isLoading}
         error={error}
         onRetry={refetch}
         skeleton={
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {[1, 2].map((i) => (
-              <div
-                key={i}
-                style={{
-                  height: 44,
-                  borderRadius: 8,
-                  background: 'var(--bg3)',
-                  backgroundImage:
-                    'linear-gradient(90deg, var(--bg3) 0%, var(--bg2) 40%, var(--bg3) 100%)',
-                  backgroundSize: '200% 100%',
-                  animation: 'sk-shimmer 1.6s ease-in-out infinite',
-                }}
-              />
-            ))}
+          <div className="flex flex-col gap-2" aria-hidden>
+            <Skeleton height={44} />
+            <Skeleton height={44} />
           </div>
         }
       >
         {sessions.length === 0 ? (
-          <div style={{ fontSize: 12, color: 'var(--faint)' }}>No active sessions</div>
+          <div className="text-xs text-faint">No active sessions</div>
         ) : (
           sessions.map((s) => (
-            <div key={s.id} className="panel" style={{ marginBottom: 8, padding: '10px 12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+            <div
+              key={s.id}
+              className="agora-surface mb-2 rounded-lg border border-border px-3 py-2.5"
+            >
+              <div className="flex flex-wrap items-center gap-2 text-xs">
                 <svg
                   width="13"
                   height="13"
                   viewBox="0 0 16 16"
                   fill="none"
-                  stroke="var(--muted)"
+                  stroke="currentColor"
                   strokeWidth="1.6"
+                  className="text-dim"
+                  aria-hidden="true"
                 >
                   <rect x="1.5" y="3.5" width="13" height="9" rx="1.5" />
                   <circle cx="8" cy="8.5" r="2" />
                 </svg>
-                <span style={{ color: 'var(--text)', fontWeight: 500 }}>
-                  {s.browser ?? 'Unknown browser'}
-                </span>
-                <span style={{ color: 'var(--faint)' }}>{s.os}</span>
-                <span className="code ml-auto">{s.ip ?? '—'}</span>
+                <span className="font-medium text-fg">{s.browser ?? 'Unknown browser'}</span>
+                <span className="text-faint">{s.os}</span>
+                <Code className="ml-auto">{s.ip ?? '—'}</Code>
               </div>
-              {s.location && (
-                <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 4 }}>
-                  {s.location}
-                </div>
-              )}
+              {s.location && <div className="mt-1 text-[11px] text-faint">{s.location}</div>}
             </div>
           ))
         )}
@@ -681,7 +584,7 @@ export function UserDetailDrawer({ userId, onClose, onMutated }: UserDetailDrawe
 
   return (
     <Drawer open={true} onClose={onClose} title={user?.email ?? 'User detail'}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div className="flex flex-col gap-5">
         <UserInfoContainer userId={userId} onMutated={onMutated} onClose={onClose} />
         <UserRolesContainer userId={userId} onMutated={onMutated} />
         <UserSessionsContainer userId={userId} />

@@ -5,8 +5,13 @@ import {
   useSettingsQueryOptions,
 } from '@adonis-agora/authkit-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import React, { useState } from 'react';
+import { useState } from 'react';
+import { cn } from '../agora-kit/lib/utils';
+import { Badge } from '../agora-kit/ui/badge';
+import { Button } from '../agora-kit/ui/button';
 import { ChipsEditor, FieldRow, Toggle } from '../components/forms';
+import { SectionLabel, TextInput } from '../components/primitives';
+import { Skeleton } from '../components/Skeleton';
 import { useToast } from '../lib/toast';
 
 /**
@@ -122,24 +127,21 @@ export function OrgSettingsSection({ orgId }: { orgId: string }) {
     }
   }
 
-  if (isLoading) return null;
+  if (isLoading) {
+    return (
+      <div className="flex flex-col gap-2.5 border-t border-border pt-4" aria-hidden>
+        <Skeleton width={150} height={10} />
+        <Skeleton height={52} />
+        <Skeleton height={52} />
+      </div>
+    );
+  }
 
   return (
-    <div style={{ borderTop: '1px solid var(--line)', paddingTop: 16 }}>
-      <div
-        style={{
-          fontSize: 10.5,
-          letterSpacing: '0.12em',
-          textTransform: 'uppercase',
-          color: 'var(--faint)',
-          fontWeight: 600,
-          marginBottom: 12,
-        }}
-      >
-        Organization Settings
-      </div>
+    <div className="border-t border-border pt-4">
+      <SectionLabel className="mb-3 text-[10.5px]">Organization Settings</SectionLabel>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div className="flex flex-col gap-2.5">
         {ORG_SCOPABLE_KEYS.map((key) => {
           const orgEntry = getOrgEntry(key);
           const globalEntry = getGlobalEntry(key);
@@ -147,67 +149,46 @@ export function OrgSettingsSection({ orgId }: { orgId: string }) {
 
           // Badge: from org > from global > default
           const sourceBadge = orgEntry
-            ? { text: 'from org', color: 'var(--accent, #4f46e5)' }
+            ? { text: 'from org', className: 'border-brand-border text-brand' }
             : globalEntry
-              ? { text: 'from global', color: 'var(--muted)' }
-              : { text: 'default', color: 'var(--faint)' };
+              ? { text: 'from global', className: 'border-dim/50 text-dim' }
+              : { text: 'default', className: 'border-faint/50 text-faint' };
 
           const isEditing = editingKey === key;
           /** Valor herdado que pré-popula o form quando não há override da org. */
           const inherited: unknown = orgEntry?.value ?? globalEntry?.value ?? null;
 
           return (
-            <div
-              key={key}
-              style={{
-                background: 'var(--surface, var(--bg))',
-                border: '1px solid var(--line)',
-                borderRadius: 6,
-                padding: '10px 12px',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  marginBottom: isEditing ? 10 : 0,
-                }}
-              >
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
-                    {label.en}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>{label.pt}</div>
+            <div key={key} className="rounded-md border border-border bg-panel-2 px-3 py-2.5">
+              <div className={cn('flex flex-wrap items-center gap-2', isEditing && 'mb-2.5')}>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-semibold text-fg">{label.en}</div>
+                  <div className="text-[11px] text-dim">{label.pt}</div>
                 </div>
                 <span
-                  style={{
-                    fontSize: 10,
-                    padding: '2px 6px',
-                    borderRadius: 4,
-                    background: 'transparent',
-                    border: `1px solid ${sourceBadge.color}`,
-                    color: sourceBadge.color,
-                    fontWeight: 600,
-                  }}
+                  className={cn(
+                    'rounded-sm border bg-transparent px-1.5 py-0.5 text-[10px] font-semibold',
+                    sourceBadge.className,
+                  )}
                 >
                   {sourceBadge.text}
                 </span>
                 {!isEditing && (
                   <>
-                    <button className="btn btn-ghost btn-sm" onClick={() => setEditingKey(key)}>
+                    <Button variant="ghost" size="sm" onClick={() => setEditingKey(key)}>
                       {orgEntry ? 'Edit' : 'Override'}
-                    </button>
+                    </Button>
                     {orgEntry && (
-                      <button
-                        className="btn btn-ghost btn-sm"
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => handleRemove(key)}
                         disabled={removeMutation.isPending}
-                        style={{ color: 'var(--danger, #e53e3e)' }}
+                        className="text-bad hover:text-bad"
                         title="Remove org override (falls back to global)"
                       >
                         Reset
-                      </button>
+                      </Button>
                     )}
                   </>
                 )}
@@ -247,13 +228,13 @@ export function OrgSettingsSection({ orgId }: { orgId: string }) {
 
 function OrgPolicySummary({ value }: { value: OrgPolicyValue }) {
   return (
-    <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-      <span className="badge badge-muted">self-create: {value.allowSelfCreate ? 'on' : 'off'}</span>
-      <span className="badge badge-muted">invite TTL: {value.invitationTtlHours}h</span>
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      <Badge variant="neutral">self-create: {value.allowSelfCreate ? 'on' : 'off'}</Badge>
+      <Badge variant="neutral">invite TTL: {value.invitationTtlHours}h</Badge>
       {value.roles.map((r) => (
-        <span key={r} className="badge badge-muted">
+        <Badge key={r} variant="neutral">
           {r}
-        </span>
+        </Badge>
       ))}
     </div>
   );
@@ -261,11 +242,11 @@ function OrgPolicySummary({ value }: { value: OrgPolicyValue }) {
 
 function RolesCatalogSummary({ value }: { value: RolesCatalogValue }) {
   return (
-    <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+    <div className="mt-2 flex flex-wrap gap-1.5">
       {value.roles.map((r) => (
-        <span key={r.name} className="badge badge-muted" title={r.description ?? ''}>
+        <Badge key={r.name} variant="neutral" title={r.description ?? ''}>
           {r.name}
-        </span>
+        </Badge>
       ))}
     </div>
   );
@@ -289,27 +270,25 @@ function OrgPolicyForm({
   const [roles, setRoles] = useState(initial.roles);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div className="flex flex-col gap-3">
       <FieldRow label="Allow self-create" hint="Members can create their own organizations">
-        <Toggle checked={allowSelfCreate} onChange={setAllowSelfCreate} />
+        <Toggle checked={allowSelfCreate} onChange={setAllowSelfCreate} label="Allow self-create" />
       </FieldRow>
       <FieldRow label="Invitation TTL" hint="Hours before a pending invitation expires">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <input
-            className="input"
+        <div className="flex items-center gap-1.5">
+          <TextInput
             type="number"
             min={1}
             value={ttlHours}
             onChange={(e) => setTtlHours(Number(e.target.value))}
-            style={{ width: 80 }}
+            aria-label="Invitation TTL (hours)"
+            className="w-20"
           />
-          <span style={{ fontSize: 11, color: 'var(--faint)' }}>h</span>
+          <span className="text-[11px] text-faint">h</span>
         </div>
       </FieldRow>
       <div>
-        <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', marginBottom: 6 }}>
-          Organization roles
-        </div>
+        <div className="mb-1.5 text-xs font-medium text-fg">Organization roles</div>
         {/* `owner` é invariante do domínio: sempre preservado. */}
         <ChipsEditor
           values={roles}
@@ -318,18 +297,18 @@ function OrgPolicyForm({
           placeholder="new role…"
         />
       </div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button
+      <div className="flex gap-2">
+        <Button
           type="button"
-          className="btn btn-primary btn-sm"
+          size="sm"
           disabled={saving}
           onClick={() => onSave({ allowSelfCreate, invitationTtlHours: ttlHours, roles })}
         >
           {saving ? 'Saving…' : 'Save'}
-        </button>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onCancel}>
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -361,37 +340,38 @@ function RolesCatalogForm({
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div className="flex flex-col gap-2">
       {rows.map((row, i) => (
-        <div key={row.name} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <span className="badge badge-muted" style={{ minWidth: 70, justifyContent: 'center' }}>
+        <div key={row.name} className="flex items-center gap-1.5">
+          <Badge variant="neutral" className="min-w-[70px]">
             {row.name}
-          </span>
-          <input
-            className="input"
+          </Badge>
+          <TextInput
             value={row.description}
             onChange={(e) =>
               setRows(rows.map((r, j) => (j === i ? { ...r, description: e.target.value } : r)))
             }
             placeholder="description…"
-            style={{ flex: 1 }}
+            aria-label={`${row.name} description`}
+            className="flex-1"
           />
           {/* ADMIN é o gate do console — o backend o garante de qualquer forma. */}
           {row.name !== 'ADMIN' && (
-            <button
+            <Button
               type="button"
-              className="btn btn-ghost btn-sm"
-              style={{ color: 'var(--danger, #e53e3e)' }}
+              variant="ghost"
+              size="sm"
+              className="text-bad hover:text-bad"
+              aria-label={`Remove ${row.name}`}
               onClick={() => setRows(rows.filter((_, j) => j !== i))}
             >
               ×
-            </button>
+            </Button>
           )}
         </div>
       ))}
-      <div style={{ display: 'flex', gap: 6 }}>
-        <input
-          className="input"
+      <div className="flex flex-wrap gap-1.5">
+        <TextInput
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => {
@@ -401,10 +381,10 @@ function RolesCatalogForm({
             }
           }}
           placeholder="ROLE_NAME"
-          style={{ width: 130 }}
+          aria-label="New role name"
+          className="w-[130px]"
         />
-        <input
-          className="input"
+        <TextInput
           value={newDesc}
           onChange={(e) => setNewDesc(e.target.value)}
           onKeyDown={(e) => {
@@ -414,16 +394,17 @@ function RolesCatalogForm({
             }
           }}
           placeholder="description…"
-          style={{ flex: 1 }}
+          aria-label="New role description"
+          className="min-w-[140px] flex-1"
         />
-        <button type="button" className="btn btn-ghost btn-sm" onClick={addRow}>
+        <Button type="button" variant="ghost" size="sm" className="h-[34px]" onClick={addRow}>
           Add
-        </button>
+        </Button>
       </div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button
+      <div className="flex gap-2">
+        <Button
           type="button"
-          className="btn btn-primary btn-sm"
+          size="sm"
           disabled={saving}
           onClick={() =>
             onSave({
@@ -432,10 +413,10 @@ function RolesCatalogForm({
           }
         >
           {saving ? 'Saving…' : 'Save'}
-        </button>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onCancel}>
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   );

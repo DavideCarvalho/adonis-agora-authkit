@@ -1,6 +1,8 @@
 import type { PersonalAgentEntry } from '@adonis-agora/authkit-react';
 import { parseAsInteger, useQueryState } from 'nuqs';
-import React, { useState } from 'react';
+import { useState } from 'react';
+import { PageHeader } from '../agora-kit/blocks/page-header';
+import { PageBody } from '../agora-kit/shell/app-shell';
 import {
   PersonalAgentConnectionsContainer,
   PersonalAgentsContainer,
@@ -11,14 +13,17 @@ export function PersonalAgents() {
   const [agent, setAgent] = useState<PersonalAgentEntry | null>(null);
 
   return (
-    <div>
-      <div className="page-header">
-        <div className="page-title">Personal agents</div>
-        <div className="page-sub">
-          AI agents (PACT and other protocols) acting for your users: who is connected, and which
-          agents may connect. Allow and block add to <code>defineConfig</code> and apply right away.
-        </div>
-      </div>
+    <PageBody>
+      <PageHeader
+        title="Personal agents"
+        description={
+          <>
+            AI agents (PACT and other protocols) acting for your users: who is connected, and which
+            agents may connect. Allow and block add to <code className="mono">defineConfig</code>{' '}
+            and apply right away.
+          </>
+        }
+      />
       <PersonalAgentsContainer
         onShowConnections={(a) => {
           setAgent(a);
@@ -34,6 +39,6 @@ export function PersonalAgents() {
         page={page}
         onPage={(p) => void setPage(p)}
       />
-    </div>
+    </PageBody>
   );
 }

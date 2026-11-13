@@ -1,38 +1,31 @@
-import React, { useEffect } from 'react';
+import type { ReactNode } from 'react';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../agora-kit/ui/sheet';
 
 interface DrawerProps {
   open: boolean;
   onClose: () => void;
   title: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
+/** The right-hand detail panel (shadcn `Sheet`): full width on phones, 520px from `sm`. */
 export function Drawer({ open, onClose, title, children }: DrawerProps) {
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
   return (
-    <>
-      <div className="drawer-overlay" onClick={onClose} />
-      <div className="drawer">
-        <div className="drawer-head">
-          <h2>{title}</h2>
-          <button className="modal-close" onClick={onClose}>
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M3 3l10 10M13 3L3 13" strokeLinecap="round" />
-            </svg>
-          </button>
-        </div>
-        <div className="drawer-body">{children}</div>
-      </div>
-    </>
+    <Sheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <SheetContent
+        side="right"
+        className="w-full gap-0 border-border bg-panel shadow-(--agora-shadow) data-[side=right]:w-full data-[side=right]:sm:max-w-[520px]"
+      >
+        <SheetHeader className="border-b border-border px-5 py-4 pr-14">
+          <SheetTitle className="truncate text-sm font-semibold text-fg">{title}</SheetTitle>
+        </SheetHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">{children}</div>
+      </SheetContent>
+    </Sheet>
   );
 }

@@ -1,25 +1,31 @@
 import { type AuditEventEntry, useAuditQueryOptions } from '@adonis-agora/authkit-react';
 import { useQuery } from '@tanstack/react-query';
-import React, { useState } from 'react';
+import { useState } from 'react';
+import { EmptyState } from '../agora-kit/blocks/empty-state';
+import { Panel } from '../agora-kit/blocks/panel';
+import { XIcon } from '../agora-kit/icons';
+import { Badge } from '../agora-kit/ui/badge';
+import { Button } from '../agora-kit/ui/button';
 import { CursorPagination } from '../components/Pagination';
+import { AdminTable, Cell, Code, Row, Surface } from '../components/primitives';
 import { QueryBoundary } from '../components/QueryBoundary';
-import { SkeletonPanelTable } from '../components/Skeleton';
+import { SkeletonTable } from '../components/Skeleton';
 
-function eventBadgeClass(type: string) {
-  if (type.includes('login') || type.includes('signin') || type.includes('success'))
-    return 'badge-green';
+/** Badge tone of an audit event type (wider than the Overview's: success/block/created/updated). */
+function eventTone(type: string): 'good' | 'destructive' | 'brand' | 'warn' | 'neutral' {
+  if (type.includes('login') || type.includes('signin') || type.includes('success')) return 'good';
   if (
     type.includes('fail') ||
     type.includes('error') ||
     type.includes('locked') ||
     type.includes('block')
   )
-    return 'badge-red';
+    return 'destructive';
   if (type.includes('register') || type.includes('signup') || type.includes('created'))
-    return 'badge-accent';
+    return 'brand';
   if (type.includes('settings') || type.includes('admin') || type.includes('updated'))
-    return 'badge-amber';
-  return 'badge-muted';
+    return 'warn';
+  return 'neutral';
 }
 
 const PAGE_SIZE = 30;
@@ -88,74 +94,63 @@ export function AuditTableContainer({
   const displayError = error && !isNotFound ? error : undefined;
 
   return (
-    <div className="panel">
+    <Surface>
       <QueryBoundary
+        label="Audit events"
         isLoading={isLoading}
         error={displayError}
         onRetry={refetch}
-        skeleton={<SkeletonPanelTable rows={8} cols={4} />}
+        skeleton={<SkeletonTable rows={8} cols={4} />}
       >
         {events.length === 0 ? (
-          <div className="empty-state">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path
-                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-                strokeLinecap="round"
-              />
-            </svg>
-            <h4>No events found</h4>
-            <p>{typeFilter ? 'No events match this filter' : 'No audit events recorded yet'}</p>
-          </div>
+          <EmptyState
+            title="No events found"
+            description={
+              typeFilter ? 'No events match this filter' : 'No audit events recorded yet'
+            }
+            icon={
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path
+                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            }
+          />
         ) : (
-          <div className="tbl-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Type</th>
-                  <th>Account</th>
-                  <th>IP</th>
-                  <th>When</th>
-                </tr>
-              </thead>
-              <tbody>
-                {events.map((ev) => (
-                  <tr key={ev.id} onClick={() => onSelect(selected?.id === ev.id ? null : ev)}>
-                    <td>
-                      <span className={`badge ${eventBadgeClass(ev.type)}`}>{ev.type}</span>
-                    </td>
-                    <td>
-                      <span style={{ fontFamily: 'var(--mono)', fontSize: 11.5 }}>
-                        {ev.email ?? ev.accountId ?? (
-                          <span style={{ color: 'var(--faint)' }}>—</span>
-                        )}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="code">{ev.ip ?? '—'}</span>
-                    </td>
-                    <td>
-                      <span
-                        style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--faint)' }}
-                      >
-                        {ev.createdAt ? new Date(ev.createdAt).toLocaleString() : '—'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div style={{ padding: '0 16px 12px' }}>
-              <CursorPagination
-                hasPrev={!!meta?.hasPrev}
-                hasNext={!!meta?.hasNext}
-                onPrev={() => meta?.prevCursor && onCursor({ before: meta.prevCursor })}
-                onNext={() => meta?.nextCursor && onCursor({ after: meta.nextCursor })}
-              />
-            </div>
-          </div>
+          <>
+            <AdminTable head={['Type', 'Account', 'IP', 'When']} label="Audit events">
+              {events.map((ev) => (
+                <Row
+                  key={ev.id}
+                  onClick={() => onSelect(selected?.id === ev.id ? null : ev)}
+                  className={selected?.id === ev.id ? 'bg-hover' : undefined}
+                >
+                  <Cell>
+                    <Badge variant={eventTone(ev.type)}>{ev.type}</Badge>
+                  </Cell>
+                  <Cell className="mono text-[11.5px]">
+                    {ev.email ?? ev.accountId ?? <span className="text-faint">—</span>}
+                  </Cell>
+                  <Cell>
+                    <Code>{ev.ip ?? '—'}</Code>
+                  </Cell>
+                  <Cell className="mono text-[11px] text-faint">
+                    {ev.createdAt ? new Date(ev.createdAt).toLocaleString() : '—'}
+                  </Cell>
+                </Row>
+              ))}
+            </AdminTable>
+            <CursorPagination
+              hasPrev={!!meta?.hasPrev}
+              hasNext={!!meta?.hasNext}
+              onPrev={() => meta?.prevCursor && onCursor({ before: meta.prevCursor })}
+              onNext={() => meta?.nextCursor && onCursor({ after: meta.nextCursor })}
+            />
+          </>
         )}
       </QueryBoundary>
-    </div>
+    </Surface>
   );
 }
 
@@ -168,33 +163,17 @@ interface AuditEventDetailContainerProps {
 
 export function AuditEventDetailContainer({ event, onClose }: AuditEventDetailContainerProps) {
   return (
-    <div className="panel" style={{ padding: '14px 16px' }}>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 10,
-        }}
-      >
-        <div style={{ fontWeight: 600, fontSize: 13 }}>Event Detail</div>
-        <button className="btn btn-ghost btn-sm" onClick={onClose}>
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M3 3l10 10M13 3L3 13" strokeLinecap="round" />
-          </svg>
-        </button>
-      </div>
-      <pre
-        style={{
-          fontFamily: 'var(--mono)',
-          fontSize: 11.5,
-          color: 'var(--muted)',
-          overflow: 'auto',
-          lineHeight: 1.6,
-        }}
-      >
+    <Panel
+      title="Event Detail"
+      action={
+        <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close event detail">
+          <XIcon />
+        </Button>
+      }
+    >
+      <pre className="mono overflow-auto text-[11.5px] leading-relaxed text-dim">
         {JSON.stringify(event, null, 2)}
       </pre>
-    </div>
+    </Panel>
   );
 }

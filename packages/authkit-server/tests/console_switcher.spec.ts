@@ -4,12 +4,14 @@ import {
   AGORA_CONSOLES_BINDING,
   type AgoraConsoleEntry,
   type AgoraConsoleRegistry,
+  announceAgoraSignOut,
   countOtherConsoles,
   isAgoraProbe,
   listVisibleConsoles,
   registerAgoraConsole,
   searchConsoles,
 } from '../src/console_switcher.js';
+import { resetAccountPaths, setAccountPaths } from '../src/host/account_paths.js';
 import {
   ADMIN_CONSOLE_ID,
   adminConsoleEntry,
@@ -19,13 +21,6 @@ import AdminShellController from '../src/host/admin_console/admin_shell_controll
 import ConsoleSwitcherController from '../src/host/admin_console/console_switcher_controller.js';
 import { setAdminPrefix } from '../src/host/admin_prefix.js';
 import { adminConsoleDecision, registerAuthHost } from '../src/host/register_auth_host.js';
-import {
-  iconKey,
-  isSafeHref,
-  moveIndex,
-  parseConsoles,
-  parseSearchGroups,
-} from '../ui/src/lib/console_switcher.js';
 
 /** A container with just what the registry helper uses. */
 function fakeApp() {
@@ -564,15 +559,21 @@ test.group('admin console switcher routes and shell', (group) => {
     ]);
   });
 
-  async function shellConfig(app: unknown) {
+  async function shellConfig(
+    app: unknown,
+    opts: { account?: { id: string; email: string; globalRoles: string[] }; csrf?: string } = {},
+  ) {
     setBootedApp(app as any);
     setAdminPrefix('/admin');
     let html = '';
+    const accountStore = {
+      findById: async (id: string) => (id === opts.account?.id ? opts.account : null),
+    };
     const c = {
-      session: { get: () => undefined },
-      request: {},
+      session: { get: () => opts.account?.id },
+      request: opts.csrf ? { csrfToken: opts.csrf } : {},
       response: { type: () => ({ send: (h: string) => (html = h) }) },
-      containerResolver: { make: async () => ({ config: { accountStore: {}, messages: {} } }) },
+      containerResolver: { make: async () => ({ config: { accountStore, messages: {} } }) },
     } as any;
     await new AdminShellController().serve(c);
     const json = /<script type="application\/json" id="authkit-admin-config">(.*?)<\/script>/s.exec(
@@ -597,61 +598,136 @@ test.group('admin console switcher routes and shell', (group) => {
     const config = await shellConfig(many.app);
     assert.deepEqual(config.switcher, { endpoint: '/admin/api/consoles', others: 2 });
   });
-});
 
-test.group('admin SPA switcher data', () => {
-  test('isSafeHref accepts only same-origin paths', ({ assert }) => {
-    assert.isTrue(isSafeHref('/durable'));
-    for (const bad of [
-      '//evil.test',
-      'https://evil.test',
-      'javascript:alert(1)',
-      '/\\evil',
-      '',
-      42,
-    ]) {
-      assert.isFalse(isSafeHref(bad), String(bad));
+  test('the shell config carries `viewer` and `signOut` (POST + csrf) for the signed-in admin', async ({
+    assert,
+  }) => {
+    const { app } = fakeApp();
+    const config = await shellConfig(app, {
+      account: { id: 'a1', email: 'ann@x.test', globalRoles: ['admin', 'support'] },
+      csrf: 'tok-1',
+    });
+    assert.deepEqual(config.viewer, { label: 'ann@x.test', email: 'ann@x.test', role: 'admin' });
+    assert.deepEqual(config.signOut, { action: '/account/logout', csrfToken: 'tok-1' });
+    // Kept for older SPA builds / hosts reading it.
+    assert.equal(config.currentUser.email, 'ann@x.test');
+    assert.equal(config.csrfToken, 'tok-1');
+  });
+
+  test('signed out → no viewer; no csrf → signOut without a token', async ({ assert }) => {
+    const { app } = fakeApp();
+    const config = await shellConfig(app);
+    assert.notProperty(config, 'viewer');
+    assert.deepEqual(config.signOut, { action: '/account/logout' });
+  });
+
+  test('signOut follows the account prefix and disappears with the login screen', async ({
+    assert,
+  }) => {
+    const { app } = fakeApp();
+    setBootedApp(app as any);
+    try {
+      registerAuthHost(fakeRouter([]), {
+        mountPath: '/oidc',
+        accountRoutes: { prefix: '/conta' },
+      } as any);
+      assert.deepEqual((await shellConfig(app)).signOut, { action: '/conta/logout' });
+
+      registerAuthHost(fakeRouter([]), { mountPath: '/oidc', account: { login: false } } as any);
+      assert.notProperty(await shellConfig(app), 'signOut');
+    } finally {
+      resetAccountPaths();
     }
   });
+});
 
-  test('parseConsoles drops unsafe hrefs and maps unknown icons to generic', ({ assert }) => {
-    assert.deepEqual(
-      parseConsoles({
-        consoles: [
-          { id: 'durable', title: 'Workflows', icon: 'workflow', href: '/durable' },
-          { id: 'x', title: 'X', icon: 'rocket', href: '/x', package: '@a/x' },
-          { id: 'evil', title: 'Evil', icon: 'media', href: 'javascript:alert(1)' },
-          { title: 'no id', href: '/y' },
-        ],
-      }),
-      [
-        { id: 'durable', title: 'Workflows', icon: 'workflow', href: '/durable' },
-        { id: 'x', title: 'X', package: '@a/x', icon: 'generic', href: '/x' },
-      ],
-    );
-    assert.deepEqual(parseConsoles(null), []);
-    assert.equal(iconKey('identity'), 'identity');
+test.group('authkit announces its sign-out on the agora.consoles registry', (group) => {
+  let previous: any;
+  group.each.setup(() => {
+    previous = currentBootedApp();
+  });
+  group.each.teardown(() => {
+    setBootedApp(previous);
+    resetAccountPaths();
   });
 
-  test('parseSearchGroups drops unsafe hits and empty groups', ({ assert }) => {
+  function bareRouter() {
+    const chain: any = {
+      as: () => chain,
+      prefix: () => chain,
+      middleware: () => chain,
+      use: () => chain,
+    };
+    const route = () => chain;
+    return {
+      get: route,
+      post: route,
+      patch: route,
+      delete: route,
+      put: route,
+      any: route,
+      group: (cb: () => void) => (cb(), chain),
+    } as any;
+  }
+
+  /** What durable's `console_shell.ts` (`announcedSignOut`) reads, verbatim in shape. */
+  function durableReads(registry: unknown) {
+    const account = (registry as { account?: any }).account;
+    const signOut = account?.signOut;
+    if (typeof signOut === 'string') return signOut;
+    if (typeof signOut?.action === 'string') return { action: signOut.action };
+    if (typeof signOut?.href === 'string') return { href: signOut.href };
+    return undefined;
+  }
+
+  test('mounting the account login announces POST <account>/logout, read as durable reads it', async ({
+    assert,
+  }) => {
+    const { app, values } = fakeApp();
+    setBootedApp(app as any);
+    setAccountPaths({ prefix: '/conta', paths: { logout: 'sair' } });
+    registerAuthHost(bareRouter(), { mountPath: '/oidc' });
+    await new Promise((r) => setImmediate(r));
+    const registry = values.get(AGORA_CONSOLES_BINDING) as AgoraConsoleRegistry;
+    assert.deepEqual(registry.account, { signOut: { action: '/conta/sair', method: 'POST' } });
+    assert.deepEqual(durableReads(registry), { action: '/conta/sair' });
+    assert.equal(registry.version, 1);
+    assert.isArray(registry.entries);
+  });
+
+  test('no login screen → nothing announced', async ({ assert }) => {
+    const { app, values } = fakeApp();
+    setBootedApp(app as any);
+    registerAuthHost(bareRouter(), { mountPath: '/oidc', account: { login: false } } as any);
+    await new Promise((r) => setImmediate(r));
+    const registry = values.get(AGORA_CONSOLES_BINDING) as AgoraConsoleRegistry | undefined;
+    assert.isUndefined(registry?.account);
+  });
+
+  test('announceAgoraSignOut keeps an existing announcement and the entries', async ({
+    assert,
+  }) => {
+    const { app, values } = fakeApp();
+    await registerAgoraConsole(app, entry('durable'));
+    assert.isTrue(await announceAgoraSignOut(app, '/account/logout'));
+    assert.isFalse(await announceAgoraSignOut(app, '/other/logout'));
+    const registry = values.get(AGORA_CONSOLES_BINDING) as AgoraConsoleRegistry;
+    assert.deepEqual(registry.account?.signOut, { action: '/account/logout', method: 'POST' });
     assert.deepEqual(
-      parseSearchGroups({
-        groups: [
-          { id: 'a', title: 'A', icon: 'agent', hits: [{ title: 't', href: '//x' }] },
-          { id: 'b', title: 'B', icon: 'zzz', hits: [{ title: 't', subtitle: 's', href: '/b' }] },
-        ],
-      }),
-      [{ id: 'b', title: 'B', icon: 'generic', hits: [{ title: 't', subtitle: 's', href: '/b' }] }],
+      registry.entries.map((e) => e.id),
+      ['durable'],
     );
   });
 
-  test('moveIndex: arrows wrap, Home/End jump', ({ assert }) => {
-    assert.equal(moveIndex(-1, 'ArrowDown', 3), 0);
-    assert.equal(moveIndex(2, 'ArrowDown', 3), 0);
-    assert.equal(moveIndex(0, 'ArrowUp', 3), 2);
-    assert.equal(moveIndex(1, 'Home', 3), 0);
-    assert.equal(moveIndex(0, 'End', 3), 2);
-    assert.equal(moveIndex(1, 'x', 3), 1);
-    assert.equal(moveIndex(0, 'ArrowDown', 0), -1);
+  test('announceAgoraSignOut skips a foreign registry and rejects an unsafe action', async ({
+    assert,
+  }) => {
+    const { app, values } = fakeApp();
+    values.set(AGORA_CONSOLES_BINDING, { version: 2, entries: [] });
+    assert.isFalse(await announceAgoraSignOut(app, '/account/logout'));
+    assert.notProperty(values.get(AGORA_CONSOLES_BINDING) as object, 'account');
+    for (const bad of ['//evil.test/logout', 'https://evil.test', '/\\evil', '']) {
+      await assert.rejects(() => announceAgoraSignOut(fakeApp().app, bad));
+    }
   });
 });

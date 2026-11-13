@@ -1,40 +1,28 @@
-import React, { useEffect } from 'react';
+import type { ReactNode } from 'react';
+import { ActionDialog } from '../agora-kit/blocks/action-dialog';
 
 interface ModalProps {
   open: boolean;
   onClose: () => void;
   title: string;
-  children: React.ReactNode;
-  footer?: React.ReactNode;
+  children: ReactNode;
+  footer?: ReactNode;
   large?: boolean;
 }
 
+/** A titled dialog with an optional footer (the kit's `ActionDialog`, shadcn Dialog). */
 export function Modal({ open, onClose, title, children, footer, large }: ModalProps) {
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className={`modal${large ? ' modal-lg' : ''}`} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <h2>{title}</h2>
-          <button className="modal-close" onClick={onClose}>
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M3 3l10 10M13 3L3 13" strokeLinecap="round" />
-            </svg>
-          </button>
-        </div>
-        <div className="modal-body">{children}</div>
-        {footer && <div className="modal-foot">{footer}</div>}
-      </div>
-    </div>
+    <ActionDialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+      title={title}
+      footer={footer}
+      className={large ? 'sm:max-w-3xl' : 'sm:max-w-lg'}
+    >
+      {children}
+    </ActionDialog>
   );
 }

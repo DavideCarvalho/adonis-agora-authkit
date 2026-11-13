@@ -1,7 +1,11 @@
 import { authkitKeys, useRevokeAllSessionsMutationOptions } from '@adonis-agora/authkit-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { parseAsInteger, useQueryState } from 'nuqs';
-import React from 'react';
+import { PageHeader } from '../agora-kit/blocks/page-header';
+import { XIcon } from '../agora-kit/icons';
+import { PageBody } from '../agora-kit/shell/app-shell';
+import { Button } from '../agora-kit/ui/button';
+import { dangerButtonClass } from '../components/primitives';
 import { SessionsTableContainer, useSessionsTotal } from '../containers/sessions.containers';
 import { useToast } from '../lib/toast';
 
@@ -25,31 +29,24 @@ export function Sessions() {
   }
 
   return (
-    <div>
-      <div className="page-header-row">
-        <div>
-          <div className="page-title">Sessions</div>
-          <div className="page-sub">{total.toLocaleString()} active sessions</div>
-        </div>
-        <div className="page-actions">
-          <button
-            className="btn btn-danger"
+    <PageBody>
+      <PageHeader
+        title="Sessions"
+        description={`${total.toLocaleString()} active sessions`}
+        actions={
+          <Button
+            variant="outline"
+            className={dangerButtonClass}
             onClick={revokeAll}
             disabled={revokeMutation.isPending}
           >
-            {revokeMutation.isPending ? (
-              <span className="spinner sm" />
-            ) : (
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
-              </svg>
-            )}
-            Revoke All
-          </button>
-        </div>
-      </div>
+            <XIcon />
+            {revokeMutation.isPending ? 'Revoking…' : 'Revoke All'}
+          </Button>
+        }
+      />
 
       <SessionsTableContainer page={page} onPage={setPage} />
-    </div>
+    </PageBody>
   );
 }
