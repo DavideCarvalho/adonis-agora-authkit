@@ -1,5 +1,13 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.18
+
+### Minor Changes
+
+- [#486](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/486) [`46e2f7e`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/46e2f7e4e3306a971d943f3617f4855557f9f990) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The admin console is rebuilt on the Agora console kit: Tailwind 4, the kit's tokens and vendored shadcn components, with the same look as before. Sora and JetBrains Mono now ship inside the bundle (no Google Fonts request), the sidebar collapses to a drawer on phones, every page and data region has its own skeleton and error boundary, and the console switcher, Ctrl/Cmd-K search and sidebar footer are the kit's, shared with the other consoles.
+  
+  The admin shell's data block gains `viewer` (the signed-in admin) and `signOut` (`POST` to the account logout route with the CSRF token). When it mounts the account login screen, authkit also announces that sign-out on the `agora.consoles` registry (`account.signOut`), so durable, telescope and the other consoles show a working sign-out in their footer. Apps that sign out elsewhere can announce their own route first with the new `announceAgoraSignOut(app, '/logout')`.
+
 ## 1.0.0-rc.17
 
 ### Major Changes
