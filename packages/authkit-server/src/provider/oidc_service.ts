@@ -10,6 +10,7 @@ import {
   readActiveOrgFromKoaCtx,
   verifyActiveOrgMembership,
 } from '../host/active_org_cookie.js';
+import { bindBearerAccount } from '../host/bearer_account.js';
 import { isFirstPartyClient } from '../host/branding.js';
 import {
   listKeyInfos,
@@ -398,5 +399,16 @@ export class OidcService {
       // hash-de-conteúdo (acima) continua garantindo correção; só perdemos a expulsão
       // imediata da entrada órfã. Best-effort — não propaga erro pro caminho da request.
     }
+  }
+
+  /**
+   * Vincula a conta de um access token que você verificou FORA do guard bearer do
+   * AuthKit (ex.: o endpoint MCP do `@adonis-agora/agent`) a esta request:
+   * `getAccountId(ctx)` e `realAccountId(ctx)` passam a devolver `accountId`, e
+   * `impersonationState(ctx)` responde "sem impersonation". Uma sessão de console
+   * na mesma request continua ganhando.
+   */
+  bindBearerAccount(ctx: object, accountId: string): void {
+    bindBearerAccount(ctx, accountId);
   }
 }

@@ -18,6 +18,18 @@ export function setBearerAccountId(ctx: object, accountId: string): void {
   bearerAccounts.set(ctx, accountId);
 }
 
+/**
+ * Vincula a conta de um bearer que foi autenticado FORA do `oidcBearerGuard`
+ * (ex.: o endpoint MCP do agent) a esta request, para que `getAccountId`,
+ * `realAccountId` e `impersonationState` vejam quem chamou. O chamador conta
+ * como "sem impersonation": qualquer impersonation bearer anterior desta request
+ * é esquecida.
+ */
+export function bindBearerAccount(ctx: object, accountId: string): void {
+  bearerAccounts.set(ctx, accountId);
+  bearerImpersonations.delete(ctx);
+}
+
 /** Esquece a conta bearer desta request (falha de autenticação). */
 export function clearBearerAccountId(ctx: object): void {
   bearerAccounts.delete(ctx);
