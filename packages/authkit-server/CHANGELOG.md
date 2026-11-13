@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.16
+
+### Patch Changes
+
+- [#483](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/483) [`dcfbed1`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/dcfbed164d3d79dae3f37ad70ad07b5450822887) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The `authkit.server` service gains `bindBearerAccount(ctx, accountId)`. Code that verified an authkit access token outside `oidcBearerGuard` (for example `@adonis-agora/agent`'s dev MCP endpoint) calls it to put the caller on the request: `getAccountId(ctx)` and `realAccountId(ctx)` then return that account, and `impersonationState(ctx)` reports no impersonation. A console session on the same request still wins.
+
 ## 1.0.0-rc.15
 
 ### Patch Changes
