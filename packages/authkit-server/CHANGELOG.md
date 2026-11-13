@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.19
+
+### Minor Changes
+
+- [#488](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/488) [`4bb7e9c`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/4bb7e9c662f3f6bc7198f1c73201571f73af895c) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `oidcBearerGuard({ resource })`: declare the protected resource an API guards (`'https://api.acme.com'`, `{ url }` or `{ path: '/api' }` on the issuer's origin, optional `name`). The 401 then carries `resource_metadata="<origin>/.well-known/oauth-protected-resource<path>"` (RFC 9728 §5.1) next to `error`/`scope`, AuthKit serves that metadata document (with `Access-Control-Allow-Origin: *`), the issuer accepts the resource as an RFC 8707 target even without `mcp`, and the token's `aud` must contain the resource. `mcp.resources` on the issuer's origin get their document too; paths a library serves itself (the agent's MCP) are left alone. Without `resource` nothing changes.
+
 ## 1.0.0-rc.18
 
 ### Minor Changes
