@@ -123,7 +123,7 @@ managers install the add-ons `@adonis-agora/authkit-vault-aws` / `-azure` / `-gc
 and pass their `createKeystoreVault(...)` result as `store` (any object with a
 `read()` method is accepted). With no `store` at all, keys are ephemeral per boot.
 
-Rotation tooling ships as `node ace authkit:rotate-keys`; health checks via
+Rotation tooling ships as `node ace authkit:key rotate`; health checks via
 `node ace authkit:doctor`.
 
 Source: `src/keys/keystore_manager.ts` (`resolveKeystoreVault`),
