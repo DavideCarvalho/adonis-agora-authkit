@@ -86,34 +86,29 @@ router.get('/reports', [ReportsController]).use(async (ctx, next) =>
 )
 ```
 
-## Recipe: protecting adonis-telescope
+## Recipe: protecting the Telescope console
 
-[`@dudousxd/adonis-telescope`](https://davidecarvalho.github.io/adonis-telescope/)
-accepts an `authorize` hook that may return `{ redirectTo }` — a perfect
-fit for the console session:
+[`@adonis-agora/telescope`](/docs/telescope)'s console accepts an `authorize` hook that may
+return `{ redirectTo }`, which fits the console session:
 
-```ts
-// config/telescope.ts
-import { defineConfig } from '@dudousxd/adonis-telescope'
+```ts title="config/telescope_ui.ts"
+import { defineConfig } from '@adonis-agora/telescope/ui'
 import { hasAccountSession, consoleLoginUrl } from '@adonis-agora/authkit-server'
 
 export default defineConfig({
-  enabled: true,
-
   /**
-   * Humans come in through the console session: with no session, redirect
-   * to the AuthKit login and return to /telescope after authenticating.
+   * With no session, redirect to the AuthKit login and come back to
+   * /telescope after signing in.
    */
   authorize: async (ctx) =>
     hasAccountSession(ctx) ? true : { redirectTo: consoleLoginUrl('/telescope') },
-
-  /**
-   * Agents (MCP) have no browser session — they use their own Bearer
-   * token, separate from the human flow.
-   */
-  mcp: { token: process.env.TELESCOPE_TOKEN },
 })
 ```
+
+Coding agents do not need a token of their own. Telescope's MCP tools are on the Agora dev
+endpoint `/mcp/agora` (see [Dev tools over MCP](/docs/agent/dev-tools)). The MCP client signs in
+through AuthKit (see [MCP clients](/docs/mcp-clients)), and each call goes through the same
+`authorize` hook.
 
 ## Restricting by role
 
@@ -136,6 +131,40 @@ authorize: async (ctx) => {
   return account?.globalRoles?.includes('admin') ?? false
 }
 ```
+
+## Bearer tokens you verify yourself
+
+`oidcBearerGuard` records the account of the access token it authenticates, so
+`getAccountId(ctx)` sees it. When you verify a bearer token some other way (an MCP endpoint,
+a custom guard), tell AuthKit which account it belongs to with `bindBearerAccount` on the
+`authkit.server` service:
+
+```ts title="app/middleware/api_token_middleware.ts"
+import type { HttpContext } from '@adonisjs/core/http'
+import type { NextFn } from '@adonisjs/core/types/http'
+import { getAccountId } from '@adonis-agora/authkit-server'
+
+export default class ApiTokenMiddleware {
+  async handle(ctx: HttpContext, next: NextFn) {
+    const token = ctx.request.header('authorization')?.replace(/^Bearer /i, '')
+    const accountId = token ? await verifyMyToken(token) : null // your verification
+    if (!accountId) return ctx.response.unauthorized({ error: 'unauthenticated' })
+
+    const authkit = await ctx.containerResolver.make('authkit.server')
+    authkit.bindBearerAccount(ctx, accountId)
+
+    getAccountId(ctx) // accountId
+    return next()
+  }
+}
+```
+
+After the call, for the rest of the request:
+
+- `getAccountId(ctx)` and `realAccountId(ctx)` return `accountId`;
+- `impersonationState(ctx)` reports no impersonation. A caller bound this way never counts as
+  impersonating, and any bearer impersonation recorded earlier in the request is dropped;
+- a console session on the same request still wins over the bound account.
 
 ## Sudo mode (step-up authentication)
 
