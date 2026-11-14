@@ -507,7 +507,7 @@ importers:
         specifier: workspace:*
         version: link:../authkit-core
       '@adonis-agora/filter-client':
-        specifier: ^1.0.0-rc.1
+        specifier: 1.0.0-rc.1
         version: 1.0.0-rc.1
       '@simplewebauthn/browser':
         specifier: catalog:frontendPeers
@@ -556,7 +556,7 @@ importers:
   packages/authkit-sdk:
     dependencies:
       '@adonis-agora/filter-client':
-        specifier: ^1.0.0-rc.1
+        specifier: 1.0.0-rc.1
         version: 1.0.0-rc.1
     devDependencies:
       '@adonis-agora/authkit-server':
@@ -590,7 +590,7 @@ importers:
         specifier: workspace:*
         version: link:../authkit-core
       '@adonis-agora/filter':
-        specifier: ^1.0.0-rc.5
+        specifier: 1.0.0-rc.5
         version: 1.0.0-rc.5(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@adonisjs/lucid@22.4.2(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@adonisjs/core@7.6.0(@adonisjs/assembler@8.6.0(typescript@7.0.2))(@vinejs/vine@4.4.0)(edge.js@6.5.1)(supports-color@10.2.2)(youch@4.1.1))(@vinejs/vine@4.4.0)(better-sqlite3@13.0.3)(luxon@3.7.2)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1)(supports-color@10.2.2))
       '@adonis-agora/media':
         specifier: '>=0.5.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0'
