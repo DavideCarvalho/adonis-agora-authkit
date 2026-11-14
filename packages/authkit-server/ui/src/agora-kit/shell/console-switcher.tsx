@@ -64,14 +64,16 @@ export function ConsoleSwitcher({
   const consoles = useConsoles(config);
   if (!config || consoles.length === 0) return <>{brand}</>;
   return (
-    <div data-agora-switcher="" className="min-w-0">
+    // authkit's `.brand.switcher`: the trigger sits 10px from the sidebar edges (8px tighter than
+    // the plain brand's 18px header padding) and pads the brand by 8px + a hairline.
+    <div data-agora-switcher="" className="-mx-2 -mt-2 -mb-1.5 min-w-0">
       <DropdownMenu>
         <DropdownMenuTrigger
           aria-label={`${current.title}: switch console`}
-          className="flex w-full min-w-0 items-center gap-2 rounded-md p-1 text-left outline-none transition-colors hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring/60 data-popup-open:bg-sidebar-accent/60"
+          className="flex w-full min-w-0 items-center gap-2.5 rounded-lg border border-transparent p-2 text-left outline-none transition-colors hover:border-border hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-ring/60 data-popup-open:border-border data-popup-open:bg-sidebar-accent/60"
         >
           <span className="min-w-0 flex-1">{brand}</span>
-          <ChevronDownIcon className="size-3.5 shrink-0 text-dim" />
+          <ChevronDownIcon className="size-3 shrink-0 text-faint" />
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="start"

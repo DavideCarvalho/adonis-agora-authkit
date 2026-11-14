@@ -19,15 +19,15 @@ function initials(viewer: Viewer): string {
 export function UserFooter({ viewer, signOut }: { viewer?: Viewer; signOut?: SignOut }) {
   const { theme, toggle } = useTheme();
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2.5">
       {viewer && (
         <div className="flex items-center gap-[9px] px-2 py-1.5" data-agora-viewer="">
-          <Avatar size="sm" className="size-7 after:hidden">
+          <Avatar className="size-7 after:hidden">
             <AvatarFallback className="border border-brand-border bg-brand-soft text-[10.5px] font-semibold text-brand">
               {initials(viewer)}
             </AvatarFallback>
           </Avatar>
-          <div className="min-w-0 leading-tight">
+          <div className="min-w-0 flex-1 leading-[normal]">
             <div
               className="truncate text-[11px] font-medium text-fg"
               title={viewer.email ?? viewer.label}
@@ -35,7 +35,7 @@ export function UserFooter({ viewer, signOut }: { viewer?: Viewer; signOut?: Sig
               {viewer.label}
             </div>
             {(viewer.role || (viewer.email && viewer.email !== viewer.label)) && (
-              <div className="mono truncate text-[9.5px] uppercase text-faint">
+              <div className="mono truncate text-[9.5px] text-faint">
                 {viewer.role ?? viewer.email}
               </div>
             )}
@@ -46,11 +46,15 @@ export function UserFooter({ viewer, signOut }: { viewer?: Viewer; signOut?: Sig
         <Button
           variant="ghost"
           size="sm"
-          className="flex-1 justify-center"
+          className="flex-1 justify-start gap-2"
           onClick={toggle}
           aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
         >
-          {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+          {theme === 'dark' ? (
+            <SunIcon className="size-[13px]" />
+          ) : (
+            <MoonIcon className="size-[13px]" />
+          )}
           {theme === 'dark' ? 'Light mode' : 'Dark mode'}
         </Button>
         {signOut &&
@@ -60,25 +64,25 @@ export function UserFooter({ viewer, signOut }: { viewer?: Viewer; signOut?: Sig
               <Button
                 type="submit"
                 variant="ghost"
-                size="icon-sm"
+                size="sm"
                 aria-label="Sign out"
                 title="Sign out"
                 className="text-dim"
               >
-                <SignOutIcon />
+                <SignOutIcon className="size-[13px]" />
               </Button>
             </form>
           ) : (
             <Button
               variant="ghost"
-              size="icon-sm"
+              size="sm"
               aria-label="Sign out"
               title="Sign out"
               className="text-dim"
               nativeButton={false}
               render={<a href={signOut.href} />}
             >
-              <SignOutIcon />
+              <SignOutIcon className="size-[13px]" />
             </Button>
           ))}
       </div>

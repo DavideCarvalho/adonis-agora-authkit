@@ -73,9 +73,11 @@ export function BrandBlock({ brand }: { brand: ConsoleBrand }) {
         <span className="agora-ring" aria-hidden />
       </div>
       <div className="min-w-0 overflow-hidden">
-        <div className="truncate text-sm font-bold tracking-[0.03em] text-fg">{brand.name}</div>
+        <div className="truncate text-sm leading-[normal] font-bold tracking-[0.03em] text-fg">
+          {brand.name}
+        </div>
         {brand.subtitle && (
-          <div className="mt-px truncate text-[10px] font-medium uppercase tracking-[0.08em] text-faint">
+          <div className="mt-px truncate text-[10px] leading-[normal] font-medium uppercase tracking-[0.08em] text-faint">
             {brand.subtitle}
           </div>
         )}
@@ -100,7 +102,7 @@ function NavMenu({ nav, activeId }: { nav: NavSection[]; activeId: string | unde
                 <SidebarGroupLabel
                   className={cn(navLabelClass, 'p-0')}
                   render={
-                    <CollapsibleTrigger className="flex w-full items-center gap-1 rounded-md px-2 pt-3 pb-1.5 text-left uppercase hover:text-dim" />
+                    <CollapsibleTrigger className="flex w-full items-center gap-1 rounded-md px-2 pt-3 pb-[5px] text-left uppercase hover:text-dim" />
                   }
                 >
                   {section.section}
@@ -126,8 +128,9 @@ function NavMenu({ nav, activeId }: { nav: NavSection[]; activeId: string | unde
   );
 }
 
+/** authkit's `.nav-section`: 9.5px caps, 12px above / 5px below, normal line height. */
 const navLabelClass =
-  'h-auto px-2 pt-3 pb-1.5 text-[9.5px] font-semibold uppercase tracking-[0.14em] text-faint';
+  'h-auto px-2 pt-3 pb-[5px] text-[9.5px] leading-[normal] font-semibold uppercase tracking-[0.14em] text-faint';
 
 function NavItems({
   items,
@@ -139,7 +142,7 @@ function NavItems({
   after: () => void;
 }) {
   return (
-    <SidebarMenu className="gap-0.5">
+    <SidebarMenu className="gap-0">
       {items.map((item) => {
         const active = item.id === activeId;
         const content = (
@@ -193,10 +196,11 @@ function NavItems({
   );
 }
 
-/** authkit's `.nav-item`: 12.5px muted label, faint 15px icon; active = accent-soft fill, accent
+/** authkit's `.nav-item`: 32px rows stacked with no gap (7px padding + hairline around a
+ *  normal-line-height 12.5px muted label), faint 15px icon; active = accent-soft fill, accent
  *  hairline, accent icon. */
 const navButtonClass =
-  'h-auto gap-[9px] rounded-md border border-transparent px-[9px] py-[7px] text-[12.5px] font-medium text-dim transition-colors hover:bg-hover hover:text-fg data-active:border-brand-border data-active:bg-brand-soft data-active:font-medium data-active:text-fg [&_svg]:size-[15px]! [&_svg]:text-faint hover:[&_svg]:text-dim data-active:[&_svg]:text-brand';
+  'h-auto gap-[9px] rounded-md border border-transparent px-[9px] py-[7px] text-[12.5px] leading-[normal] font-medium text-dim transition-colors hover:bg-hover hover:text-fg data-active:border-brand-border data-active:bg-brand-soft data-active:font-medium data-active:text-fg [&_svg]:size-[15px]! [&_svg]:text-faint hover:[&_svg]:text-dim data-active:[&_svg]:text-brand';
 
 /** The topbar: sidebar toggle (drawer on phones), page title, page-level pickers, ⌘K. */
 export function Topbar({
@@ -274,7 +278,7 @@ export function AppShell({
               {...(searchEnabled ? { onSearch: openSearch } : {})}
             />
           </SidebarHeader>
-          <SidebarContent className="pt-1 pb-2">
+          <SidebarContent className="pt-2.5 pb-2">
             <nav aria-label="Console">
               <NavMenu nav={nav} activeId={activeId} />
             </nav>
