@@ -290,7 +290,14 @@ export function AppShell({
           <Topbar
             title={title}
             actions={actions}
-            search={searchEnabled ? <SearchTrigger onOpen={openSearch} /> : undefined}
+            search={
+              searchEnabled ? (
+                <SearchTrigger
+                  onOpen={openSearch}
+                  label={shell.search ? 'Search all consoles' : 'Search'}
+                />
+              ) : undefined
+            }
           />
           <div className={cn('relative min-h-0 flex-1 overflow-y-auto', contentClassName)}>
             {children}

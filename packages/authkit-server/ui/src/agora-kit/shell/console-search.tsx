@@ -58,13 +58,22 @@ export function useSearchShortcut(
 }
 
 /** The topbar's search button ("Search ⌘K"). */
-export function SearchTrigger({ onOpen, className }: { onOpen: () => void; className?: string }) {
+export function SearchTrigger({
+  onOpen,
+  className,
+  label = 'Search all consoles',
+}: {
+  onOpen: () => void;
+  className?: string;
+  /** Match the palette it opens: "Search" when only console-local commands are searched. */
+  label?: string;
+}) {
   return (
     <button
       type="button"
       onClick={onOpen}
       aria-keyshortcuts="Control+K Meta+K"
-      aria-label="Search all consoles"
+      aria-label={label}
       className={cn(
         'flex h-[26px] items-center gap-2 rounded-[6px] px-2.5 text-[11px] font-medium text-dim transition-colors hover:bg-hover hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
         className,
@@ -228,7 +237,13 @@ export function ConsoleSearch({
           )}
         </div>
         <span role="status" className="sr-only">
-          {pending ? 'Searching…' : query !== '' && phase !== 'error' ? `${hitCount} results` : ''}
+          {pending
+            ? 'Searching…'
+            : remote && phase === 'error'
+              ? 'Search failed'
+              : query !== ''
+                ? `${hitCount} results`
+                : ''}
         </span>
         <CommandList className="max-h-[60vh]" aria-busy={pending}>
           {query === '' && local.length === 0 && (
