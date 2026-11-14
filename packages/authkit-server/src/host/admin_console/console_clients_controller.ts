@@ -1,5 +1,6 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
+import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { apiError, clientDto, createdClientDto } from '../admin_api/dto.js';
 import { AdminClientsService, type CreatedClient } from '../admin_clients_service.js';
 import {
@@ -8,7 +9,9 @@ import {
   clientPartialInput,
 } from '../admin_validators.js';
 import { ClientMetadataError } from '../client_metadata.js';
+import { revokeClient } from '../client_revocation.js';
 import { listClientsPage, withListQuery } from '../list_api.js';
+import { gateConsoleSudo } from './console_mcp_clients_controller.js';
 
 /**
  * Metadata incoerente com o tipo de client (ex.: nativo com secret, redirect
@@ -29,6 +32,7 @@ function invalidMetadata(ctx: HttpContext, err: ClientMetadataError) {
  * POST   {prefix}/api/clients/:id/regenerate-secret → gerar novo secret
  * POST   {prefix}/api/clients/:id/disable     → stop issuing tokens to the client
  * POST   {prefix}/api/clients/:id/enable      → issue tokens again
+ * POST   {prefix}/api/clients/:id/revoke      → disable + cut its grants/tokens in every account (sudo)
  */
 export default class ConsoleClientsController {
   /** GET {prefix}/api/clients */
@@ -135,6 +139,22 @@ export default class ConsoleClientsController {
   /** POST {prefix}/api/clients/:id/enable */
   async enable(ctx: HttpContext) {
     return this.#setDisabled(ctx, false);
+  }
+
+  /**
+   * POST {prefix}/api/clients/:id/revoke — desabilita o client (quando tem cadastro) e corta os
+   * grants/tokens dele em todas as contas. Serve também para um cliente MCP por documento, que
+   * não tem cadastro: só os grants caem. Pede sudo.
+   */
+  async revoke(ctx: HttpContext) {
+    const denied = await gateConsoleSudo(ctx);
+    if (denied) return denied;
+    const service = await ctx.containerResolver.make('authkit.server');
+    return revokeClient(service, ctx.request.param('id') as string, {
+      actorId: (ctx.session?.get(ACCOUNT_SESSION_KEY) as string | undefined) ?? null,
+      source: 'admin-console',
+      ip: ctx.request.ip?.() ?? null,
+    });
   }
 
   /** Disabled clients get `invalid_client` from the next request on. */

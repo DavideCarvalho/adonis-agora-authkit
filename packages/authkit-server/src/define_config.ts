@@ -58,15 +58,17 @@ import {
 } from './host/trusted_device.js';
 import type { WhatsappCodeSenderBinding } from './host/whatsapp_code_sender.js';
 import { generateJwks } from './keys/jwks_manager.js';
+import { toProviderJwks } from './keys/keystore.js';
 import { KeystoreCodec } from './keys/keystore_codec.js';
 import { loadEncryptionService } from './keys/keystore_crypto.js';
 import { KeystoreManager, resolveKeystoreVault } from './keys/keystore_manager.js';
 import {
-  type McpOAuthConfigInput,
-  mcpClientRegistration,
-  type ResolvedMcpOAuthConfig,
-  resolveMcpOAuth,
-} from './mcp/mcp_oauth.js';
+  assertNoLegacyMcpKey,
+  type McpClientsConfigInput,
+  type ResolvedMcpClientsConfig,
+  resolveMcpClients,
+} from './mcp/mcp_clients.js';
+import { mcpClientRegistration } from './mcp/mcp_oauth.js';
 import type { PatStore } from './pat/pat_store.js';
 import {
   OPEN_REGISTRATION_REDIRECT_POLICY,
@@ -463,7 +465,7 @@ export function resolveNotifications(): ResolvedNotificationsConfig {
  * Quando habilitado, o oidc-provider expõe o endpoint de registro (`/reg`) e os
  * clients criados ali são PERSISTIDOS pelo MESMO adapter usado para os demais
  * artefatos OIDC, junto dos clients criados pelo console admin, pela Admin API e
- * pelo `node ace authkit:clients:create`.
+ * pelo `node ace authkit:client create`.
  */
 export interface DynamicRegistrationConfigInput {
   /** Liga o endpoint de registro dinâmico. Default: false (comportamento atual). */
@@ -549,17 +551,18 @@ export function resolveDynamicRegistration(
 }
 
 /**
- * O registro dinâmico que `mcp` liga quando o app não declarou o seu: aberto, só para os
- * redirects dos clientes MCP, pedindo `offline_access` para quem quer refresh token.
+ * O registro dinâmico dos clientes MCP quando o app não declarou o seu: aberto, só para os
+ * redirects dos clientes MCP, pedindo `offline_access` para quem quer refresh token. Montado no
+ * provider sempre que `mcpClients` permite; a cada request ele só aceita com o login de clientes
+ * MCP ligado (ver `mcp/mcp_clients.ts`).
  */
 function mcpDynamicRegistration(
-  mcp: boolean | McpOAuthConfigInput | undefined,
+  mcpClients: ResolvedMcpClientsConfig,
 ): DynamicRegistrationConfigInput | undefined {
-  const resolved = resolveMcpOAuth(mcp);
-  if (!resolved.enabled) return undefined;
+  if (mcpClients.dynamicRegistration !== 'mcp') return undefined;
   return {
     enabled: true,
-    redirectUriPolicy: resolved.redirectUriPolicy,
+    redirectUriPolicy: mcpClients.redirectUriPolicy,
     validateRegistration: (metadata) => mcpClientRegistration(metadata),
   };
 }
@@ -1462,13 +1465,19 @@ export interface AuthServerConfigInput {
    */
   serviceTenants?: ServiceTenantsConfigInput;
   /**
-   * Login OAuth de clientes MCP (Claude Code, Claude, ChatGPT, VS Code, Cursor): `true` liga o
-   * registro dinâmico restrito aos redirects deles, o refresh token desses clientes e os
-   * `resource` dos servidores MCP — os de `resources` e os que se registram em runtime (o MCP do
-   * `@adonis-agora/agent`). Um `dynamicRegistration` declarado continua mandando no registro.
-   * Ver `src/mcp/mcp_oauth.ts`. Default: desligado.
+   * Login de clientes MCP (Claude Code, Claude, ChatGPT, Cursor, VS Code). AUTOMÁTICO: ligado
+   * sempre que um resource MCP/OAuth está registrado com o authkit (o hub `/mcp/agora` do
+   * `@adonis-agora/agent`, `mcpClients.resources`, um `oidcBearerGuard({ resource })`), avaliado a
+   * cada request. Ligado, clientes MCP se registram (RFC 7591, só com os redirects deles) ou se
+   * identificam por Client ID Metadata Document, ganham refresh token, e os tokens ficam
+   * amarrados aos resources registrados (RFC 8707).
+   *
+   * `false` desliga sempre (e trava a setting `mcp_clients` do console). Um objeto ajusta:
+   * `resources`, `redirectUris`, `metadataDocuments` (`false` ou `{ allowHosts, ttl }`),
+   * `dynamicRegistration: false`. Um `dynamicRegistration` declarado continua mandando no registro.
+   * Ver `src/mcp/mcp_clients.ts`.
    */
-  mcp?: boolean | McpOAuthConfigInput;
+  mcpClients?: false | McpClientsConfigInput;
   /**
    * Console admin do IdP (B6). Default: desligado.
    *
@@ -1614,7 +1623,7 @@ export interface ResolvedServerConfig {
   jwks: { keys: Record<string, any>[] };
   /**
    * Eco do `jwks` de INPUT (source/store/algorithm) — o `jwks` resolvido acima é o
-   * keyset materializado e perde esses campos; comandos como `authkit:keys:rotate`
+   * keyset materializado e perde esses campos; comandos como `authkit:key rotate`
    * precisam do shape original para localizar o keystore.
    */
   jwksConfig: JwksConfig;
@@ -1707,7 +1716,8 @@ export interface ResolvedServerConfig {
   accessTokens: ResolvedAccessTokensConfig;
   /** Service tenants (always present; `enabled: false` when no resource is declared). */
   serviceTenants: ResolvedServiceTenantsConfig;
-  mcp: ResolvedMcpOAuthConfig;
+  /** Login de clientes MCP (automático; ver `mcp/mcp_clients.ts`). */
+  mcpClients: ResolvedMcpClientsConfig;
   /** Console admin resolvido (sempre presente; default desligado). */
   admin: ResolvedAdminConfig;
   /** Admin REST API resolvida (sempre presente; default desligada). */
@@ -1775,6 +1785,8 @@ export function jwksAutoFallbackWarning(storePath: string | null): string | null
 }
 
 export function defineConfig(config: AuthServerConfigInput) {
+  assertNoLegacyMcpKey(config as unknown as Record<string, unknown>);
+  const mcpClients = resolveMcpClients(config.mcpClients, config.dynamicRegistration !== undefined);
   const requiredFactors = config.mfa?.requiredFactors;
   if (
     requiredFactors !== undefined &&
@@ -1874,7 +1886,7 @@ export function defineConfig(config: AuthServerConfigInput) {
         const manager = new KeystoreManager(vault, new KeystoreCodec({ encrypt, enc }), alg);
         const store = await manager.ensure();
         // Remove o metadado interno `iat` antes de entregar ao oidc-provider.
-        jwks = { keys: store.keys.map(({ iat: _iat, ...jwk }) => jwk) };
+        jwks = toProviderJwks(store);
       } else {
         jwks = await generateJwks(alg);
       }
@@ -2011,7 +2023,7 @@ export function defineConfig(config: AuthServerConfigInput) {
         config.webauthn ?? ((config.accountStore as any)?.__webauthn as typeof config.webauthn),
       ),
       dynamicRegistration: resolveDynamicRegistration(
-        config.dynamicRegistration ?? mcpDynamicRegistration(config.mcp),
+        config.dynamicRegistration ?? mcpDynamicRegistration(mcpClients),
       ),
       deviceFlow: resolveDeviceFlow(config.deviceFlow),
       personalAgents,
@@ -2033,7 +2045,7 @@ export function defineConfig(config: AuthServerConfigInput) {
       registration: resolveRegistration(config.registration),
       accessTokens: resolveAccessTokens(config.issuer, config.accessTokens),
       serviceTenants: resolveServiceTenants(config.serviceTenants, config.accessTokens?.resources),
-      mcp: resolveMcpOAuth(config.mcp),
+      mcpClients,
       admin: resolveAdmin(config.admin),
       adminApi: resolveAdminApi(config.adminApi),
       organizations: resolveOrganizations(config.organizations),

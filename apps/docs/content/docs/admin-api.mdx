@@ -211,7 +211,7 @@ curl https://idp.example.com/api/authkit/v1/users/acc-42/sessions \
 ## Clients
 
 Clients live in the OIDC adapter and are managed at runtime: create them here, in the admin
-console or with `node ace authkit:clients:create`. No redeploy is needed.
+console or with `node ace authkit:client create`. No redeploy is needed.
 
 Reuses the same `AdminClientsService` as the console. The **secret is returned once** on
 create and regenerate (it is never recoverable afterwards). Enumeration requires the

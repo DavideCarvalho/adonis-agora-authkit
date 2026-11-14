@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { PageHeader } from '../agora-kit/blocks/page-header';
 import { PageBody } from '../agora-kit/shell/app-shell';
 import { Notice } from '../components/primitives';
+import { McpClientsCard } from '../containers/mcp_clients.containers';
 import { type SettingSection, SettingsSectionContainer } from '../containers/settings.containers';
 
 // Seções plugadas nas settings REAIS de `auth_settings` (SETTING_KEYS). Cada seção é
@@ -235,6 +236,7 @@ export function Settings() {
       />
 
       <div>
+        <McpClientsCard />
         {SETTING_SECTIONS.map((section) => (
           <SettingsSectionContainer
             key={section.settingKey}

@@ -47,9 +47,16 @@ export interface ManagedKeyInfo {
   ageDays: number;
   /** true para a chave de assinatura corrente (a primeira do keystore). */
   active: boolean;
+  /**
+   * `active`: assina. `verification`: antiga, publicada até os tokens dela expirarem.
+   * `staged`: gerada e já publicada no JWKS, assina a partir da próxima rotação.
+   */
+  status: 'active' | 'verification' | 'staged';
+  /** Criação da chave (ISO), quando conhecida. */
+  createdAt: string | null;
 }
 
-/** Mapeia o keystore privado para infos públicas (kid/alg/idade/ativa). Vazio se null. */
+/** Mapeia o keystore privado para infos públicas (kid/alg/idade/estado). Vazio se null. */
 export function listKeyInfos(store: PersistedKeystore | null): ManagedKeyInfo[] {
   const keys = store?.keys ?? [];
   const now = Date.now() / 1000;
@@ -58,7 +65,23 @@ export function listKeyInfos(store: PersistedKeystore | null): ManagedKeyInfo[] 
     alg: (k.alg as string) ?? 'RS256',
     ageDays: typeof k.iat === 'number' ? Math.max(0, Math.floor((now - k.iat) / 86400)) : 0,
     active: i === 0,
+    status: i === 0 ? 'active' : k.staged === true ? 'staged' : 'verification',
+    createdAt: typeof k.iat === 'number' ? new Date(k.iat * 1000).toISOString() : null,
   }));
+}
+
+/** Metadados internos do keystore que nunca vão para o oidc-provider nem para o JWKS. */
+const INTERNAL_FIELDS = ['iat', 'staged'];
+
+/** As chaves (privadas) como o oidc-provider as recebe: sem os metadados internos. */
+export function toProviderJwks(store: PersistedKeystore): { keys: Record<string, any>[] } {
+  return {
+    keys: store.keys.map((jwk) => {
+      const out: Record<string, any> = {};
+      for (const [k, v] of Object.entries(jwk)) if (!INTERNAL_FIELDS.includes(k)) out[k] = v;
+      return out;
+    }),
+  };
 }
 
 /** Plano de uma rotação — o que SERIA feito (dry-run) sem tocar disco. */
@@ -86,7 +109,12 @@ export function planRotation(
 ): RotationPlan {
   const current = store?.keys ?? [];
   const effectiveKeep = retire ? 1 : Math.max(1, keep);
-  const projected = ['<new>', ...current.map((k) => k.kid as string)];
+  // Uma chave `staged` (gerada antes) é a que passa a assinar; senão, uma nova.
+  const staged = current.find((k) => k.staged === true);
+  const projected = [
+    (staged?.kid as string | undefined) ?? '<new>',
+    ...current.filter((k) => k !== staged).map((k) => k.kid as string),
+  ];
   const keptKids = projected.slice(0, effectiveKeep);
   const retiredKids = projected.slice(effectiveKeep);
   return {
@@ -101,7 +129,7 @@ export function planRotation(
 export function toPublicJwks(store: PersistedKeystore): { keys: Record<string, any>[] } {
   // `iat` é um metadado interno do keystore (idade da chave), não um membro JWK —
   // removido do JWKS público junto com os campos da chave privada.
-  const PRIVATE_FIELDS = ['d', 'p', 'q', 'dp', 'dq', 'qi', 'iat'];
+  const PRIVATE_FIELDS = ['d', 'p', 'q', 'dp', 'dq', 'qi', 'iat', 'staged'];
   return {
     keys: store.keys.map((jwk) => {
       const pub: Record<string, any> = {};

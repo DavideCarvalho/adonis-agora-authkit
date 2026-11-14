@@ -1,0 +1,137 @@
+---
+icon: Terminal
+title: CLI
+description: Manage clients, signing keys, runtime settings and cleanup from node ace.
+---
+
+Everything the admin console does with clients, keys and settings is also a `node ace` command. The
+commands use the same services as the console and the Admin API: same validation, same audit events
+(with `cli:<os user>` as the actor). Lists print a table, or JSON with `--json`. Destructive actions
+ask for confirmation; pass `--force` in scripts and CI.
+
+## Clients — `authkit:client`
+
+```sh
+node ace authkit:client list                 # every client
+node ace authkit:client list --mcp --json    # MCP clients: registered through /reg, or by metadata document
+node ace authkit:client show my-spa
+```
+
+Create a client. A confidential one prints its secret **once**:
+
+```sh
+# a web app (confidential)
+node ace authkit:client create --client-id=acme-web --name="Acme Web" \
+  --redirect-uri=https://web.acme.com/auth/callback
+
+# a single-page app (public, PKCE)
+node ace authkit:client create --client-id=acme-spa --redirect-uri=https://app.acme.com/cb --public
+
+# a native app (RFC 8252): public, private-scheme or loopback redirects
+node ace authkit:client create --client-id=acme-mobile --native --redirect-uri=com.acme.app:/oauth
+
+# limit the scopes it may ask for (default: any)
+node ace authkit:client create --client-id=reports --redirect-uri=https://r.acme.com/cb \
+  --scope=openid --scope=email
+
+# keep the secret your relying party already uses
+node ace authkit:client create --client-id=legacy --redirect-uri=https://l.acme.com/cb \
+  --client-secret="$LEGACY_SECRET"
+
+# a service tenant (client_credentials only)
+node ace authkit:client create --client-id=worker-acme --partition=acme --capability=reports
+```
+
+| Flag | |
+| --- | --- |
+| `--client-id` | The `client_id`. Default: random. |
+| `--name` | `client_name`, shown on the consent screen. |
+| `--redirect-uri`, `--post-logout-uri` | Repeatable. A redirect URI is required, except for a service tenant. |
+| `--grant` | Repeatable. Default: `authorization_code` + `refresh_token`. |
+| `--scope` | Repeatable. The scopes the client may ask for. |
+| `--public` / `--confidential` | Public = no secret. Default: confidential. |
+| `--native` | Native app; implies `--public`. |
+| `--backchannel-logout-uri` | OIDC back-channel logout endpoint. |
+| `--client-secret` | Use this secret instead of a random one. |
+| `--partition`, `--capability` | Service tenant ([Service tenants](/docs/service-tenants)). |
+
+Change, rotate, revoke, delete:
+
+```sh
+node ace authkit:client update acme-web --redirect-uri=https://web.acme.com/cb --name="Acme"
+node ace authkit:client rotate-secret acme-web --force   # prints the new secret once
+node ace authkit:client revoke acme-web --force          # disable + cut its grants and tokens
+node ace authkit:client delete acme-web --force
+```
+
+`update` changes only the flags you pass. `revoke` works for an MCP client that signed in with a
+Client ID Metadata Document too (it has no stored record): its grants and tokens are cut, and it can
+sign in again while [MCP client login](/docs/mcp-clients) is on.
+
+## Signing keys — `authkit:key`
+
+Needs a managed keystore with a store (`jwks: { source: 'managed', store: … }`). Other processes
+pick the change up through the keystore reload poll.
+
+```sh
+node ace authkit:key list                  # kid, alg, status (active / verification / staged), created
+node ace authkit:key generate --alg=ES256  # publish a new key without signing with it yet
+node ace authkit:key rotate --dry-run      # the plan
+node ace authkit:key rotate                # the staged key (or a new one) signs; old ones stay published
+node ace authkit:key rotate --keep=3       # keep 3 keys published
+node ace authkit:key rotate --retire-old   # keep only the new key
+node ace authkit:key retire <kid> --force  # drop a key that no longer signs
+```
+
+`generate` lets resource servers' JWKS caches pick a key up before it signs anything; the next
+`rotate` makes it the active one. Retiring a key makes the tokens it signed stop validating. With an
+ephemeral keystore (managed without a store) or keys from config, `list` works and the rest refuse.
+
+## Cleanup — `authkit:purge`
+
+Deletes what can no longer be used. Safe to run from a cron:
+
+```sh
+node ace authkit:purge --dry-run                 # counts only
+node ace authkit:purge                           # everything below
+node ace authkit:purge --clients --older-than=60d
+```
+
+| Flag | Deletes |
+| --- | --- |
+| `--tokens` | Expired and consumed tokens, codes and device codes. |
+| `--grants` | Expired grants. |
+| `--sessions` | Expired sessions. |
+| `--interactions` | Expired login interactions. |
+| `--clients` | Clients registered through `/reg` longer ago than `--older-than` (default `30d`; `12h`, `2w` work too) that have no live grant. |
+
+Without a kind flag every kind is purged. Expired rows only need deleting with the database adapter:
+Redis expires them by itself.
+
+## Runtime settings — `authkit:settings:*`
+
+```sh
+node ace authkit:settings:list --json
+node ace authkit:settings:get lockout
+node ace authkit:settings:set lockout '{"enabled":true,"maxAttempts":3}'
+node ace authkit:settings:unset lockout
+```
+
+The keys and their shapes are in [Runtime settings](/docs/settings). A key declared in
+`config/authkit.ts` is locked and `set` refuses it. MCP client login is the `mcp_clients` key:
+
+```sh
+node ace authkit:settings:set mcp_clients '{"enabled":false}'   # off
+node ace authkit:settings:unset mcp_clients                     # back to automatic
+```
+
+## Other commands
+
+| Command | |
+| --- | --- |
+| `node ace authkit:doctor` | Check the config. See [Health check](/docs/health-check). |
+| `node ace agora:doctor` | The health check of every installed `@adonis-agora` lib. |
+| `node ace authkit:eject` | Copy views or a host-kit controller into the app. |
+| `node ace authkit:users:import --file=<path>` | Import users. See [Adopting existing users](/docs/adopting-existing-users). |
+| `node ace authkit:users:normalize-emails [--apply]` | Normalize stored e-mail addresses. |
+| `node ace authkit:accounts:expire-scan` | Expire or warn inactive accounts. See [Compliance](/docs/compliance#account-expiration). |

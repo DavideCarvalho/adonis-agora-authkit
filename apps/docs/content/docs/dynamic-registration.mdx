@@ -5,7 +5,7 @@ description: RFC 7591/7592 — register OIDC clients at runtime.
 ---
 
 AuthKit's clients live in the OIDC adapter, created through the admin console, the Admin API
-or `node ace authkit:clients:create`. With **Dynamic Client Registration** (RFC 7591) enabled,
+or `node ace authkit:client create`. With **Dynamic Client Registration** (RFC 7591) enabled,
 the provider also exposes a registration endpoint, and clients created there are **persisted
 by the same adapter** — so they sit next to the ones you created yourself.
 

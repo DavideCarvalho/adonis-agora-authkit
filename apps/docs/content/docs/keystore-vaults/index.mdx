@@ -32,7 +32,7 @@ packages in detail.
 <Callout type="warn">
   **Omitting `store` under `source: 'managed'` is not "the default file store" — it means no
   persistence at all.** AuthKit generates a fresh key on every boot: tokens issued before a
-  restart stop validating, and `node ace authkit:keys:rotate` has nothing to rotate. It is
+  restart stop validating, and `node ace authkit:key rotate` has nothing to rotate. It is
   fine for a scratch dev process and wrong everywhere else. `node ace authkit:doctor`
   reports it.
 </Callout>
@@ -379,10 +379,10 @@ Run the command (or the [Key Rotation](/docs/components#keyrotation) admin panel
 new key is written straight to the configured backend:
 
 ```bash
-node ace authkit:keys:rotate            # rotate, keeping 2 keys (grace period)
-node ace authkit:keys:rotate --dry-run  # print the plan, write nothing
-node ace authkit:keys:rotate --keep=3   # keep 3 keys in the published JWKS
-node ace authkit:keys:rotate --retire   # keep only the new key
+node ace authkit:key rotate            # rotate, keeping 2 keys (grace period)
+node ace authkit:key rotate --dry-run  # print the plan, write nothing
+node ace authkit:key rotate --keep=3   # keep 3 keys in the published JWKS
+node ace authkit:key rotate --retire-old   # keep only the new key
 ```
 
 The new key goes to the front of the keyset and becomes the signing key; the retained

@@ -56,6 +56,11 @@ export interface ClientInput {
    * turns it back into a regular client; absent keeps the current value.
    */
   serviceTenant?: { partition: string; capabilities?: string[] } | null;
+  /**
+   * Escopos que o client pode pedir (`scope`). Ausente = qualquer escopo do IdP. No update, `null`
+   * remove a restrição; ausente mantém.
+   */
+  scopes?: string[] | null;
 }
 
 /** Client persistido, apresentado ao console admin. */
@@ -80,6 +85,12 @@ export interface AdminClient {
   disabled: boolean;
   /** Service-tenant settings, or `null` for a regular client. */
   serviceTenant: ServiceTenantInfo | null;
+  /** Registrado pelo próprio cliente no `/reg` (RFC 7591) — ex.: um cliente MCP. */
+  dynamicallyRegistered: boolean;
+  /** Quando foi registrado pelo `/reg` (`client_id_issued_at`), ou `null`. */
+  registeredAt: Date | null;
+  /** `scope` registrado (escopos que o client pode pedir), ou `null` = qualquer um. */
+  scope: string | null;
 }
 
 /** Resultado de uma criação: o client + o secret em claro (mostrado UMA vez). */
@@ -216,6 +227,12 @@ export class AdminClientsService {
         input.serviceTenant === undefined
           ? serviceTenantOf(existing as Record<string, unknown>)
           : input.serviceTenant,
+      scopes:
+        input.scopes === undefined
+          ? typeof existing.scope === 'string'
+            ? existing.scope.split(' ').filter(Boolean)
+            : undefined
+          : input.scopes,
     };
 
     const confidential = !PUBLIC_AUTH_METHODS.has(merged.tokenEndpointAuthMethod);
@@ -223,6 +240,10 @@ export class AdminClientsService {
     const clientSecret = confidential ? (previousSecret ?? randomId()) : undefined;
     const payload = this.#buildPayload(clientId, merged, clientSecret);
     if (isClientDisabled(existing as Record<string, unknown>)) payload[CLIENT_DISABLED_KEY] = true;
+    // Um client do `/reg` continua sendo do `/reg` (cliente MCP: refresh token, nunca first-party).
+    if (existing.client_id_issued_at !== undefined) {
+      payload.client_id_issued_at = existing.client_id_issued_at;
+    }
     await this.#adapter.upsert(clientId, payload, 0);
     await this.oidc.evictDynamicClientCache();
   }
@@ -337,6 +358,7 @@ export class AdminClientsService {
     // sempre (sem `application_type` o oidc-provider assume `web`).
     if (input.applicationType === 'native') payload.application_type = 'native';
     if (input.clientName) payload.client_name = input.clientName;
+    if (input.scopes?.length) payload.scope = [...new Set(input.scopes)].join(' ');
     if (input.logoUri) payload.logo_uri = input.logoUri;
     if (input.backchannelLogoutUri) {
       payload.backchannel_logout_uri = input.backchannelLogoutUri;
@@ -368,6 +390,10 @@ export class AdminClientsService {
       logoUri: typeof p.logo_uri === 'string' && p.logo_uri ? p.logo_uri : null,
       disabled: isClientDisabled(p),
       serviceTenant: serviceTenantOf(p),
+      dynamicallyRegistered: typeof p.client_id_issued_at === 'number',
+      registeredAt:
+        typeof p.client_id_issued_at === 'number' ? new Date(p.client_id_issued_at * 1000) : null,
+      scope: typeof p.scope === 'string' && p.scope ? p.scope : null,
     };
     if (p.backchannel_logout_uri) {
       result.backchannelLogoutUri = p.backchannel_logout_uri as string;

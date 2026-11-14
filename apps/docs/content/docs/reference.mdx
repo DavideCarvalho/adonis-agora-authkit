@@ -271,8 +271,9 @@ Commands provided by `@adonis-agora/authkit-server`:
 | `node ace authkit:eject` | Copy the bundled host-kit controllers/pages into your project for customization. |
 | `node ace authkit:users:import --file <path> [--dry-run]` | Bulk-import users from a JSON array or NDJSON file, preserving hashes as-is for lazy rehash on login. |
 | `node ace authkit:users:normalize-emails [--apply]` | Migrate stored addresses to the normalized identity form (`trim` + `toLowerCase`). Reports by default; `--apply` writes, refusing to touch accounts involved in a collision. **Required upgrade step** from 0.70 or earlier — see [below](#authkitusersnormalize-emails). |
-| `node ace authkit:keys:rotate [--keep=N] [--retire] [--dry-run]` | Rotate signing keys in a managed keystore file; keeps a grace-period window of N previous keys (default 2). |
-| `node ace authkit:clients:create --redirect-uri=<uri> [--client-id] [--public] [--grant] [--post-logout-uri] [--backchannel-logout-uri] [--client-secret] [--json]` | Create an OIDC client in the adapter/DB at runtime. For confidential clients a secret is generated and printed **once** — save it immediately. See [below](#authkitclientscreate). |
+| `node ace authkit:client <list\|create\|show\|update\|rotate-secret\|revoke\|delete> [id]` | Manage OAuth clients. A confidential client's secret is printed **once**. See [CLI](/docs/cli#clients--authkitclient). |
+| `node ace authkit:key <list\|generate\|rotate\|retire> [kid]` | Manage the signing keys of a managed keystore. See [CLI](/docs/cli#signing-keys--authkitkey). |
+| `node ace authkit:purge [--dry-run] [--older-than=30d]` | Delete expired/consumed artifacts and unused dynamically registered clients. See [CLI](/docs/cli#cleanup--authkitpurge). |
 | `node ace authkit:settings:list [--json]` | List all runtime settings currently persisted in the `auth_settings` table. |
 | `node ace authkit:settings:get <key> [--json]` | Get a specific setting by key. Prints `null` if the key is not set (lib default applies). |
 | `node ace authkit:settings:set <key> <json> [--json]` | Upsert a setting. Validates shape for known keys. Audits `settings.updated` with `updatedBy: 'cli'`. |
@@ -290,7 +291,7 @@ it covers is switched off — an opt-in feature you never enabled is not a findi
 | --- | --- |
 | `checkConfigResolves` | `config('authkit')` resolves at all. |
 | `checkIssuer` | `issuer` is a valid URL and its pathname matches `mountPath`. |
-| `checkClients` | Reminds that clients live in the adapter, managed via the console, the Admin API or `authkit:clients:create`. |
+| `checkClients` | Reminds that clients live in the adapter, managed via the console, the Admin API or `authkit:client create`. |
 | `checkAdapterVolatility` | The adapter persists. Because clients live in the adapter, a volatile adapter (in-memory, Redis without persistence) silently loses them on restart. |
 | `checkAccountStore` | The store is present, and which capabilities it implements. |
 | `checkSession` | `@adonisjs/session` is configured; warns about the cookie store with large token sets. |
@@ -341,51 +342,9 @@ normalizes to nothing (a null or blank column) are listed separately rather than
 when collisions (or write failures) remain. See
 [Security](/docs/security#migrating-the-stored-addresses--a-required-upgrade-step).
 
-### `authkit:keys:rotate`
+### `authkit:client`, `authkit:key`, `authkit:purge`
 
-See [Security — Signing key rotation](/docs/security#signing-key-rotation) for the flag reference and rotation strategy.
-
-### `authkit:clients:create`
-
-Creates an OIDC client in the adapter/DB at runtime via `AdminClientsService` — the same
-path used by the admin console and Dynamic Registration (RFC 7591). No redeploy needed.
-
-```bash
-# Public SPA client
-node ace authkit:clients:create \
-  --client-id=acme-web \
-  --redirect-uri=https://web.acme.com/auth/callback \
-  --public
-
-# Confidential client (secret printed once)
-node ace authkit:clients:create \
-  --client-id=acme-api \
-  --redirect-uri=https://api.acme.com/cb \
-  --grant=authorization_code \
-  --grant=refresh_token
-
-# Machine-readable JSON output
-node ace authkit:clients:create \
-  --redirect-uri=https://app.acme.com/cb \
-  --json
-```
-
-**Flags:**
-
-| Flag | Notes |
-| --- | --- |
-| `--redirect-uri=<uri>` | Allowed callback URI (repeatable). **Required.** |
-| `--client-id=<id>` | Desired `client_id`. Omit to generate a random UUID. |
-| `--public` | Create a public client (no secret; `token_endpoint_auth_method=none`). Default: confidential. |
-| `--grant=<type>` | Grant type (repeatable). Default: `authorization_code` + `refresh_token`. |
-| `--post-logout-uri=<uri>` | Post-logout redirect URI (repeatable). |
-| `--backchannel-logout-uri=<uri>` | OIDC Back-Channel Logout endpoint of the RP. |
-| `--client-secret=<secret>` | Use this secret instead of generating one (confidential clients only). Keeps the secret your RPs already use. |
-| `--json` | Print the result as JSON (includes `clientId` and `clientSecret` for confidential clients). |
-
-For confidential clients a `clientSecret` is generated and printed **exactly once** — store
-it immediately. The admin console and Admin API are alternatives when you prefer a browser
-or HTTP interface.
+See [CLI](/docs/cli).
 
 ## Server backend helpers — `@adonis-agora/authkit-server`
 

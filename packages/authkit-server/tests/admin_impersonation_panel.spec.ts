@@ -5,7 +5,7 @@
  *
  *   1. The panel was built from `cfg.clients`, which is ALWAYS `[]` in a real
  *      installation — clients live in the adapter, created through the console,
- *      the Admin API or `authkit:clients:create`. So the endpoint answered
+ *      the Admin API or `authkit:client create`. So the endpoint answered
  *      `404 no_token_exchange_client` on every host that had not kept legacy
  *      static clients, and the button could never work. Only the test suite,
  *      which declared static clients, ever saw it succeed.

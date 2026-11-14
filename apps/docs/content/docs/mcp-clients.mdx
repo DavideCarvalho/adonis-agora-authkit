@@ -1,60 +1,119 @@
 ---
 icon: Plug
 title: MCP clients
-description: Let Claude Code, Claude, ChatGPT, VS Code and Cursor sign in to your MCP server with your users' own accounts.
+description: Claude Code, Claude, ChatGPT, VS Code and Cursor sign in to your MCP server with your users' own accounts — automatically, as soon as an MCP server is registered.
 ---
 
 The [MCP authorization spec](https://modelcontextprotocol.io/specification/latest/basic/authorization)
-is OAuth 2.1: the client discovers your authorization server, registers itself (RFC 7591), sends the
-user to your login with PKCE, and gets a token bound to your MCP server (RFC 8707). With `mcp: true`
-AuthKit is that authorization server, with nothing else to wire:
+is OAuth 2.1: the client discovers your authorization server, identifies itself (dynamic
+registration, RFC 7591, or a Client ID Metadata Document), sends the user to your login with PKCE,
+and gets a token bound to your MCP server (RFC 8707). AuthKit is that authorization server, and it
+turns it on **by itself** as soon as an MCP server is registered with it — there is nothing to add
+to `config/authkit.ts`.
 
-```ts title="config/authkit.ts"
-defineConfig({
-  // ...
-  mcp: true,
-})
-```
+With `@adonis-agora/agent`'s dev tools hub on (`devTools` in `config/mcp.ts`), the hub registers
+`/mcp/agora` at boot and MCP clients can sign in:
 
 ```sh
-claude mcp add --transport http acme https://acme.com/mcp
+claude mcp add --transport http acme https://acme.com/mcp/agora
 ```
 
 Claude Code opens the browser, the user signs in to **your** app, sees a consent screen naming the
 client and what it asks for, and is connected.
 
-## What `mcp: true` turns on
+## When it is on
+
+MCP client login is on while **at least one MCP/OAuth resource is registered** with AuthKit:
+
+- a library that announces itself with `registerOAuthResource` (the agent's `/mcp/agora` hub);
+- `mcpClients.resources` in `config/authkit.ts`;
+- an `oidcBearerGuard({ resource })` ([below](#an-app-api-that-mcp-and-oauth-clients-call)).
+
+With none, it stays off: `/oidc/reg` answers `403`, the metadata has no `registration_endpoint` nor
+`client_id_metadata_document_supported`, and a URL `client_id` is not resolved. The decision is made
+on every request, so a resource registered late in the boot counts on the next request.
+
+`node ace agora:doctor` shows the state:
+
+```
+authkit.mcp-clients  MCP login: on (automatic — resources: /mcp/agora; disable with `mcpClients: false`)
+```
+
+and the server logs one line at boot when it turned on.
+
+## What it turns on
 
 - **Dynamic registration, open but restricted** to the redirects of the known MCP clients: loopback
   (Claude Code and other CLIs), `https://claude.ai/api/mcp/auth_callback`,
   `https://claude.com/api/mcp/auth_callback`, `https://chatgpt.com/connector_platform_oauth_redirect`,
   `https://vscode.dev/redirect` (and insiders), and the `cursor` / `vscode` app schemes. A
   `dynamicRegistration` you declare yourself takes precedence.
-- **Refresh tokens for those clients.** A client registered with the `refresh_token` grant gets
+- **Client ID Metadata Documents.** A client whose `client_id` is an `https://` URL (Claude Code's
+  `https://claude.ai/oauth/claude-code-client-metadata`, for instance) is not registered at all:
+  AuthKit fetches that JSON document, checks it (its `client_id` is the URL, a public client,
+  redirects within the list above) and caches it. Nothing is stored per client. The fetch refuses
+  private and reserved addresses, redirects, documents over 5 KB and slow servers (5 s).
+- **Refresh tokens for those clients.** An MCP client with the `refresh_token` grant gets
   `offline_access` and `prompt=consent` on its authorize, so the user consents once and stays
-  connected. Clients created in the console, the Admin API or the CLI are untouched — only clients
-  registered through `/reg` carry `client_id_issued_at`.
-- **Tokens bound to your MCP server.** The `resource` a client names must be one of yours, and the
-  token carries it as `aud`. Your servers come from `mcp.resources` and from **runtime
-  registration**: the MCP server of `@adonis-agora/agent` registers itself at boot, so its URL is
-  never repeated here.
+  connected. Clients created in the console, the Admin API or the CLI are untouched.
+- **Tokens bound to your MCP servers.** The `resource` a client names must be one of the registered
+  ones, and the token carries it as `aud`.
 - **RFC 8414 metadata at the root**: with the issuer at `https://acme.com/oidc`, the document is
   also served at `https://acme.com/.well-known/oauth-authorization-server/oidc`, where MCP clients
   look first.
 
-The consent screen shows the `client_name` the client registered (escaped — registration is open)
-and the scopes it asked for, and the account's **Connected apps** page lists clients by that name,
-each revocable.
+MCP clients never receive the `roles` / `org_*` claims: they sign themselves up, so they are never
+first-party. The consent screen shows the `client_name` the client registered (escaped) and the
+scopes it asked for, and the account's **Connected apps** page lists clients by that name, each
+revocable.
 
-## Options
+## Turning it off
+
+From the most global to the most specific:
 
 ```ts title="config/authkit.ts"
-mcp: {
-  // extra redirects, added to the known clients
-  redirectUris: { exact: ['https://my-client.example/callback'], appSchemes: ['zed'] },
+defineConfig({
+  // ...
+  mcpClients: false, // never, even with the agent hub on
+})
+```
+
+```ts title="config/authkit.ts"
+mcpClients: {
   // MCP servers that do not register themselves (another app, another process)
   resources: ['https://tools.acme.com/mcp'],
+  // extra redirects, added to the known clients
+  redirectUris: { exact: ['https://my-client.example/callback'], appSchemes: ['zed'] },
+  // Client ID Metadata Documents: off, or only from some hosts / with another cache window (seconds)
+  metadataDocuments: { allowHosts: ['claude.ai', '*.acme.com'], ttl: { min: 60, max: 3600 } },
+  // dynamic registration off: Client ID Metadata Documents only
+  dynamicRegistration: false,
 }
+```
+
+Turning the agent's `devTools` off unmounts the hub, so it does not register — with no other
+resource, MCP login is off too.
+
+### From the admin console
+
+**Settings → MCP client login** shows whether it is on and why, which resources are registered, and
+how many MCP clients registered themselves, with a link to them in **Clients** (revoke one there to
+cut its grants and tokens). The switch turns login off (or on again) right away; registration and
+metadata documents can be switched separately. Changing it asks for identity confirmation and is
+written to the audit log as `mcp_clients.updated` (who, from → to).
+
+Turning it off stops new registrations and sign-ins on the next request. Tokens already issued stay
+valid until they expire — revoke the clients to cut them.
+
+With `mcpClients: false` in the config the card is locked: the config wins.
+
+The same switch is the `mcp_clients` runtime setting, also reachable from the CLI and the Admin API:
+
+```sh
+node ace authkit:settings:set mcp_clients '{"enabled":false}'
+node ace authkit:settings:unset mcp_clients   # back to automatic
+node ace authkit:client list --mcp            # the MCP clients
+node ace authkit:client revoke <client_id> --force
 ```
 
 ## An app API that MCP and OAuth clients call
@@ -97,7 +156,8 @@ and AuthKit serves that document (with `Access-Control-Allow-Origin: *`):
 The guard also requires the token to be issued **for** that resource: its `aud` must contain the
 resource URL, so a token for your MCP server or another API is refused with `invalid_token`.
 Clients get such a token by sending `resource=https://acme.com/api` on the authorize and token
-requests (RFC 8707), which AuthKit accepts for a guard's resource even without `mcp`.
+requests (RFC 8707), which AuthKit accepts for a guard's resource whether MCP client login is on or
+not.
 `guard.authenticateAsClient(user)` in tests issues a token with the right `aud`.
 
 Without `resource` the guard behaves as before: no `resource_metadata`, any `aud` accepted.
@@ -105,13 +165,13 @@ With `remote` (the API does not run AuthKit), pass the full URL: `{ path }` need
 issuer's origin, and the document is then yours to serve from the API.
 
 AuthKit serves `/.well-known/oauth-protected-resource<path>` for every guard `resource` and for each
-`mcp.resources` entry on the issuer's origin. Paths of servers that serve their own document, like
+`mcpClients.resources` entry on the issuer's origin. Paths of servers that serve their own document, like
 the MCP server of `@adonis-agora/agent`, are left to them.
 
 ## Your own MCP server
 
-A server that is not `@adonis-agora/agent`'s registers its URL the same way, then serves the RFC 9728
-protected-resource metadata and checks the token's `aud`:
+A server that is not `@adonis-agora/agent`'s registers its URL the same way (which also turns MCP
+client login on), then serves the RFC 9728 protected-resource metadata and checks the token's `aud`:
 
 ```ts
 import { registerOAuthResource } from '@adonis-agora/authkit-server'

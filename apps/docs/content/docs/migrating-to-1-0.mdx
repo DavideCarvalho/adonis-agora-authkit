@@ -246,7 +246,7 @@ admin role) instead of a redirect, so handle the status where you call them.
 
 `defineConfig` no longer takes a `clients` list. Clients live in the adapter: create them in the
 admin console, through the Admin API (`POST /api/authkit/v1/clients`), or with
-`node ace authkit:clients:create`. The command's `--client-secret` keeps the secret your relying
+`node ace authkit:client create`. The command's `--client-secret` keeps the secret your relying
 parties already use.
 
 Before:
@@ -271,7 +271,7 @@ defineConfig({
 After, once per environment:
 
 ```sh
-node ace authkit:clients:create \
+node ace authkit:client create \
   --client-id=web \
   --client-secret="$WEB_CLIENT_SECRET" \
   --redirect-uri=https://app.acme.com/auth/callback \
@@ -279,7 +279,7 @@ node ace authkit:clients:create \
   --grant=authorization_code --grant=refresh_token \
   --backchannel-logout-uri=https://app.acme.com/auth/backchannel-logout
 
-node ace authkit:clients:create --client-id=mobile --native --redirect-uri=com.acme.app:/oauth
+node ace authkit:client create --client-id=mobile --native --redirect-uri=com.acme.app:/oauth
 ```
 
 `backchannelLogoutSessionRequired` has no CLI flag: set it in the admin console or with
@@ -308,7 +308,7 @@ the app refuses to boot unless `accountLoginUrl` (passed to `registerAuthHost` o
 `routes`) points at a login route of yours.
 
 The client id `authkit-console` is reserved for the consoles: the Admin API and
-`authkit:clients:create` reject it.
+`authkit:client create` reject it.
 
 ## Set `admin.authorize` for the admin console in production
 
@@ -611,6 +611,27 @@ createInertiaApp({
   },
 })
 ```
+
+## Remove `mcp` from `config/authkit.ts`
+
+MCP client login is automatic: it is on whenever an MCP server is registered with AuthKit (the
+`@adonis-agora/agent` dev tools hub, `mcpClients.resources`, an `oidcBearerGuard({ resource })`).
+The `mcp` option is gone and passing it fails at boot.
+
+```ts title="config/authkit.ts"
+defineConfig({
+  // ...
+  mcp: true, // [!code --]
+})
+```
+
+`mcp: { resources, redirectUris }` becomes `mcpClients: { resources, redirectUris }`. To keep MCP
+clients out, set `mcpClients: false`. See [MCP clients](/docs/mcp-clients).
+
+## Use `authkit:client` and `authkit:key`
+
+`authkit:clients:create` is now `authkit:client create` (same flags), and `authkit:keys:rotate` is
+`authkit:key rotate` (`--retire` is `--retire-old`). See [CLI](/docs/cli).
 
 ## Install `@adonis-agora/authkit-poppy` for Poppy
 

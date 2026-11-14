@@ -5,6 +5,7 @@ import RedisMock from 'ioredis-mock';
 import { adapters, defineConfig } from '../src/define_config.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { fakeAccountStore } from './bootstrap.js';
+import { isolatedOAuthRegistry } from './helpers/oauth_registry.js';
 import { withClients } from './helpers/seed_clients.js';
 
 const IAT = 'iat_secret';
@@ -55,7 +56,10 @@ const metadata = (issuer: string) => ({
   token_endpoint_auth_method: 'client_secret_basic',
 });
 
-test.group('dynamic client registration (RFC 7591/7592)', () => {
+test.group('dynamic client registration (RFC 7591/7592)', (group) => {
+  // Sem resource MCP registrado: o registro MCP automático fica fechado.
+  isolatedOAuthRegistry(group);
+
   test('com IAT exigido: registra client, persiste via adapter e é encontrável', async ({
     assert,
     cleanup,
@@ -118,7 +122,7 @@ test.group('dynamic client registration (RFC 7591/7592)', () => {
     assert.oneOf(res.status, [400, 401]);
   });
 
-  test('com a feature DESLIGADA (default), /reg não está disponível', async ({
+  test('sem dynamicRegistration e sem resource MCP (default), /reg recusa', async ({
     assert,
     cleanup,
   }) => {
@@ -135,7 +139,7 @@ test.group('dynamic client registration (RFC 7591/7592)', () => {
       },
       body: JSON.stringify(metadata(issuer)),
     });
-    // endpoint inexistente: 404 (ou 400 caso o provider trate a rota como desconhecida).
-    assert.oneOf(res.status, [400, 404]);
+    // O registro MCP automático só aceita com um resource MCP registrado: 403.
+    assert.equal(res.status, 403);
   });
 });

@@ -922,20 +922,20 @@ accessTokens: {
 ## Signing key rotation
 
 When the JWKS is **managed with a store file** (`jwks: { source: 'managed', store: 'storage/authkit-keys.json' }`),
-use the `authkit:keys:rotate` command to rotate without downtime:
+use the `authkit:key rotate` command to rotate without downtime:
 
 ```bash
 # Generate a new signing key; keep the last 2 (grace period, default)
-node ace authkit:keys:rotate
+node ace authkit:key rotate
 
 # Keep 3 previous keys (tokens signed with them keep validating)
-node ace authkit:keys:rotate --keep=3
+node ace authkit:key rotate --keep=3
 
 # Retire all old keys immediately (only the new key validates)
-node ace authkit:keys:rotate --retire
+node ace authkit:key rotate --retire-old
 
 # Preview the rotation plan without touching the file
-node ace authkit:keys:rotate --dry-run
+node ace authkit:key rotate --dry-run
 ```
 
 | Flag | Default | Notes |

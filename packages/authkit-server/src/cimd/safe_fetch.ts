@@ -1,8 +1,9 @@
 /**
  * `fetch` de documentos JSON de terceiros à prova de SSRF.
  *
- * O `client_id` de um agente Poppy é uma URL que QUALQUER um escolhe — buscá-la
- * sem cuidado faria deste app um proxy para a rede interna. Regras:
+ * Um `client_id` que é URL (Client ID Metadata Document: os clientes MCP, os agentes do
+ * `@adonis-agora/authkit-poppy`) é escolhido por QUALQUER um — buscá-lo sem cuidado faria deste app
+ * um proxy para a rede interna. Regras:
  *  - só `https:`; sem credenciais na URL; porta qualquer;
  *  - o IP é conferido NA CONEXÃO (o `lookup` do socket), não num DNS separado —
  *    sem janela para DNS rebinding; loopback, privados, link-local, CGNAT,
@@ -39,8 +40,12 @@ export type LookupFn = (
 ) => void;
 
 export interface SafeFetchOptions {
+  /** Default: 5000. */
   timeoutMs?: number;
+  /** Default: 64 KiB. */
   maxBytes?: number;
+  /** `User-Agent` da busca. Default: `authkit`. */
+  userAgent?: string;
   /** Resolução de nomes — injetável nos testes. Default: `dns.lookup`. */
   lookup?: LookupFn;
 }
@@ -188,7 +193,7 @@ export function safeFetchJson(url: string, options: SafeFetchOptions = {}): Prom
       parsed,
       {
         method: 'GET',
-        headers: { accept: 'application/json', 'user-agent': 'authkit-poppy/0.3' },
+        headers: { accept: 'application/json', 'user-agent': options.userAgent ?? 'authkit' },
         lookup: guardedLookup as any,
         // IP literal: o `lookup` não roda — já conferido acima.
       },
@@ -238,7 +243,7 @@ export function safeFetchJson(url: string, options: SafeFetchOptions = {}): Prom
 }
 
 /**
- * SÓ DEV/TESTE (`poppy({ allowInsecureClientIds })`): busca um JSON por
+ * SÓ DEV/TESTE (ex.: `poppy({ allowInsecureClientIds })`): busca um JSON por
  * `http:` ou `https:` SEM a guarda de SSRF — loopback e rede privada liberados,
  * para um agente local (`http://localhost:7777/agent.json`). Mantém sem redirect,
  * teto de tempo e de bytes. Nunca use em produção (a config recusa).
@@ -263,7 +268,10 @@ export async function insecureDevFetchJson(
   try {
     res = await fetch(parsed, {
       redirect: 'manual',
-      headers: { accept: 'application/json', 'user-agent': 'authkit-poppy/0.3 (insecure-dev)' },
+      headers: {
+        accept: 'application/json',
+        'user-agent': `${options.userAgent ?? 'authkit'} (insecure-dev)`,
+      },
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {

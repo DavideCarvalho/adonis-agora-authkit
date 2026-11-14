@@ -24,6 +24,7 @@ import { registerDoctorChecks } from '../src/doctor/agora_doctor.js';
 import { resolveAppKey } from '../src/host/app_key.js';
 import { resolveEffectiveKeyRotation } from '../src/host/key_rotation.js';
 import { RuntimeSettings, settingsLocation } from '../src/host/runtime_settings.js';
+import { toProviderJwks } from '../src/keys/keystore.js';
 import { KeystoreCodec } from '../src/keys/keystore_codec.js';
 import { loadEncryptionService } from '../src/keys/keystore_crypto.js';
 import { KeystoreManager, resolveKeystoreVault } from '../src/keys/keystore_manager.js';
@@ -130,7 +131,7 @@ export default class AuthkitServerProvider {
     setAuthHostConfig({
       mountPath: config.mountPath,
       issuer: config.issuer,
-      mcpResources: config.mcp?.enabled ? config.mcp.resources : [],
+      mcpResources: config.mcpClients?.allowed ? config.mcpClients.resources : [],
       social: config.social,
       rateLimit: config.rateLimit,
       adminEnabled: config.admin.enabled,
@@ -161,6 +162,30 @@ export default class AuthkitServerProvider {
           }
         : undefined,
     });
+
+    // Login de clientes MCP: a setting `mcp_clients` é lida por request (o provider do
+    // oidc-provider não tem o HttpContext), da conexão das tabelas do authkit.
+    const { setMcpClientsSettingsSource } = await import('../src/mcp/mcp_clients.js');
+    let mcpSettings: RuntimeSettings | null | undefined;
+    setMcpClientsSettingsSource(async () => {
+      if (mcpSettings === undefined) {
+        const db = await this.app.container.make('lucid.db' as any).catch(() => null);
+        mcpSettings = db ? new RuntimeSettings(db, settingsLocation(config)) : null;
+      }
+      return mcpSettings;
+    });
+    // Uma linha no boot do servidor quando ligou sozinho (os resources já se registraram).
+    if (config.mcpClients?.allowed && this.app.getEnvironment() === 'web') {
+      this.app.ready(async () => {
+        const { describeMcpClientsState, mcpClientsState } = await import(
+          '../src/mcp/mcp_clients.js'
+        );
+        const state = await mcpClientsState(config.mcpClients);
+        if (!state.enabled) return;
+        const logger = await this.app.container.make('logger').catch(() => null);
+        logger?.info(`authkit: MCP client login ${describeMcpClientsState(state)}`);
+      });
+    }
 
     // Admin console without `admin.authorize`: open outside production, 403 in production.
     // Said once, at boot.
@@ -256,7 +281,7 @@ export default class AuthkitServerProvider {
         jwksLoader = async () => {
           const m = await buildManager();
           const store = (await m.read()) ?? (await m.ensure());
-          return { keys: store.keys.map(({ iat: _iat, ...jwk }) => jwk) };
+          return toProviderJwks(store);
         };
         keystoreHead = async () => {
           const m = await buildManager();
@@ -363,7 +388,7 @@ export default class AuthkitServerProvider {
   /**
    * Inicia o poll de reload do keystore: a cada intervalo lê um `head` barato do
    * cofre e dispara `reloadKeys()` quando ele muda, propagando rotações feitas
-   * por outro processo (`authkit:keys:rotate`) ou instância sem restart. Só roda
+   * por outro processo (`authkit:key rotate`) ou instância sem restart. Só roda
    * no ambiente `web` (evita pollers em comandos ace/testes) e só quando o
    * OidcService de fato tem um `keystoreHead` (managed + store). Fail-safe:
    * qualquer erro vira no-op (logado como warning); `unref()` impede o timer de

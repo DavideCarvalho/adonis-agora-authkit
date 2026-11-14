@@ -19,7 +19,7 @@ wrapper around [`oidc-provider`](https://github.com/panva/node-oidc-provider).
   `personalAgents.extensions` for protocols shipped as their own packages — the
   [Personal Agent Protocol ("Poppy")](https://personalagentprotocol.org/docs/spec) is
   [`@adonis-agora/authkit-poppy`](https://www.npmjs.com/package/@adonis-agora/authkit-poppy).
-- **Native apps** — RFC 8252 native clients (`authkit:clients:create --native`: private-use
+- **Native apps** — RFC 8252 native clients (`authkit:client create --native`: private-use
   scheme / claimed https / loopback redirects, always public + PKCE) and the `@adonisjs/auth`
   guards `oidcRpGuard` (session) and `oidcBearerGuard` (`Authorization: Bearer` access tokens,
   in-process or remote resource server).

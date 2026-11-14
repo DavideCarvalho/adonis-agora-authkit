@@ -2,10 +2,16 @@ import type { ApplicationService } from '@adonisjs/core/types';
 import { DatabaseAdapter } from '../adapters/database_adapter.js';
 import { resolveAuthkitConfig } from '../commands/resolve_config.js';
 import { defaultEncryptForStore } from '../define_config.js';
+import { RuntimeSettings, settingsLocation } from '../host/runtime_settings.js';
 import { signingKeyAgeDays } from '../keys/keystore.js';
 import { KeystoreCodec } from '../keys/keystore_codec.js';
 import { loadEncryptionService } from '../keys/keystore_crypto.js';
 import { KeystoreManager, resolveKeystoreVault } from '../keys/keystore_manager.js';
+import {
+  MCP_CLIENTS_SETTING_KEY,
+  normalizeMcpClientsSetting,
+  type ResolvedMcpClientsSetting,
+} from '../mcp/mcp_clients.js';
 import { type DoctorInput, type Finding, signingKeyAgeFinding } from './checks.js';
 
 /** Logger mínimo para reportar peers instalados-mas-quebrados. */
@@ -63,7 +69,24 @@ export async function buildDoctorInput(
       limiter: await canImport('@adonisjs/limiter', logger),
     },
     __adapterClasses: { DatabaseAdapter },
+    ...(authkitConfig?.mcpClients?.allowed
+      ? { mcpClientsSetting: await readMcpClientsSettingFor(app, authkitConfig) }
+      : {}),
   };
+}
+
+/** A setting `mcp_clients` do banco (best-effort: sem banco/tabela → `undefined`). */
+async function readMcpClientsSettingFor(
+  app: ApplicationService,
+  authkitConfig: Record<string, any>,
+): Promise<ResolvedMcpClientsSetting | undefined> {
+  try {
+    const db = await app.container.make('lucid.db' as any);
+    const settings = new RuntimeSettings(db, settingsLocation(authkitConfig));
+    return normalizeMcpClientsSetting(await settings.getSetting(MCP_CLIENTS_SETTING_KEY));
+  } catch {
+    return undefined;
+  }
 }
 
 /**

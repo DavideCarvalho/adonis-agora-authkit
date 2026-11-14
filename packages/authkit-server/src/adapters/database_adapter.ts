@@ -225,6 +225,19 @@ export class DatabaseAdapter implements OidcAdapter {
     await this.#query().where('id', id).delete();
   }
 
+  async purgeExpired(options: { dryRun?: boolean } = {}): Promise<number> {
+    const expired = () =>
+      this.#query()
+        .whereNotNull('expires_at')
+        .where('expires_at', '<=', this.#timestamp(Date.now()));
+    if (options.dryRun) {
+      const row: any = await expired().count('* as total').first();
+      return Number(row?.total ?? 0);
+    }
+    const deleted: any = await expired().delete();
+    return Array.isArray(deleted) ? deleted.length : Number(deleted ?? 0);
+  }
+
   async revokeByGrantId(grantId: string): Promise<void> {
     await this.db.query().from(this.table).where('grant_id', grantId).delete();
   }

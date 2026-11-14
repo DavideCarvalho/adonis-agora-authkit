@@ -124,6 +124,10 @@ export type {
   KeysStatus,
   LeaveOrgResult,
   ManagedKeyInfo,
+  // Admin – MCP client login
+  McpClientsSettingValue,
+  McpClientsStatus,
+  McpClientsUpdateInput,
   // Account – MFA (escrita headless)
   MfaConfirmResult,
   MfaDisableResult,
@@ -156,6 +160,7 @@ export type {
   ResetPasswordResult,
   RevokeAllResult,
   RevokeAppResult,
+  RevokeClientResult,
   RevokeOrgInvitationResult,
   RevokeOthersResult,
   RevokeSessionResult,
@@ -390,6 +395,8 @@ export {
   useImpersonationQueryOptions,
   // Keys
   useKeysQueryOptions,
+  // MCP client login
+  useMcpClientsQueryOptions,
   useOrgQueryOptions,
   // Orgs
   useOrgsQueryOptions,
@@ -404,6 +411,7 @@ export {
   useRemoveSettingMutationOptions,
   useResetPasswordMutationOptions,
   useRevokeAllSessionsMutationOptions,
+  useRevokeClientMutationOptions,
   useRevokeOrgInvitationMutationOptions,
   useRevokePersonalAgentConnectionMutationOptions,
   useRevokeUserSessionsMutationOptions,
@@ -418,6 +426,7 @@ export {
   // Settings
   useSettingsQueryOptions,
   useUpdateClientMutationOptions,
+  useUpdateMcpClientsMutationOptions,
   useUpdateOrgMemberRoleMutationOptions,
   useUpdateOrgMutationOptions,
   useUpdateRoleMutationOptions,

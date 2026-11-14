@@ -48,20 +48,60 @@ export class KeystoreManager {
     return this.codec.decode(blob);
   }
 
-  /** Rotaciona: chave nova na frente, mantém as `keep` mais recentes. Persiste. */
+  /**
+   * Rotaciona: a chave nova vai para a frente (passa a assinar) e as `keep` mais recentes ficam
+   * publicadas. Uma chave `staged` (de {@link generate}) é a que passa a assinar; senão, uma nova.
+   * Persiste.
+   */
   async rotate(
     keep = 2,
     retire = false,
   ): Promise<{ store: PersistedKeystore; newKid: string; retiredKids: string[] }> {
     const current = (await this.read()) ?? { keys: [] };
-    const fresh = await generateSigningJwk(this.alg);
-    const next = [fresh, ...current.keys];
+    const staged = current.keys.find((k) => k.staged === true);
+    let fresh: Record<string, any>;
+    if (staged) {
+      const { staged: _staged, ...promoted } = staged;
+      fresh = promoted;
+    } else {
+      fresh = await generateSigningJwk(this.alg);
+    }
+    const next = [fresh, ...current.keys.filter((k) => k !== staged)];
     const effectiveKeep = retire ? 1 : Math.max(1, keep);
     const kept = next.slice(0, effectiveKeep);
     const retiredKids = next.slice(effectiveKeep).map((k) => k.kid as string);
     const store: PersistedKeystore = { keys: kept };
     await this.vault.write(await this.codec.encode(store));
     return { store, newKid: fresh.kid as string, retiredKids };
+  }
+
+  /**
+   * Gera uma chave e a publica no JWKS SEM assinar com ela (`staged`): os caches de JWKS dos
+   * resource servers a pegam antes da troca. A próxima {@link rotate} a promove. Uma chave staged
+   * anterior é substituída. Persiste.
+   */
+  async generate(alg: SigningAlg = this.alg): Promise<{ store: PersistedKeystore; kid: string }> {
+    const current = await this.ensure();
+    const fresh: Record<string, any> = { ...(await generateSigningJwk(alg)), staged: true };
+    const store: PersistedKeystore = {
+      keys: [...current.keys.filter((k) => k.staged !== true), fresh],
+    };
+    await this.vault.write(await this.codec.encode(store));
+    return { store, kid: fresh.kid as string };
+  }
+
+  /**
+   * Retira uma chave que não assina (antiga ou staged): sai do JWKS, e tokens assinados por ela
+   * deixam de validar. Lança para a chave ativa ou um `kid` desconhecido. Persiste.
+   */
+  async retire(kid: string): Promise<PersistedKeystore> {
+    const current = (await this.read()) ?? { keys: [] };
+    const index = current.keys.findIndex((k) => k.kid === kid);
+    if (index === -1) throw new Error(`key ${kid} not found`);
+    if (index === 0) throw new Error(`key ${kid} is the active signing key: rotate first`);
+    const store: PersistedKeystore = { keys: current.keys.filter((_, i) => i !== index) };
+    await this.vault.write(await this.codec.encode(store));
+    return store;
   }
 
   /** Plano de rotação (puro, sem I/O de escrita). */

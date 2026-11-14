@@ -1,26 +1,19 @@
 /**
  * Login OAuth de clientes MCP (Claude Code, Claude, ChatGPT, VS Code, Cursor) — a autorização da
- * spec do MCP: OAuth 2.1 com PKCE, registro dinâmico (RFC 7591), metadata do servidor de
- * autorização (RFC 8414) e o token amarrado ao servidor MCP pelo `resource` (RFC 8707).
+ * spec do MCP: OAuth 2.1 com PKCE, registro dinâmico (RFC 7591) ou Client ID Metadata Documents,
+ * metadata do servidor de autorização (RFC 8414) e o token amarrado ao servidor MCP pelo
+ * `resource` (RFC 8707).
  *
- * `mcp: true` na config liga tudo de uma vez:
- *   - o registro dinâmico ABERTO, restrito aos redirects dos clientes MCP conhecidos
- *     ({@link MCP_CLIENT_REDIRECTS}) — loopback para os de linha de comando;
- *   - o refresh token desses clientes: o registro pede `offline_access` e o authorize ganha
- *     `prompt=consent` (OIDC Core §11), então a pessoa consente uma vez e o cliente não precisa
- *     logar de novo a cada hora;
- *   - os `resource` dos servidores MCP: os de `mcp.resources` e os REGISTRADOS em runtime
- *     ({@link registerOAuthResource}) — é por aí que o MCP do `@adonis-agora/agent` se anuncia
- *     sem o app listar a URL dele aqui.
+ * Este módulo tem as peças de protocolo: os redirects dos clientes MCP conhecidos
+ * ({@link MCP_CLIENT_REDIRECTS}), o registro global de resources ({@link registerOAuthResource}),
+ * o refresh token dos clientes MCP (o registro pede `offline_access` e o authorize ganha
+ * `prompt=consent`, OIDC Core §11) e os documentos RFC 9728. QUANDO o login de clientes MCP está
+ * ligado é decidido por request em `mcp_clients.ts` (automático: há um resource registrado).
  *
  * Os clientes registrados pelo `/reg` se distinguem pelo `client_id_issued_at`, que só o registro
  * dinâmico grava: clients estáticos ou criados pelo console/CLI não mudam de comportamento.
  */
-import type {
-  RedirectUriPolicy,
-  ResolvedRedirectUriPolicy,
-} from '../provider/registration_policy.js';
-import { resolveRedirectUriPolicy } from '../provider/registration_policy.js';
+import type { RedirectUriPolicy } from '../provider/registration_policy.js';
 
 /** Callbacks dos clientes MCP conhecidos. Loopback (Claude Code, CLIs) já entra pela política. */
 export const MCP_CLIENT_REDIRECTS: Required<RedirectUriPolicy> = {
@@ -39,38 +32,12 @@ export const MCP_CLIENT_REDIRECTS: Required<RedirectUriPolicy> = {
 /** Escopos de um token de servidor MCP: identidade + refresh. */
 export const MCP_RESOURCE_SCOPES = ['openid', 'profile', 'email', 'offline_access'];
 
-export interface McpOAuthConfigInput {
-  /**
-   * Redirects aceitos ALÉM dos clientes MCP conhecidos — ex.: o callback de um cliente próprio.
-   * Somados a {@link MCP_CLIENT_REDIRECTS}.
-   */
-  redirectUris?: RedirectUriPolicy;
-  /**
-   * URLs dos servidores MCP para os quais este IdP emite tokens, além dos que se registram em
-   * runtime ({@link registerOAuthResource}). Ex.: `['https://app.example.com/mcp']`.
-   */
-  resources?: string[];
-}
-
-export interface ResolvedMcpOAuthConfig {
+/** O que {@link findMcpResource} precisa saber do login de clientes MCP agora. */
+export interface McpResourceLookup {
+  /** Login de clientes MCP ligado neste request. */
   enabled: boolean;
-  redirectUriPolicy: ResolvedRedirectUriPolicy;
-  resources: string[];
-}
-
-export function resolveMcpOAuth(input?: boolean | McpOAuthConfigInput): ResolvedMcpOAuthConfig {
-  const options = typeof input === 'object' ? input : {};
-  const extra = options.redirectUris ?? {};
-  return {
-    enabled: input === true || typeof input === 'object',
-    redirectUriPolicy: resolveRedirectUriPolicy({
-      loopback: extra.loopback ?? MCP_CLIENT_REDIRECTS.loopback,
-      exact: [...new Set([...MCP_CLIENT_REDIRECTS.exact, ...(extra.exact ?? [])])],
-      appSchemes: [...new Set([...MCP_CLIENT_REDIRECTS.appSchemes, ...(extra.appSchemes ?? [])])],
-      anyHttps: extra.anyHttps ?? MCP_CLIENT_REDIRECTS.anyHttps,
-    }),
-    resources: [...(options.resources ?? [])],
-  };
+  /** `mcpClients.resources` da config. */
+  resources: readonly string[];
 }
 
 /**
@@ -133,14 +100,15 @@ function normalizePath(path: string): string {
 }
 
 /**
- * O resource MCP que `indicator` nomeia, ou `null`. Casa com `mcp.resources`, com uma URL
- * registrada, ou com um `path` registrado na origem do issuer. Barra final tolerada. Com `mcp`
- * desligado, só os resources que o próprio app declarou num guard (`metadata: true`) valem.
+ * O resource MCP que `indicator` nomeia, ou `null`. Casa com `mcpClients.resources`, com uma URL
+ * registrada, ou com um `path` registrado na origem do issuer. Barra final tolerada. Com o login
+ * de clientes MCP desligado, só os resources que o próprio app declarou num guard
+ * (`metadata: true`) valem.
  */
 export function findMcpResource(
   indicator: string,
   issuer: string,
-  config: ResolvedMcpOAuthConfig,
+  config: McpResourceLookup,
 ): { audience: string; scopes: string[] } | null {
   const resources = config.enabled
     ? registeredOAuthResources()
@@ -231,7 +199,7 @@ export interface ServedProtectedResource {
 
 /**
  * Os documentos RFC 9728 que o authkit serve: os resources registrados com `metadata: true` (o
- * `oidcBearerGuard({ resource })`) e os de `mcp.resources` na origem do issuer. Paths de resources
+ * `oidcBearerGuard({ resource })`) e os de `mcpClients.resources` na origem do issuer. Paths de resources
  * registrados SEM `metadata` ficam de fora: a lib que os registrou serve o próprio documento (o MCP
  * do `@adonis-agora/agent`), e uma segunda rota no mesmo path colidiria. Primeiro a declarar ganha.
  */
@@ -314,10 +282,14 @@ export function withOfflineAccess(
 }
 
 /**
- * Middleware do provider (Koa) que aplica {@link withOfflineAccess} ao `GET /auth` de um client
- * registrado dinamicamente que tem o grant `refresh_token`.
+ * Middleware do provider (Koa) que aplica {@link withOfflineAccess} ao `GET /auth` de um cliente
+ * MCP (registrado dinamicamente, ou por Client ID Metadata Document — `isMetadataDocument`) que
+ * tem o grant `refresh_token`.
  */
-export function mcpAuthorizeMiddleware(provider: { Client: { find(id: string): Promise<any> } }) {
+export function mcpAuthorizeMiddleware(
+  provider: { Client: { find(id: string): Promise<any> } },
+  isMetadataDocument: (clientId: string) => boolean = () => false,
+) {
   return async (ctx: any, next: () => Promise<void>) => {
     if (ctx.method !== 'GET' || ctx.path !== '/auth') return next();
     const query = ctx.query as Record<string, unknown>;
@@ -329,7 +301,7 @@ export function mcpAuthorizeMiddleware(provider: { Client: { find(id: string): P
     const metadata = client?.metadata?.() ?? {};
     const grants: unknown = metadata.grant_types;
     if (
-      metadata.client_id_issued_at === undefined ||
+      (metadata.client_id_issued_at === undefined && !isMetadataDocument(clientId)) ||
       !Array.isArray(grants) ||
       !grants.includes('refresh_token')
     ) {

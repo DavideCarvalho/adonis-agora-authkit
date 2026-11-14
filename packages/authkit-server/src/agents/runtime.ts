@@ -1,6 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http';
 import { getBootedApp } from '../../services/booted_app.js';
 import { supportsAccountStatus } from '../accounts/account_store.js';
+import { mcpClientsState, mcpClientsStateSync } from '../mcp/mcp_clients.js';
 import { findMcpResource } from '../mcp/mcp_oauth.js';
 import type { OidcService } from '../provider/oidc_service.js';
 import { authkitTable } from '../schema/tables_location.js';
@@ -90,10 +91,20 @@ export interface BuildPersonalAgentsOptions {
 /** Access tokens do oidc-provider para resources MCP (ver {@link PersonalAgentAccessTokens}). */
 function accessTokens(service: OidcService): PersonalAgentAccessTokens {
   return {
-    mcpEnabled: !!service.config.mcp?.enabled,
+    // Síncrono: a última leitura da setting `mcp_clients` (cada leitura relê em background).
+    get mcpEnabled() {
+      void mcpClientsState(service.config.mcpClients).catch(() => {});
+      return mcpClientsStateSync(service.config.mcpClients).enabled;
+    },
     isMcpResource(url) {
       try {
-        return findMcpResource(url, service.config.issuer, service.config.mcp) !== null;
+        const state = mcpClientsStateSync(service.config.mcpClients);
+        return (
+          findMcpResource(url, service.config.issuer, {
+            enabled: state.enabled,
+            resources: service.config.mcpClients.resources,
+          }) !== null
+        );
       } catch {
         return false;
       }

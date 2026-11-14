@@ -51,6 +51,9 @@ export function clientDto(client: AdminClient) {
     logoUri: client.logoUri,
     disabled: client.disabled,
     serviceTenant: client.serviceTenant,
+    dynamicallyRegistered: client.dynamicallyRegistered,
+    registeredAt: client.registeredAt ? client.registeredAt.toISOString() : null,
+    scope: client.scope,
   };
 }
 

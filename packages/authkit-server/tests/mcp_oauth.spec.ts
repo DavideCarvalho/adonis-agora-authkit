@@ -5,13 +5,13 @@ import ProtectedResourceMetadataController from '../src/controllers/protected_re
 import { adapters, defineConfig } from '../src/define_config.js';
 import { resetAuthHostConfig, setAuthHostConfig } from '../src/host/auth_host_config.js';
 import { registerAuthHost } from '../src/host/register_auth_host.js';
+import { resolveMcpClients } from '../src/mcp/mcp_clients.js';
 import {
   findMcpResource,
   MCP_CLIENT_REDIRECTS,
   mcpClientRegistration,
   protectedResourceMetadataUrl,
   registerOAuthResource,
-  resolveMcpOAuth,
   servedProtectedResources,
   withOfflineAccess,
 } from '../src/mcp/mcp_oauth.js';
@@ -71,15 +71,10 @@ function recordingRouter() {
   return { router, routes };
 }
 
-test.group('mcp: config', () => {
-  test('off by default: no registration, no MCP resources', async ({ assert }) => {
+test.group('mcpClients: dynamic registration config', () => {
+  test('automatic: registration mounted for the known MCP clients only', async ({ assert }) => {
     const cfg = await resolved({});
-    assert.isFalse(cfg.mcp.enabled);
-    assert.isFalse(cfg.dynamicRegistration.enabled);
-  });
-
-  test('mcp: true opens registration to the known MCP clients only', async ({ assert }) => {
-    const cfg = await resolved({ mcp: true });
+    assert.isTrue(cfg.mcpClients.allowed);
     assert.isTrue(cfg.dynamicRegistration.enabled);
     assert.isUndefined(cfg.dynamicRegistration.initialAccessToken);
     assert.deepEqual(cfg.dynamicRegistration.redirectUriPolicy.exact, MCP_CLIENT_REDIRECTS.exact);
@@ -87,17 +82,24 @@ test.group('mcp: config', () => {
     assert.isFalse(cfg.dynamicRegistration.redirectUriPolicy.anyHttps);
   });
 
+  test('mcpClients: false or dynamicRegistration: false → no registration', async ({ assert }) => {
+    assert.isFalse((await resolved({ mcpClients: false })).dynamicRegistration.enabled);
+    assert.isFalse(
+      (await resolved({ mcpClients: { dynamicRegistration: false } })).dynamicRegistration.enabled,
+    );
+  });
+
   test('a declared dynamicRegistration keeps the last word', async ({ assert }) => {
     const cfg = await resolved({
-      mcp: true,
       dynamicRegistration: { enabled: true, initialAccessToken: 'iat' },
     });
     assert.equal(cfg.dynamicRegistration.initialAccessToken, 'iat');
     assert.isNull(cfg.dynamicRegistration.redirectUriPolicy);
+    assert.equal(cfg.mcpClients.dynamicRegistration, 'app');
   });
 
   test('extra redirects add to the known ones', ({ assert }) => {
-    const mcp = resolveMcpOAuth({
+    const mcp = resolveMcpClients({
       redirectUris: { exact: ['https://me.example/cb'], appSchemes: ['zed'] },
     });
     assert.includeMembers(mcp.redirectUriPolicy.exact, [
@@ -112,7 +114,7 @@ test.group('mcp: resources', () => {
   test('declared, registered by URL, or registered by path on the issuer origin', ({ assert }) => {
     registerOAuthResource({ url: 'https://other.example.com/tools/mcp' });
     registerOAuthResource({ path: 'api/mcp' });
-    const mcp = resolveMcpOAuth({ resources: ['https://app.example.com/mcp'] });
+    const mcp = { enabled: true, resources: ['https://app.example.com/mcp'] };
 
     assert.equal(
       findMcpResource('https://app.example.com/mcp/', ISSUER, mcp)?.audience,
@@ -137,7 +139,7 @@ test.group('mcp: resources', () => {
     assert.isNull(findMcpResource('https://app.example.com/other', ISSUER, mcp));
     // off → nothing matches
     assert.isNull(
-      findMcpResource('https://app.example.com/api/mcp', ISSUER, resolveMcpOAuth(false)),
+      findMcpResource('https://app.example.com/api/mcp', ISSUER, { enabled: false, resources: [] }),
     );
   });
 
@@ -224,7 +226,10 @@ function isolatedRegistry(group: { setup: (fn: () => () => void) => void; each: 
 test.group('RFC 9728 protected resource metadata', (group) => {
   isolatedRegistry(group);
 
-  async function get(path: string, mcp = resolveMcpOAuth({ resources: [`${ORIGIN}/tools`] })) {
+  async function get(
+    path: string,
+    mcpClients = resolveMcpClients({ resources: [`${ORIGIN}/tools`] }),
+  ) {
     const headers: Record<string, string> = {};
     let status = 200;
     let body: unknown;
@@ -241,7 +246,7 @@ test.group('RFC 9728 protected resource metadata', (group) => {
       },
     };
     await new ProtectedResourceMetadataController().handle({
-      containerResolver: { make: async () => ({ config: { issuer: ISSUER, mcp } }) },
+      containerResolver: { make: async () => ({ config: { issuer: ISSUER, mcpClients } }) },
       request: { url: () => path },
       response,
     } as any);
@@ -312,7 +317,7 @@ test.group('RFC 9728 protected resource metadata', (group) => {
     assert.notProperty(body as object, 'resource_name');
   });
 
-  test('mcp.resources on the issuer origin are served', async ({ assert }) => {
+  test('mcpClients.resources on the issuer origin are served', async ({ assert }) => {
     const { status, body } = await get('/.well-known/oauth-protected-resource/tools');
     assert.equal(status, 200);
     assert.equal((body as any).resource, `${ORIGIN}/tools`);
@@ -325,7 +330,7 @@ test.group('RFC 9728 protected resource metadata', (group) => {
       assert.equal(status, 404, path);
       assert.equal(headers['Access-Control-Allow-Origin'], '*');
     }
-    const off = await get('/.well-known/oauth-protected-resource/tools', resolveMcpOAuth(false));
+    const off = await get('/.well-known/oauth-protected-resource/tools', resolveMcpClients(false));
     assert.equal(off.status, 404);
   });
 
@@ -372,10 +377,12 @@ test.group('RFC 9728 protected resource metadata', (group) => {
     assert.isFalse(routes.some((r) => r.pattern.includes('oauth-protected-resource')));
   });
 
-  test('issuer accepts a guard resource as RFC 8707 target even with mcp off', ({ assert }) => {
+  test('issuer accepts a guard resource as RFC 8707 target even with MCP login off', ({
+    assert,
+  }) => {
     registerOAuthResource({ path: '/api', scopes: ['openid', 'read'], metadata: true });
     registerOAuthResource({ path: '/mcp/agora' });
-    const off = resolveMcpOAuth(false);
+    const off = { enabled: false, resources: [] };
     assert.deepEqual(findMcpResource(`${ORIGIN}/api`, ISSUER, off), {
       audience: `${ORIGIN}/api`,
       scopes: ['openid', 'read'],

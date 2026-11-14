@@ -65,7 +65,7 @@ export default class ConsoleImpersonationController {
       return ctx.response.notFound(apiError('not_found', 'Usuário não encontrado.'));
     }
 
-    // Clients vivem no adapter, criados pelo console/Admin API/`authkit:clients:create`.
+    // Clients vivem no adapter, criados pelo console/Admin API/`authkit:client create`.
     const panel = buildImpersonationPanel(cfg, targetId, await listRuntimeClients(service));
     if (!panel) {
       return ctx.response.notFound(

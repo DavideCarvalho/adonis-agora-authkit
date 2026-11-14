@@ -11,7 +11,7 @@
 import { createServer, type Server } from 'node:http';
 import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
-import AuthkitClientsCreate from '../commands/clients_create.js';
+import AuthkitClient from '../commands/client.js';
 import type { ResolvedServerConfig } from '../src/define_config.js';
 import { adapters, defineConfig } from '../src/define_config.js';
 import { AdminClientsService } from '../src/host/admin_clients_service.js';
@@ -287,7 +287,7 @@ test.group('AdminClientsService — clients nativos', (group) => {
 });
 
 /**
- * Roda o `authkit:clients:create` com um app/logger falsos: o container só
+ * Roda o `authkit:client create` com um app/logger falsos: o container só
  * precisa entregar o `authkit.server` e o logger registra as linhas.
  */
 async function runClientsCreate(service: OidcService, flags: Record<string, unknown>) {
@@ -295,13 +295,13 @@ async function runClientsCreate(service: OidcService, flags: Record<string, unkn
   const log = (line: string) => lines.push(line);
   const ui: any = { logger: { info: log, success: log, logError: log, error: log, warning: log } };
   const app: any = { container: { make: async () => service } };
-  const cmd: any = new AuthkitClientsCreate(app, {} as any, {} as any, ui, {} as any);
-  Object.assign(cmd, flags);
+  const cmd: any = new AuthkitClient(app, {} as any, {} as any, ui, {} as any);
+  Object.assign(cmd, { action: 'create', ...flags });
   await cmd.run();
   return { lines, exitCode: cmd.exitCode as number | undefined };
 }
 
-test.group('authkit:clients:create --native', (group) => {
+test.group('authkit:client create --native', (group) => {
   let db: any;
   group.each.setup(async () => {
     db = createTestDatabase();
@@ -324,7 +324,7 @@ test.group('authkit:clients:create --native', (group) => {
     assert.equal(out.applicationType, 'native');
     assert.equal(out.tokenEndpointAuthMethod, 'none');
     assert.isFalse(out.confidential);
-    assert.notProperty(out, 'clientSecret');
+    assert.isNull(out.clientSecret);
 
     const found = await new AdminClientsService(service).find('expo-app');
     assert.equal(found!.applicationType, 'native');

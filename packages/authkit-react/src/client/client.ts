@@ -73,6 +73,8 @@ import type {
   KeysRotateResult,
   KeysStatus,
   LeaveOrgResult,
+  McpClientsStatus,
+  McpClientsUpdateInput,
   MfaConfirmResult,
   MfaDisableResult,
   MfaEnrollResult,
@@ -91,6 +93,7 @@ import type {
   ResetPasswordResult,
   RevokeAllResult,
   RevokeAppResult,
+  RevokeClientResult,
   RevokeOrgInvitationResult,
   RevokeOthersResult,
   RevokeSessionResult,
@@ -360,6 +363,9 @@ class AuthkitClient {
       /** POST {base}/clients/:id/enable */
       enable: (id: string) =>
         this.post<AdminClient>(this.b(`/clients/${encodeURIComponent(id)}/enable`)),
+      /** POST {base}/clients/:id/revoke — disable + cut its grants/tokens everywhere (sudo). */
+      revoke: (id: string) =>
+        this.post<RevokeClientResult>(this.b(`/clients/${encodeURIComponent(id)}/revoke`)),
       /** POST {base}/clients/:id/regenerate-secret */
       regenerateSecret: (id: string) =>
         this.post<RegenerateSecretResult>(
@@ -473,6 +479,15 @@ class AuthkitClient {
       /** POST {base}/keys/rotate — rotaciona agora (opcionalmente aposenta as antigas). */
       rotate: (input?: KeysRotateInput) =>
         this.post<KeysRotateResult>(this.b('/keys/rotate'), input ?? {}),
+    },
+
+    /** MCP client login (automatic): live state and the `mcp_clients` switch (console API). */
+    mcpClients: {
+      /** GET {base}/mcp-clients */
+      status: () => this.get<McpClientsStatus>(this.b('/mcp-clients')),
+      /** PUT {base}/mcp-clients — needs sudo; 423 when `mcpClients: false` is in config. */
+      update: (input: McpClientsUpdateInput) =>
+        this.put<McpClientsStatus>(this.b('/mcp-clients'), input),
     },
 
     /** Personal agents (PACT e `personalAgents.extensions`): conexões, liberar e bloquear (console API). */

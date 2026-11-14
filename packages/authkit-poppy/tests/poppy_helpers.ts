@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
+import type { FetchedJson } from '@adonis-agora/authkit-server';
 import {
   adapters,
   defineConfig,
@@ -12,7 +13,6 @@ import RedisMock from 'ioredis-mock';
 import { calculateJwkThumbprint, exportJWK, generateKeyPair, type JWK, SignJWT } from 'jose';
 import type { PoppyConfigInput } from '../src/config.js';
 import { poppy as poppyExtension } from '../src/extension.js';
-import type { FetchedJson } from '../src/safe_fetch.js';
 import { CLIENT_ASSERTION_TYPE, DEVICE_CODE_GRANT, type PoppyService } from '../src/service.js';
 import { ensurePoppySchema } from '../src/tables.js';
 import { createTestDatabase } from './bootstrap.js';
@@ -197,7 +197,7 @@ export async function setupPoppy(
       } as any,
       render: (async () => {}) as any,
       trustedDevices: { enabled: false },
-      ...(extra.mcp === false ? {} : { mcp: true }),
+      ...(extra.mcp === false ? { mcpClients: false } : {}),
       personalAgents: {
         extensions: [
           poppyExtension(

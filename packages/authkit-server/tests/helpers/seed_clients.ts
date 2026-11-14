@@ -1,6 +1,6 @@
 /**
  * Test-only client seeding. Clients live in the OIDC adapter (admin console, Admin API,
- * `authkit:clients:create`); specs that need a client up front write it into the configured
+ * `authkit:client create`); specs that need a client up front write it into the configured
  * adapter with {@link withClients} (wrapping `defineConfig`) or {@link seedClients}.
  */
 import { configProvider } from '@adonisjs/core';
