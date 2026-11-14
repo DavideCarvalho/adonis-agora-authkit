@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.23
+
+### Patch Changes
+
+- [#494](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/494) [`356b71f`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/356b71f81ffc47a19ed76c48a54c6881fb3be5c1) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Console sidebar matches the old authkit admin console exactly (Agora console kit): nav rows are 32px with no gap between them, section labels and the brand/switcher header use authkit's spacing, the footer role shows as sent (no forced uppercase), and the theme toggle sits left-aligned with a 13px icon next to a 26px sign-out button.
+
 ## 1.0.0-rc.22
 
 ### Patch Changes
