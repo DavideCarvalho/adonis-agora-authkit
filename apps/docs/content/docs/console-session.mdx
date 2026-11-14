@@ -106,9 +106,9 @@ export default defineConfig({
 ```
 
 Coding agents do not need a token of their own. Telescope's MCP tools are on the Agora dev
-endpoint `/mcp/agora` (see [Dev tools over MCP](/docs/agent/dev-tools)): with `mcp: true` in
-`config/authkit.ts` the MCP client signs in through AuthKit, and each call goes through the
-same `authorize` hook.
+endpoint `/mcp/agora` (see [Dev tools over MCP](/docs/agent/dev-tools)). The MCP client signs in
+through AuthKit (see [MCP clients](/docs/mcp-clients)), and each call goes through the same
+`authorize` hook.
 
 ## Restricting by role
 
