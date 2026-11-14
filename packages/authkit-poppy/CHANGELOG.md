@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-poppy
 
+## 0.3.1-rc.3
+
+### Patch Changes
+
+- [#489](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/489) [`3c650b1`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/3c650b1fe176752ad68df7fc061fa8a6dc1a475a) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The SSRF-safe fetch and the agent metadata/JWKS cache now come from `@adonis-agora/authkit-server`, which uses the same code for MCP Client ID Metadata Documents. Behaviour is unchanged. `isBlockedAddress`, `SafeFetchError` and `safeFetchJson` are still exported from this package.
+
 ## 0.3.1-rc.2
 
 ### Patch Changes

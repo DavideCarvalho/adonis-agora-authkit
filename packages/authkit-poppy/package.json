@@ -1,6 +1,6 @@
 {
   "name": "@adonis-agora/authkit-poppy",
-  "version": "0.3.1-rc.2",
+  "version": "0.3.1-rc.3",
   "description": "Personal Agent Protocol (\"Poppy\") for AuthKit: discovery, signed Poppy-Session agent sessions, Direct/Device/Mediated sign-in, MCP and browser sessions — an optional extension of @adonis-agora/authkit-server.",
   "license": "MIT",
   "author": "dudousxd",

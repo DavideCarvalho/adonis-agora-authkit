@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-react
 
+## 1.0.0-rc.7
+
+### Minor Changes
+
+- [#489](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/489) [`3c650b1`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/3c650b1fe176752ad68df7fc061fa8a6dc1a475a) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Admin client: `admin.mcpClients.status()` / `admin.mcpClients.update()` with `useMcpClientsQueryOptions` / `useUpdateMcpClientsMutationOptions`, for the live state and switch of automatic MCP client login. Also `admin.clients.revoke(id)` with `useRevokeClientMutationOptions`. `AdminClient` now carries `dynamicallyRegistered`, `registeredAt` and `scope`.
+
 ## 1.0.0-rc.6
 
 ### Major Changes

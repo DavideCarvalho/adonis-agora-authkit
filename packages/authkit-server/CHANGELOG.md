@@ -1,5 +1,20 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.20
+
+### Minor Changes
+
+- [#489](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/489) [`3c650b1`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/3c650b1fe176752ad68df7fc061fa8a6dc1a475a) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - MCP client login is automatic. It is on whenever an MCP/OAuth resource is registered with AuthKit: the `@adonis-agora/agent` dev tools hub (`/mcp/agora`), `mcpClients.resources`, or an `oidcBearerGuard({ resource })`. The decision is made per request, so a resource registered after the provider is built counts on the next request. With no resource, `/oidc/reg` answers 403, the RFC 8414 metadata has no `registration_endpoint`, and a URL `client_id` is not resolved.
+  
+  **Breaking (rc):** the `mcp` option is removed, with no alias, and passing it fails at boot. Delete `mcp: true` from `config/authkit.ts`. `mcp: { resources, redirectUris }` becomes `mcpClients: { resources, redirectUris }`. `mcpClients: false` keeps MCP clients out. `mcpClients.metadataDocuments` (`false` or `{ allowHosts, ttl }`) and `mcpClients.dynamicRegistration: false` turn off one mechanism each.
+  
+  - **Client ID Metadata Documents.** A `client_id` that is an `https:` URL is fetched (SSRF-safe: private and reserved IPs blocked, no redirects, 5 KB, 5 s), validated (`client_id` matches the URL, public client, redirects within the MCP client policy) and cached within TTL bounds. No row is stored per client. When on, the metadata advertises `client_id_metadata_document_supported`. The safe fetch and the document cache moved here from `@adonis-agora/authkit-poppy` and are exported (`safeFetchJson`, `MetadataDocumentCache`, `isClientIdUrl`…).
+  - **`mcp_clients` runtime setting** (`{ enabled: 'auto' | false, dynamicRegistration?, metadataDocuments? }`). It is set from the admin console's new **Settings → MCP client login** card, which shows the live state and the registered resources, links to the MCP clients, and requires sudo. It can also be set from the Admin API or `node ace authkit:settings:set mcp_clients '{"enabled":false}'`. Every change is audited as `mcp_clients.updated` (who, from → to). `mcpClients: false` locks it (423).
+  - MCP clients (dynamically registered or by metadata document) are never first-party: no `roles` / `org_*` claims.
+  - `agora:doctor` check `authkit.mcp-clients`, plus one boot log line when MCP client login turns on.
+  - The console's Clients page gets a `dynamic` badge, a `?type=mcp` filter and a **Revoke** action (sudo): the client is disabled and its grants and tokens are cut in every account.
+  - New ace commands. `authkit:client` (`list [--mcp]`, `create`, `show`, `update`, `rotate-secret`, `revoke`, `delete`) replaces `authkit:clients:create` (now `authkit:client create`). `authkit:key` (`list`, `generate` = a staged key, `rotate`, `retire <kid>`) replaces `authkit:keys:rotate` (now `authkit:key rotate`, where `--retire` is `--retire-old`). `authkit:purge` removes expired/consumed artifacts and unused dynamically registered clients (`--older-than`, `--dry-run`, per-kind flags). New audit events: `client.revoked`, `keys.generated`, `keys.retired`, `oidc.purged`.
+
 ## 1.0.0-rc.19
 
 ### Minor Changes
