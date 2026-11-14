@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.22
+
+### Patch Changes
+
+- [#492](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/492) [`96148a9`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/96148a91c7fc0efbc3a02f9c49fd23367e8a6e05) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Server: the `agora.consoles` registry accepts the `flags` and `cms` icon keys, so those consoles show their own tile instead of `generic`. Admin console: the console switcher shows the CMS console with its own orange tile and glyph, and the kit gains a 16px `DocumentIcon`; the collapsible nav section toggle has a test pinning its focus ring (Agora console kit round 3).
+
 ## 1.0.0-rc.21
 
 ### Patch Changes
