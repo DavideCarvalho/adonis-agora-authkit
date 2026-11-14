@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.21
+
+### Patch Changes
+
+- [#491](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/491) [`e342c1f`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/e342c1f8ff875a9d6539c5e4a882249534439946) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Console ⌘K shows its loading state: a spinner in the search box while a request is in flight, skeleton rows until the first answer, earlier hits kept but dimmed during a re-search, "Nothing found" only after an empty answer, and a quiet "didn't answer" line with Retry when the search fails. Synced with the shared console kit (DataTable `rowClassName`/`subRow`, ⌘K console-local `commands`, collapsible nav sections).
+
 ## 1.0.0-rc.20
 
 ### Minor Changes
