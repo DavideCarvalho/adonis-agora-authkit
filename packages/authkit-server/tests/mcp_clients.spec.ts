@@ -1,5 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
+import { globalAgent as httpsGlobalAgent } from 'node:https';
+import { type AddressInfo, connect as netConnect } from 'node:net';
 import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
 import RedisMock from 'ioredis-mock';
@@ -8,6 +10,7 @@ import { isClientIdUrl } from '../src/cimd/client_id_url.js';
 import {
   type FetchedJson,
   isBlockedAddress,
+  type LookupFn,
   SafeFetchError,
   safeFetchJson,
 } from '../src/cimd/safe_fetch.js';
@@ -358,6 +361,58 @@ test.group('Client ID Metadata Documents', () => {
       /blocked/,
     );
   });
+
+  test('safe fetch on a real socket: JSON + max-age, redirects, size cap, timeout', async ({
+    assert,
+    cleanup,
+  }) => {
+    // A local plain-HTTP server stands in for the remote host: the https agent's
+    // connection is pointed at it, so the response handling of safeFetchJson runs for real.
+    const server = createServer((req, res) => {
+      if (req.url === '/ok') {
+        res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'max-age=120' });
+        return res.end(JSON.stringify({ client_id: 'https://agent.example/ok' }));
+      }
+      if (req.url === '/redirect') {
+        res.writeHead(302, { location: 'https://agent.example/ok' });
+        return res.end();
+      }
+      if (req.url === '/big') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ pad: 'x'.repeat(6 * 1024) }));
+      }
+      // '/slow': never answers
+    });
+    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+    const port = (server.address() as AddressInfo).port;
+    const agent = httpsGlobalAgent as unknown as { createConnection: unknown };
+    const original = agent.createConnection;
+    agent.createConnection = () => netConnect({ host: '127.0.0.1', port });
+    cleanup(() => {
+      agent.createConnection = original;
+      server.closeAllConnections();
+      server.close();
+    });
+    const publicLookup = {
+      lookup: ((_h, _o, cb) => cb(null, [{ address: '93.184.216.34', family: 4 }])) as LookupFn,
+    };
+
+    const ok = await safeFetchJson('https://agent.example/ok', publicLookup);
+    assert.deepEqual(ok.body, { client_id: 'https://agent.example/ok' });
+    assert.equal(ok.maxAge, 120);
+    await assert.rejects(
+      () => safeFetchJson('https://agent.example/redirect', publicLookup),
+      /redirects are not followed/,
+    );
+    await assert.rejects(
+      () => safeFetchJson('https://agent.example/big', { ...publicLookup, maxBytes: 5 * 1024 }),
+      /response too large/,
+    );
+    await assert.rejects(
+      () => safeFetchJson('https://agent.example/slow', { ...publicLookup, timeoutMs: 200 }),
+      /timeout/,
+    );
+  }).timeout(10_000);
 });
 
 // ---------------------------------------------------------------------------
