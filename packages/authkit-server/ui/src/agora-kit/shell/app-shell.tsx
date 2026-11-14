@@ -1,6 +1,8 @@
 import { type CSSProperties, type ReactNode, useCallback, useState } from 'react';
+import { ChevronDownIcon } from '../icons';
 import { cn } from '../lib/utils';
 import type { AgoraShellConfig } from '../shell-config';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible';
 import {
   Sidebar,
   SidebarContent,
@@ -19,7 +21,12 @@ import {
   useSidebar,
 } from '../ui/sidebar';
 import { TooltipProvider } from '../ui/tooltip';
-import { ConsoleSearch, SearchTrigger, useSearchShortcut } from './console-search';
+import {
+  ConsoleSearch,
+  type SearchCommand,
+  SearchTrigger,
+  useSearchShortcut,
+} from './console-search';
 import { ConsoleSwitcher, type CurrentConsole } from './console-switcher';
 import { UserFooter } from './user-footer';
 
@@ -39,6 +46,10 @@ export interface NavItem {
 export interface NavSection {
   section: string;
   items: NavItem[];
+  /** agora: the label becomes a toggle that folds the section (a long list such as watchers). */
+  collapsible?: boolean;
+  /** agora: initial state of a collapsible section (default open). */
+  defaultOpen?: boolean;
 }
 
 /** Per-console brand, passed from OUTSIDE the kit. */
@@ -82,69 +93,103 @@ function NavMenu({ nav, activeId }: { nav: NavSection[]; activeId: string | unde
     <>
       {nav
         .filter((section) => section.items.length > 0)
-        .map((section) => (
-          <SidebarGroup key={section.section} className="px-2.5 py-0">
-            <SidebarGroupLabel className="h-auto px-2 pt-3 pb-1.5 text-[9.5px] font-semibold uppercase tracking-[0.14em] text-faint">
-              {section.section}
-            </SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu className="gap-0.5">
-                {section.items.map((item) => {
-                  const active = item.id === activeId;
-                  const content = (
-                    <>
-                      {item.icon}
-                      <span>{item.label}</span>
-                    </>
-                  );
-                  return (
-                    <SidebarMenuItem key={item.id}>
-                      {item.href ? (
-                        <SidebarMenuButton
-                          isActive={active}
-                          aria-current={active ? 'page' : undefined}
-                          className={navButtonClass}
-                          render={
-                            <a
-                              href={item.href}
-                              onClick={(e) => {
-                                if (item.onSelect) {
-                                  e.preventDefault();
-                                  item.onSelect();
-                                }
-                                after();
-                              }}
-                            />
-                          }
-                        >
-                          {content}
-                        </SidebarMenuButton>
-                      ) : (
-                        <SidebarMenuButton
-                          isActive={active}
-                          aria-current={active ? 'page' : undefined}
-                          className={navButtonClass}
-                          onClick={() => {
-                            item.onSelect?.();
-                            after();
-                          }}
-                        >
-                          {content}
-                        </SidebarMenuButton>
-                      )}
-                      {item.badge !== undefined && (
-                        <SidebarMenuBadge className="mono tnum text-[10px]">
-                          {item.badge}
-                        </SidebarMenuBadge>
-                      )}
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        ))}
+        .map((section) =>
+          section.collapsible ? (
+            <Collapsible key={section.section} defaultOpen={section.defaultOpen ?? true}>
+              <SidebarGroup className="px-2.5 py-0">
+                <SidebarGroupLabel
+                  className={cn(navLabelClass, 'p-0')}
+                  render={
+                    <CollapsibleTrigger className="flex w-full items-center gap-1 rounded-md px-2 pt-3 pb-1.5 text-left uppercase hover:text-dim" />
+                  }
+                >
+                  {section.section}
+                  <ChevronDownIcon className="ml-auto size-3! -rotate-90 transition-transform in-data-panel-open:rotate-0" />
+                </SidebarGroupLabel>
+                <CollapsibleContent>
+                  <SidebarGroupContent>
+                    <NavItems items={section.items} activeId={activeId} after={after} />
+                  </SidebarGroupContent>
+                </CollapsibleContent>
+              </SidebarGroup>
+            </Collapsible>
+          ) : (
+            <SidebarGroup key={section.section} className="px-2.5 py-0">
+              <SidebarGroupLabel className={navLabelClass}>{section.section}</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <NavItems items={section.items} activeId={activeId} after={after} />
+              </SidebarGroupContent>
+            </SidebarGroup>
+          ),
+        )}
     </>
+  );
+}
+
+const navLabelClass =
+  'h-auto px-2 pt-3 pb-1.5 text-[9.5px] font-semibold uppercase tracking-[0.14em] text-faint';
+
+function NavItems({
+  items,
+  activeId,
+  after,
+}: {
+  items: NavItem[];
+  activeId: string | undefined;
+  after: () => void;
+}) {
+  return (
+    <SidebarMenu className="gap-0.5">
+      {items.map((item) => {
+        const active = item.id === activeId;
+        const content = (
+          <>
+            {item.icon}
+            <span>{item.label}</span>
+          </>
+        );
+        return (
+          <SidebarMenuItem key={item.id}>
+            {item.href ? (
+              <SidebarMenuButton
+                isActive={active}
+                aria-current={active ? 'page' : undefined}
+                className={navButtonClass}
+                render={
+                  <a
+                    href={item.href}
+                    onClick={(e) => {
+                      if (item.onSelect) {
+                        e.preventDefault();
+                        item.onSelect();
+                      }
+                      after();
+                    }}
+                  />
+                }
+              >
+                {content}
+              </SidebarMenuButton>
+            ) : (
+              <SidebarMenuButton
+                isActive={active}
+                aria-current={active ? 'page' : undefined}
+                className={navButtonClass}
+                onClick={() => {
+                  item.onSelect?.();
+                  after();
+                }}
+              >
+                {content}
+              </SidebarMenuButton>
+            )}
+            {item.badge !== undefined && (
+              <SidebarMenuBadge className="mono tnum text-[10px]">{item.badge}</SidebarMenuBadge>
+            )}
+          </SidebarMenuItem>
+        );
+      })}
+    </SidebarMenu>
   );
 }
 
@@ -191,6 +236,7 @@ export function AppShell({
   children,
   searchPlaceholder,
   contentClassName,
+  commands,
 }: {
   brand: ConsoleBrand;
   nav: NavSection[];
@@ -205,9 +251,12 @@ export function AppShell({
   searchPlaceholder?: string | undefined;
   /** Classes for the scrolling content column (pages that manage their own scroll pass `overflow-hidden`). */
   contentClassName?: string | undefined;
+  /** agora: console-local ⌘K entries (pages, filters); ⌘K works with these even without `shell.search`. */
+  commands?: readonly SearchCommand[] | undefined;
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
-  useSearchShortcut(shell.search !== undefined, setSearchOpen);
+  const searchEnabled = shell.search !== undefined || (commands?.length ?? 0) > 0;
+  useSearchShortcut(searchEnabled, setSearchOpen);
   const openSearch = useCallback(() => setSearchOpen(true), []);
   return (
     <TooltipProvider delay={150}>
@@ -222,7 +271,7 @@ export function AppShell({
               brand={<BrandBlock brand={brand} />}
               current={brand.current}
               config={shell.switcher}
-              {...(shell.search ? { onSearch: openSearch } : {})}
+              {...(searchEnabled ? { onSearch: openSearch } : {})}
             />
           </SidebarHeader>
           <SidebarContent className="pt-1 pb-2">
@@ -241,16 +290,24 @@ export function AppShell({
           <Topbar
             title={title}
             actions={actions}
-            search={shell.search ? <SearchTrigger onOpen={openSearch} /> : undefined}
+            search={
+              searchEnabled ? (
+                <SearchTrigger
+                  onOpen={openSearch}
+                  label={shell.search ? 'Search all consoles' : 'Search'}
+                />
+              ) : undefined
+            }
           />
           <div className={cn('relative min-h-0 flex-1 overflow-y-auto', contentClassName)}>
             {children}
           </div>
         </SidebarInset>
       </SidebarProvider>
-      {shell.search && (
+      {searchEnabled && (
         <ConsoleSearch
           config={shell.search}
+          commands={commands}
           open={searchOpen}
           onOpenChange={setSearchOpen}
           {...(searchPlaceholder ? { placeholder: searchPlaceholder } : {})}

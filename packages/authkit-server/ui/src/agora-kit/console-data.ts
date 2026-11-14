@@ -105,16 +105,29 @@ export function resetConsoleCache(): void {
   cached = undefined;
 }
 
-/** One query across every console the viewer may open. */
+/**
+ * One query across every console the viewer may open. Rejects when the request fails (network,
+ * non-2xx, abort), so a caller can tell "no hits" from "didn't answer". The server fans out to each
+ * console and drops one that errors or times out, so a single request covers them all.
+ */
+export async function fetchSearchGroups(
+  config: SearchConfig,
+  q: string,
+  signal?: AbortSignal,
+): Promise<SearchGroup[]> {
+  return sanitizeSearchGroups(
+    await getJson(`${config.endpoint}?q=${encodeURIComponent(q)}`, signal),
+  );
+}
+
+/** {@link fetchSearchGroups}, with any failure read as "nothing". */
 export async function searchConsoles(
   config: SearchConfig,
   q: string,
   signal?: AbortSignal,
 ): Promise<SearchGroup[]> {
   try {
-    return sanitizeSearchGroups(
-      await getJson(`${config.endpoint}?q=${encodeURIComponent(q)}`, signal),
-    );
+    return await fetchSearchGroups(config, q, signal);
   } catch {
     return [];
   }

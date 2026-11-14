@@ -18,6 +18,7 @@ export { LoadMore, Pager } from './blocks/pager';
 export { Panel } from './blocks/panel';
 export { errorStatus, QueryBoundary, type QueryLike } from './blocks/query-boundary';
 export {
+  fetchSearchGroups,
   loadConsoles,
   resetConsoleCache,
   type SearchGroup,
@@ -38,7 +39,13 @@ export {
   PageBody,
   Topbar,
 } from './shell/app-shell';
-export { ConsoleSearch, SearchTrigger, useSearchShortcut } from './shell/console-search';
+export {
+  ConsoleSearch,
+  filterCommands,
+  type SearchCommand,
+  SearchTrigger,
+  useSearchShortcut,
+} from './shell/console-search';
 export { ConsoleSwitcher, type CurrentConsole, useConsoles } from './shell/console-switcher';
 export { UserFooter } from './shell/user-footer';
 export {
