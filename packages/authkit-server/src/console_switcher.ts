@@ -38,6 +38,8 @@ export type AgoraConsoleIcon =
   | 'payments'
   | 'agent'
   | 'identity'
+  | 'flags'
+  | 'cms'
   | 'generic';
 
 /** The decision a console's gate returns. Never throws. */
@@ -109,6 +111,8 @@ const ICONS: readonly AgoraConsoleIcon[] = [
   'payments',
   'agent',
   'identity',
+  'flags',
+  'cms',
   'generic',
 ];
 
