@@ -18,7 +18,7 @@ export interface AuthHostRuntimeConfig {
   mountPath: string;
   /** `issuer` do config: a origem dos protected resources declarados por path. */
   issuer?: string;
-  /** `mcp.resources` (com `mcp` ligado): o authkit serve o documento RFC 9728 dos da origem do issuer. */
+  /** `mcpClients.resources` (sem `mcpClients: false`): o authkit serve o documento RFC 9728 dos da origem do issuer. */
   mcpResources?: string[];
   social?: AuthSocialConfig;
   rateLimit: ResolvedRateLimitConfig;

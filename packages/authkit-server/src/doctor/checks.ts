@@ -5,6 +5,14 @@
  * resultados destas funções.
  */
 
+import {
+  describeMcpClientsState,
+  MCP_CLIENTS_SETTING_DEFAULT,
+  mcpClientsStateFrom,
+  type ResolvedMcpClientsConfig,
+  type ResolvedMcpClientsSetting,
+} from '../mcp/mcp_clients.js';
+
 export type FindingLevel = 'ok' | 'warn' | 'error';
 
 export interface Finding {
@@ -30,6 +38,8 @@ export interface DoctorInput {
    * Provided by the doctor command; undefined = not checked (doctor runs old version).
    */
   settingsTablePresent?: boolean;
+  /** A setting `mcp_clients` lida do banco (ausente = não lida → `'auto'`). */
+  mcpClientsSetting?: ResolvedMcpClientsSetting;
   /**
    * The app's `config('shield')` (only its `csrf` block is read). `null` = no shield config;
    * `undefined` = not collected (the CSRF check then cannot tell, and says so).
@@ -92,7 +102,7 @@ export function checkIssuer(input: DoctorInput): Finding[] {
 
 /**
  * Clients: vivem no adapter, gerenciados pelo console admin / Admin API /
- * `node ace authkit:clients:create`.
+ * `node ace authkit:client create`.
  */
 export function checkClients(input: DoctorInput): Finding {
   const cfg = input.authkitConfig;
@@ -100,7 +110,7 @@ export function checkClients(input: DoctorInput): Finding {
   return {
     level: 'ok',
     message:
-      'clients are managed at runtime via admin console / Admin API — use `node ace authkit:clients:create` to add clients.',
+      'clients are managed at runtime via admin console / Admin API — use `node ace authkit:client create` to add clients.',
   };
 }
 
@@ -642,13 +652,13 @@ export function checkJwks(input: DoctorInput): Finding | null {
       return {
         level: 'warn',
         message:
-          'jwks managed WITHOUT a `store` — a fresh ephemeral key is generated each boot (tokens stop validating after a restart and `node ace authkit:keys:rotate` has no effect). Set `jwks.store` to persist and enable real rotation.',
+          'jwks managed WITHOUT a `store` — a fresh ephemeral key is generated each boot (tokens stop validating after a restart and `node ace authkit:key rotate` has no effect). Set `jwks.store` to persist and enable real rotation.',
       };
     }
     return {
       level: 'ok',
       message:
-        'jwks managed with a persisted store — rotate the signing keys with `node ace authkit:keys:rotate` (--dry-run to preview, --retire to drop old keys, --keep=N for the grace window).',
+        'jwks managed with a persisted store — rotate the signing keys with `node ace authkit:key rotate` (--dry-run to preview, --retire-old to drop old keys, --keep=N for the grace window).',
     };
   }
   return { level: 'ok', message: 'jwks provided inline (source=jwks).' };
@@ -1231,7 +1241,7 @@ export function signingKeyAgeFinding(ageDays: number | null, maxAgeDays: number)
   if (ageDays > maxAgeDays) {
     return {
       level: 'warn',
-      message: `jwks: chave de assinatura tem ~${ageDays}d (> ${maxAgeDays}d) — considere rotacionar (authkit:keys:rotate).`,
+      message: `jwks: chave de assinatura tem ~${ageDays}d (> ${maxAgeDays}d) — considere rotacionar (authkit:key rotate).`,
     };
   }
   return { level: 'ok', message: `jwks: chave de assinatura tem ~${ageDays}d.` };
@@ -1297,7 +1307,20 @@ export function runAllChecks(input: DoctorInput): Finding[] {
   if (firstPartyClients) findings.push(firstPartyClients);
   const consoleSignIn = checkConsoleSignIn(input);
   if (consoleSignIn) findings.push(consoleSignIn);
+  const mcpClients = checkMcpClients(input);
+  if (mcpClients) findings.push(mcpClients);
   return findings;
+}
+
+/**
+ * Login de clientes MCP (automático): ligado e com quais resources, ou desligado e por quê.
+ * Informativo — os dois estados são válidos.
+ */
+export function checkMcpClients(input: DoctorInput): Finding | null {
+  const cfg = input.authkitConfig?.mcpClients as ResolvedMcpClientsConfig | undefined;
+  if (!cfg || typeof cfg.allowed !== 'boolean') return null;
+  const state = mcpClientsStateFrom(cfg, input.mcpClientsSetting ?? MCP_CLIENTS_SETTING_DEFAULT);
+  return { level: 'ok', message: `MCP login: ${describeMcpClientsState(state)}` };
 }
 
 /** Há algum finding de nível 'error'? (define o exit code). */

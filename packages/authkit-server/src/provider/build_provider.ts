@@ -1,8 +1,15 @@
 import * as oidc from 'oidc-provider';
 import { pickModelAdapterClass } from '../adapters/factory.js';
+import type { JsonFetcher } from '../cimd/safe_fetch.js';
 import type { ResolvedServerConfig } from '../define_config.js';
 import { normalizeActiveOrg, readActiveOrgFromKoaCtx } from '../host/active_org_cookie.js';
 import { consoleSsoClientMetadata } from '../host/console_sso.js';
+import {
+  McpMetadataDocumentResolver,
+  mcpClientsMiddleware,
+  mcpClientsState,
+  withMetadataDocuments,
+} from '../mcp/mcp_clients.js';
 import { findMcpResource, hasGuardResources, mcpAuthorizeMiddleware } from '../mcp/mcp_oauth.js';
 import { hideDisabledClients } from '../service_tenants/client_metadata.js';
 import { createServiceTenantHooks } from '../service_tenants/provider_hooks.js';
@@ -15,6 +22,10 @@ export interface BuildProviderOptions {
   /** APP_KEY do consumidor; usado p/ derivar cookies.keys se não houver. */
   appKey: string;
   findAccount: (ctx: any, sub: string, token?: any) => Promise<any>;
+  /** Busca dos Client ID Metadata Documents (testes). Default: a busca à prova de SSRF. */
+  fetchMetadataDocument?: JsonFetcher;
+  /** Um Client ID Metadata Document foi recusado (log). */
+  onMetadataDocumentRejected?: (clientId: string, reason: string) => void;
 }
 
 /**
@@ -133,7 +144,15 @@ export function buildProvider(
     const key = declaredResources.find((k) => k.replace(/\/+$/, '') === trimmed);
     return key ? { key, rc: at.resources[key] } : null;
   };
-  const mcp = config.mcp;
+  const mcpClients = config.mcpClients;
+  // Clientes MCP por Client ID Metadata Document: sem linha no banco, resolvidos no `find` do
+  // adapter de `Client` quando o login de clientes MCP está ligado NESTE request.
+  const metadataDocuments = mcpClients.metadataDocuments
+    ? new McpMetadataDocumentResolver(mcpClients, {
+        fetchJson: options.fetchMetadataDocument,
+        onReject: options.onMetadataDocumentRejected,
+      })
+    : null;
   // Service tenants (`serviceTenants`): `client_credentials` clients with a partition,
   // whose tokens are JWTs for a service-tenant resource. See `service_tenants/`.
   const serviceTenants = createServiceTenantHooks({
@@ -145,7 +164,9 @@ export function buildProvider(
   const resourceIndicatorFeatures =
     at.anyJwt ||
     declaredResources.length > 0 ||
-    mcp.enabled ||
+    // Login de clientes MCP: montado sempre que `mcpClients` permite — o resource do agente pode
+    // se registrar depois do provider; quem decide por request é `findMcpResource`.
+    mcpClients.allowed ||
     serviceTenants.enabled ||
     // `oidcBearerGuard({ resource })`: o cliente que leu o `resource_metadata` pede um token
     // para esse resource (RFC 8707).
@@ -174,10 +195,16 @@ export function buildProvider(
               if (serviceInfo) return serviceInfo;
               const found = findResource(resourceIndicator);
               const isDefault = at.anyJwt && resourceIndicator === at.audience;
-              // Servidores MCP (`mcp`): os declarados e os registrados em runtime; e os resources
-              // dos `oidcBearerGuard({ resource })`, com ou sem `mcp`.
+              // Servidores MCP: os de `mcpClients.resources` e os registrados em runtime, com o
+              // login de clientes MCP ligado agora; e os resources dos
+              // `oidcBearerGuard({ resource })`, sempre.
               const mcpResource =
-                found || isDefault ? null : findMcpResource(resourceIndicator, config.issuer, mcp);
+                found || isDefault
+                  ? null
+                  : findMcpResource(resourceIndicator, config.issuer, {
+                      enabled: (await mcpClientsState(mcpClients)).enabled,
+                      resources: mcpClients.resources,
+                    });
               if (mcpResource) {
                 return {
                   scope: mcpResource.scopes.join(' '),
@@ -239,7 +266,17 @@ export function buildProvider(
         config.AdapterClass,
         config.SessionAdapterClass,
       ))(name);
-      return name === 'Client' ? hideDisabledClients(instance as any) : instance;
+      if (name !== 'Client') return instance;
+      // Um client desabilitado some, inclusive o que tem a URL de um documento (não cai nele).
+      return hideDisabledClients(
+        metadataDocuments
+          ? withMetadataDocuments(
+              instance as any,
+              metadataDocuments,
+              async () => (await mcpClientsState(mcpClients)).metadataDocuments,
+            )
+          : (instance as any),
+      );
     }) as any,
     findAccount: options.findAccount,
     // Grant REAPROVEITADO (consent já lembrado): o org capturado no primeiro
@@ -418,6 +455,11 @@ export function buildProvider(
     configurable: true,
   });
 
+  // Login de clientes MCP por request: o `/reg` do registro MCP recusa quando desligado, e o
+  // metadata (RFC 8414) anuncia o registro e os Client ID Metadata Documents só quando ligados.
+  // ANTES da política: um `/reg` recusado não tem o corpo lido.
+  if (mcpClients.allowed) provider.use(mcpClientsMiddleware(mcpClients) as any);
+
   // Política do registro dinâmico (redirect URIs + só fluxo de código + gancho do
   // host). Middleware PRÉ-rota: roda antes do `/reg` do provider, que sozinho
   // aceitaria qualquer redirect sintaticamente válido. Ver registration_policy.ts.
@@ -430,8 +472,17 @@ export function buildProvider(
     );
   }
 
-  // Refresh token dos clientes MCP registrados dinamicamente (ver mcp/mcp_oauth.ts).
-  if (mcp.enabled) provider.use(mcpAuthorizeMiddleware(provider as any) as any);
+  // Refresh token dos clientes MCP — registrados dinamicamente ou por documento (ver
+  // mcp/mcp_oauth.ts).
+  if (mcpClients.allowed) {
+    provider.use(
+      mcpAuthorizeMiddleware(
+        provider as any,
+        (clientId) => metadataDocuments?.has(clientId) ?? false,
+      ) as any,
+    );
+  }
+  Object.defineProperty(provider, 'authkitMetadataDocuments', { value: metadataDocuments });
 
   provider.proxy = true;
   return provider;

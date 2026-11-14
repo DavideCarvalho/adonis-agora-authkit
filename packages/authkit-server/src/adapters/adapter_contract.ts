@@ -51,4 +51,9 @@ export interface OidcAdapter {
    * mesmo resultado de `list()` filtrado pelos grants. OPCIONAL, como `listByAccount`.
    */
   listByGrantIds?(grantIds: string[]): Promise<EnumeratedArtifact[]>;
+  /**
+   * Apaga (ou só conta, com `dryRun`) os artefatos EXPIRADOS deste model. OPCIONAL: um adapter
+   * cujo backend já expira sozinho (Redis, com TTL) omite — não há o que apagar.
+   */
+  purgeExpired?(options?: { dryRun?: boolean }): Promise<number>;
 }

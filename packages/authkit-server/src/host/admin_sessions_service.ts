@@ -459,6 +459,32 @@ export class AdminSessionsService {
   }
 
   /**
+   * Revoga os grants de UM client em TODAS as contas (+ os tokens ligados) — o "revogar client"
+   * do console e de `authkit:client revoke`. Sem enumeração no adapter, devolve zeros.
+   */
+  async revokeAllClientGrants(clientId: string): Promise<RevokeResult> {
+    const grantAdapter = this.#adapter('Grant');
+    const grants = (await this.#listModel('Grant')).filter((g) => g.payload.clientId === clientId);
+    const grantIds = new Set(grants.map((g) => g.id));
+    const accessTokens = await this.#destroyTokensOfGrants('AccessToken', grantIds);
+    const refreshTokens = await this.#destroyTokensOfGrants('RefreshToken', grantIds);
+    for (const g of grants) {
+      await grantAdapter.revokeByGrantId(g.id);
+      await grantAdapter.destroy(g.id);
+    }
+    return { sessions: 0, grants: grants.length, accessTokens, refreshTokens };
+  }
+
+  /** Os `clientId` com algum grant vivo (todas as contas). Vazio sem enumeração. */
+  async clientIdsWithGrants(): Promise<Set<string>> {
+    const ids = new Set<string>();
+    for (const g of await this.#listModel('Grant')) {
+      if (typeof g.payload.clientId === 'string') ids.add(g.payload.clientId);
+    }
+    return ids;
+  }
+
+  /**
    * Revoga os grants que carregam a org `orgId` como org ativa (`Grant.activeOrg`,
    * gravado no consent) — de UMA conta (`accountId`) ou de TODAS (omitido, usado
    * quando a org é apagada). Destrói os AT/RT desses grants e os próprios grants,

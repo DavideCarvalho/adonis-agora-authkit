@@ -39,6 +39,8 @@ import type {
   KeysRotateInput,
   KeysRotateResult,
   KeysStatus,
+  McpClientsStatus,
+  McpClientsUpdateInput,
   PersonalAgentConnectionsParams,
   PersonalAgentConnectionsResult,
   PersonalAgentRegistryInput,
@@ -46,6 +48,7 @@ import type {
   PersonalAgentsOverview,
   RegenerateSecretResult,
   ResetPasswordResult,
+  RevokeClientResult,
   RevokeSessionsResult,
   RoleCatalogEntry,
   RoleListResult,
@@ -246,6 +249,15 @@ export function useSetClientDisabledMutationOptions() {
     AuthkitClientError,
     { id: string; disabled: boolean }
   >;
+}
+
+/** Revoke a client: disable it and cut its grants/tokens in every account (sudo). */
+export function useRevokeClientMutationOptions() {
+  const client = useAuthkitClient();
+  return {
+    mutationKey: ['authkit', 'admin', 'clients', 'revoke'],
+    mutationFn: (id: string) => client.admin.clients.revoke(id),
+  } satisfies UseMutationOptions<RevokeClientResult, AuthkitClientError, string>;
 }
 
 export function useRegenerateClientSecretMutationOptions(id: string) {
@@ -475,6 +487,26 @@ export function useRotateKeysMutationOptions() {
     mutationKey: ['authkit', 'admin', 'keys', 'rotate'],
     mutationFn: (input?: KeysRotateInput) => client.admin.keys.rotate(input),
   } satisfies UseMutationOptions<KeysRotateResult, AuthkitClientError, KeysRotateInput | undefined>;
+}
+
+// ---------------------------------------------------------------------------
+// MCP client login – Query + Mutation
+// ---------------------------------------------------------------------------
+
+export function useMcpClientsQueryOptions() {
+  const client = useAuthkitClient();
+  return {
+    queryKey: authkitKeys.admin.mcpClients(),
+    queryFn: () => client.admin.mcpClients.status(),
+  } satisfies UseQueryOptions<McpClientsStatus, AuthkitClientError>;
+}
+
+export function useUpdateMcpClientsMutationOptions() {
+  const client = useAuthkitClient();
+  return {
+    mutationKey: ['authkit', 'admin', 'mcp-clients', 'update'],
+    mutationFn: (input: McpClientsUpdateInput) => client.admin.mcpClients.update(input),
+  } satisfies UseMutationOptions<McpClientsStatus, AuthkitClientError, McpClientsUpdateInput>;
 }
 
 // ---------------------------------------------------------------------------

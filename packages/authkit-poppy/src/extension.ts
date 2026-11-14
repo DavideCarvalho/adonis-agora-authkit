@@ -16,6 +16,7 @@
  * Mesmas rotas, tabelas, tokens e slots globais de quando o Poppy morava dentro do authkit-server.
  */
 import type {
+  JsonFetcher,
   PersonalAgentExtension,
   PersonalAgentHost,
   PersonalAgentRouteKit,
@@ -39,7 +40,6 @@ import {
 } from './replay.js';
 import { installPoppySlots } from './resource.js';
 import { POPPY_PROTOCOL_ID } from './runtime.js';
-import type { JsonFetcher } from './safe_fetch.js';
 import { type PoppyMcpBridge, PoppyService, poppyUrls } from './service.js';
 import { PoppyStore } from './store.js';
 import { POPPY_TABLES } from './tables.js';

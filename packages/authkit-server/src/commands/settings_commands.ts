@@ -16,8 +16,11 @@
  */
 
 import type { ApplicationService } from '@adonisjs/core/types';
+import { SettingLockedError } from '../host/config_locks.js';
 import { RuntimeSettings, settingsLocation } from '../host/runtime_settings.js';
 import { SETTING_KEYS, type SettingKey } from '../host/runtime_toggles.js';
+import { validateMcpClientsSetting } from '../mcp/mcp_clients.js';
+import { writeMcpClientsSetting } from '../mcp/mcp_clients_setting.js';
 import { resolveAuthkitConfig } from './resolve_config.js';
 
 // ---------------------------------------------------------------------------
@@ -97,6 +100,8 @@ function validateKnownKey(key: string, value: unknown): string | null {
         return 'social_second_factor.requiredRoles must be string[]';
       return null;
     }
+    case SETTING_KEYS.MCP_CLIENTS:
+      return validateMcpClientsSetting(value);
     case SETTING_KEYS.TRUSTED_DEVICES: {
       if ('enabled' in obj && typeof obj.enabled !== 'boolean')
         return 'trusted_devices.enabled must be boolean';
@@ -275,16 +280,35 @@ export async function settingsSet(
     return false;
   }
 
-  await svc.setSetting(key, parsed, 'cli');
-
-  // Audit via config.audit if available.
   const cfg = await resolveCfg(app);
-  await cfg?.audit?.record({
-    type: 'settings.updated',
-    actorId: 'cli',
-    ip: null,
-    metadata: { key, value: parsed },
-  });
+  try {
+    if (key === SETTING_KEYS.MCP_CLIENTS) {
+      // Mesmo caminho do console e da Admin API: trava de config + `mcp_clients.updated`.
+      const { from, to } = await writeMcpClientsSetting(svc, parsed, {
+        actorId: 'cli',
+        source: 'cli',
+        audit: cfg?.audit,
+      });
+      if (!opts.json) {
+        opts.logger.info(`mcp_clients: ${JSON.stringify(from)} → ${JSON.stringify(to)}`);
+      }
+    } else {
+      await svc.setSetting(key, parsed, 'cli');
+      // Audit via config.audit if available.
+      await cfg?.audit?.record({
+        type: 'settings.updated',
+        actorId: 'cli',
+        ip: null,
+        metadata: { key, value: parsed },
+      });
+    }
+  } catch (error) {
+    if (error instanceof SettingLockedError) {
+      opts.logger.error(error.message);
+      return false;
+    }
+    throw error;
+  }
 
   if (opts.json) {
     opts.logger.info(JSON.stringify({ key, value: parsed, updated: true }));
@@ -324,16 +348,27 @@ export async function settingsUnset(
     return;
   }
 
-  await svc.deleteSetting(key);
-
-  // Audit.
   const cfg = await resolveCfg(app);
-  await cfg?.audit?.record({
-    type: 'settings.updated',
-    actorId: 'cli',
-    ip: null,
-    metadata: { key, action: 'deleted' },
-  });
+  try {
+    if (key === SETTING_KEYS.MCP_CLIENTS) {
+      await writeMcpClientsSetting(svc, null, { actorId: 'cli', source: 'cli', audit: cfg?.audit });
+    } else {
+      await svc.deleteSetting(key);
+      // Audit.
+      await cfg?.audit?.record({
+        type: 'settings.updated',
+        actorId: 'cli',
+        ip: null,
+        metadata: { key, action: 'deleted' },
+      });
+    }
+  } catch (error) {
+    if (error instanceof SettingLockedError) {
+      opts.logger.error(error.message);
+      return;
+    }
+    throw error;
+  }
 
   if (opts.json) {
     opts.logger.info(JSON.stringify({ key, deleted: true }));

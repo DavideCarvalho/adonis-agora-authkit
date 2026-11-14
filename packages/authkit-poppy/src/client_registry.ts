@@ -4,15 +4,16 @@
  * Document). Buscamos (à prova de SSRF), validamos, guardamos em cache e
  * importamos as chaves públicas do `jwks_uri`.
  */
+import {
+  insecureDevFetchJson,
+  isHttpsUrl,
+  type JsonFetcher,
+  MetadataDocumentCache,
+  safeFetchJson,
+} from '@adonis-agora/authkit-server';
 import { createLocalJWKSet, type JSONWebKeySet, type JWTVerifyGetKey } from 'jose';
 import type { ResolvedPoppyConfig } from './config.js';
 import { PoppyError } from './errors.js';
-import {
-  insecureDevFetchJson,
-  type JsonFetcher,
-  SafeFetchError,
-  safeFetchJson,
-} from './safe_fetch.js';
 
 export interface PoppyClient {
   clientId: string;
@@ -26,30 +27,11 @@ export interface PoppyClient {
   keys: JWTVerifyGetKey;
 }
 
-const MIN_TTL_MS = 60 * 1000;
-const MAX_TTL_MS = 24 * 3600 * 1000;
-const DEFAULT_TTL_MS = 3600 * 1000;
-const FAILURE_TTL_MS = 60 * 1000;
-const MAX_CACHED = 1000;
-/** Releitura do JWKS quando o `kid` não está no conjunto em cache — no máximo a cada 30 s. */
-const JWKS_REFRESH_COOLDOWN_MS = 30 * 1000;
-
 function hostOf(url: string): string | null {
   try {
     return new URL(url).host.toLowerCase();
   } catch {
     return null;
-  }
-}
-
-function isHttpsUrl(value: unknown, allowHttp = false): value is string {
-  if (typeof value !== 'string') return false;
-  try {
-    const url = new URL(value);
-    const schemeOk = url.protocol === 'https:' || (allowHttp && url.protocol === 'http:');
-    return schemeOk && !url.username && !url.password && !url.hash;
-  } catch {
-    return false;
   }
 }
 
@@ -85,17 +67,6 @@ export function redirectUriAllowed(registered: string[], redirectUri: string): b
   return registered.some(
     (r) => isLoopbackRedirect(r) && withoutPort(r) === withoutPort(redirectUri),
   );
-}
-
-function ttlFrom(maxAge: number | null): number {
-  if (maxAge === null) return DEFAULT_TTL_MS;
-  return Math.min(MAX_TTL_MS, Math.max(MIN_TTL_MS, maxAge * 1000));
-}
-
-function setBounded<K, V>(map: Map<K, V>, key: K, value: V): void {
-  map.delete(key);
-  map.set(key, value);
-  if (map.size > MAX_CACHED) map.delete(map.keys().next().value as K);
 }
 
 /** Valida um documento de metadata e devolve os campos usados. Lança `invalid_client`. */
@@ -159,36 +130,43 @@ function validateJwks(doc: unknown): JSONWebKeySet {
 }
 
 export interface PoppyClientRegistryOptions {
-  /** Busca de JSON. Default: {@link safeFetchJson}. */
+  /** Busca de JSON. Default: `safeFetchJson` do `@adonis-agora/authkit-server`. */
   fetchJson?: JsonFetcher;
   now?: () => number;
-}
-
-interface CacheEntry<T> {
-  value: Promise<T>;
-  expiresAt: number;
 }
 
 /**
  * Resolve e valida agentes pelo `client_id`, com cache (respeita `max-age`,
  * entre 1 min e 24 h; falhas ficam 1 min em cache para que o mesmo `client_id`
- * não vire uma busca de saída por request).
+ * não vire uma busca de saída por request). A busca à prova de SSRF e o cache de
+ * documentos são os do `@adonis-agora/authkit-server` (Client ID Metadata Documents).
  */
 export class PoppyClientRegistry {
   #cfg: ResolvedPoppyConfig;
-  #fetch: JsonFetcher;
-  #now: () => number;
-  #clients = new Map<string, CacheEntry<Omit<PoppyClient, 'keys'>>>();
-  #jwks = new Map<string, CacheEntry<JSONWebKeySet> & { fetchedAt: number }>();
+  #clients: MetadataDocumentCache<Omit<PoppyClient, 'keys'>>;
+  #jwks: MetadataDocumentCache<JSONWebKeySet>;
 
   constructor(cfg: ResolvedPoppyConfig, options: PoppyClientRegistryOptions = {}) {
     this.#cfg = cfg;
-    this.#fetch =
+    const fetchJson: JsonFetcher =
       options.fetchJson ??
       (cfg.allowInsecureClientIds
-        ? (url) => insecureDevFetchJson(url)
-        : (url) => safeFetchJson(url));
-    this.#now = options.now ?? Date.now;
+        ? (url) => insecureDevFetchJson(url, { userAgent: 'authkit-poppy/0.3' })
+        : (url) => safeFetchJson(url, { userAgent: 'authkit-poppy/0.3' }));
+    const common = { fetchJson, now: options.now, ttl: { min: 60, max: 86_400, fallback: 3600 } };
+    this.#clients = new MetadataDocumentCache({
+      ...common,
+      validate: (url, body) =>
+        validateClientMetadata(url, body, { allowHttp: this.#cfg.allowInsecureClientIds }),
+      fetchError: (_url, why) => new PoppyError('invalid_client', `client metadata: ${why}`),
+    });
+    this.#jwks = new MetadataDocumentCache({
+      ...common,
+      validate: (_url, body) => validateJwks(body),
+      fetchError: (_url, why) => new PoppyError('invalid_client', `jwks_uri: ${why}`),
+      // Releitura do JWKS quando o `kid` não está no conjunto em cache — no máximo a cada 30 s.
+      refreshCooldown: 30,
+    });
   }
 
   /**
@@ -208,85 +186,27 @@ export class PoppyClientRegistry {
     ) {
       throw new PoppyError('invalid_client', 'client_id is not registered');
     }
-    const meta = await this.#metadata(clientId);
+    const meta = await this.#clients.get(clientId);
     return { ...meta, keys: this.#keySet(meta.jwksUri) };
   }
 
   /** Nome de exibição sem falhar (console de conta): metadata em cache/buscada, ou o host. */
   async displayName(clientId: string): Promise<string> {
     try {
-      return (await this.#metadata(clientId)).name;
+      return (await this.#clients.get(clientId)).name;
     } catch {
       return hostOf(clientId) ?? clientId;
     }
   }
 
-  #metadata(clientId: string): Promise<Omit<PoppyClient, 'keys'>> {
-    const now = this.#now();
-    const cached = this.#clients.get(clientId);
-    if (cached && cached.expiresAt > now) return cached.value;
-    const entry: CacheEntry<Omit<PoppyClient, 'keys'>> = {
-      value: Promise.resolve(null as any),
-      expiresAt: now + FAILURE_TTL_MS,
-    };
-    entry.value = (async () => {
-      let fetched: Awaited<ReturnType<JsonFetcher>>;
-      try {
-        fetched = await this.#fetch(clientId);
-      } catch (error) {
-        const why = error instanceof SafeFetchError ? error.message : 'unreachable';
-        throw new PoppyError('invalid_client', `client metadata: ${why}`);
-      }
-      const meta = validateClientMetadata(clientId, fetched.body, {
-        allowHttp: this.#cfg.allowInsecureClientIds,
-      });
-      entry.expiresAt = this.#now() + ttlFrom(fetched.maxAge);
-      return meta;
-    })();
-    entry.value.catch(() => {
-      entry.expiresAt = this.#now() + FAILURE_TTL_MS;
-    });
-    setBounded(this.#clients, clientId, entry);
-    return entry.value;
-  }
-
-  #fetchJwks(jwksUri: string, force: boolean): Promise<JSONWebKeySet> {
-    const now = this.#now();
-    const cached = this.#jwks.get(jwksUri);
-    if (cached && cached.expiresAt > now && !force) return cached.value;
-    if (cached && force && now - cached.fetchedAt < JWKS_REFRESH_COOLDOWN_MS) return cached.value;
-    const entry = {
-      value: Promise.resolve({ keys: [] } as JSONWebKeySet),
-      expiresAt: now + FAILURE_TTL_MS,
-      fetchedAt: now,
-    };
-    entry.value = (async () => {
-      let fetched: Awaited<ReturnType<JsonFetcher>>;
-      try {
-        fetched = await this.#fetch(jwksUri);
-      } catch (error) {
-        const why = error instanceof SafeFetchError ? error.message : 'unreachable';
-        throw new PoppyError('invalid_client', `jwks_uri: ${why}`);
-      }
-      const jwks = validateJwks(fetched.body);
-      entry.expiresAt = this.#now() + ttlFrom(fetched.maxAge);
-      return jwks;
-    })();
-    entry.value.catch(() => {
-      entry.expiresAt = this.#now() + FAILURE_TTL_MS;
-    });
-    setBounded(this.#jwks, jwksUri, entry);
-    return entry.value;
-  }
-
   /** `JWTVerifyGetKey` que relê o JWKS uma vez quando o `kid` é desconhecido (rotação). */
   #keySet(jwksUri: string): JWTVerifyGetKey {
     return async (header, token) => {
-      const jwks = await this.#fetchJwks(jwksUri, false);
+      const jwks = await this.#jwks.get(jwksUri);
       try {
         return await createLocalJWKSet(jwks)(header, token);
       } catch (error) {
-        const refreshed = await this.#fetchJwks(jwksUri, true);
+        const refreshed = await this.#jwks.get(jwksUri, { force: true });
         if (refreshed === jwks) throw error;
         return createLocalJWKSet(refreshed)(header, token);
       }

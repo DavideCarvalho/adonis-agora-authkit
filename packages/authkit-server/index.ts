@@ -136,6 +136,23 @@ export type {
   StoredAuditEvent,
 } from './src/audit/audit_sink.js';
 export { lucidAuditSink } from './src/audit/lucid_audit_sink.js';
+// Client ID Metadata Documents: a busca à prova de SSRF e o cache de documentos (também usados
+// pelo `@adonis-agora/authkit-poppy`).
+export { hostAllowed, isClientIdUrl, isHttpsUrl } from './src/cimd/client_id_url.js';
+export {
+  type DocumentCacheTtl,
+  MetadataDocumentCache,
+  type MetadataDocumentCacheOptions,
+} from './src/cimd/document_cache.js';
+export {
+  type FetchedJson,
+  insecureDevFetchJson,
+  isBlockedAddress,
+  type JsonFetcher,
+  SafeFetchError,
+  type SafeFetchOptions,
+  safeFetchJson,
+} from './src/cimd/safe_fetch.js';
 export type {
   ConsoleAuthorize,
   ConsoleAuthorizeResult,
@@ -619,9 +636,17 @@ export {
   WhatsmiauCodeSender,
 } from './src/host/whatsapp_code_sender.js';
 export {
+  MCP_CLIENTS_SETTING_KEY,
+  type McpClientsConfigInput,
+  type McpClientsSetting,
+  type McpClientsState,
+  type McpMetadataDocumentsInput,
+  type ResolvedMcpClientsConfig,
+} from './src/mcp/mcp_clients.js';
+export type { McpClientsStatus } from './src/mcp/mcp_clients_status.js';
+export {
   MCP_CLIENT_REDIRECTS,
   MCP_RESOURCE_SCOPES,
-  type McpOAuthConfigInput,
   type OAuthResourceRegistration,
   type ProtectedResourceMetadata,
   protectedResourceMetadata,

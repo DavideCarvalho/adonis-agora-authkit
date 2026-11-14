@@ -769,6 +769,7 @@ const C = {
   consoleAudit: () => import('./admin_console/console_audit_controller.js'),
   consoleSettings: () => import('./admin_console/console_settings_controller.js'),
   consoleKeys: () => import('./admin_console/console_keys_controller.js'),
+  consoleMcpClients: () => import('./admin_console/console_mcp_clients_controller.js'),
   consoleImpersonation: () => import('./admin_console/console_impersonation_controller.js'),
   consolePersonalAgents: () => import('./admin_console/console_personal_agents_controller.js'),
   apiUsers: () => import('./admin_api/api_users_controller.js'),
@@ -1064,7 +1065,7 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
   }
 
   // Metadata dos protected resources declarados ao authkit (RFC 9728 §3.1): os do
-  // `oidcBearerGuard({ resource })` e os de `mcp.resources` na origem do issuer. O `resource_metadata`
+  // `oidcBearerGuard({ resource })` e os de `mcpClients.resources` na origem do issuer. O `resource_metadata`
   // do 401 aponta para cá. Paths que outra lib serve (o MCP do agent) ficam de fora.
   servedProtectedResources({
     issuer: hostCfg?.issuer,
@@ -1588,6 +1589,7 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
         router.delete(`${ap}/api/clients/:id`, [C.consoleClients, 'destroy']);
         router.post(`${ap}/api/clients/:id/disable`, [C.consoleClients, 'disable']);
         router.post(`${ap}/api/clients/:id/enable`, [C.consoleClients, 'enable']);
+        router.post(`${ap}/api/clients/:id/revoke`, [C.consoleClients, 'revoke']);
         router.post(`${ap}/api/clients/:id/regenerate-secret`, [
           C.consoleClients,
           'regenerateSecret',
@@ -1620,6 +1622,9 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
         router.get(`${ap}/api/settings`, [C.consoleSettings, 'index']);
         router.put(`${ap}/api/settings/:key`, [C.consoleSettings, 'upsert']);
         router.delete(`${ap}/api/settings/:key`, [C.consoleSettings, 'destroy']);
+        // Login de clientes MCP (card das Settings; sudo para mudar).
+        router.get(`${ap}/api/mcp-clients`, [C.consoleMcpClients, 'show']);
+        router.put(`${ap}/api/mcp-clients`, [C.consoleMcpClients, 'update']);
         // Chave de assinatura managed (status + rotação ao vivo).
         router.get(`${ap}/api/keys`, [C.consoleKeys, 'status']);
         router.post(`${ap}/api/keys/rotate`, [C.consoleKeys, 'rotate']);

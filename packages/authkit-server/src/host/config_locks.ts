@@ -44,6 +44,8 @@ export function deriveLockedSettingKeys(config: Record<string, any>): string[] {
   add(config.ttl !== undefined, SETTING_KEYS.TOKEN_TTL);
   // `social.secondFactor` (política fixa ou função por conta) manda; o console não altera.
   add(config.social?.secondFactor !== undefined, SETTING_KEYS.SOCIAL_SECOND_FACTOR);
+  // `mcpClients: false`: o login de clientes MCP nunca liga, e o console não o religa.
+  add(config.mcpClients === false, SETTING_KEYS.MCP_CLIENTS);
   return locked;
 }
 

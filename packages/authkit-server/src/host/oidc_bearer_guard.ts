@@ -423,7 +423,7 @@ export function oidcBearerGuard<UserProvider extends SessionUserProviderContract
 
 /**
  * Lê o `resource` do guard e o REGISTRA no authkit (com `metadata: true`): é o que faz o issuer
- * aceitar o `resource` no authorize (com `mcp` ligado) e o host servir o documento RFC 9728. Roda
+ * aceitar o `resource` no authorize (ligando o login de clientes MCP) e o host servir o documento RFC 9728. Roda
  * quando o `config/auth.ts` é carregado — antes das rotas. Devolve quem resolve a URL do resource.
  */
 function declareResource(config: {

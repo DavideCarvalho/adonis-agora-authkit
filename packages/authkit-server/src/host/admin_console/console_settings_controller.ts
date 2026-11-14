@@ -1,8 +1,10 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
+import { MCP_CLIENTS_SETTING_KEY } from '../../mcp/mcp_clients.js';
 import { apiError, settingDto } from '../admin_api/dto.js';
 import { isSettingLocked, lockedSettingKeys, SettingLockedError } from '../config_locks.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
+import { writeMcpClientsFromConsole } from './console_mcp_clients_controller.js';
 
 /** 423 Locked: setting travada via defineConfig. */
 function lockedResponse(ctx: HttpContext, err: SettingLockedError) {
@@ -73,6 +75,20 @@ export default class ConsoleSettingsController {
 
     const orgId = resolveOrgId(ctx);
 
+    // `mcp_clients` (global): sudo + `mcp_clients.updated` — o mesmo caminho do card.
+    if (key === MCP_CLIENTS_SETTING_KEY && !orgId) {
+      const failed = await writeMcpClientsFromConsole(ctx, body.value);
+      if (failed) return failed;
+      const saved = await svc.getSetting(key);
+      return settingDto({
+        key,
+        organizationId: null,
+        value: saved,
+        updatedAt: new Date(),
+        updatedBy: null,
+      });
+    }
+
     const service = await ctx.containerResolver.make('authkit.server');
     const cfg = service.config;
 
@@ -111,6 +127,12 @@ export default class ConsoleSettingsController {
     if (isSettingLocked(key)) return lockedResponse(ctx, new SettingLockedError(key));
 
     const orgId = resolveOrgId(ctx);
+
+    if (key === MCP_CLIENTS_SETTING_KEY && !orgId) {
+      const failed = await writeMcpClientsFromConsole(ctx, null);
+      if (failed) return failed;
+      return { key, organizationId: null, deleted: true };
+    }
 
     const service = await ctx.containerResolver.make('authkit.server');
     const cfg = service.config;

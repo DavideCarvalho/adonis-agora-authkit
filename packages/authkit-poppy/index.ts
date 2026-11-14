@@ -4,6 +4,9 @@
  *
  * Experimental: this package stays on 0.x and follows the draft spec, so any minor may break.
  */
+
+// A busca à prova de SSRF mora no `@adonis-agora/authkit-server` (Client ID Metadata Documents).
+export { isBlockedAddress, SafeFetchError, safeFetchJson } from '@adonis-agora/authkit-server';
 export { configure, POPPY_CONFIG_SNIPPET } from './configure.js';
 export type {
   PoppyAgentProtocolEntry,
@@ -62,11 +65,6 @@ export {
   writePoppyAuthError,
 } from './src/resource.js';
 export { POPPY_PROTOCOL_ID, poppyFor, poppyFromApp } from './src/runtime.js';
-export {
-  isBlockedAddress,
-  SafeFetchError,
-  safeFetchJson,
-} from './src/safe_fetch.js';
 export type {
   PoppyAuthError,
   PoppyGrantSummary,

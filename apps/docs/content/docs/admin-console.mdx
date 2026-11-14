@@ -726,7 +726,7 @@ node ace authkit:settings:set admin_impersonation '{"enabled":false}'
 A third condition is structural rather than configurable: the panel needs a client carrying
 the `urn:ietf:params:oauth:grant-type:token-exchange` grant to build its example against. It
 looks for one among the clients your OIDC adapter holds — the ones created through the
-[Client CRUD](#client-crud) page, the Admin API or `authkit:clients:create`. When no client carries the
+[Client CRUD](#client-crud) page, the Admin API or `authkit:client create`. When no client carries the
 grant, the endpoint answers 404 with `no_token_exchange_client`: there is no exchange to
 describe. Give an existing client the grant, or create one, and the panel appears.
 
@@ -777,8 +777,8 @@ accounts with an "account disabled" message, even with a correct password.
 ## Client CRUD
 
 Clients are managed at runtime. Create them from this console, the
-[Admin REST API](/docs/admin-api#clients), or the `authkit:clients:create` command (see
-[Reference](/docs/reference#authkitclientscreate)) — no redeploy needed.
+[Admin REST API](/docs/admin-api#clients), or the `authkit:client create` command (see
+[CLI](/docs/cli#clients--authkitclient)) — no redeploy needed.
 
 The clients page lists all **adapter-stored** clients created via the
 console or [Dynamic Registration](/docs/dynamic-registration). Adapter-stored clients are
@@ -841,7 +841,7 @@ the org's ID. The resolution chain is `org → global → lib default`. See
 `?view=keys` is the operational view for the **managed** JWKS signing key. `GET
 {prefix}/api/keys` reports the current key's age alongside the effective rotation policy
 and when the next rotation is due, and `POST {prefix}/api/keys/rotate` performs a rotation
-on the spot — the same operation as `node ace authkit:keys:rotate`, with the same
+on the spot — the same operation as `node ace authkit:key rotate`, with the same
 `keep` / `retire` semantics in the request body.
 
 This view only means something when the JWKS is managed **and** has a persisted store: with

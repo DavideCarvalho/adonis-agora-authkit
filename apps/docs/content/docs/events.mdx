@@ -174,7 +174,12 @@ event is emitted that the list does not declare.
 | `account.deleted` | A user deleted their own account (self-service, cascade). |
 | `account.exported` | A user downloaded their data export. |
 | `bot_protection.rejected` | A bot-protection check returned `false`. |
-| `keys.rotated` | Signing keys were rotated via `authkit:keys:rotate`. |
+| `keys.rotated` | Signing keys were rotated (console, scheduler or `authkit:key rotate`). |
+| `keys.generated` | A key was published without signing yet (`authkit:key generate`). |
+| `keys.retired` | A key that no longer signed was removed (`authkit:key retire`). |
+| `mcp_clients.updated` | [MCP client login](/docs/mcp-clients) was switched (`mcp_clients` setting). `metadata.from` / `metadata.to` / `metadata.source`; `actorId` = who. |
+| `client.revoked` | A client was revoked: disabled and its grants/tokens cut in every account. |
+| `oidc.purged` | `authkit:purge` deleted expired/consumed artifacts or unused clients (counts in `metadata`). |
 | `settings.updated` | A [runtime setting](/docs/settings) was written or cleared, from the admin console or the Admin REST API. `metadata` identifies the key. |
 | `trusted_device.revoked` | A user cleared the [trusted-device](/docs/mfa#trusted-devices) cookie for the current browser. |
 | `organization.created` | An organization was created. |

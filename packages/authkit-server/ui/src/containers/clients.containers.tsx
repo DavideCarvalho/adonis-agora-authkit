@@ -48,6 +48,9 @@ interface ClientsListContainerProps {
   onDelete: (c: AdminClient) => void;
   onRegenerate: (c: AdminClient) => void;
   onToggleDisabled: (c: AdminClient) => void;
+  onRevoke: (c: AdminClient) => void;
+  /** `'mcp'`: only clients that registered themselves through `/reg` (MCP clients). */
+  filter?: 'mcp' | null;
 }
 
 export function ClientsListContainer({
@@ -55,10 +58,13 @@ export function ClientsListContainer({
   onDelete,
   onRegenerate,
   onToggleDisabled,
+  onRevoke,
+  filter,
 }: ClientsListContainerProps) {
   // The console lists every client on one screen: one page of the largest size the API allows.
   const { data, isLoading, error, refetch } = useQuery(useClientsQueryOptions(ALL_CLIENTS));
-  const clients = data?.data ?? [];
+  const all = data?.data ?? [];
+  const clients = filter === 'mcp' ? all.filter((c) => c.dynamicallyRegistered) : all;
   const canList = data?.canList ?? true;
 
   return (
@@ -87,8 +93,12 @@ export function ClientsListContainer({
               <path d="M22 9.5H9M6 5H4a1 1 0 00-1 1v12a1 1 0 001 1h2" strokeLinecap="round" />
             </svg>
           }
-          title="No clients yet"
-          description="Create an OAuth 2.0 / OIDC client to get started"
+          title={filter === 'mcp' ? 'No MCP clients' : 'No clients yet'}
+          description={
+            filter === 'mcp'
+              ? 'No MCP client registered itself through dynamic registration'
+              : 'Create an OAuth 2.0 / OIDC client to get started'
+          }
         />
       ) : (
         <div className="flex flex-col gap-2.5">
@@ -112,6 +122,11 @@ export function ClientsListContainer({
                     {c.serviceTenant && (
                       <Badge variant="brand" title="Service tenant partition">
                         tenant: {c.serviceTenant.partition}
+                      </Badge>
+                    )}
+                    {c.dynamicallyRegistered && (
+                      <Badge variant="info" title="Registered itself through /reg (RFC 7591)">
+                        dynamic
                       </Badge>
                     )}
                     {c.disabled && <Badge variant="neutral">disabled</Badge>}
@@ -144,6 +159,15 @@ export function ClientsListContainer({
                   </Button>
                   <Button variant="outline" size="sm" onClick={() => onToggleDisabled(c)}>
                     {c.disabled ? 'Enable' : 'Disable'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className={dangerButtonClass}
+                    onClick={() => onRevoke(c)}
+                    title="Disable and cut its grants and tokens in every account"
+                  >
+                    Revoke
                   </Button>
                   <Button
                     variant="outline"

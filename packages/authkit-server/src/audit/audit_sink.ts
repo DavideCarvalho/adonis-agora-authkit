@@ -128,6 +128,15 @@ export const AUDIT_EVENT_TYPES = [
   // (`redirectTo.external`), ou uma action sensível (sudo/danger) rodou.
   'account.extension.redirect',
   'account.extension.action',
+  // Um client foi revogado: desabilitado (quando tem cadastro) e grants/tokens de todas as contas cortados.
+  'client.revoked',
+  // Login de clientes MCP ligado/desligado pela setting `mcp_clients` (`from`/`to` no metadata).
+  'mcp_clients.updated',
+  // Chaves de assinatura: uma chave nova publicada sem assinar ainda, ou uma chave antiga retirada.
+  'keys.generated',
+  'keys.retired',
+  // `node ace authkit:purge`: contagens do que foi apagado, por tipo.
+  'oidc.purged',
 ] as const;
 
 /** Tipos de eventos de auditoria relevantes para segurança emitidos pelo IdP. */

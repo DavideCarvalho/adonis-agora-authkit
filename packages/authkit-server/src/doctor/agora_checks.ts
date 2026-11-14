@@ -17,6 +17,7 @@ import {
   checkFirstPartyClients,
   checkIssuer,
   checkJwks,
+  checkMcpClients,
   checkOrganizations,
   checkOtpLockout,
   checkPasskeyAutofill,
@@ -83,6 +84,7 @@ export const AUTHKIT_DOCTOR_TABLE: ReadonlyArray<
   ['authkit.passkey-autofill', 'Passkey autofill', checkPasskeyAutofill],
   ['authkit.first-party-clients', 'First-party clients', checkFirstPartyClients],
   ['authkit.console-sign-in', 'Console sign-in', checkConsoleSignIn],
+  ['authkit.mcp-clients', 'MCP client login', checkMcpClients],
 ];
 
 export const AUTHKIT_DOCTOR_PACKAGE = '@adonis-agora/authkit-server';

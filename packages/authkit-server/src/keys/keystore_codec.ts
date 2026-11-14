@@ -50,7 +50,7 @@ export class KeystoreCodec {
         if (json == null) {
           throw new Error(
             'AuthKit keystore: decrypt falhou — APP_KEY mudou? Restaure a APP_KEY anterior ' +
-              'ou regenere com `authkit:keys:rotate --force-new`.',
+              'ou regenere com `authkit:key rotate`.',
           );
         }
         return JSON.parse(json);

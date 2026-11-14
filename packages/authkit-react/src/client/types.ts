@@ -166,6 +166,23 @@ export interface AdminClient {
   disabled?: boolean;
   /** Service-tenant settings, or `null` for a regular client. Absent on older servers. */
   serviceTenant?: ServiceTenantSettings | null;
+  /** Registered by the client itself through `/reg` (RFC 7591), e.g. an MCP client. */
+  dynamicallyRegistered?: boolean;
+  /** When it registered through `/reg` (ISO), or `null`. */
+  registeredAt?: string | null;
+  /** Registered `scope`, or `null` = any scope. */
+  scope?: string | null;
+}
+
+/** POST {base}/clients/:id/revoke — the client is disabled and its grants/tokens are cut. */
+export interface RevokeClientResult {
+  clientId: string;
+  /** The client has a stored record (and was disabled). */
+  stored: boolean;
+  sessions: number;
+  grants: number;
+  accessTokens: number;
+  refreshTokens: number;
 }
 
 /** A service tenant: `client_credentials` tokens carrying `partition` (and `capabilities`). */
@@ -881,6 +898,46 @@ export interface KeysRotateResult {
   newKid: string;
   retiredKids: string[];
   keptKids: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Admin — MCP client login (automatic)
+// ---------------------------------------------------------------------------
+
+/** The `mcp_clients` runtime setting. */
+export interface McpClientsSettingValue {
+  enabled: 'auto' | false;
+  dynamicRegistration: boolean;
+  metadataDocuments: boolean;
+}
+
+/** GET {base}/mcp-clients — live state of MCP client login. */
+export interface McpClientsStatus {
+  /** MCP clients can register and sign in right now. */
+  enabled: boolean;
+  /** Why it is off (`null` when on). */
+  off: 'config' | 'setting' | 'no-resource' | null;
+  /** Registered resources (URL or path). */
+  resources: string[];
+  dynamicRegistration: boolean;
+  metadataDocuments: boolean;
+  setting: McpClientsSettingValue;
+  /** `mcpClients: false` in config: the setting cannot be changed here. */
+  lockedByConfig: boolean;
+  summary: string;
+  config: {
+    dynamicRegistration: 'mcp' | 'app' | 'off';
+    metadataDocuments: boolean;
+    allowHosts: string[] | null;
+  };
+  clients: { dynamic: number | null; metadataDocuments: number };
+}
+
+/** PUT {base}/mcp-clients body. */
+export interface McpClientsUpdateInput {
+  enabled: 'auto' | false;
+  dynamicRegistration?: boolean;
+  metadataDocuments?: boolean;
 }
 
 // ---------------------------------------------------------------------------

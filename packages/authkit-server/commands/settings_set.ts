@@ -27,6 +27,10 @@ export default class AuthkitSettingsSet extends BaseCommand {
     '  node ace authkit:settings:set token_ttl \'{"accessTokenSec":1800}\'',
     '  node ace authkit:settings:set my_flag \'{"enabled":true}\'',
     '  node ace authkit:settings:set lockout \'{"enabled":false}\' --json',
+    '',
+    'Login de clientes MCP (automático) — desligar / voltar ao automático:',
+    '  node ace authkit:settings:set mcp_clients \'{"enabled":false}\'',
+    '  node ace authkit:settings:unset mcp_clients',
   ];
 
   static options: CommandOptions = { startApp: true };

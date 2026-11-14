@@ -42,7 +42,7 @@ const SECRET_PLACEHOLDER = '<CLIENT_SECRET>';
  * funciona) — a UI então mostra a instrução de habilitar o grant.
  *
  * `clients` são os clients do adapter (console admin / Admin API /
- * `authkit:clients:create`), por exemplo `new AdminClientsService(service).list()`.
+ * `authkit:client create`), por exemplo `new AdminClientsService(service).list()`.
  */
 export function buildImpersonationPanel(
   cfg: Pick<ResolvedServerConfig, 'issuer'>,

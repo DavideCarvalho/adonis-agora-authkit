@@ -47,6 +47,8 @@ export const SETTING_KEYS = {
   ACCOUNT_EXPIRATION: 'account_expiration',
   KEY_ROTATION: 'key_rotation',
   SOCIAL_SECOND_FACTOR: 'social_second_factor',
+  /** Login de clientes MCP (`{ enabled: 'auto' | false }`). Ver `mcp/mcp_clients.ts`. */
+  MCP_CLIENTS: 'mcp_clients',
 } as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS];

@@ -51,6 +51,7 @@
     "admin-console",
     "console-session",
     "admin-api",
+    "cli",
     "sdk",
     "testing",
     "events",

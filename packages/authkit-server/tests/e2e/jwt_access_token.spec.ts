@@ -546,7 +546,7 @@ test.group('e2e access tokens — opaque resource indicator (RFC 8707)', (group)
 });
 
 // ===========================================================================
-// VARIANT 5 — `mcp: true`: an MCP client (Claude Code) logs in with no app code
+// VARIANT 5 — automatic MCP client login: an MCP client (Claude Code) logs in with no app code
 // ===========================================================================
 
 test.group('e2e mcp — dynamic MCP client, runtime resource, refresh token', (group) => {
@@ -558,7 +558,7 @@ test.group('e2e mcp — dynamic MCP client, runtime resource, refresh token', (g
     usePort(9860);
     // What the agent's MCP provider does at boot: announce its path, no URL in the config.
     registerOAuthResource({ path: MCP_PATH });
-    ({ server, service } = await startServer(undefined, undefined, { mcp: true }));
+    ({ server, service } = await startServer(undefined, undefined, {}));
     return () => stopServer(server);
   });
 

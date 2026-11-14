@@ -1,4 +1,9 @@
-import { ACCOUNT_SESSION_KEY, authkitCsrfExceptions } from '@adonis-agora/authkit-server';
+import {
+  ACCOUNT_SESSION_KEY,
+  authkitCsrfExceptions,
+  isBlockedAddress,
+  safeFetchJson,
+} from '@adonis-agora/authkit-server';
 import { test } from '@japa/runner';
 import PoppyController from '../src/controllers/poppy_controller.js';
 import { poppy as poppyExtension } from '../src/extension.js';
@@ -9,7 +14,6 @@ import {
   poppyAuth,
   poppyOf,
 } from '../src/resource.js';
-import { isBlockedAddress, safeFetchJson } from '../src/safe_fetch.js';
 import { MEDIATED_SIGN_IN_GRANT } from '../src/service.js';
 import { POPPY_WEB_SESSION_KEY, poppyWebSession } from '../src/web_session.js';
 import {

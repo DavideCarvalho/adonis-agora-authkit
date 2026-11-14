@@ -1,5 +1,7 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
+import { MCP_CLIENTS_SETTING_KEY } from '../../mcp/mcp_clients.js';
+import { McpClientsSettingError, writeMcpClientsSetting } from '../../mcp/mcp_clients_setting.js';
 import { isSettingLocked, lockedSettingKeys, SettingLockedError } from '../config_locks.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { apiError, settingDto } from './dto.js';
@@ -94,6 +96,31 @@ export default class ApiSettingsController {
     const service = await ctx.containerResolver.make('authkit.server');
     const cfg = service.config;
 
+    // `mcp_clients`: mesma validação e o mesmo `mcp_clients.updated` do console e da CLI.
+    if (key === MCP_CLIENTS_SETTING_KEY && !orgId) {
+      try {
+        await writeMcpClientsSetting(svc, body.value, {
+          actorId: null,
+          source: 'admin-api',
+          ip: ctx.request.ip?.() ?? null,
+          audit: cfg.audit,
+        });
+      } catch (err) {
+        if (err instanceof SettingLockedError) return lockedResponse(ctx, err);
+        if (err instanceof McpClientsSettingError) {
+          return ctx.response.badRequest(apiError('invalid_setting', err.message));
+        }
+        throw err;
+      }
+      return settingDto({
+        key,
+        organizationId: null,
+        value: await svc.getSetting(key),
+        updatedAt: new Date(),
+        updatedBy: null,
+      });
+    }
+
     try {
       await svc.setSetting(key, body.value, null, orgId);
     } catch (err) {
@@ -132,6 +159,21 @@ export default class ApiSettingsController {
 
     const service = await ctx.containerResolver.make('authkit.server');
     const cfg = service.config;
+
+    if (key === MCP_CLIENTS_SETTING_KEY && !orgId) {
+      try {
+        await writeMcpClientsSetting(svc, null, {
+          actorId: null,
+          source: 'admin-api',
+          ip: ctx.request.ip?.() ?? null,
+          audit: cfg.audit,
+        });
+      } catch (err) {
+        if (err instanceof SettingLockedError) return lockedResponse(ctx, err);
+        throw err;
+      }
+      return { key, organizationId: null, deleted: true };
+    }
 
     try {
       await svc.deleteSetting(key, orgId);

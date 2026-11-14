@@ -218,10 +218,10 @@ test.group('doctor checks', () => {
     assert.isTrue(findings.some((f) => f.level === 'warn' && f.message.includes('cookie')));
   });
 
-  test('jwks managed com store → ok e referencia authkit:keys:rotate', ({ assert }) => {
+  test('jwks managed com store → ok e referencia authkit:key rotate', ({ assert }) => {
     const f = checkJwks(baseInput());
     assert.equal(f!.level, 'ok');
-    assert.include(f!.message, 'authkit:keys:rotate');
+    assert.include(f!.message, 'authkit:key rotate');
   });
 
   test('jwks managed SEM store → warn (chave efêmera por boot)', ({ assert }) => {

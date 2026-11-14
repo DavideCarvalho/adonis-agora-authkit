@@ -4,6 +4,7 @@ import Koa from 'koa';
 import mount from 'koa-mount';
 import type { ActiveOrgInfo } from '../accounts/account_store.js';
 import { ProviderIdentities } from '../accounts/provider_identities.js';
+import type { JsonFetcher } from '../cimd/safe_fetch.js';
 import type { ResolvedServerConfig } from '../define_config.js';
 import {
   normalizeActiveOrg,
@@ -12,13 +13,16 @@ import {
 } from '../host/active_org_cookie.js';
 import { bindBearerAccount } from '../host/bearer_account.js';
 import { isFirstPartyClient } from '../host/branding.js';
+import type { SigningAlg } from '../keys/jwks_manager.js';
 import {
   listKeyInfos,
   type ManagedKeyInfo,
+  type RotationPlan,
   signingKeyAgeDays,
   toPublicJwks,
 } from '../keys/keystore.js';
 import type { KeystoreManager } from '../keys/keystore_manager.js';
+import type { McpMetadataDocumentResolver } from '../mcp/mcp_clients.js';
 import { wireProviderEvents } from '../observability/wire_provider_events.js';
 import { buildProvider, type SessionTtlHolder, type TokenTtlHolder } from './build_provider.js';
 import { createInteractionActions, type InteractionActions } from './interaction_actions.js';
@@ -40,6 +44,13 @@ export class OidcService {
   }
   get interactions(): InteractionActions {
     return this.#interactions;
+  }
+  /**
+   * @internal Os clientes MCP resolvidos por Client ID Metadata Document (cache deste processo),
+   * ou `null` com os documentos desligados por config.
+   */
+  get metadataDocuments(): McpMetadataDocumentResolver | null {
+    return (this.#provider as any)?.authkitMetadataDocuments ?? null;
   }
   /**
    * JWKS PÚBLICO do keystore em uso pelo provider ATUAL (o mesmo que o `jwks_uri`
@@ -82,6 +93,8 @@ export class OidcService {
     keystoreHead?: () => Promise<string | null>;
     /** Fábrica do KeystoreManager (necessária para rotateKeys e keystoreAgeDays). */
     keystoreManager?: () => Promise<KeystoreManager>;
+    fetchMetadataDocument?: JsonFetcher;
+    onMetadataDocumentRejected?: (clientId: string, reason: string) => void;
   };
   /** Mutex de serialização de reloadKeys: encadeia execuções para nunca sobrepor builds. */
   #reloadChain: Promise<void> = Promise.resolve();
@@ -124,6 +137,10 @@ export class OidcService {
       keystoreHead?: () => Promise<string | null>;
       /** Fábrica do KeystoreManager (necessária para rotateKeys e keystoreAgeDays). */
       keystoreManager?: () => Promise<KeystoreManager>;
+      /** Busca dos Client ID Metadata Documents (testes). Default: a busca à prova de SSRF. */
+      fetchMetadataDocument?: JsonFetcher;
+      /** Um Client ID Metadata Document foi recusado (log). */
+      onMetadataDocumentRejected?: (clientId: string, reason: string) => void;
     } = {},
   ) {
     this.#config = config;
@@ -156,6 +173,8 @@ export class OidcService {
       { ...config, jwks },
       {
         appKey: this.#appKey,
+        fetchMetadataDocument: this.#deps.fetchMetadataDocument,
+        onMetadataDocumentRejected: this.#deps.onMetadataDocumentRejected,
         findAccount: async (ctx, sub) => {
           const user = await config.findAccount(sub);
           if (!user) return undefined;
@@ -194,7 +213,12 @@ export class OidcService {
           // Quem hospeda clients de terceiros declara `firstPartyClients` e fecha
           // a lista.
           const clientId: string | undefined = ctx?.oidc?.client?.clientId;
-          const firstParty = isFirstPartyClient(config.firstPartyClients, clientId);
+          // Um cliente MCP (registrado pelo `/reg` ou por Client ID Metadata Document) entra sem
+          // um admin o cadastrar: nunca é first-party.
+          const mcpClient =
+            ctx?.oidc?.client?.clientIdIssuedAt !== undefined ||
+            (!!clientId && this.metadataDocuments?.has(clientId) === true);
+          const firstParty = !mcpClient && isFirstPartyClient(config.firstPartyClients, clientId);
 
           return {
             accountId: user.id,
@@ -351,6 +375,7 @@ export class OidcService {
   async rotateKeys(
     keep: number,
     retire = false,
+    actor?: { actorId: string },
   ): Promise<{ newKid: string; retiredKids: string[]; keptKids: string[] }> {
     const run = async () => {
       const build = this.#deps.keystoreManager;
@@ -360,7 +385,11 @@ export class OidcService {
       await this.reloadKeys();
       const keptKids = store.keys.map((k) => k.kid as string);
       await this.#config.audit
-        ?.record({ type: 'keys.rotated', metadata: { newKid, retiredKids, keptKids, retire } })
+        ?.record({
+          type: 'keys.rotated',
+          ...(actor ? { actorId: actor.actorId } : {}),
+          metadata: { newKid, retiredKids, keptKids, retire },
+        })
         .catch(() => {});
       return { newKid, retiredKids, keptKids };
     };
@@ -372,6 +401,73 @@ export class OidcService {
     }>;
     this.#rotateChain = result.catch(() => {}); // a cadeia segue mesmo se uma rotação falhar
     return result;
+  }
+
+  /**
+   * Gera uma chave e a publica no JWKS sem assinar com ela (`staged`); a próxima rotação a
+   * promove. Aplica ao vivo e audita `keys.generated`. Lança sem keystore gerenciável.
+   */
+  async generateKey(alg?: SigningAlg, actor?: { actorId: string }): Promise<{ kid: string }> {
+    const run = async () => {
+      const build = this.#deps.keystoreManager;
+      if (!build) throw new Error('AuthKit: geração indisponível (jwks não é managed+store).');
+      const { kid } = await (await build()).generate(alg);
+      await this.reloadKeys();
+      await this.#config.audit
+        ?.record({
+          type: 'keys.generated',
+          ...(actor ? { actorId: actor.actorId } : {}),
+          metadata: { kid, alg: alg ?? null },
+        })
+        .catch(() => {});
+      return { kid };
+    };
+    const result = this.#rotateChain.then(run, run) as Promise<{ kid: string }>;
+    this.#rotateChain = result.catch(() => {});
+    return result;
+  }
+
+  /**
+   * Retira uma chave que não assina (sai do JWKS; tokens dela deixam de validar). Aplica ao vivo
+   * e audita `keys.retired`. Lança para a chave ativa, `kid` desconhecido ou sem keystore.
+   */
+  async retireKey(
+    kid: string,
+    actor?: { actorId: string },
+  ): Promise<{ retiredKid: string; keptKids: string[] }> {
+    const run = async () => {
+      const build = this.#deps.keystoreManager;
+      if (!build) throw new Error('AuthKit: retirada indisponível (jwks não é managed+store).');
+      const store = await (await build()).retire(kid);
+      await this.reloadKeys();
+      const keptKids = store.keys.map((k) => k.kid as string);
+      await this.#config.audit
+        ?.record({
+          type: 'keys.retired',
+          ...(actor ? { actorId: actor.actorId } : {}),
+          metadata: { kid, keptKids },
+        })
+        .catch(() => {});
+      return { retiredKid: kid, keptKids };
+    };
+    const result = this.#rotateChain.then(run, run) as Promise<{
+      retiredKid: string;
+      keptKids: string[];
+    }>;
+    this.#rotateChain = result.catch(() => {});
+    return result;
+  }
+
+  /** O plano de uma rotação, sem tocar o keystore (`null` sem keystore gerenciável). */
+  async planKeyRotation(keep: number, retire = false): Promise<RotationPlan | null> {
+    const build = this.#deps.keystoreManager;
+    if (!build) return null;
+    return (await build()).plan(keep, retire);
+  }
+
+  /** `true` quando o JWKS é managed com um keystore persistido (rotacionável). */
+  get hasManagedKeystore(): boolean {
+    return !!this.#deps.keystoreManager;
   }
 
   /**

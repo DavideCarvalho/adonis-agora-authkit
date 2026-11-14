@@ -102,10 +102,11 @@ export interface PersonalAgentGrantLedger {
 
 /**
  * Access tokens of the OIDC provider for MCP resources — the same tokens AuthKit's MCP integration
- * (`mcp` in `defineConfig`, or `Symbol.for('@adonis-agora/oauth:resources')`) already accepts.
+ * (automatic MCP client login: `mcpClients` in `defineConfig`, resources announced through
+ * `Symbol.for('@adonis-agora/oauth:resources')`) already accepts.
  */
 export interface PersonalAgentAccessTokens {
-  /** `mcp` is enabled in `defineConfig`. */
+  /** MCP client login is on (automatic: an MCP resource is registered and nothing turned it off). */
   readonly mcpEnabled: boolean;
   /** `url` is a registered MCP resource of this app. */
   isMcpResource(url: string): boolean;

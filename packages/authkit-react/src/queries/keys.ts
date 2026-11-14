@@ -56,6 +56,8 @@ export const authkitKeys = {
 
     keys: () => ['authkit', 'admin', 'keys'] as const,
 
+    mcpClients: () => ['authkit', 'admin', 'mcp-clients'] as const,
+
     personalAgents: () => ['authkit', 'admin', 'personal-agents'] as const,
     personalAgentConnections: (params?: Record<string, unknown>) =>
       ['authkit', 'admin', 'personal-agents', 'connections', params ?? {}] as const,

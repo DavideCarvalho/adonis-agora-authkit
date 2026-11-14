@@ -4,10 +4,12 @@ import {
   type CreateClientInput,
   useAuthkitClient,
   useCreateClientMutationOptions,
+  useRevokeClientMutationOptions,
   useSetClientDisabledMutationOptions,
   useUpdateClientMutationOptions,
 } from '@adonis-agora/authkit-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { parseAsStringLiteral, useQueryState } from 'nuqs';
 import type React from 'react';
 import { useState } from 'react';
 import { PageHeader } from '../agora-kit/blocks/page-header';
@@ -25,6 +27,7 @@ import {
   TextInput,
 } from '../components/primitives';
 import { ClientsListContainer, useClientsCount } from '../containers/clients.containers';
+import { getConfig } from '../lib/config';
 import { useToast } from '../lib/toast';
 
 const GRANT_TYPES = ['authorization_code', 'refresh_token', 'client_credentials', 'implicit'];
@@ -78,6 +81,9 @@ export function Clients() {
   const queryClient = useQueryClient();
   const authkitClient = useAuthkitClient();
   const clientsCount = useClientsCount();
+  // `?type=mcp` (the Settings card links here): only the MCP clients that registered themselves.
+  const [filter, setFilter] = useQueryState('type', parseAsStringLiteral(['mcp'] as const));
+  const revokeMutation = useMutation(useRevokeClientMutationOptions());
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editClient, setEditClient] = useState<AdminClient | null>(null);
@@ -255,6 +261,28 @@ export function Clients() {
       queryClient.invalidateQueries({ queryKey: authkitKeys.admin.clients() });
       toast.success(disable ? `Client ${c.clientId} disabled` : `Client ${c.clientId} enabled`);
     } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function handleRevoke(c: AdminClient) {
+    if (
+      !confirm(
+        `Revoke ${c.clientId}? It is disabled and its grants and tokens are cut in every account.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const r = await revokeMutation.mutateAsync(c.clientId);
+      queryClient.invalidateQueries({ queryKey: authkitKeys.admin.clients() });
+      toast.success(`Client ${c.clientId} revoked (${r.grants} grants cut)`);
+    } catch (err: unknown) {
+      if ((err as { code?: string } | null)?.code === 'sudo_required') {
+        const back = window.location.pathname + window.location.search;
+        window.location.href = `${getConfig().endpoints.confirm ?? '/account/confirm'}?return_to=${encodeURIComponent(back)}`;
+        return;
+      }
       toast.error(err instanceof Error ? err.message : String(err));
     }
   }
@@ -540,11 +568,21 @@ export function Clients() {
       />
 
       {/* Clients list container */}
+      {filter === 'mcp' && (
+        <Notice tone="info" className="mb-3 flex items-center justify-between gap-3">
+          <span>Showing only MCP clients (registered through dynamic registration).</span>
+          <Button variant="outline" size="sm" onClick={() => void setFilter(null)}>
+            Show all
+          </Button>
+        </Notice>
+      )}
       <ClientsListContainer
         onEdit={openEdit}
         onDelete={handleDelete}
         onRegenerate={handleRegenerate}
         onToggleDisabled={handleToggleDisabled}
+        onRevoke={handleRevoke}
+        filter={filter}
       />
 
       {/* Create modal */}

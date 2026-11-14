@@ -40,7 +40,7 @@ client:
 <Tab value="CLI">
 
 ```bash
-node ace authkit:clients:create \
+node ace authkit:client create \
   --client-id=my-mobile-app \
   --native \
   --redirect-uri=com.example.app:/oauth \
@@ -302,7 +302,7 @@ api: oidcBearerGuard({
 - Without `introspection`, only JWT access tokens can be accepted.
 
 Create the introspection client as a regular confidential client (it needs no grant of its
-own): `node ace authkit:clients:create --client-id=exams-api --redirect-uri=https://exams-api/unused`.
+own): `node ace authkit:client create --client-id=exams-api --redirect-uri=https://exams-api/unused`.
 
 </Tab>
 </Tabs>
