@@ -65,7 +65,7 @@
   },
   "dependencies": {
     "@adonis-agora/authkit-core": "workspace:*",
-    "@adonis-agora/filter-client": "^1.0.0-rc.1"
+    "@adonis-agora/filter-client": "1.0.0-rc.1"
   },
   "devDependencies": {
     "@adonisjs/tsconfig": "catalog:adonis",
