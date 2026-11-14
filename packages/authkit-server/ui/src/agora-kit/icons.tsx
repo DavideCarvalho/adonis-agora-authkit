@@ -134,6 +134,13 @@ export const SettingsIcon = stroke(
   </>,
 );
 
+export const DocumentIcon = stroke(
+  <>
+    <path d="M9.5 1.5H4.5a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V4.5z" />
+    <path d="M9.5 1.5v3h3M6 8.5h4M6 11h2.5" />
+  </>,
+);
+
 /* ── Console glyphs (switcher + search). Same keys as the `agora.consoles` registry. ──────────── */
 export type ConsoleIconKey =
   | 'workflow'
@@ -143,6 +150,7 @@ export type ConsoleIconKey =
   | 'agent'
   | 'identity'
   | 'flags'
+  | 'cms'
   | 'generic';
 
 const CONSOLE_PATHS: Record<ConsoleIconKey, ReactNode> = {
@@ -190,6 +198,12 @@ const CONSOLE_PATHS: Record<ConsoleIconKey, ReactNode> = {
     <>
       <path d="M5 21V4" />
       <path d="M5 4h11l-2 4 2 4H5" />
+    </>
+  ),
+  cms: (
+    <>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <path d="M14 3v5h5M9 13h6M9 17h4" />
     </>
   ),
   generic: (
@@ -251,6 +265,7 @@ export const CONSOLE_ACCENTS: Record<string, string> = {
   media: '#fbbf24',
   agent: '#fb7185',
   flags: '#34d399',
+  cms: '#fb923c',
 };
 
 const ACCENT_BY_ICON: Partial<Record<ConsoleIconKey, string>> = {
@@ -261,6 +276,7 @@ const ACCENT_BY_ICON: Partial<Record<ConsoleIconKey, string>> = {
   media: '#fbbf24',
   agent: '#fb7185',
   flags: '#34d399',
+  cms: '#fb923c',
 };
 
 /** A console's accent by registry id, else by icon key, else `undefined` (neutral tile). */
