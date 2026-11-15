@@ -41,7 +41,7 @@ export function DonutChart<T>({
   data: readonly T[];
   /** The slice name (tooltip title). */
   label: (row: T) => string;
-  /** Stable slice identity when names can repeat (e.g. a model id); defaults to `label`. */
+  /** Stable slice identity (e.g. a model id); defaults to the label plus the row position. */
   rowKey?: (row: T) => string;
   /** The slice size; negative and missing values count as zero. */
   value: (row: T) => number | null | undefined;
