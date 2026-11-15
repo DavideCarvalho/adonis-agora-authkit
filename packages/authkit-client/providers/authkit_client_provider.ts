@@ -39,6 +39,7 @@ import {
 import { getJwks } from '../src/jwks.js';
 import { contextTenancyEnabled } from '../src/observability/context_bridge.js';
 import { exchangeToken, refreshTokens } from '../src/oidc_login.js';
+import { authkitOrgLabels, installOrgLabeler } from '../src/org_labels.js';
 import type { ResolverFactory } from '../src/resolvers/factory.js';
 import type { TokenSet } from '../src/types.js';
 
@@ -623,6 +624,27 @@ export class AuthkitClientManager {
   }
 
   /**
+   * Registers the org labeler (see `orgLabels` in `config/authkit_client.ts`) on
+   * `@adonis-agora/context`. `false` when it is off, the client has no secret, or the
+   * context is not installed.
+   */
+  installOrgLabeler(): boolean {
+    const cfg = this.config;
+    if (cfg.orgLabels === false || !cfg.clientSecret) return false;
+    const options = cfg.orgLabels ?? {};
+    return installOrgLabeler(
+      authkitOrgLabels({
+        issuer: cfg.issuer,
+        clientId: cfg.clientId,
+        clientSecret: cfg.clientSecret,
+        ...(options.endpoint ? { endpoint: options.endpoint } : {}),
+        ...(options.ttlMs !== undefined ? { ttlMs: options.ttlMs } : {}),
+        ...(this.deps.fetchImpl ? { fetch: this.deps.fetchImpl } : {}),
+      }),
+    );
+  }
+
+  /**
    * The request's {@link Authenticator}. `options.resolver` replaces the configured
    * resolver for this authenticator only (e.g. a guard for bearer-token API routes).
    */
@@ -677,6 +699,21 @@ export default class AuthkitClientProvider {
         ACCOUNT_EXTENSIONS_BINDING as never,
         async () => registry as never,
       );
+    }
+  }
+
+  /**
+   * Org labels for the consoles' org pickers, when authkit-server is not in this app (it
+   * serves them locally through `tenancy.label: authkitTenantLabels()`). Best effort: a
+   * config that cannot resolve here fails later, on first use, as before.
+   */
+  async ready() {
+    if (this.app.container.hasBinding('authkit.server' as never)) return;
+    try {
+      const manager = await this.app.container.make(AuthkitClientManager);
+      manager.installOrgLabeler();
+    } catch {
+      // no usable config yet: nothing to install
     }
   }
 }

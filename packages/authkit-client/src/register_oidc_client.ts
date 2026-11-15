@@ -1,5 +1,6 @@
 import { ACCOUNT_EXTENSIONS_WELL_KNOWN, type Identity } from '@adonis-agora/authkit-core';
 import type { HttpContext, Router } from '@adonisjs/core/http';
+import { announceAgoraSignOut, type ConsolesAppLike } from './agora_consoles.js';
 import { OidcCallbackError } from './authorization.js';
 import type { OidcEndpoints } from './discovery.js';
 import { buildEndSessionUrl } from './oidc_login.js';
@@ -45,6 +46,14 @@ export interface RegisterOidcClientOptions {
   loginMiddleware?: any;
   /** Query param repassado como hint ao authorize (ex.: `audience`). Default: `['audience']`. */
   passthroughParams?: string[];
+  /**
+   * Announce `POST {prefix}/logout` as the sign-out of every `@adonis-agora` console
+   * (`account.signOut` on the `'agora.consoles'` registry). Skipped when authkit-server runs
+   * in this app (it announces its own) or when something announced one first. Default: `true`.
+   */
+  announceSignOut?: boolean;
+  /** The application to announce on. Default: `@adonisjs/core/services/app`. */
+  app?: ConsolesAppLike;
 }
 
 /**
@@ -176,6 +185,29 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
   }
 
   if (options.accountExtensions !== false) registerAccountExtensionsEndpoint(router);
+
+  if (options.announceSignOut !== false) {
+    void announceRpSignOut(options.app, `${prefix}/logout`);
+  }
+}
+
+/**
+ * Announces the RP logout on the consoles registry, unless authkit-server (which announces
+ * its account sign-out) runs in this app. Best effort: never throws.
+ */
+async function announceRpSignOut(app: ConsolesAppLike | undefined, action: string): Promise<void> {
+  try {
+    const target =
+      app ??
+      ((await import('@adonisjs/core/services/app')).default as unknown as
+        | ConsolesAppLike
+        | undefined);
+    if (!target?.container) return;
+    if (target.container.hasBinding('authkit.server')) return;
+    await announceAgoraSignOut(target, action);
+  } catch {
+    // no booted app (a bare router in tests) or a registry of another shape
+  }
 }
 
 /**

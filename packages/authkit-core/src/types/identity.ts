@@ -26,12 +26,26 @@ export interface Identity {
   orgSlug?: string | null;
   /** Papel do usuário DENTRO da org ativa (claim `org_role`), quando presente. */
   orgRole?: string | null;
+  /**
+   * Who is really acting when the session is an impersonation (RFC 8693 `act` claim):
+   * the admin behind it. Absent on a normal session. Use `actor ?? { sub: userId }` as
+   * the audit actor and `userId` (the impersonated account) for authorization.
+   */
+  actor?: IdentityActor;
   /** `iat` em epoch ms */
   issuedAt: number;
   /** `exp` em epoch ms */
   expiresAt: number;
   /** claims completas (escape hatch) */
   raw: Record<string, unknown>;
+}
+
+/** The real actor of an impersonated session (from the `act` claim). */
+export interface IdentityActor {
+  /** `act.sub`: the account that is acting. */
+  sub: string;
+  /** `act.email`, when the issuer includes it. */
+  email?: string;
 }
 
 /**
@@ -85,4 +99,18 @@ export function deriveOrgSlug(claims: Record<string, unknown> | undefined): stri
 /** Deriva o papel do usuário na org ativa. `null` quando ausente. */
 export function deriveOrgRole(claims: Record<string, unknown> | undefined): string | null {
   return firstStringClaim(claims, ['org_role', 'organization_role']);
+}
+
+/**
+ * The actor of an impersonated token (RFC 8693 §4.1 `act` claim), or `undefined`.
+ * A nested `act` (delegation chain) keeps the outermost actor: the one acting now.
+ */
+export function deriveActor(
+  claims: Record<string, unknown> | undefined,
+): IdentityActor | undefined {
+  const act = claims?.act;
+  if (!act || typeof act !== 'object' || Array.isArray(act)) return undefined;
+  const { sub, email } = act as { sub?: unknown; email?: unknown };
+  if (typeof sub !== 'string' || sub.length === 0) return undefined;
+  return typeof email === 'string' && email.length > 0 ? { sub, email } : { sub };
 }

@@ -22,7 +22,11 @@ export interface AuthkitTenantTokenOptions {
   scope?: string;
   /** Refresh this many seconds before the token expires. Default: 60. */
   refreshSkewSec?: number;
-  /** Token endpoint. Default: `token_endpoint` from the issuer's discovery document. */
+  /**
+   * Token endpoint. Default: `token_endpoint` from the issuer's discovery document
+   * (`{issuer}/.well-known/openid-configuration`). When discovery fails the token
+   * request fails too (no guessed path); the next call retries.
+   */
   tokenEndpoint?: string;
   /** Custom `fetch` (proxy, tests). Default: the global `fetch`. */
   fetch?: typeof fetch;
@@ -143,12 +147,15 @@ export class AuthkitTenantToken {
     let endpoint = o.tokenEndpoint;
     if (!endpoint) {
       try {
-        endpoint = (
-          await discoverEndpoints(o.issuer, {
-            onError: 'fallback',
-            ...(o.fetch ? { fetchImpl: o.fetch } : {}),
-          })
-        ).tokenEndpoint;
+        endpoint =
+          // Strict discovery: the token endpoint comes from the issuer's
+          // `/.well-known/openid-configuration`, never from a guessed path.
+          (
+            await discoverEndpoints(o.issuer, {
+              onError: 'throw',
+              ...(o.fetch ? { fetchImpl: o.fetch } : {}),
+            })
+          ).tokenEndpoint;
       } catch (cause) {
         throw new TenantTokenError('could not resolve the token endpoint', undefined, undefined, {
           cause,

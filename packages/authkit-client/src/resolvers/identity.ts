@@ -1,5 +1,5 @@
 import type { Identity } from '@adonis-agora/authkit-core';
-import { deriveOrgId, deriveOrgRole, deriveOrgSlug } from '@adonis-agora/authkit-core';
+import { deriveActor, deriveOrgId, deriveOrgRole, deriveOrgSlug } from '@adonis-agora/authkit-core';
 
 type FetchImpl = (url: string, init: any) => Promise<{ ok: boolean; json: () => Promise<any> }>;
 
@@ -9,14 +9,15 @@ type FetchImpl = (url: string, init: any) => Promise<{ ok: boolean; json: () => 
  * produzia (a referência canônica): `sub`→userId, `email`, papéis na
  * `globalRolesClaim`, `name`/`picture`→profile, `sid`→sessionId, `iat`/`exp`
  * (segundos→ms, fallback 0), a org/tenant ativo (`orgId`/`orgSlug`/`orgRole`,
- * ver `deriveOrgId` — vale para o authkit E para IdPs de terceiros) e as claims
- * cruas em `raw`.
+ * ver `deriveOrgId` — vale para o authkit E para IdPs de terceiros), o ator real de
+ * uma impersonação (`actor`, da claim `act` — RFC 8693) e as claims cruas em `raw`.
  */
 export function buildIdentityFromClaims(
   claims: Record<string, unknown>,
-  globalRolesClaim: string,
+  globalRolesClaim = 'roles',
 ): Identity {
   const roles = claims[globalRolesClaim];
+  const actor = deriveActor(claims);
   return {
     userId: String(claims.sub ?? ''),
     email: typeof claims.email === 'string' ? claims.email : '',
@@ -29,6 +30,7 @@ export function buildIdentityFromClaims(
     orgId: deriveOrgId(claims),
     orgSlug: deriveOrgSlug(claims),
     orgRole: deriveOrgRole(claims),
+    ...(actor ? { actor } : {}),
     issuedAt: typeof claims.iat === 'number' ? claims.iat * 1000 : 0,
     expiresAt: typeof claims.exp === 'number' ? claims.exp * 1000 : 0,
     raw: claims,

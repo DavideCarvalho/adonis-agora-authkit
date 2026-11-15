@@ -370,6 +370,36 @@ test.group('service tenants: authkitTenantVerifier', (group) => {
     );
   });
 
+  test('environment: returned when claimed, enforced (fail closed) when pinned', async ({
+    assert,
+  }) => {
+    const any = authkitTenantVerifier({ issuer: issuerOf(s.service) });
+    assert.deepEqual(await any({ token: await forge({ environment: 'production' }) }), {
+      tenant: 'acme',
+      environment: 'production',
+    });
+    const prod = authkitTenantVerifier({ issuer: issuerOf(s.service), environment: 'production' });
+    assert.isNotNull(await prod({ token: await forge({ environment: 'production' }) }));
+    assert.isNull(await prod({ token: await forge({ environment: 'staging' }) }));
+    assert.isNull(await prod({ token: await forge({}) }));
+  });
+
+  test('a real token carries the client environment', async ({ assert }) => {
+    const created = await s.clients.create(
+      tenantInput({
+        clientId: 'worker-prod',
+        serviceTenant: { partition: 'acme', capabilities: [], environment: 'production' },
+      }),
+    );
+    const { body } = await requestToken(s.issuer, 'worker-prod', created.clientSecret!);
+    assert.equal(decodeJwt(body.access_token).environment, 'production');
+    const prod = authkitTenantVerifier({ issuer: issuerOf(s.service), environment: 'production' });
+    assert.deepEqual(await prod({ token: body.access_token }), {
+      tenant: 'acme',
+      environment: 'production',
+    });
+  });
+
   test('rejects an expired token, a missing partition and a user token', async ({ assert }) => {
     const verify = authkitTenantVerifier({ issuer: issuerOf(s.service) });
     assert.isNotNull(await verify({ token: await forge({}) }));

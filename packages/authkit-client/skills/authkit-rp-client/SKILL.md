@@ -206,6 +206,30 @@ validated `{ sid, sub }` (store runs first, then the hook).
 
 Source: `src/define_config.ts` (`BackchannelLogoutInput`), README.
 
+### Pattern 5 — authkit-server on another server
+
+Nothing on this server may need authkit-server in-process. The remote-safe helpers:
+
+```ts
+import {
+  authkitTenantToken, // tenant side: client_credentials token for one resource; endpoint from discovery only
+  authkitTenantVerifier, // control-plane side: (request) => { partition, environment?, capabilities, clientId, expiresAt } | null
+  registerAuthkitWebhook, // signed authkit events → diagnostics bus as agora:authkit:<type>
+  bridgeAuthkitToken, // bearer token (MCP/API) → ctx.authkit, so authkitDashboardAuthorize admits it
+} from '@adonis-agora/authkit-client'
+
+verifyTenant: authkitTenantVerifier({ issuer: env.get('AUTHKIT_ISSUER'), resource: 'urn:agora:flags' })
+registerAuthkitWebhook(router, { secret: env.get('AUTHKIT_WEBHOOK_SECRET') }) // + csrf.exceptRoutes
+```
+
+`registerOidcClient` already announces `POST /auth/logout` as the consoles' sign-out (skipped
+when authkit-server runs in the app), the provider installs org labels (`orgLabels`), and
+`identity.actor` carries the impersonating admin (`act`). Resources are `urn:agora:<product>`;
+never hard-code `/token` or `/oauth/token`.
+
+Source: `src/tenant_verifier.ts`, `src/webhook_receiver.ts`, `src/identity_bridge.ts`,
+`src/org_labels.ts`; docs `topologies.mdx`.
+
 ## Common mistakes
 
 ### HIGH — Session middleware running after `authkit_context_middleware`

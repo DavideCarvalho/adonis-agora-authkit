@@ -105,6 +105,22 @@ export interface ClientConfigInput {
   tenancy?: ClientTenancyOptions;
   /** Account console pages this app serves to the IdP. See {@link ClientAccountConsoleConfig}. */
   accountConsole?: ClientAccountConsoleConfig;
+  /**
+   * Organization names for every console's org picker (`Context.tenantLabels`): the active
+   * org from the `org_name` claim, any other from the authkit server's
+   * `GET /api/orgs/labels` (authenticated with `clientId`/`clientSecret`), cached.
+   * Installed at boot when `@adonis-agora/context` is present, the client is confidential
+   * and authkit-server does not run in this app. `false` turns it off. Default: on.
+   */
+  orgLabels?: false | ClientOrgLabelsConfig;
+}
+
+/** `orgLabels` in `config/authkit_client.ts`. */
+export interface ClientOrgLabelsConfig {
+  /** The labels endpoint. Default: `/api/orgs/labels` on the issuer's origin. */
+  endpoint?: string;
+  /** How long a label is reused, in ms. Default: 5 minutes. */
+  ttlMs?: number;
 }
 
 export interface ResolvedClientConfig {
@@ -131,6 +147,8 @@ export interface ResolvedClientConfig {
   tenancy?: ClientTenancyOptions;
   /** See {@link ClientConfigInput.accountConsole}. */
   accountConsole?: ClientAccountConsoleConfig;
+  /** See {@link ClientConfigInput.orgLabels}. Absent means on with the defaults. */
+  orgLabels?: false | ClientOrgLabelsConfig;
 }
 
 export function defineConfig(config: ClientConfigInput) {
@@ -171,6 +189,7 @@ export function defineConfig(config: ClientConfigInput) {
       endpoints: config.endpoints,
       tenancy: config.tenancy ?? {},
       ...(config.accountConsole ? { accountConsole: config.accountConsole } : {}),
+      ...(config.orgLabels !== undefined ? { orgLabels: config.orgLabels } : {}),
     };
   });
 }

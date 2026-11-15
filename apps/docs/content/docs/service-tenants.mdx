@@ -20,9 +20,12 @@ token for your control plane and gets a short-lived JWT:
   "client_id": "worker-acme",
   "partition": "acme",
   "capabilities": ["reports"],
+  "environment": "production",
   "exp": 1762870200
 }
 ```
+
+`environment` is there only when the client has one.
 
 The control plane checks it against AuthKit's signing keys, locally, with no call to AuthKit
 per request.
@@ -64,12 +67,12 @@ for service tenants, never both.
 ### From the console
 
 **Clients → New Client**, then pick **Service tenant** as the kind. Enter the partition and,
-optionally, the capabilities (comma-separated). The secret is shown once.
+optionally, the capabilities (comma-separated) and the environment. The secret is shown once.
 
 ### From the CLI
 
 ```sh
-node ace authkit:client create --client-id=worker-acme --partition=acme --capability=reports
+node ace authkit:client create --client-id=worker-acme --partition=acme --capability=reports --environment=production
 ```
 
 `--capability` is repeatable. Add `--json` for machine-readable output (it includes the
@@ -110,11 +113,65 @@ export default class TenantsController {
 }
 ```
 
+## One client, several products
+
+Declare one resource per product and give each app **one** service-tenant client. It gets a token
+for any of them by naming the resource:
+
+```ts title="config/authkit.ts"
+serviceTenants: {
+  resources: {
+    'urn:agora:durable': {},
+    'urn:agora:flags': {},
+    'urn:agora:config': {},
+  },
+},
+```
+
+A token is valid only for the resource it names: the flags control plane refuses a
+`urn:agora:durable` token. With several resources declared, the client must send `resource`.
+
+## Verify tokens on another server
+
+A control plane that does not run AuthKit verifies tokens with `@adonis-agora/authkit-client`.
+It finds AuthKit's keys through `{issuer}/.well-known/openid-configuration` and checks every token
+locally:
+
+```ts title="config/flags.ts (control plane)"
+import env from '#start/env'
+import { authkitTenantVerifier } from '@adonis-agora/authkit-client'
+
+export default defineConfig({
+  topology: 'control-plane',
+  verifyTenant: authkitTenantVerifier({
+    issuer: env.get('AUTHKIT_ISSUER'),
+    resource: 'urn:agora:flags',
+  }),
+})
+```
+
+It answers `{ partition, environment?, capabilities, clientId, expiresAt }` for a valid token and
+`null` otherwise: wrong signature, issuer, `aud`, `typ`, an expired token, a token with a user
+behind it, or one without `partition`. Everything comes from the token, never from the request.
+
+| Option | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `issuer` | `string` | | AuthKit's issuer URL. |
+| `resource` | `string` | | The resource this control plane answers for. |
+| `environment` | `string` | | Accept only tokens whose `environment` claim is this value; a token without the claim is refused. |
+| `audience` | `string` | `resource` | When the resource declares another `audience`. |
+| `clockToleranceSec` | `number` | `30` | Allowed clock skew. |
+
+`AuthkitTenantVerifier` is the class form (`super({ issuer, resource })`). The in-process
+`authkitTenantVerifier` of `@adonis-agora/authkit-server` takes the same `environment` option and
+returns the claim as `environment`.
+
 ## Configure durable
 
 ### Control plane
 
-The control plane runs in the AuthKit app, so the verifier reads the issuer and keys from it:
+When the control plane runs in the AuthKit app, `authkitTenantVerifier` from
+`@adonis-agora/authkit-server` reads the issuer and keys from it, with no discovery:
 
 ```ts title="config/durable.ts"
 import { authkitTenantVerifier } from '@adonis-agora/authkit-server'
@@ -175,8 +232,9 @@ export default defineConfig({
 ```
 
 `resource` can be left out when AuthKit declares a single service-tenant resource. Other
-options: `scope`, `refreshSkewSec` (default `60`), `tokenEndpoint` (default: from discovery),
-`timeoutMs` (default `10000`).
+options: `scope`, `refreshSkewSec` (default `60`), `tokenEndpoint` (default: the `token_endpoint`
+of `{issuer}/.well-known/openid-configuration`; when discovery fails the token request fails and
+the next one retries), `timeoutMs` (default `10000`).
 
 As a class, `AuthkitTenantToken` implements durable's `TenantCredentialsContract`:
 
@@ -218,7 +276,7 @@ deploy the new secret, and the next refresh uses it.
 ## Change the partition or capabilities
 
 Edit the client in the console, or `PATCH /api/authkit/v1/clients/:id` with
-`{ "serviceTenant": { "partition": "acme", "capabilities": ["reports", "billing"] } }`. The
+`{ "serviceTenant": { "partition": "acme", "capabilities": ["reports", "billing"], "environment": "production" } }`. The
 next token carries the new values; a token already issued keeps the old ones until it expires.
 
 ## Disable a tenant

@@ -127,6 +127,10 @@ interface Identity {
   globalRoles: string[]; // from the configured claim, default 'roles'
   profile?: { name?: string; avatarUrl?: string }; // avatarUrl from 'picture'
   sessionId?: string; // sid
+  orgId?: string | null; // active organization (org_id)
+  orgSlug?: string | null;
+  orgRole?: string | null;
+  actor?: { sub: string; email?: string }; // the admin behind an impersonation (act)
   issuedAt: number; // iat (ms)
   expiresAt: number; // exp (ms)
   raw: Record<string, unknown>;
@@ -719,11 +723,27 @@ overwrites it.
 
 ### Tenant labels
 
-`authkitTenantLabels()` (from `@adonis-agora/authkit-server`) turns organization ids into
-their names for the consoles. Pass `{ label: 'slug' }` for slugs, or a function
-`(org) => string`. Ids that are not authkit organizations keep showing as ids. It is meant for
-the app that runs authkit-server; an app whose IdP runs elsewhere shows the viewer's own
-organization by its slug, and other organizations by id.
+Consoles show organization names instead of ids. On an app whose IdP runs elsewhere this is
+automatic: the active organization's name comes from the session (`org_name`), any other from
+the AuthKit server's `GET /api/orgs/labels`, called with this app's client id and secret and
+cached for 5 minutes. The client must be confidential and first-party.
+
+```ts title="config/authkit_client.ts"
+export default defineConfig({
+  // ...
+  orgLabels: { ttlMs: 60_000 }, // or false to turn it off
+})
+```
+
+| Option | Default | Notes |
+| --- | --- | --- |
+| `endpoint` | `/api/orgs/labels` on the issuer's origin | Where the AuthKit server answers. |
+| `ttlMs` | `300000` | How long a label (or "not an organization") is reused. |
+
+`tenancy.label` in `config/context.ts` still wins. In the app that runs authkit-server, use
+`authkitTenantLabels()` from `@adonis-agora/authkit-server` there: pass `{ label: 'slug' }` for
+slugs, or a function `(org) => string`. Ids that are not authkit organizations keep showing as
+ids.
 
 ## Gating an embedded dashboard
 
@@ -748,6 +768,29 @@ export default defineConfig({
 Pass `{ role: 'STAFF' }` if your app uses another global role for admin access.
 `isAuthkitAdmin(ctx, options?)` gives the same check as a boolean, for use inside your own
 `authorize`.
+
+`registerOidcClient` also gives every console its **Sign out** button: it announces
+`POST /auth/logout` to the consoles, so you set no `signOut` in their configs. Pass
+`announceSignOut: false` to keep your own.
+
+### Callers with a bearer token
+
+An MCP or API caller sends an AuthKit access token instead of a session cookie.
+`bridgeAuthkitToken` verifies it against the issuer's keys and signs the request in, so the
+same `authorize` admits it:
+
+```ts
+import { bridgeAuthkitToken } from "@adonis-agora/authkit-client";
+
+const identity = await bridgeAuthkitToken(ctx, bearerToken, {
+  issuer: env.get("AUTHKIT_ISSUER"),
+  audience: "https://app.acme.com/mcp/agora",
+});
+// null: invalid token, nothing bound
+```
+
+`identityFromAccessToken(token, options)` only verifies and returns the `Identity`;
+`bindAuthkitIdentity(ctx, identity)` only binds one you verified yourself.
 
 ## Endpoint discovery
 

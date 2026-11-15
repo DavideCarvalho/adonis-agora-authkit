@@ -483,6 +483,19 @@ The issued token carries the standard RFC 8693 **`act`** (actor) claim, recordin
 is impersonating the subject — in the id_token and in the access token. This keeps the audit
 trail honest — the token is for the target user, but the `act` claim names the admin behind it.
 
+On a relying party, `identity.actor` reads it: `{ sub }` of the admin, absent on a normal
+session. Authorize with `identity.userId` (the impersonated account) and record
+`identity.actor?.sub ?? identity.userId` as who did it:
+
+```ts title="app/controllers/orders_controller.ts"
+export default class OrdersController {
+  async cancel({ authkit, params }: HttpContext) {
+    const identity = await authkit.authenticate()
+    await Order.cancel(params.id, { by: identity.actor?.sub ?? identity.userId })
+  }
+}
+```
+
 Two [audit events](/docs/security) are emitted:
 
 | Event | When |

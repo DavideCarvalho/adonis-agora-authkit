@@ -1,6 +1,7 @@
 import vine from '@vinejs/vine';
 import {
   CAPABILITY_PATTERN,
+  ENVIRONMENT_PATTERN,
   MAX_CAPABILITIES,
   PARTITION_PATTERN,
 } from '../service_tenants/client_metadata.js';
@@ -126,6 +127,7 @@ export const clientInputValidator = vine.compile(
           .array(vine.string().trim().regex(CAPABILITY_PATTERN))
           .maxLength(MAX_CAPABILITIES)
           .optional(),
+        environment: vine.string().trim().regex(ENVIRONMENT_PATTERN).nullable().optional(),
       })
       .nullable()
       .optional(),
@@ -144,7 +146,11 @@ export type ClientInputFields = {
   backchannelLogoutSessionRequired?: boolean;
   clientName?: string | null;
   logoUri?: string | null;
-  serviceTenant?: { partition: string; capabilities?: string[] } | null;
+  serviceTenant?: {
+    partition: string;
+    capabilities?: string[];
+    environment?: string | null;
+  } | null;
 };
 
 /**

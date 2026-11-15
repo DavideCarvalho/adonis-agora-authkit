@@ -608,6 +608,8 @@ export interface ActiveOrgInfo {
   orgId: string;
   orgSlug: string;
   orgRole: string;
+  /** The org's display name, when known (emitted as the `org_name` claim). */
+  orgName?: string;
 }
 
 /**

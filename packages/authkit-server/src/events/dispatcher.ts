@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import type { AuditEvent, AuditSink } from '../audit/audit_sink.js';
 import { emitDiagnostic } from '../observability/diagnostics_bridge.js';
 
@@ -7,26 +7,34 @@ import { emitDiagnostic } from '../observability/diagnostics_bridge.js';
  *
  *   - `onEvent`: callback in-process disparado para CADA evento de auditoria
  *     (best-effort, fire-and-forget). Útil para encaminhar a um bus interno.
- *   - `webhook`: POST JSON do evento para uma URL externa. Quando `secret` é dado,
- *     assina o corpo com HMAC-SHA256 no header `x-authkit-signature`.
+ *   - `webhook`: POST JSON do evento para uma URL externa (ou várias: uma por app).
+ *     Quando `secret` é dado, assina o corpo com HMAC-SHA256 no header
+ *     `x-authkit-signature`. O corpo leva `id` (único por evento) e `ts`, que o
+ *     receptor do authkit-client usa contra replay.
  *
  * Nada aqui pode lançar para dentro do caminho da request: todo erro é engolido.
  */
 export interface EventsConfigInput {
   /** Callback in-process para cada evento auditado (best-effort). */
   onEvent?: (event: AuditEvent) => void | Promise<void>;
-  /** Webhook HTTP: POST do evento em JSON. */
-  webhook?: {
-    /** URL de destino do POST. */
-    url: string;
-    /** Segredo opcional para assinar o corpo (HMAC-SHA256). */
-    secret?: string;
-  };
+  /**
+   * Webhook HTTP: POST do evento em JSON. Uma lista entrega o mesmo evento (mesmo `id`)
+   * a cada URL — por exemplo, um app por servidor com o receptor do authkit-client.
+   */
+  webhook?: WebhookTarget | WebhookTarget[];
+}
+
+/** One webhook destination. */
+export interface WebhookTarget {
+  /** URL de destino do POST. */
+  url: string;
+  /** Segredo opcional para assinar o corpo (HMAC-SHA256). */
+  secret?: string;
 }
 
 export interface ResolvedEventsConfig {
   onEvent?: (event: AuditEvent) => void | Promise<void>;
-  webhook?: { url: string; secret?: string };
+  webhook?: WebhookTarget | WebhookTarget[];
 }
 
 export function resolveEvents(input?: EventsConfigInput): ResolvedEventsConfig | undefined {
@@ -42,12 +50,15 @@ const WEBHOOK_TIMEOUT_MS = 5000;
 
 /**
  * Constrói o corpo JSON canônico do webhook a partir de um evento de auditoria.
- * O `ts` é o instante do dispatch (ISO 8601).
+ * O `ts` é o instante do dispatch (ISO 8601); o `id` identifica a entrega (o
+ * receptor descarta um `id` repetido). Ambos ficam dentro do corpo assinado.
  */
-export function buildWebhookBody(event: AuditEvent): string {
+export function buildWebhookBody(event: AuditEvent, id: string = randomUUID()): string {
   return JSON.stringify({
+    id,
     type: event.type,
     accountId: event.accountId ?? null,
+    actorId: event.actorId ?? null,
     email: event.email ?? null,
     clientId: event.clientId ?? null,
     orgId: event.orgId ?? null,
@@ -110,12 +121,8 @@ export function redactAuditEventForDiagnostics(event: AuditEvent): AuditEvent {
  * Dispara o webhook de forma fire-and-forget: timeout de 5s via AbortSignal,
  * captura QUALQUER erro (rede, abort, HMAC) sem propagar. Nunca lança.
  */
-async function dispatchWebhook(
-  webhook: { url: string; secret?: string },
-  event: AuditEvent,
-): Promise<void> {
+async function dispatchWebhook(webhook: WebhookTarget, body: string): Promise<void> {
   try {
-    const body = buildWebhookBody(event);
     const headers: Record<string, string> = {
       'content-type': 'application/json',
     };
@@ -164,7 +171,11 @@ export function composeAuditSink(
       }
       // Webhook fire-and-forget (não aguardamos a entrega).
       if (events.webhook) {
-        void dispatchWebhook(events.webhook, event);
+        const targets = Array.isArray(events.webhook) ? events.webhook : [events.webhook];
+        if (targets.length > 0) {
+          const body = buildWebhookBody(event);
+          for (const target of targets) void dispatchWebhook(target, body);
+        }
       }
       // Diagnostics Agora (best-effort, sempre ligado, no-op sem o slot).
       // Canal: `agora:authkit:<AuditEventType>` (o `type` É o sufixo).
