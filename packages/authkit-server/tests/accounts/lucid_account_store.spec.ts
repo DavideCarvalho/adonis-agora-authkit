@@ -920,7 +920,7 @@ test.group('lucidAccountStore', (group) => {
 
     const enc = appKeyEncrypter();
     // M4: o catch do decrypt retorna null (negar), NÃO o ciphertext cru.
-    assert.isNull(enc.decrypt('garbage-ciphertext'));
+    assert.isNull(await enc.decrypt('garbage-ciphertext'));
   });
 
   test('appKeyEncrypter: decrypt válido faz round-trip (serviço presente)', async ({
@@ -939,9 +939,9 @@ test.group('lucidAccountStore', (group) => {
     cleanup(() => __resetAppKeyEncryption());
 
     const enc = appKeyEncrypter();
-    const cipher = enc.encrypt('topsecret');
+    const cipher = await enc.encrypt('topsecret', { accountId: 'a1' });
     assert.notEqual(cipher, 'topsecret');
-    assert.equal(enc.decrypt(cipher), 'topsecret');
+    assert.equal(await enc.decrypt(cipher, { accountId: 'a1' }), 'topsecret');
   });
 
   test('appKeyEncrypter: decrypt que devolve null (sem throw) também é null', async ({
@@ -954,7 +954,7 @@ test.group('lucidAccountStore', (group) => {
     });
     cleanup(() => __resetAppKeyEncryption());
     const enc = appKeyEncrypter();
-    assert.isNull(enc.decrypt('whatever'));
+    assert.isNull(await enc.decrypt('whatever'));
   });
 
   test('getMfaState reflete habilitado/desabilitado', async ({ assert }) => {

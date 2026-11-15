@@ -2,6 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from '@japa/runner';
+import { keystoreCodec } from '../../src/crypto/authkit_crypto.js';
+import { gcmEncryption } from '../../src/crypto-kit/index.js';
 import { signingKeyAgeDays } from '../../src/keys/keystore.js';
 import { KeystoreCodec } from '../../src/keys/keystore_codec.js';
 import { __setEncryptionServiceForTests } from '../../src/keys/keystore_crypto.js';
@@ -142,10 +144,8 @@ test.group('KeystoreManager em arquivo (paridade com o comando)', (group) => {
 });
 
 test.group('idade via keystore encriptado (regressão doctor)', (group) => {
-  const fakeEnc = {
-    encrypt: (v: string) => Buffer.from(v, 'utf8').toString('base64'),
-    decrypt: <T = string>(v: string) => Buffer.from(v, 'base64').toString('utf8') as unknown as T,
-  };
+  // The app's encryption service (config/encryption.ts).
+  const fakeEnc = gcmEncryption(['app-key-of-the-test-app-32-chars'], 'app') as never;
   group.each.teardown(() => __setEncryptionServiceForTests(undefined));
 
   test('keystore encriptado → idade legível com enc disponível', async ({ assert }) => {
@@ -159,11 +159,11 @@ test.group('idade via keystore encriptado (regressão doctor)', (group) => {
         this.blob = b;
       },
     };
-    const codec = new KeystoreCodec({ encrypt: true, enc: fakeEnc });
+    const codec = await keystoreCodec(true, undefined);
     const mgr = new KeystoreManager(vault as any, codec, 'RS256');
     await mgr.ensure();
     // sanity: o blob persistido está mesmo encriptado (aes), não plaintext
-    assert.equal(JSON.parse(vault.blob!).enc, 'aes');
+    assert.equal(JSON.parse(vault.blob!).enc, 'agora');
     // lê de volta e computa idade (deve ser um número, não null)
     const store = await mgr.read();
     assert.isNotNull(store);
@@ -173,7 +173,8 @@ test.group('idade via keystore encriptado (regressão doctor)', (group) => {
   test('keystore encriptado SEM enc → read lança (doctor degrada p/ não-aplicável)', async ({
     assert,
   }) => {
-    const codec = new KeystoreCodec({ encrypt: true, enc: fakeEnc });
+    __setEncryptionServiceForTests(fakeEnc);
+    const codec = await keystoreCodec(true, undefined);
     const vault = {
       blob: null as string | null,
       async read() {

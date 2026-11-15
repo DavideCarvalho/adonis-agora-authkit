@@ -1,7 +1,7 @@
 ---
 icon: Bell
 title: Events & Webhooks
-description: Observe every security event the IdP audits — via an in-process callback or an HMAC-signed webhook.
+description: Observe every security event the IdP audits — via an in-process callback or a signed webhook.
 ---
 
 Every security-relevant action AuthKit performs (logins, signups, MFA changes, PAT issuance,
@@ -11,7 +11,8 @@ same stream in real time through `events`:
 
 - `onEvent` — an in-process callback invoked for every event (forward to a bus, a logger, an
   analytics pipeline).
-- `webhook` — an HTTP `POST` of the event JSON to an external URL, optionally HMAC-signed.
+- `webhook` — an HTTP `POST` of the event JSON to an external URL, signed with Ed25519 (and, with a
+  `secret`, HMAC too).
 
 Both are **best-effort and fire-and-forget**: a failing handler or an unreachable webhook
 **never** throws into the request path.
@@ -34,7 +35,7 @@ export default defineConfig({
     },
     webhook: {
       url: 'https://hooks.example.com/authkit',
-      secret: process.env.AUTHKIT_WEBHOOK_SECRET, // optional, enables signing
+      secret: process.env.AUTHKIT_WEBHOOK_SECRET, // optional: adds the HMAC header
     },
     // or several: [{ url, secret }, { url, secret }] (the same event goes to each)
   },
@@ -50,7 +51,8 @@ original sink's `list()` (admin queries) is preserved.
 | `onEvent` | `(event) => void \| Promise<void>` | Called for every event. Errors are swallowed. |
 | `webhook` | `{ url, secret? } \| Array<{ url, secret? }>` | One destination or several. |
 | `webhook.url` | `string` | Destination of the `POST`. |
-| `webhook.secret` | `string` | When set, signs the body (see below). |
+| `webhook.secret` | `string` | When set, also signs the body with HMAC (see below). |
+| `signing` | `{ keys } \| false` | The Ed25519 signing keys. Default: one derived from `APP_KEY`. |
 
 ## Webhook payload
 
@@ -81,7 +83,33 @@ Sent with `content-type: application/json`. The request has a **5s timeout** (vi
 
 ## Signature verification
 
-When `webhook.secret` is set, AuthKit adds a header:
+Every delivery is signed with Ed25519:
+
+```
+x-authkit-signature-ed25519: agora:sig1:<kid>:<base64url signature of the raw body>
+```
+
+The public keys are in AuthKit's discovery document, as `authkit_webhook_jwks`
+(`{issuer}/.well-known/openid-configuration`), so a receiver needs no shared secret: fetch the
+discovery, pick the key with that `kid`, verify the signature over the raw body. The default key is
+derived from `APP_KEY` (every instance signs with the same key; changing `APP_KEY` changes it, and
+receivers pick the new one up from the discovery).
+
+To use your own keys, give the private Ed25519 JWKs, newest first: the first signs, all are
+published (keep the old one listed until receivers have refetched the discovery).
+
+```ts title="config/authkit.ts"
+events: {
+  webhook: { url: 'https://hooks.example.com/authkit' },
+  signing: { keys: [env.get('AUTHKIT_WEBHOOK_SIGNING_KEY')] }, // a JWK as JSON
+},
+```
+
+`signing: false` turns the Ed25519 signature off.
+
+### HMAC
+
+When `webhook.secret` is set, AuthKit also adds a header:
 
 ```
 x-authkit-signature: sha256=<hex HMAC-SHA256 of the raw body>
@@ -113,7 +141,7 @@ An Agora app on another server receives the webhook with `@adonis-agora/authkit-
 import env from '#start/env'
 import { registerAuthkitWebhook } from '@adonis-agora/authkit-client'
 
-registerAuthkitWebhook(router, { secret: env.get('AUTHKIT_WEBHOOK_SECRET') })
+registerAuthkitWebhook(router, { issuer: env.get('AUTHKIT_ISSUER') })
 ```
 
 ```ts title="config/shield.ts"
@@ -122,15 +150,21 @@ csrf: {
 }
 ```
 
-Point a `webhook` entry of `config/authkit.ts` at `https://<app>/authkit/webhook` with the same
-secret. Each delivery is checked (signature, `ts` within 5 minutes, an `id` seen once) and
+Point a `webhook` entry of `config/authkit.ts` at `https://<app>/authkit/webhook`. The Ed25519
+signature is checked with the keys of the issuer's discovery (fetched once, cached for 10 minutes,
+and fetched again when a delivery names a key it doesn't know). To accept the HMAC header as well,
+pass the webhook's `secret`; a delivery is accepted when either signature checks out. Each
+delivery is checked (signature, `ts` within 5 minutes, an `id` seen once) and
 emitted on the app's diagnostics bus as `agora:authkit:<type>` with the payload AuthKit emits in
 its own process (`type`, `accountId`, `actorId`, `clientId`, `orgId`). `@adonis-agora/authz`
 provisioning and `onDiagnostic('authkit', ...)` listeners run as if AuthKit were local.
 
 | Option | Default | Notes |
 | --- | --- | --- |
-| `secret` | | The webhook's secret. |
+| `issuer` | | AuthKit's issuer: the Ed25519 public keys come from its discovery. |
+| `jwks` | | Or the public keys themselves (a JWKS, a list, or a function). |
+| `secret` | | The webhook's secret: accepts the HMAC header. One of `issuer`, `jwks`, `secret` is required. |
+| `refreshCooldownMs` | `30000` | Least time between two discovery refetches for an unknown key. |
 | `path` | `/authkit/webhook` | The route. |
 | `toleranceSec` | `300` | How old (or how far ahead) a `ts` may be. |
 | `replayStore` | in memory | `{ claim(id, ttlMs) }`, `false` for an id already seen. Use a shared store (Redis `SET NX PX`) with several instances. |

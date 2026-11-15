@@ -98,6 +98,7 @@ Ids are stable: use them with `--only` and in CI allowlists.
 | `authkit.console-sign-in` | Console sign-in. |
 | `authkit.mcp-clients` | MCP client login: on (and for which resources) or off, and why. Informational. |
 | `authkit.signing-key-age` | The managed signing key is younger than `rotationDays`. |
+| `authkit.crypto` | Under `--deep`: what AuthKit keeps sealed (keystore, TOTP secrets) opens with the configured keys. Warns for values from before 1.0 or under an older key (run `authkit:crypto:reseal`); an error for values that don't open. |
 | `authkit.console-gate` | The admin console has `admin.authorize`: a warning in development, an error in production. |
 
 A check that does not apply to your config (a feature you did not enable) is reported as skipped.

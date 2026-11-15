@@ -17,5 +17,6 @@
     "services/**/*",
     "commands/**/*",
     "stubs/**/*"
-  ]
+  ],
+  "exclude": ["src/crypto-kit/*.cases.ts"]
 }

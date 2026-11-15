@@ -165,6 +165,7 @@ export type {
   AuthkitDiagnosticPayload,
   AuthkitWebhookEvent,
   AuthkitWebhookOptions,
+  WebhookKeys,
   WebhookRejection,
   WebhookReplayStore,
   WebhookVerification,
@@ -175,4 +176,5 @@ export {
   memoryReplayStore,
   registerAuthkitWebhook,
   verifyAuthkitWebhook,
+  webhookKeys,
 } from './src/webhook_receiver.js';

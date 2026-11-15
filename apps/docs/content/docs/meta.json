@@ -35,6 +35,7 @@
     "themed-screens",
     "emails",
     "security",
+    "encryption-at-rest",
     "---Frontend---",
     "react",
     "components",

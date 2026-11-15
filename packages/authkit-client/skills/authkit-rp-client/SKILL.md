@@ -219,7 +219,7 @@ import {
 } from '@adonis-agora/authkit-client'
 
 verifyTenant: authkitTenantVerifier({ issuer: env.get('AUTHKIT_ISSUER'), resource: 'urn:agora:flags' })
-registerAuthkitWebhook(router, { secret: env.get('AUTHKIT_WEBHOOK_SECRET') }) // + csrf.exceptRoutes
+registerAuthkitWebhook(router, { issuer: env.get('AUTHKIT_ISSUER') }) // Ed25519 via discovery, no secret; + csrf.exceptRoutes
 ```
 
 `registerOidcClient` already announces `POST /auth/logout` as the consoles' sign-out (skipped

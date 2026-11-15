@@ -55,7 +55,7 @@ export function buildMfa(ctx: LucidStoreContext): MfaCapability {
       // Re-enrollment: zera o anti-replay para o NOVO segredo (o histórico de steps
       // do segredo antigo não se aplica ao novo) e limpa recovery codes pendentes.
       await repo.upsert(accountId, {
-        totpSecret: sealSecret(secret),
+        totpSecret: await sealSecret(secret, accountId),
         mfaEnabledAt: null,
         recoveryCodes: null,
         lastTotpStep: null,
@@ -67,7 +67,7 @@ export function buildMfa(ctx: LucidStoreContext): MfaCapability {
     async confirmTotpEnrollment(accountId, code) {
       const state = await repo.read(accountId);
       if (!state || !state.totpSecret) return { ok: false };
-      const secret = openSecret(state.totpSecret);
+      const secret = await openSecret(state.totpSecret, accountId);
       if (!secret) return { ok: false };
       // Só confirma a partir de um segredo pendente (não re-confirma um já ativo).
       const { valid } = await verify({ token: String(code ?? ''), secret, period: TOTP_PERIOD });
@@ -83,7 +83,7 @@ export function buildMfa(ctx: LucidStoreContext): MfaCapability {
     async verifyTotp(accountId, code) {
       const state = await repo.read(accountId);
       if (!state || !state.mfaEnabledAt || !state.totpSecret) return false;
-      const secret = openSecret(state.totpSecret);
+      const secret = await openSecret(state.totpSecret, accountId);
       if (!secret) return false;
       const token = String(code ?? '');
 

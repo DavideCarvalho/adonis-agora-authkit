@@ -20,7 +20,15 @@ import {
 import { assertDelegationSigningKey } from './agents/signer.js';
 import type { AuditSink } from './audit/audit_sink.js';
 import type { ConsoleAuthorize } from './console_authorize.js';
-import { composeAuditSink, type EventsConfigInput, resolveEvents } from './events/dispatcher.js';
+import { type AuthkitCryptoConfig, bindCrypto, keystoreCodec } from './crypto/authkit_crypto.js';
+import type { OkpJwk } from './crypto-kit/index.js';
+import {
+  composeAuditSink,
+  type EventsConfigInput,
+  resolveEvents,
+  resolveWebhookSigningKeys,
+} from './events/dispatcher.js';
+import { resolveAppKey } from './host/app_key.js';
 import {
   type BotProtectionConfigInput,
   type ResolvedBotProtectionConfig,
@@ -59,8 +67,6 @@ import {
 import type { WhatsappCodeSenderBinding } from './host/whatsapp_code_sender.js';
 import { generateJwks } from './keys/jwks_manager.js';
 import { toProviderJwks } from './keys/keystore.js';
-import { KeystoreCodec } from './keys/keystore_codec.js';
-import { loadEncryptionService } from './keys/keystore_crypto.js';
 import { KeystoreManager, resolveKeystoreVault } from './keys/keystore_manager.js';
 import {
   assertNoLegacyMcpKey,
@@ -1376,6 +1382,12 @@ export interface AuthServerConfigInput {
    */
   events?: EventsConfigInput;
   /**
+   * Como o AuthKit sela o que guarda em repouso (chaves privadas do JWKS, segredos TOTP). Default:
+   * o serviço `encryption` do app (`config/encryption.ts`). `keys` (a primeira sela, todas abrem)
+   * permite rotacionar com `authkit:crypto:reseal`; `kms` liga envelope encryption.
+   */
+  crypto?: AuthkitCryptoConfig;
+  /**
    * Label de issuer TOTP mostrado nos apps autenticadores (MFA). Default: 'AuthKit'.
    * O `lucidAccountStore` lê isso para montar o keyuri/QR.
    */
@@ -1627,6 +1639,13 @@ export interface ResolvedServerConfig {
    * precisam do shape original para localizar o keystore.
    */
   jwksConfig: JwksConfig;
+  /**
+   * Chaves PRIVADAS Ed25519 dos webhooks (a primeira assina); as públicas saem na discovery
+   * (`authkit_webhook_jwks`). Vazio com `events.signing: false`.
+   */
+  webhookSigningKeys?: OkpJwk[];
+  /** `crypto` de entrada: como o AuthKit sela o que guarda em repouso. */
+  crypto?: AuthkitCryptoConfig;
   ttl: {
     accessToken: number;
     refreshToken: number;
@@ -1798,6 +1817,7 @@ export function defineConfig(config: AuthServerConfigInput) {
   // conta lê (auth_mfa, auth_password_history, organizations), que antes seguiam a
   // conexão do model da conta.
   const tablesSchema = validateSchemaName(config.schema?.name);
+  bindCrypto(config.accountStore, config.crypto);
   bindTablesLocation(config.accountStore, {
     connection: config.schema?.connection,
     schema: tablesSchema,
@@ -1873,6 +1893,18 @@ export function defineConfig(config: AuthServerConfigInput) {
         .catch(() => {});
     }
 
+    // Webhooks assinados com Ed25519: chaves de `events.signing`, ou derivada da APP_KEY.
+    const webhookSigningKeys = resolveWebhookSigningKeys(
+      config.events?.signing,
+      (() => {
+        try {
+          return resolveAppKey(app);
+        } catch {
+          return undefined;
+        }
+      })(),
+    );
+
     let jwks: { keys: Record<string, any>[] };
     if (jwksConfig.source === 'managed') {
       const alg = jwksConfig.algorithm ?? 'RS256';
@@ -1882,8 +1914,11 @@ export function defineConfig(config: AuthServerConfigInput) {
           container: app.container,
         });
         const encrypt = jwksConfig.encrypt ?? defaultEncryptForStore(jwksConfig.store as any);
-        const enc = encrypt ? await loadEncryptionService() : undefined;
-        const manager = new KeystoreManager(vault, new KeystoreCodec({ encrypt, enc }), alg);
+        const manager = new KeystoreManager(
+          vault,
+          await keystoreCodec(encrypt, config.crypto),
+          alg,
+        );
         const store = await manager.ensure();
         // Remove o metadado interno `iat` antes de entregar ao oidc-provider.
         jwks = toProviderJwks(store);
@@ -1955,6 +1990,7 @@ export function defineConfig(config: AuthServerConfigInput) {
       SessionAdapterClass,
       jwks: jwks as { keys: Record<string, any>[] },
       jwksConfig,
+      crypto: config.crypto,
       ttl: {
         accessToken: toSeconds(config.ttl?.accessToken, 900),
         refreshToken: toSeconds(config.ttl?.refreshToken, 2592000),
@@ -2011,9 +2047,10 @@ export function defineConfig(config: AuthServerConfigInput) {
         // Sempre compõe o fan-out: além de onEvent/webhook (quando configurados),
         // o sink composto republica TODO evento de auditoria no barramento de
         // diagnostics do Agora (best-effort, zero-config, no-op sem o slot).
-        const events = resolveEvents(config.events);
+        const events = resolveEvents(config.events, webhookSigningKeys[0]);
         return composeAuditSink(config.audit, events ?? {});
       })(),
+      webhookSigningKeys,
       // #9: reusa mfaIssuer/webauthn declarados no lucidAccountStore quando o
       // top-level não os fornece — consumidor declara UMA vez. Top-level ainda vence.
       mfaIssuer: effectiveMfaIssuer,

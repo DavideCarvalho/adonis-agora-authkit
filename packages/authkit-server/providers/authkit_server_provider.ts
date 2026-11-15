@@ -18,6 +18,7 @@ import { RuntimeException } from '@adonisjs/core/exceptions';
 import type { ApplicationService } from '@adonisjs/core/types';
 import { setBootedApp } from '../services/booted_app.js';
 import { accountExtensionRegistry } from '../src/account/mount.js';
+import { keystoreCodec } from '../src/crypto/authkit_crypto.js';
 import { defaultEncryptForStore, type ResolvedServerConfig } from '../src/define_config.js';
 import { authkitDoctorChecks } from '../src/doctor/agora_checks.js';
 import { registerDoctorChecks } from '../src/doctor/agora_doctor.js';
@@ -25,8 +26,6 @@ import { resolveAppKey } from '../src/host/app_key.js';
 import { resolveEffectiveKeyRotation } from '../src/host/key_rotation.js';
 import { RuntimeSettings, settingsLocation } from '../src/host/runtime_settings.js';
 import { toProviderJwks } from '../src/keys/keystore.js';
-import { KeystoreCodec } from '../src/keys/keystore_codec.js';
-import { loadEncryptionService } from '../src/keys/keystore_crypto.js';
 import { KeystoreManager, resolveKeystoreVault } from '../src/keys/keystore_manager.js';
 import { KeyRotationScheduler } from '../src/provider/key_rotation_scheduler.js';
 import { KeystoreReloadPoller } from '../src/provider/keystore_reload.js';
@@ -271,10 +270,9 @@ export default class AuthkitServerProvider {
             (jwksInput as any).encrypt ?? defaultEncryptForStore(jwksInput.store as any);
           // best-effort (≠ boot, que lança): se a encryption sumir em runtime, o reload
           // degrada para "sem hot-reload" (o onError do poller engole) em vez de derrubar o processo.
-          const enc = encrypt ? await loadEncryptionService().catch(() => undefined) : undefined;
           return new KeystoreManager(
             vault,
-            new KeystoreCodec({ encrypt, enc }),
+            await keystoreCodec(encrypt, config.crypto, { required: false }),
             jwksInput.algorithm ?? 'RS256',
           );
         };

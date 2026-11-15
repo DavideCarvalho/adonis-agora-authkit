@@ -3,7 +3,7 @@
   "commands": [
     {
       "commandName": "authkit:eject",
-      "description": "Ejeta views Edge ou um controller do host-kit do @adonis-agora/authkit-server para customização local",
+      "description": "Ejeta views Edge ou um controller do host-kit do @adonis-agora/authkit-server para customiza\u00e7\u00e3o local",
       "namespace": "authkit",
       "aliases": [],
       "flags": [
@@ -28,7 +28,7 @@
     },
     {
       "commandName": "authkit:doctor",
-      "description": "Valida a configuração do AuthKit no host e imprime achados (✅/⚠️/❌). Sai com código !=0 se houver erros.",
+      "description": "Valida a configura\u00e7\u00e3o do AuthKit no host e imprime achados (\u2705/\u26a0\ufe0f/\u274c). Sai com c\u00f3digo !=0 se houver erros.",
       "namespace": "authkit",
       "aliases": [],
       "flags": [],
@@ -213,7 +213,7 @@
         "                 published for verification (--keep, default 2) until their tokens expire",
         "  retire <kid>   remove a key that no longer signs: tokens signed by it stop validating",
         "",
-        "Needs `jwks: { source: \"managed\", store: … }` in config/authkit.ts (file, lucid, redis or a",
+        "Needs `jwks: { source: \"managed\", store: \u2026 }` in config/authkit.ts (file, lucid, redis or a",
         "vault). Other processes pick the new keys up through the keystore reload poll.",
         "",
         "Examples:",
@@ -221,7 +221,7 @@
         "  node ace authkit:key generate --alg=ES256",
         "  node ace authkit:key rotate --dry-run",
         "  node ace authkit:key rotate --keep=3",
-        "  node ace authkit:key retire 0b5c… --force"
+        "  node ace authkit:key retire 0b5c\u2026 --force"
       ],
       "namespace": "authkit",
       "aliases": [],
@@ -295,7 +295,7 @@
       "description": "Delete expired/consumed tokens, grants, sessions and interactions, and unused dynamically registered clients.",
       "help": [
         "Removes what can no longer be used:",
-        "  --tokens         expired and consumed access/refresh tokens, codes, device codes…",
+        "  --tokens         expired and consumed access/refresh tokens, codes, device codes\u2026",
         "  --grants         expired grants",
         "  --sessions       expired sessions",
         "  --interactions   expired login interactions",
@@ -376,7 +376,7 @@
     },
     {
       "commandName": "authkit:users:import",
-      "description": "Importa usuários de um arquivo JSON/NDJSON pelo account store (hashes entram como estão; lazy rehash no login).",
+      "description": "Importa usu\u00e1rios de um arquivo JSON/NDJSON pelo account store (hashes entram como est\u00e3o; lazy rehash no login).",
       "namespace": "authkit",
       "aliases": [],
       "flags": [
@@ -385,7 +385,7 @@
           "flagName": "file",
           "required": false,
           "type": "string",
-          "description": "Caminho do arquivo JSON/NDJSON com os usuários."
+          "description": "Caminho do arquivo JSON/NDJSON com os usu\u00e1rios."
         },
         {
           "name": "dryRun",
@@ -412,7 +412,7 @@
           "flagName": "apply",
           "required": false,
           "type": "boolean",
-          "description": "Grava a normalização (sem ele, apenas relata)."
+          "description": "Grava a normaliza\u00e7\u00e3o (sem ele, apenas relata)."
         }
       ],
       "args": [],
@@ -443,7 +443,7 @@
     },
     {
       "commandName": "authkit:settings:get",
-      "description": "Obtém uma runtime setting por key de `auth_settings`.",
+      "description": "Obt\u00e9m uma runtime setting por key de `auth_settings`.",
       "namespace": "authkit",
       "aliases": [],
       "flags": [
@@ -474,8 +474,8 @@
       "description": "Grava (upsert) uma runtime setting em `auth_settings`. Valida shape para keys conhecidas.",
       "help": [
         "Grava ou atualiza uma setting pelo nome da key com o valor JSON fornecido.",
-        "Para keys conhecidas do catálogo AuthKit, valida o shape antes de persistir.",
-        "Keys desconhecidas são aceitas com aviso (stored as-is).",
+        "Para keys conhecidas do cat\u00e1logo AuthKit, valida o shape antes de persistir.",
+        "Keys desconhecidas s\u00e3o aceitas com aviso (stored as-is).",
         "Audita settings.updated com actor \"cli\".",
         "",
         "Exemplos:",
@@ -485,7 +485,7 @@
         "  node ace authkit:settings:set my_flag '{\"enabled\":true}'",
         "  node ace authkit:settings:set lockout '{\"enabled\":false}' --json",
         "",
-        "Login de clientes MCP (automático) — desligar / voltar ao automático:",
+        "Login de clientes MCP (autom\u00e1tico) \u2014 desligar / voltar ao autom\u00e1tico:",
         "  node ace authkit:settings:set mcp_clients '{\"enabled\":false}'",
         "  node ace authkit:settings:unset mcp_clients"
       ],
@@ -512,7 +512,7 @@
           "name": "value",
           "argumentName": "value",
           "required": true,
-          "description": "Valor JSON da setting (deve ser um objeto JSON válido).",
+          "description": "Valor JSON da setting (deve ser um objeto JSON v\u00e1lido).",
           "type": "string"
         }
       ],
@@ -567,7 +567,7 @@
           "flagName": "warn",
           "required": false,
           "type": "boolean",
-          "description": "Envia e-mail de aviso às contas a expirar em breve (deduplicado via audit)."
+          "description": "Envia e-mail de aviso \u00e0s contas a expirar em breve (deduplicado via audit)."
         },
         {
           "name": "json",
@@ -646,6 +646,40 @@
         "startApp": false
       },
       "filePath": "agora_doctor.js"
+    },
+    {
+      "commandName": "authkit:crypto:reseal",
+      "description": "Re-seal what AuthKit keeps encrypted at rest (JWKS keystore, TOTP secrets) with the current key.",
+      "namespace": "authkit",
+      "aliases": [],
+      "flags": [
+        {
+          "name": "dryRun",
+          "flagName": "dry-run",
+          "required": false,
+          "type": "boolean",
+          "description": "Count and test-open what would be re-sealed; write nothing."
+        },
+        {
+          "name": "all",
+          "flagName": "all",
+          "required": false,
+          "type": "boolean",
+          "description": "Re-seal every value, not only retired/legacy ones (after rotating config/encryption.ts)."
+        },
+        {
+          "name": "json",
+          "flagName": "json",
+          "required": false,
+          "type": "boolean",
+          "description": "Machine-readable output."
+        }
+      ],
+      "args": [],
+      "options": {
+        "startApp": true
+      },
+      "filePath": "crypto_reseal.js"
     }
   ]
 }

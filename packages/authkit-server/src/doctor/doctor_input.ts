@@ -1,11 +1,10 @@
 import type { ApplicationService } from '@adonisjs/core/types';
 import { DatabaseAdapter } from '../adapters/database_adapter.js';
 import { resolveAuthkitConfig } from '../commands/resolve_config.js';
+import { keystoreCodec } from '../crypto/authkit_crypto.js';
 import { defaultEncryptForStore } from '../define_config.js';
 import { RuntimeSettings, settingsLocation } from '../host/runtime_settings.js';
 import { signingKeyAgeDays } from '../keys/keystore.js';
-import { KeystoreCodec } from '../keys/keystore_codec.js';
-import { loadEncryptionService } from '../keys/keystore_crypto.js';
 import { KeystoreManager, resolveKeystoreVault } from '../keys/keystore_manager.js';
 import {
   MCP_CLIENTS_SETTING_KEY,
@@ -105,10 +104,9 @@ export async function managedSigningKeyAgeFinding(
       container: app.container,
     });
     const encrypt = jwksInput.encrypt ?? defaultEncryptForStore(jwksInput.store);
-    const enc = encrypt ? await loadEncryptionService().catch(() => undefined) : undefined;
     const mgr = new KeystoreManager(
       vault,
-      new KeystoreCodec({ encrypt, enc }),
+      await keystoreCodec(encrypt, authkitConfig?.crypto, { required: false }),
       jwksInput.algorithm ?? 'RS256',
     );
     const store = await mgr.read().catch(() => null);
