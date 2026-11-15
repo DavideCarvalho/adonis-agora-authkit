@@ -117,3 +117,26 @@ export async function managedSigningKeyAgeFinding(
     return null;
   }
 }
+
+/**
+ * Lê o keystore de uma instância `jwks.readOnly` como o boot lê: exige que exista e decodifique,
+ * sem escrever. Devolve quantas chaves há; lança {@link KeystoreUnavailableError} senão.
+ */
+export async function readKeystoreRequired(
+  app: ApplicationService,
+  authkitConfig: Record<string, any> | null,
+): Promise<number> {
+  const jwksInput = authkitConfig?.jwksConfig as any;
+  const vault = resolveKeystoreVault(jwksInput.store, {
+    makePath: (p) => app.makePath(p),
+    container: app.container,
+  });
+  const encrypt = jwksInput.encrypt ?? defaultEncryptForStore(jwksInput.store);
+  const mgr = new KeystoreManager(
+    vault,
+    await keystoreCodec(encrypt, authkitConfig?.crypto, { required: false }),
+    jwksInput.algorithm ?? 'RS256',
+    { readOnly: true },
+  );
+  return (await mgr.readRequired()).keys.length;
+}

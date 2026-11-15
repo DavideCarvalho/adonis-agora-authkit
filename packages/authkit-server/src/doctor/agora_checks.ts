@@ -92,6 +92,8 @@ export const AUTHKIT_DOCTOR_PACKAGE = '@adonis-agora/authkit-server';
 interface Prepared {
   input: DoctorInput | null;
   error: string | null;
+  /** The resolution error itself (`error` is its message). */
+  cause?: unknown;
   /** `agora:doctor --no-boot`: config is not loaded, so the config checks cannot run. */
   notBooted?: boolean;
 }
@@ -114,6 +116,7 @@ function prepare(app: ApplicationService): Promise<Prepared> {
         (error: unknown) => ({
           input: null,
           error: error instanceof Error ? error.message : String(error),
+          cause: error,
         }),
       );
     prepared.set(app, entry);
@@ -205,6 +208,33 @@ export function sealedAtRestResult(report: {
   return { status: 'ok', message: `${sum('scanned')} sealed value(s), all on the current key` };
 }
 
+/**
+ * `authkit.keystore-read-only`: with `jwks.readOnly`, ok when the keystore the writer instance
+ * keeps reads back; error when it is missing or does not open (that instance does not boot).
+ */
+export function keystoreReadOnlyResult(error: unknown, keyCount?: number): AgoraDoctorResult {
+  if (error) {
+    const missing = (error as { reason?: string }).reason === 'missing';
+    return {
+      status: 'error',
+      message: missing
+        ? 'jwks.readOnly is set but the keystore is empty: this instance never creates it, so it does not boot'
+        : `jwks.readOnly is set but the keystore does not read: ${error instanceof Error ? error.message : String(error)}`,
+      fix: missing
+        ? 'Boot the instance that writes the keystore first, or point `jwks.store` at the table/key it uses'
+        : 'Use the same `jwks.store`, `jwks.encrypt` and `crypto.keys` as the instance that writes the keystore',
+      docs: KEYS_DOCS,
+    };
+  }
+  return {
+    status: 'ok',
+    message: `reads the keystore another instance writes (${keyCount} key(s)); rotation runs there`,
+  };
+}
+
+const KEYS_DOCS =
+  'https://davidecarvalho.github.io/agora/docs/authkit/keystore-vaults#two-servers-one-identity';
+
 /** The checks authkit registers into `agora:doctor`. */
 export function authkitDoctorChecks(): AgoraDoctorCheck[] {
   const checks: AgoraDoctorCheck[] = AUTHKIT_DOCTOR_TABLE.map(([id, title, fn]) => ({
@@ -276,6 +306,38 @@ export function authkitDoctorChecks(): AgoraDoctorCheck[] {
         }
         const service: any = await app.container.make('authkit.server' as any);
         return sealedAtRestResult(await service.sealedAtRest({ report: true }));
+      },
+    },
+    {
+      id: 'authkit.keystore-read-only',
+      lib: 'authkit',
+      package: AUTHKIT_DOCTOR_PACKAGE,
+      title: 'Keystore read-only',
+      async run(app) {
+        const { input, notBooted, cause } = await prepare(app);
+        if (notBooted) {
+          return { status: 'skip', message: 'needs a booted app (run without --no-boot)' };
+        }
+        // A read-only instance whose keystore is missing never resolves its config: report that.
+        if (!input) {
+          if ((cause as { code?: string } | undefined)?.code === 'E_KEYSTORE_UNAVAILABLE') {
+            return keystoreReadOnlyResult(cause);
+          }
+          return { status: 'skip', message: 'config/authkit.ts did not resolve' };
+        }
+        const jwks = input.authkitConfig?.jwksConfig;
+        if (jwks?.readOnly !== true) {
+          return {
+            status: 'skip',
+            message: 'jwks.readOnly is off: this instance writes its keystore',
+          };
+        }
+        const { readKeystoreRequired } = await import('./doctor_input.js');
+        try {
+          return keystoreReadOnlyResult(null, await readKeystoreRequired(app, input.authkitConfig));
+        } catch (error) {
+          return keystoreReadOnlyResult(error);
+        }
       },
     },
     {

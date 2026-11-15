@@ -57,16 +57,26 @@ function KeyRotationInner({ className }: KeyRotationProps) {
         data.nextRotationInDays === null ? '—' : `em ~${data.nextRotationInDays} dia(s)`,
       ),
     ),
-    createElement(
-      'label',
-      { className: 'authkit-keys__retire' },
-      createElement('input', {
-        type: 'checkbox',
-        checked: retire,
-        onChange: (e: React.ChangeEvent<HTMLInputElement>) => setRetire(e.target.checked),
-      }),
-      ' Aposentar as chaves antigas de imediato',
-    ),
+    // `jwks.readOnly`: quem rotaciona é a instância que escreve o keystore — sem ações aqui.
+    data.readOnly
+      ? createElement(
+          'p',
+          { className: 'authkit-keys__read-only' },
+          'Esta instância só lê o keystore: rotacione na instância que o escreve.',
+        )
+      : null,
+    data.readOnly
+      ? null
+      : createElement(
+          'label',
+          { className: 'authkit-keys__retire' },
+          createElement('input', {
+            type: 'checkbox',
+            checked: retire,
+            onChange: (e: React.ChangeEvent<HTMLInputElement>) => setRetire(e.target.checked),
+          }),
+          ' Aposentar as chaves antigas de imediato',
+        ),
     rotate.error
       ? createElement(
           'p',
@@ -74,16 +84,18 @@ function KeyRotationInner({ className }: KeyRotationProps) {
           (rotate.error as Error).message,
         )
       : null,
-    createElement(
-      'button',
-      {
-        type: 'button',
-        className: 'authkit-button authkit-button--primary',
-        disabled: rotate.isPending,
-        onClick: () => rotate.mutate(retire ? { retire: true } : undefined),
-      },
-      rotate.isPending ? 'Rotacionando…' : 'Rotacionar agora',
-    ),
+    data.readOnly
+      ? null
+      : createElement(
+          'button',
+          {
+            type: 'button',
+            className: 'authkit-button authkit-button--primary',
+            disabled: rotate.isPending,
+            onClick: () => rotate.mutate(retire ? { retire: true } : undefined),
+          },
+          rotate.isPending ? 'Rotacionando…' : 'Rotacionar agora',
+        ),
   );
 }
 

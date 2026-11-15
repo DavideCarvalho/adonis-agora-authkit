@@ -898,6 +898,11 @@ export interface KeysStatus {
   policy: { enabled: boolean; maxAgeDays: number; keep: number };
   nextRotationInDays: number | null;
   keys: ManagedKeyInfo[];
+  /**
+   * `jwks.readOnly` on the server: it reads the keystore another instance writes, so rotate and
+   * the rotation policy are refused (409 `keystore_read_only`). Absent on older servers.
+   */
+  readOnly?: boolean;
 }
 
 /** Body de POST {base}/keys/rotate. */

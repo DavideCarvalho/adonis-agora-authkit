@@ -1,6 +1,7 @@
 import { BaseCommand, flags } from '@adonisjs/core/ace';
 import type { CommandOptions } from '@adonisjs/core/types/ace';
 import type { SealedColumnReport } from '../src/crypto/authkit_crypto.js';
+import { KeystoreReadOnlyError } from '../src/keys/keystore_read_only.js';
 
 /**
  * `authkit:crypto:reseal` — sela de novo, com a chave atual, o que o AuthKit guarda encriptado
@@ -16,6 +17,7 @@ export default class AuthkitCryptoReseal extends BaseCommand {
     'Re-seals values sealed with an older key of `crypto.keys` (config/authkit.ts) and values in',
     'the format AuthKit wrote before the crypto kit. Values the app changes meanwhile are skipped',
     '(run again). Exits 1 when a value does not open with the configured keys.',
+    'With `jwks.readOnly` only --dry-run works: reseal on the instance that writes the keystore.',
     '',
     'Examples:',
     '  node ace authkit:crypto:reseal --dry-run',
@@ -39,10 +41,21 @@ export default class AuthkitCryptoReseal extends BaseCommand {
 
   async run() {
     const service = await this.app.container.make('authkit.server');
-    const report = await service.sealedAtRest({
-      dryRun: this.dryRun === true,
-      all: this.all === true,
-    });
+    let report: Awaited<ReturnType<typeof service.sealedAtRest>>;
+    try {
+      report = await service.sealedAtRest({
+        dryRun: this.dryRun === true,
+        all: this.all === true,
+      });
+    } catch (error) {
+      // `jwks.readOnly`: quem sela de novo é a instância que escreve o keystore.
+      if (error instanceof KeystoreReadOnlyError) {
+        this.logger.logError(error.message);
+        this.exitCode = 1;
+        return;
+      }
+      throw error;
+    }
     if (this.json) {
       this.logger.log(JSON.stringify(report, null, 2));
     } else if (report.columns.length === 0) {

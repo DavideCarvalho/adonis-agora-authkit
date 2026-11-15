@@ -26,6 +26,7 @@ export default class AuthkitKey extends BaseCommand {
     '',
     'Needs `jwks: { source: "managed", store: … }` in config/authkit.ts (file, lucid, redis or a',
     'vault). Other processes pick the new keys up through the keystore reload poll.',
+    'With `jwks.readOnly` only `list` works: rotate on the instance that writes the keystore.',
     '',
     'Examples:',
     '  node ace authkit:key list --json',
@@ -95,6 +96,12 @@ export default class AuthkitKey extends BaseCommand {
         source === 'managed'
           ? 'jwks is managed WITHOUT a `store`: the key is ephemeral (a new one each boot), so there is nothing to change. Set `jwks.store` to persist and rotate keys.'
           : 'jwks keys come from config (`source: "jwks"`): rotate them where they are defined.',
+      );
+    }
+    // `jwks.readOnly`: esta instância só lê o keystore — a escrita é da instância que o escreve.
+    if (service.keystoreReadOnly) {
+      return this.#fail(
+        `This instance has \`jwks.readOnly\` set: it reads the keystore another instance writes, so it cannot ${action} keys. Run \`node ace authkit:key ${action}\` on that instance.`,
       );
     }
     switch (action) {

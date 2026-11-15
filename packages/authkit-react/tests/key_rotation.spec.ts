@@ -89,3 +89,47 @@ test.group('client.admin.keys', () => {
     assert.notInclude(capturedBody, '"retire":true');
   });
 });
+
+test.group('KeyRotation — jwks.readOnly', () => {
+  async function renderWith(status: Record<string, unknown>) {
+    const { QueryClient, QueryClientProvider } = await import('@tanstack/react-query');
+    const { createElement } = await import('react');
+    const { renderToStaticMarkup } = await import('react-dom/server');
+    const { AuthkitClientProvider } = await import('../src/client/context.js');
+    const { createElementWithChildren } = await import('./helpers/create_element.js');
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    qc.setQueryData(authkitKeys.admin.keys(), status);
+    const client = createAuthkitClient({
+      baseUrl: '/admin/api',
+      fetch: async () => {
+        throw new Error('no fetch during SSR render');
+      },
+    });
+    return renderToStaticMarkup(
+      createElement(
+        QueryClientProvider,
+        { client: qc },
+        createElementWithChildren(AuthkitClientProvider, { client }, createElement(KeyRotation)),
+      ),
+    );
+  }
+  const base = {
+    ageDays: 3,
+    policy: { enabled: true, maxAgeDays: 90, keep: 2 },
+    nextRotationInDays: null,
+    keys: [],
+  };
+
+  test('a writer instance shows the rotate action', async ({ assert }) => {
+    const html = await renderWith({ ...base, readOnly: false });
+    assert.include(html, 'Rotacionar agora');
+    assert.notInclude(html, 'authkit-keys__read-only');
+  });
+
+  test('a read-only instance hides rotate and says where to rotate', async ({ assert }) => {
+    const html = await renderWith({ ...base, readOnly: true });
+    assert.notInclude(html, 'Rotacionar agora');
+    assert.notInclude(html, 'Aposentar as chaves antigas');
+    assert.include(html, 'authkit-keys__read-only');
+  });
+});

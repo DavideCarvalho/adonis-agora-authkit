@@ -64,6 +64,8 @@ export function KeysContainer() {
   }
 
   const policy = data?.policy;
+  // `jwks.readOnly`: esta instância lê o keystore de outra — sem rotate e sem editar a política.
+  const readOnly = data?.readOnly === true;
   const effMaxAge = maxAgeDays ?? policy?.maxAgeDays ?? 90;
   const effKeep = keep ?? policy?.keep ?? 2;
 
@@ -114,6 +116,13 @@ export function KeysContainer() {
     >
       {data && (
         <div className="flex flex-col gap-6">
+          {readOnly && (
+            <Notice>
+              Esta instância só lê o keystore (<code className="mono">jwks.readOnly</code>): as
+              chaves e a política de rotação são da instância que o escreve. Rotações feitas lá
+              aparecem aqui em até um minuto.
+            </Notice>
+          )}
           {/* Status */}
           <Surface className="px-4">
             <div className="flex flex-col items-start justify-between gap-3 py-3 sm:flex-row sm:gap-5">
@@ -145,7 +154,7 @@ export function KeysContainer() {
                 <Toggle
                   label="Habilitar rotação agendada"
                   checked={Boolean(policy?.enabled)}
-                  disabled={busy === 'policy'}
+                  disabled={readOnly || busy === 'policy'}
                   onChange={(v) => {
                     if (busy !== 'policy') void savePolicy({ enabled: v });
                   }}
@@ -156,11 +165,12 @@ export function KeysContainer() {
                   mono
                   type="number"
                   aria-label="Idade máxima (dias)"
+                  disabled={readOnly}
                   className="w-[90px] text-right"
                   value={String(effMaxAge)}
                   onChange={(e) => setMaxAgeDays(Number(e.target.value))}
                 />
-                {maxAgeDays !== null && (
+                {!readOnly && maxAgeDays !== null && (
                   <Button
                     size="sm"
                     disabled={busy === 'policy'}
@@ -175,11 +185,12 @@ export function KeysContainer() {
                   mono
                   type="number"
                   aria-label="Manter N chaves (grace)"
+                  disabled={readOnly}
                   className="w-[90px] text-right"
                   value={String(effKeep)}
                   onChange={(e) => setKeep(Number(e.target.value))}
                 />
-                {keep !== null && (
+                {!readOnly && keep !== null && (
                   <Button
                     size="sm"
                     disabled={busy === 'policy'}
@@ -221,22 +232,24 @@ export function KeysContainer() {
             </Surface>
           </SettingsSection>
 
-          {/* Ações */}
-          <SettingsSection title="Ações">
-            <Surface className="px-4 mt-3 flex flex-wrap gap-3 py-4">
-              <Button disabled={!!busy} onClick={() => doRotate(false)}>
-                {busy === 'rotate' ? 'Rotacionando…' : 'Rotacionar agora'}
-              </Button>
-              <Button
-                variant="outline"
-                className={cn('border-bad/40 text-bad', dangerButtonClass)}
-                disabled={!!busy}
-                onClick={() => doRotate(true)}
-              >
-                {busy === 'retire' ? 'Desabilitando…' : 'Desabilitar todas + criar nova'}
-              </Button>
-            </Surface>
-          </SettingsSection>
+          {/* Ações — fora numa instância readOnly (a escrita é da instância que escreve) */}
+          {!readOnly && (
+            <SettingsSection title="Ações">
+              <Surface className="px-4 mt-3 flex flex-wrap gap-3 py-4">
+                <Button disabled={!!busy} onClick={() => doRotate(false)}>
+                  {busy === 'rotate' ? 'Rotacionando…' : 'Rotacionar agora'}
+                </Button>
+                <Button
+                  variant="outline"
+                  className={cn('border-bad/40 text-bad', dangerButtonClass)}
+                  disabled={!!busy}
+                  onClick={() => doRotate(true)}
+                >
+                  {busy === 'retire' ? 'Desabilitando…' : 'Desabilitar todas + criar nova'}
+                </Button>
+              </Surface>
+            </SettingsSection>
+          )}
         </div>
       )}
     </QueryBoundary>

@@ -14,6 +14,11 @@ import {
 } from './keystore.js';
 import type { KeystoreCodec } from './keystore_codec.js';
 import {
+  KeystoreReadOnlyError,
+  KeystoreUnavailableError,
+  type KeystoreWriteAction,
+} from './keystore_read_only.js';
+import {
   DriveKeystoreVault,
   FileKeystoreVault,
   HashicorpVaultKeystoreVault,
@@ -33,7 +38,38 @@ export class KeystoreManager {
     private vault: KeystoreVault,
     private codec: KeystoreCodec,
     private alg: SigningAlg,
+    private options: { readOnly?: boolean } = {},
   ) {}
+
+  /** `true` with `jwks.readOnly`: every write below throws {@link KeystoreReadOnlyError}. */
+  get readOnly(): boolean {
+    return this.options.readOnly === true;
+  }
+
+  #assertWritable(action: Exclude<KeystoreWriteAction, 'setting'>): void {
+    if (this.readOnly) throw new KeystoreReadOnlyError(action);
+  }
+
+  /**
+   * Lê o keystore e exige que exista e decodifique — o boot de uma instância `readOnly`.
+   * Nunca escreve (nem DDL): ausente/ilegível lança {@link KeystoreUnavailableError}.
+   */
+  async readRequired(): Promise<PersistedKeystore> {
+    let blob: string | null;
+    let store: PersistedKeystore;
+    try {
+      blob = await this.vault.read();
+      if (blob == null) throw new KeystoreUnavailableError('missing');
+      store = await this.codec.decode(blob);
+    } catch (error) {
+      if (error instanceof KeystoreUnavailableError) throw error;
+      throw new KeystoreUnavailableError('unreadable', error);
+    }
+    if (!Array.isArray(store?.keys) || store.keys.length === 0) {
+      throw new KeystoreUnavailableError('missing');
+    }
+    return store;
+  }
 
   /** Lê o keystore (privado) ou null se ausente. */
   async read(): Promise<PersistedKeystore | null> {
@@ -44,6 +80,7 @@ export class KeystoreManager {
 
   /** Garante que exista: gera+persiste se ausente; senão decodifica e retorna. */
   async ensure(): Promise<PersistedKeystore> {
+    if (this.readOnly) return this.readRequired();
     const blob = await this.vault.read();
     if (blob == null) {
       const store: PersistedKeystore = { keys: [await generateSigningJwk(this.alg)] };
@@ -62,6 +99,7 @@ export class KeystoreManager {
     keep = 2,
     retire = false,
   ): Promise<{ store: PersistedKeystore; newKid: string; retiredKids: string[] }> {
+    this.#assertWritable('rotate');
     const current = (await this.read()) ?? { keys: [] };
     const staged = current.keys.find((k) => k.staged === true);
     let fresh: Record<string, any>;
@@ -86,6 +124,7 @@ export class KeystoreManager {
    * anterior é substituída. Persiste.
    */
   async generate(alg: SigningAlg = this.alg): Promise<{ store: PersistedKeystore; kid: string }> {
+    this.#assertWritable('generate');
     const current = await this.ensure();
     const fresh: Record<string, any> = { ...(await generateSigningJwk(alg)), staged: true };
     const store: PersistedKeystore = {
@@ -100,6 +139,7 @@ export class KeystoreManager {
    * deixam de validar. Lança para a chave ativa ou um `kid` desconhecido. Persiste.
    */
   async retire(kid: string): Promise<PersistedKeystore> {
+    this.#assertWritable('retire');
     const current = (await this.read()) ?? { keys: [] };
     const index = current.keys.findIndex((k) => k.kid === kid);
     if (index === -1) throw new Error(`key ${kid} not found`);
@@ -135,6 +175,7 @@ export class KeystoreManager {
    * se mudou no meio (uma rotação), deixa como está (`skipped`).
    */
   async reseal(options: ResealOptions = {}): Promise<SealedColumnReport | null> {
+    if (options.dryRun !== true) this.#assertWritable('reseal');
     const report = await this.sealedReport();
     if (!report) return null;
     if (report.unreadable) {

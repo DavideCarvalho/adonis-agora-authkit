@@ -1,6 +1,7 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
-import { buildKeysStatus, rotateNow } from '../key_rotation_actions.js';
+import { KeystoreReadOnlyError } from '../../keys/keystore_read_only.js';
+import { buildKeysStatus, keystoreReadOnlyBody, rotateNow } from '../key_rotation_actions.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { apiError } from './dto.js';
 
@@ -36,6 +37,16 @@ export default class ApiKeysController {
         .status(501)
         .send(apiError('not_implemented', 'rotação indisponível (jwks não é managed+store).'));
     }
-    return rotateNow(svc, ctx.request.body() as any);
+    if (svc.keystoreReadOnly === true) {
+      return ctx.response.status(409).send(keystoreReadOnlyBody());
+    }
+    try {
+      return await rotateNow(svc, ctx.request.body() as any);
+    } catch (error) {
+      if (error instanceof KeystoreReadOnlyError) {
+        return ctx.response.status(409).send(keystoreReadOnlyBody(error.message));
+      }
+      throw error;
+    }
   }
 }

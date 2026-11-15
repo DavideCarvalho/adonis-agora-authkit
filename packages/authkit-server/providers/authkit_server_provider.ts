@@ -27,7 +27,10 @@ import { resolveEffectiveKeyRotation } from '../src/host/key_rotation.js';
 import { RuntimeSettings, settingsLocation } from '../src/host/runtime_settings.js';
 import { toProviderJwks } from '../src/keys/keystore.js';
 import { KeystoreManager, resolveKeystoreVault } from '../src/keys/keystore_manager.js';
-import { KeyRotationScheduler } from '../src/provider/key_rotation_scheduler.js';
+import {
+  KeyRotationScheduler,
+  keyRotationSchedulerApplies,
+} from '../src/provider/key_rotation_scheduler.js';
 import { KeystoreReloadPoller } from '../src/provider/keystore_reload.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { makeSingleFlightLock } from '../src/provider/single_flight_lock.js';
@@ -120,10 +123,11 @@ export default class AuthkitServerProvider {
    * `registerAuthHost` lê e a auto-montagem de `config.routes` (cuja falha propaga).
    */
   async #applyResolvedConfig(config: ResolvedServerConfig): Promise<void> {
-    if (config.lockedSettingKeys?.length) {
-      const { setLockedSettingKeys } = await import('../src/host/config_locks.js');
-      setLockedSettingKeys(config.lockedSettingKeys);
-    }
+    const { setLockedSettingKeys, setReadOnlySettingKeys, deriveReadOnlySettingKeys } =
+      await import('../src/host/config_locks.js');
+    if (config.lockedSettingKeys?.length) setLockedSettingKeys(config.lockedSettingKeys);
+    // `jwks.readOnly`: `key_rotation` é da instância que escreve o keystore (lê, não grava).
+    setReadOnlySettingKeys(deriveReadOnlySettingKeys(config));
     // Stash dos bits de routing p/ o registerAuthHost ler do config (dedup). Roda antes do
     // preload start/routes.ts (no boot, ou no `booted` quando o boot não conseguiu resolver).
     const { setAuthHostConfig } = await import('../src/host/auth_host_config.js');
@@ -274,11 +278,15 @@ export default class AuthkitServerProvider {
             vault,
             await keystoreCodec(encrypt, config.crypto, { required: false }),
             jwksInput.algorithm ?? 'RS256',
+            { readOnly: jwksInput.readOnly === true },
           );
         };
         jwksLoader = async () => {
           const m = await buildManager();
-          const store = (await m.read()) ?? (await m.ensure());
+          // readOnly: nunca cria — keystore sumido lança e o reload mantém as chaves atuais.
+          const store = m.readOnly
+            ? await m.readRequired()
+            : ((await m.read()) ?? (await m.ensure()));
           return toProviderJwks(store);
         };
         keystoreHead = async () => {
@@ -417,10 +425,7 @@ export default class AuthkitServerProvider {
   async #startKeyRotationScheduler() {
     if (this.app.getEnvironment() !== 'web') return;
     const svc: any = await this.app.container.make('authkit.server').catch(() => null);
-    if (!svc || typeof svc.rotateKeys !== 'function' || typeof svc.keystoreAgeDays !== 'function')
-      return;
-    // só faz sentido com keystore gerenciável:
-    if ((await svc.keystoreAgeDays().catch(() => null)) === null) return;
+    if (!(await keyRotationSchedulerApplies(svc))) return;
 
     const db = await this.app.container.make('lucid.db' as any).catch(() => null);
     if (!db) return; // sem Lucid → sem settings → política seria defaults(disabled); nada a agendar

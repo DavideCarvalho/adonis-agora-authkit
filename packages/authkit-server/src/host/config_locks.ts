@@ -97,7 +97,7 @@ export function deriveLockedRouteOptions(config: Record<string, any>): PolicyRou
 
 /** Erro lançado ao tentar gravar/remover uma setting travada via `defineConfig`. */
 export class SettingLockedError extends Error {
-  readonly code = 'E_SETTING_LOCKED';
+  readonly code: string = 'E_SETTING_LOCKED';
   readonly key: string;
   constructor(key: string) {
     super(
@@ -115,9 +115,10 @@ export function setLockedSettingKeys(keys: Iterable<string>): void {
   lockedKeys = new Set(keys);
 }
 
-/** Limpa os locks — uso em testes. */
+/** Limpa os locks (e as keys só-leitura) — uso em testes. */
 export function resetLockedSettingKeys(): void {
   lockedKeys = new Set();
+  readOnlyKeys = new Set();
 }
 
 /** A setting `key` está travada por config? */
@@ -128,4 +129,42 @@ export function isSettingLocked(key: string): boolean {
 /** Lista (snapshot) das keys travadas — consumida pelo read path da UI. */
 export function lockedSettingKeys(): string[] {
   return [...lockedKeys];
+}
+
+/**
+ * Keys de `auth_settings` que esta instância LÊ mas não grava: com `jwks.readOnly`, a política
+ * `key_rotation` pertence à instância que escreve o keystore. Diferente de um lock de config, a
+ * leitura continua valendo (a UI mostra a política compartilhada); só a escrita é recusada.
+ */
+export function deriveReadOnlySettingKeys(config: {
+  jwksConfig?: { readOnly?: boolean } | null;
+}): string[] {
+  return config.jwksConfig?.readOnly === true ? [SETTING_KEYS.KEY_ROTATION] : [];
+}
+
+/** Escrita recusada numa key que esta instância só lê (`jwks.readOnly`). Admin API/console → 409. */
+export class SettingReadOnlyError extends SettingLockedError {
+  override readonly code: string = 'E_KEYSTORE_READ_ONLY';
+  constructor(key: string) {
+    super(key);
+    this.name = 'SettingReadOnlyError';
+    this.message = `The setting "${key}" belongs to the instance that writes the keystore: this instance has \`jwks.readOnly\` set and cannot change it. Change it on the writer instance.`;
+  }
+}
+
+let readOnlyKeys = new Set<string>();
+
+/** Define as keys só-leitura desta instância (chamado uma vez no boot do provider). */
+export function setReadOnlySettingKeys(keys: Iterable<string>): void {
+  readOnlyKeys = new Set(keys);
+}
+
+/** A setting `key` é só-leitura nesta instância? */
+export function isSettingReadOnly(key: string): boolean {
+  return readOnlyKeys.has(key);
+}
+
+/** Lista (snapshot) das keys só-leitura — consumida pelo read path da UI. */
+export function readOnlySettingKeys(): string[] {
+  return [...readOnlyKeys];
 }

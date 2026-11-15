@@ -2,12 +2,24 @@ import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import { MCP_CLIENTS_SETTING_KEY } from '../../mcp/mcp_clients.js';
 import { McpClientsSettingError, writeMcpClientsSetting } from '../../mcp/mcp_clients_setting.js';
-import { isSettingLocked, lockedSettingKeys, SettingLockedError } from '../config_locks.js';
+import {
+  isSettingLocked,
+  lockedSettingKeys,
+  readOnlySettingKeys,
+  SettingLockedError,
+  SettingReadOnlyError,
+} from '../config_locks.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { apiError, settingDto } from './dto.js';
 
 /** 423 Locked: a setting foi travada via defineConfig (não editável em runtime). */
 function lockedResponse(ctx: HttpContext, err: SettingLockedError) {
+  // `jwks.readOnly`: a key pertence à instância que escreve o keystore → 409, não 423.
+  if (err instanceof SettingReadOnlyError) {
+    return ctx.response
+      .status(409)
+      .send(apiError('keystore_read_only', err.message, { key: err.key, lockedBy: 'readOnly' }));
+  }
   return ctx.response
     .status(423)
     .send(apiError('setting_locked', err.message, { key: err.key, lockedBy: 'config' }));
@@ -57,7 +69,11 @@ export default class ApiSettingsController {
     const rows = await svc.listSettings(orgId);
     // `locked` lista TODAS as keys travadas por config (mesmo as sem row em auth_settings,
     // pois config-only não persiste row). A UI usa isto p/ desabilitar + avisar.
-    return { data: rows.map(settingDto), locked: lockedSettingKeys() };
+    return {
+      data: rows.map(settingDto),
+      locked: lockedSettingKeys(),
+      readOnly: readOnlySettingKeys(),
+    };
   }
 
   /** GET /settings/:key — obtém uma setting por key (global ou org). */
