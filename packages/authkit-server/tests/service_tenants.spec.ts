@@ -339,15 +339,23 @@ test.group('service tenants: authkitTenantVerifier', (group) => {
   test('returns the tenant and capabilities of a real token', async ({ assert }) => {
     const { body } = await requestToken(s.issuer, 'worker-acme', secret);
     const verify = authkitTenantVerifier({ issuer: issuerOf(s.service) });
+    const expiresAt = (decodeJwt(body.access_token).exp as number) * 1000;
     assert.deepEqual(await verify({ token: body.access_token }), {
-      tenant: 'acme',
+      partition: 'acme',
       capabilities: ['reports', 'billing'],
+      clientId: 'worker-acme',
+      expiresAt,
     });
-    // Same result through the object form (durable's TenantVerifierContract).
-    assert.deepEqual(await verify.verify({ token: body.access_token, tenant: 'other' }), {
-      tenant: 'acme',
-      capabilities: ['reports', 'billing'],
-    });
+    // Same result through the object form; the claimed partition is ignored.
+    assert.deepEqual(
+      await verify.verify({ token: body.access_token, partition: 'other', tenant: 'other' }),
+      {
+        partition: 'acme',
+        capabilities: ['reports', 'billing'],
+        clientId: 'worker-acme',
+        expiresAt,
+      },
+    );
   });
 
   test('rejects a missing token, a wrong audience and a wrong issuer', async ({ assert }) => {
@@ -374,9 +382,12 @@ test.group('service tenants: authkitTenantVerifier', (group) => {
     assert,
   }) => {
     const any = authkitTenantVerifier({ issuer: issuerOf(s.service) });
-    assert.deepEqual(await any({ token: await forge({ environment: 'production' }) }), {
-      tenant: 'acme',
+    const verified = await any({ token: await forge({ environment: 'production' }) });
+    assert.containsSubset(verified, {
+      partition: 'acme',
       environment: 'production',
+      capabilities: [],
+      clientId: 'worker-acme',
     });
     const prod = authkitTenantVerifier({ issuer: issuerOf(s.service), environment: 'production' });
     assert.isNotNull(await prod({ token: await forge({ environment: 'production' }) }));
@@ -394,9 +405,11 @@ test.group('service tenants: authkitTenantVerifier', (group) => {
     const { body } = await requestToken(s.issuer, 'worker-prod', created.clientSecret!);
     assert.equal(decodeJwt(body.access_token).environment, 'production');
     const prod = authkitTenantVerifier({ issuer: issuerOf(s.service), environment: 'production' });
-    assert.deepEqual(await prod({ token: body.access_token }), {
-      tenant: 'acme',
+    assert.containsSubset(await prod({ token: body.access_token }), {
+      partition: 'acme',
       environment: 'production',
+      capabilities: [],
+      clientId: 'worker-prod',
     });
   });
 
