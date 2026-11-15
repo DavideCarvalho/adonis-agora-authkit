@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.30
+
+### Minor Changes
+
+- [#501](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/501) [`b7ec894`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/b7ec8944da9530978abc5e7790c45b285356702f) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Calls between apps: a service tenant can be granted other apps. Each grant (`apps` on the client: app name → capabilities) lets it get JWT access tokens for `urn:agora:app:<name>`, with its own `partition` and the capabilities of that grant. Grant from the admin console ("Apps it can call"), the Admin API (`PUT`/`DELETE /clients/:id/apps/:app`, or `serviceTenant.apps` on create/update) or the CLI (`authkit:client create --app=billing=invoices:read`, `grant-app`, `revoke-app`). On by default with `serviceTenants` (`serviceTenants: {}` turns on only this); `serviceTenants.apps: false` turns it off, `apps.expiresIn` sets the token lifetime (default 300 s). `serviceTenants.resources` is now optional.
+
 ## 1.0.0-rc.29
 
 ### Patch Changes
