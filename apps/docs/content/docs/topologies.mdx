@@ -1,7 +1,7 @@
 ---
 icon: Network
 title: Deployment Topologies
-description: Run a dedicated IdP, or embed the provider inside an existing app.
+description: Run a dedicated IdP, embed it in an app, or split authkit, control planes and apps across servers.
 ---
 
 AuthKit is topology-agnostic: the same server config works whether the Authorization
@@ -83,3 +83,183 @@ itself. See [Client](/docs/client).
   Switching topologies later is mostly an infrastructure change — split the app out, keep
   the same `issuer` URL, and the relying parties don't need to change.
 </Callout>
+
+## Separate servers
+
+In a larger deployment every piece runs on its own server: authkit-server alone, one server per
+control plane (durable, flags, config), and N apps. No Agora library needs authkit-server in its
+own process. Everything a server needs from AuthKit comes from `@adonis-agora/authkit-client`.
+
+```
+auth.acme.com        authkit-server only (issuer https://auth.acme.com/oidc)
+durable.acme.com     durable control plane + its console        authkit-client
+flags.acme.com       flags control plane + its console          authkit-client
+shop.acme.com        app (durable tenant, flags tenant)         authkit-client
+backoffice.acme.com  app (durable tenant, flags tenant)         authkit-client
+```
+
+### authkit-server alone
+
+The standalone setup above, plus three things the other servers use:
+
+```ts title="config/authkit.ts (auth.acme.com)"
+export default defineConfig({
+  issuer: env.get('AUTHKIT_ISSUER'), // https://auth.acme.com/oidc
+  // ...
+  // Tokens control planes accept: one resource per product.
+  serviceTenants: {
+    resources: {
+      'urn:agora:durable': {},
+      'urn:agora:flags': {},
+    },
+  },
+  // MCP servers on other servers (each app's /mcp/agora, for instance).
+  mcpClients: {
+    resources: ['https://shop.acme.com/mcp/agora', 'https://backoffice.acme.com/mcp/agora'],
+  },
+  // Lifecycle events for every app (authz provisioning, your own sync).
+  events: {
+    webhook: [
+      { url: 'https://shop.acme.com/authkit/webhook', secret: env.get('SHOP_WEBHOOK_SECRET') },
+      { url: 'https://backoffice.acme.com/authkit/webhook', secret: env.get('BO_WEBHOOK_SECRET') },
+    ],
+  },
+})
+```
+
+Create one client per server in the console or the Admin API:
+
+| Server | Client |
+| --- | --- |
+| each app and each control plane with a console | a regular confidential client (login for humans) |
+| each app that is a tenant of a control plane | one **service tenant** client: `partition` = the app name, the capabilities it needs, optional `environment` |
+
+One service-tenant client per app is enough: it gets a token for every resource in
+`serviceTenants.resources`.
+
+### Apps and consoles: relying parties
+
+Every server that has users, or hosts a console, is an OIDC relying party:
+
+```ts title="config/authkit_client.ts"
+export default defineConfig({
+  issuer: env.get('AUTHKIT_ISSUER'),
+  clientId: env.get('AUTHKIT_CLIENT_ID'),
+  clientSecret: env.get('AUTHKIT_CLIENT_SECRET'),
+  redirectUri: `${env.get('APP_URL')}/auth/callback`,
+  resolver: resolvers.jwt(),
+})
+```
+
+```ts title="start/routes.ts"
+import { registerOidcClient } from '@adonis-agora/authkit-client'
+
+registerOidcClient(router)
+```
+
+That gives each console on the server, with no per-console config:
+
+- **the gate**: `authorize: authkitDashboardAuthorize()` in each console's config;
+- **sign-out**: `registerOidcClient` announces `POST /auth/logout` to every console's footer;
+- **org names**: the org pickers show organization names. The active one comes from the session,
+  the others from `GET /api/orgs/labels` on the AuthKit server, called with the app's own client id
+  and secret and cached for 5 minutes. Turn it off with `orgLabels: false`;
+- **the real actor**: during an impersonation, `identity.actor` is the admin behind it.
+
+### Control planes and tenants
+
+A control plane verifies the tenant's token locally, against AuthKit's keys found by discovery:
+
+```ts title="config/durable.ts (durable.acme.com)"
+import { authkitTenantVerifier } from '@adonis-agora/authkit-client'
+
+export default defineConfig({
+  topology: 'control-plane',
+  // ...
+  verifyTenant: authkitTenantVerifier({
+    issuer: env.get('AUTHKIT_ISSUER'),
+    resource: 'urn:agora:durable',
+  }),
+})
+```
+
+A tenant app sends a token for that resource:
+
+```ts title="config/durable.ts (shop.acme.com)"
+import { authkitTenantToken } from '@adonis-agora/authkit-client'
+
+export default defineConfig({
+  topology: 'tenant',
+  partition: 'shop',
+  // ...
+  tenant: {
+    token: authkitTenantToken({
+      issuer: env.get('AUTHKIT_ISSUER'),
+      clientId: env.get('TENANT_CLIENT_ID'),
+      clientSecret: env.get('TENANT_CLIENT_SECRET'),
+      resource: 'urn:agora:durable',
+    }),
+  },
+})
+```
+
+The flags control plane does the same with `resource: 'urn:agora:flags'`, and the same tenant
+client asks for a `urn:agora:flags` token. See [Service tenants](/docs/service-tenants) for the
+claims and the options.
+
+### Events on every app
+
+AuthKit posts each event to the `events.webhook` URLs, signed. On each app:
+
+```ts title="start/routes.ts"
+import { registerAuthkitWebhook } from '@adonis-agora/authkit-client'
+
+registerAuthkitWebhook(router, { secret: env.get('AUTHKIT_WEBHOOK_SECRET') })
+```
+
+```ts title="config/shield.ts"
+csrf: {
+  exceptRoutes: ['/authkit/webhook'],
+}
+```
+
+The receiver checks the signature, refuses a delivery older than 5 minutes or one it already saw,
+and emits it on the app's diagnostics bus as `agora:authkit:<type>`, exactly like AuthKit does in
+its own process. `@adonis-agora/authz` provisioning and any `onDiagnostic('authkit', ...)`
+listener work unchanged. See [Events](/docs/events#receiving-events-on-another-server).
+
+### MCP endpoints on other servers
+
+An app's MCP server is a protected resource of AuthKit. List its URL in `mcpClients.resources`
+on the AuthKit server (above): that is how a remote MCP server is registered. Inside the AuthKit
+app, `registerOAuthResource` does the same from code.
+
+To turn a verified bearer token into a signed-in request, so a console gated by
+`authkitDashboardAuthorize` admits the caller:
+
+```ts title="app/middleware/mcp_auth_middleware.ts"
+import env from '#start/env'
+import { bridgeAuthkitToken } from '@adonis-agora/authkit-client'
+import type { HttpContext } from '@adonisjs/core/http'
+import type { NextFn } from '@adonisjs/core/types/http'
+
+export default class McpAuthMiddleware {
+  async handle(ctx: HttpContext, next: NextFn) {
+    const token = ctx.request.header('authorization')?.replace(/^Bearer /i, '') ?? ''
+    const identity = await bridgeAuthkitToken(ctx, token, {
+      issuer: env.get('AUTHKIT_ISSUER'),
+      audience: 'https://shop.acme.com/mcp/agora',
+    })
+    if (!identity) return ctx.response.unauthorized({ error: 'invalid_token' })
+    return next()
+  }
+}
+```
+
+`identityFromAccessToken` and `bindAuthkitIdentity` are the two halves, when you verify the token
+somewhere else.
+
+### What stays per server
+
+Each server has its own console switcher, global search and MCP hub. A console on one server
+does not list the consoles of another; single sign-on makes moving between them one click.

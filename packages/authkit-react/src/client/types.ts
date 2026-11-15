@@ -189,6 +189,8 @@ export interface RevokeClientResult {
 export interface ServiceTenantSettings {
   partition: string;
   capabilities: string[];
+  /** The `environment` claim, when set. */
+  environment?: string;
 }
 
 /** A page of clients; `canList` is `false` when the adapter cannot enumerate them. */
@@ -219,7 +221,7 @@ export interface CreateClientInput {
   clientName?: string;
   logoUri?: string;
   /** Makes it a service tenant (confidential, `client_credentials` only, no redirect URIs). */
-  serviceTenant?: { partition: string; capabilities?: string[] };
+  serviceTenant?: { partition: string; capabilities?: string[]; environment?: string };
 }
 
 /**
@@ -233,7 +235,11 @@ export type UpdateClientInput = Omit<
   backchannelLogoutUri?: string | null;
   clientName?: string | null;
   logoUri?: string | null;
-  serviceTenant?: { partition: string; capabilities?: string[] } | null;
+  serviceTenant?: {
+    partition: string;
+    capabilities?: string[];
+    environment?: string | null;
+  } | null;
 };
 
 // ---------------------------------------------------------------------------

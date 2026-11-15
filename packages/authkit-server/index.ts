@@ -218,7 +218,11 @@ export {
   resolveWebauthn,
   toSeconds,
 } from './src/define_config.js';
-export type { EventsConfigInput, ResolvedEventsConfig } from './src/events/dispatcher.js';
+export type {
+  EventsConfigInput,
+  ResolvedEventsConfig,
+  WebhookTarget,
+} from './src/events/dispatcher.js';
 export {
   buildWebhookBody,
   composeAuditSink,
@@ -475,6 +479,11 @@ export type { OidcRpGuardEvents, OidcRpGuardOptions } from './src/host/oidc_rp_g
 // pelo callback OIDC. Plugado em config/auth.ts, faz ctx.auth.user funcionar
 // nativamente em qualquer app que consome o issuer via Authorization Code + PKCE.
 export { OidcRpGuard, oidcRpGuard } from './src/host/oidc_rp_guard.js';
+export {
+  ORG_LABELS_MAX_IDS,
+  ORG_LABELS_PATH,
+  orgLabelsHandler,
+} from './src/host/org_labels.js';
 // Login por OTP (código digitável): config + helpers puros.
 export {
   evaluateLoginOtp,

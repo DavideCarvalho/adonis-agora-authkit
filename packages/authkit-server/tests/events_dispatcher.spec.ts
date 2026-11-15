@@ -344,3 +344,56 @@ test.group('events/dispatcher — orgId no barramento de diagnostics', () => {
     assert.notProperty(redacted, 'metadata');
   });
 });
+
+test.group('events/dispatcher — webhook delivery ids (receivers on other servers)', () => {
+  test('buildWebhookBody carries a unique id and the actorId', ({ assert }) => {
+    const a = JSON.parse(buildWebhookBody({ type: 'impersonation', actorId: 'admin-1' }));
+    const b = JSON.parse(buildWebhookBody({ type: 'impersonation', actorId: 'admin-1' }));
+    assert.isString(a.id);
+    assert.notEqual(a.id, b.id);
+    assert.equal(a.actorId, 'admin-1');
+    assert.equal(JSON.parse(buildWebhookBody({ type: 'signup' }, 'fixed')).id, 'fixed');
+  });
+
+  test('a list of webhooks gets the same signed delivery at every URL', async ({ assert }) => {
+    const captured: Array<{ path: string; body: string; sig: string }> = [];
+    const server = createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => {
+        captured.push({
+          path: req.url ?? '',
+          body,
+          sig: req.headers['x-authkit-signature'] as string,
+        });
+        res.writeHead(204);
+        res.end();
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, r));
+    const base = `http://127.0.0.1:${(server.address() as any).port}`;
+    const sink = composeAuditSink(undefined, {
+      webhook: [
+        { url: `${base}/app-a`, secret: 'secret-a' },
+        { url: `${base}/app-b`, secret: 'secret-b' },
+      ],
+    });
+    await sink.record({ type: 'organization.created', orgId: 'org-1' });
+    await new Promise<void>((resolve, reject) => {
+      const deadline = Date.now() + 3000;
+      const tick = () => {
+        if (captured.length >= 2) return resolve();
+        if (Date.now() > deadline) return reject(new Error('webhooks não chegaram'));
+        setTimeout(tick, 20);
+      };
+      tick();
+    });
+    await new Promise<void>((r) => server.close(() => r()));
+
+    const byPath = Object.fromEntries(captured.map((c) => [c.path, c]));
+    assert.equal(byPath['/app-a'].body, byPath['/app-b'].body);
+    assert.equal(byPath['/app-a'].sig, signWebhookBody(byPath['/app-a'].body, 'secret-a'));
+    assert.equal(byPath['/app-b'].sig, signWebhookBody(byPath['/app-b'].body, 'secret-b'));
+    assert.equal(JSON.parse(byPath['/app-a'].body).orgId, 'org-1');
+  });
+});

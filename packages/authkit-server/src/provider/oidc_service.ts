@@ -247,6 +247,8 @@ export class OidcService {
                   base.org_id = activeOrg.orgId;
                   base.org_slug = activeOrg.orgSlug;
                   base.org_role = activeOrg.orgRole;
+                  // Display name, so a relying party labels the active org without a call.
+                  if (activeOrg.orgName) base.org_name = activeOrg.orgName;
                 }
               }
               return base;

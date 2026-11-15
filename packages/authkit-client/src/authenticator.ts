@@ -2,6 +2,7 @@ import type { Identity, SessionResolver } from '@adonis-agora/authkit-core';
 import { AUTHKIT_METRICS, type MetricsRecorder, NoopRecorder } from '@adonis-agora/authkit-core';
 import type { HttpContext } from '@adonisjs/core/http';
 import { type ClientTenancyOptions, populateContext } from './observability/context_bridge.js';
+import { rememberOrgLabel } from './org_labels.js';
 
 /** Contexto opcional repassado a `resolveUser` (extensão backward-compatible). */
 export interface ResolveUserContext {
@@ -53,7 +54,10 @@ export class Authenticator<TUser = unknown> {
       // Ponte estrutural: popula o contexto do Agora quando há sessão de fato
       // (best-effort, no-op sem o slot `@agora/context:set`). Apenas no caminho
       // de sucesso — não força resolução para requests anônimas.
-      if (this.#identity) populateContext(this.#identity, this.deps.tenancy);
+      if (this.#identity) {
+        populateContext(this.#identity, this.deps.tenancy);
+        rememberOrgLabel(this.#identity);
+      }
     }
     return this.#identity;
   }

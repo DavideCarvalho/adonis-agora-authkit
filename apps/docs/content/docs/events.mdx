@@ -36,6 +36,7 @@ export default defineConfig({
       url: 'https://hooks.example.com/authkit',
       secret: process.env.AUTHKIT_WEBHOOK_SECRET, // optional, enables signing
     },
+    // or several: [{ url, secret }, { url, secret }] (the same event goes to each)
   },
 })
 ```
@@ -47,6 +48,7 @@ original sink's `list()` (admin queries) is preserved.
 | Field | Type | Notes |
 | --- | --- | --- |
 | `onEvent` | `(event) => void \| Promise<void>` | Called for every event. Errors are swallowed. |
+| `webhook` | `{ url, secret? } \| Array<{ url, secret? }>` | One destination or several. |
 | `webhook.url` | `string` | Destination of the `POST`. |
 | `webhook.secret` | `string` | When set, signs the body (see below). |
 
@@ -56,8 +58,10 @@ The body is JSON:
 
 ```json
 {
+  "id": "5f0c1c8e-9b8a-4a63-9a43-0c5e7d0b9a11",
   "type": "login.success",
   "accountId": "user-1",
+  "actorId": null,
   "email": "user@example.com",
   "clientId": "app1",
   "orgId": null,
@@ -67,7 +71,8 @@ The body is JSON:
 }
 ```
 
-`orgId` is the organization (tenant) the event belongs to, or `null`. It is a **first-class
+`id` is unique per event (the same for every URL it is sent to). `actorId` is the admin behind an
+impersonation, or `null`. `orgId` is the organization (tenant) the event belongs to, or `null`. It is a **first-class
 field**, not a `metadata` key — see [Provisioning your own database](#provisioning-your-own-database)
 for why that distinction matters.
 
@@ -99,6 +104,41 @@ function verify(rawBody: string, header: string, secret: string): boolean {
   Compute the HMAC over the **raw** request body (the exact bytes received), not a
   re-serialized object — key ordering and whitespace must match.
 </Callout>
+
+## Receiving events on another server
+
+An Agora app on another server receives the webhook with `@adonis-agora/authkit-client`:
+
+```ts title="start/routes.ts"
+import env from '#start/env'
+import { registerAuthkitWebhook } from '@adonis-agora/authkit-client'
+
+registerAuthkitWebhook(router, { secret: env.get('AUTHKIT_WEBHOOK_SECRET') })
+```
+
+```ts title="config/shield.ts"
+csrf: {
+  exceptRoutes: ['/authkit/webhook'],
+}
+```
+
+Point a `webhook` entry of `config/authkit.ts` at `https://<app>/authkit/webhook` with the same
+secret. Each delivery is checked (signature, `ts` within 5 minutes, an `id` seen once) and
+emitted on the app's diagnostics bus as `agora:authkit:<type>` with the payload AuthKit emits in
+its own process (`type`, `accountId`, `actorId`, `clientId`, `orgId`). `@adonis-agora/authz`
+provisioning and `onDiagnostic('authkit', ...)` listeners run as if AuthKit were local.
+
+| Option | Default | Notes |
+| --- | --- | --- |
+| `secret` | | The webhook's secret. |
+| `path` | `/authkit/webhook` | The route. |
+| `toleranceSec` | `300` | How old (or how far ahead) a `ts` may be. |
+| `replayStore` | in memory | `{ claim(id, ttlMs) }`, `false` for an id already seen. Use a shared store (Redis `SET NX PX`) with several instances. |
+| `onEvent` | | Receives the full event, with `email`, `ip` and `metadata`. |
+| `emit` | `true` | Emit on the diagnostics bus. |
+
+`authkitWebhookHandler(options)` is the handler alone, for a route you declare yourself, and
+`verifyAuthkitWebhook` checks a body and signature without a request.
 
 ## Event types
 

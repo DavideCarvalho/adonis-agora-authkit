@@ -106,6 +106,11 @@ export default class AuthkitClient extends BaseCommand {
   })
   declare capability?: string[];
 
+  @flags.string({
+    description: 'create: service tenant environment (`environment` claim). Needs --partition.',
+  })
+  declare environment?: string;
+
   @flags.boolean({
     description: 'list: only MCP clients (dynamic registration or metadata document).',
   })
@@ -243,8 +248,11 @@ export default class AuthkitClient extends BaseCommand {
 
   async #create(service: any, svc: any) {
     const { ClientMetadataError } = await import('../src/host/client_metadata.js');
-    const tenant = this.partition !== undefined || !!this.capability?.length;
-    if (tenant && !this.partition) return this.#fail('--capability needs --partition.');
+    const tenant =
+      this.partition !== undefined || !!this.capability?.length || this.environment !== undefined;
+    if (tenant && !this.partition) {
+      return this.#fail('--capability and --environment need --partition.');
+    }
     if (tenant) {
       const conflicting = [
         this.redirectUri?.length && '--redirect-uri',
@@ -273,7 +281,11 @@ export default class AuthkitClient extends BaseCommand {
             postLogoutRedirectUris: [],
             grantTypes: ['client_credentials'],
             tokenEndpointAuthMethod: 'client_secret_basic',
-            serviceTenant: { partition: this.partition, capabilities: this.capability ?? [] },
+            serviceTenant: {
+              partition: this.partition,
+              capabilities: this.capability ?? [],
+              ...(this.environment ? { environment: this.environment } : {}),
+            },
           }
         : {
             clientId: this.clientId,
@@ -359,6 +371,7 @@ export default class AuthkitClient extends BaseCommand {
     if (c.serviceTenant) {
       lines.push(['partition', c.serviceTenant.partition]);
       lines.push(['capabilities', c.serviceTenant.capabilities.join(', ')]);
+      if (c.serviceTenant.environment) lines.push(['environment', c.serviceTenant.environment]);
     }
     for (const [k, v] of lines) this.logger.info(`  ${k.padEnd(14)} ${v}`);
   }

@@ -55,7 +55,11 @@ export interface ClientInput {
    * redirect URIs; its tokens carry `partition` and `capabilities`. On update, `null`
    * turns it back into a regular client; absent keeps the current value.
    */
-  serviceTenant?: { partition: string; capabilities?: string[] } | null;
+  serviceTenant?: {
+    partition: string;
+    capabilities?: string[];
+    environment?: string | null;
+  } | null;
   /**
    * Escopos que o client pode pedir (`scope`). Ausente = qualquer escopo do IdP. No update, `null`
    * remove a restrição; ausente mantém.

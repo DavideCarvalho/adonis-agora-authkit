@@ -39,6 +39,7 @@ import type { PolicyRouteOption } from './config_locks.js';
 import { consoleDeniedPage } from './console_denied_page.js';
 import { CONSOLE_SSO_CALLBACK_PATH, CONSOLE_SSO_START_PATH } from './console_sso.js';
 import { endBridgedIdpSession, ensureConsoleSession } from './idp_session_bridge.js';
+import { ORG_LABELS_PATH, orgLabelsHandler } from './org_labels.js';
 import { createAuthThrottles } from './rate_limit.js';
 import { redirectExact } from './redirect_exact.js';
 import { requestPathWithQuery } from './request_url.js';
@@ -540,6 +541,13 @@ export interface AuthHostOptions {
    */
   adminApi?: boolean | { prefix?: string };
   /**
+   * `GET /api/orgs/labels?ids=`: org display names for relying parties on other servers
+   * (authkit-client's tenant labeler). Authenticated with the client's own id and secret;
+   * only first-party, confidential clients get answers. Default: mounted at
+   * `/api/orgs/labels`. `false` skips it; `{ path }` moves it.
+   */
+  orgLabels?: boolean | { path?: string };
+  /**
    * Métodos de sudo cujas rotas devem ser montadas. Necessário aqui (e não só
    * no config) porque a decisão de MONTAR rotas acontece em tempo de registro,
    * antes de o config lazy resolver — mesma razão de `social`/`admin`/`rateLimit`.
@@ -700,6 +708,8 @@ export interface AuthHostRouteMap {
   admin: { prefix: string } | null;
   /** Admin REST API: prefixo resolvido, ou `null` quando não foi montada. */
   adminApi: { prefix: string } | null;
+  /** Org labels endpoint path, or `null` when it was not mounted. */
+  orgLabels: { path: string } | null;
   /** Nomes das rotas nomeadas (as demais herdam o auto-naming do AdonisJS). */
   names: Record<string, string>;
   /**
@@ -1741,6 +1751,19 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
       .use(throttles ? [throttles.adminIp, adminApiGuard] : [adminApiGuard]);
   }
 
+  // Org labels for relying parties on other servers (client id + secret, first-party only).
+  let orgLabelsPath: string | null = null;
+  if (opts.orgLabels !== false) {
+    const raw =
+      typeof opts.orgLabels === 'object' && opts.orgLabels.path
+        ? opts.orgLabels.path
+        : ORG_LABELS_PATH;
+    orgLabelsPath = `/${raw.replace(/^\/+|\/+$/g, '')}`;
+    const route = router.get(orgLabelsPath, orgLabelsHandler);
+    route?.as?.('authkit.org_labels');
+    if (throttles && typeof route?.use === 'function') route.use([throttles.introspection]);
+  }
+
   // ─── Mapa resolvido (R4) ───────────────────────────────────────────────────
   // Lido DEPOIS de todo o registro: `accountPath()`/`accountPrefix()` já
   // refletem o `accountRoutes` aplicado no topo, e os prefixos de console já
@@ -1770,6 +1793,7 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
     },
     admin: resolvedAdminPrefix ? { prefix: resolvedAdminPrefix } : null,
     adminApi: resolvedAdminApiPrefix ? { prefix: resolvedAdminApiPrefix } : null,
+    orgLabels: orgLabelsPath ? { path: orgLabelsPath } : null,
     names: {
       webauthnAsset: 'authkit.assets.webauthn',
       oidcWildcard: 'authkit.oidc.wildcard',

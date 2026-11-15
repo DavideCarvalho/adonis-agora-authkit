@@ -140,7 +140,7 @@ export interface AuthkitClient {
   /** Disabled clients get no tokens until enabled again. */
   disabled: boolean;
   /** Service-tenant settings, or `null` for a regular client. */
-  serviceTenant: { partition: string; capabilities: string[] } | null;
+  serviceTenant: { partition: string; capabilities: string[]; environment?: string } | null;
 }
 
 /** `clients.list`: `search` matches the client id or name; `sort` is `clientId` or `clientName`. */
@@ -163,7 +163,11 @@ export interface ClientInput {
    * Makes the client a service tenant (confidential, `client_credentials` only, no
    * redirect URIs). On update, `null` turns it back into a regular client.
    */
-  serviceTenant?: { partition: string; capabilities?: string[] } | null;
+  serviceTenant?: {
+    partition: string;
+    capabilities?: string[];
+    environment?: string | null;
+  } | null;
 }
 
 /** Created/regenerated client — the secret is shown ONCE (`createdClientDto`). */

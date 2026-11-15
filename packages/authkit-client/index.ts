@@ -1,4 +1,4 @@
-export type { Identity } from '@adonis-agora/authkit-core';
+export type { Identity, IdentityActor } from '@adonis-agora/authkit-core';
 export { configure } from './commands/configure.js';
 export type {
   AuthkitClientLogger,
@@ -16,6 +16,8 @@ export {
   serveAccountExtensions,
   verifyAccountExtensionsToken,
 } from './src/account_extensions.js';
+export type { AgoraConsoleSignOut, ConsolesAppLike } from './src/agora_consoles.js';
+export { AGORA_CONSOLES_BINDING, announceAgoraSignOut } from './src/agora_consoles.js';
 export { Authenticator } from './src/authenticator.js';
 export type {
   AuthorizationRequest,
@@ -47,6 +49,7 @@ export type {
   BackchannelLogoutInput,
   ClientAccountConsoleConfig,
   ClientConfigInput,
+  ClientOrgLabelsConfig,
   ResolvedClientConfig,
 } from './src/define_config.js';
 export { defineConfig, resolvers } from './src/define_config.js';
@@ -75,6 +78,12 @@ export type { ResiliencePolicy } from './src/http/resilient_fetch.js';
 export { resilientFetch } from './src/http/resilient_fetch.js';
 export type { IdTokenClaims, ValidateIdTokenOptions } from './src/id_token.js';
 export { InvalidIdTokenError, validateIdToken } from './src/id_token.js';
+export type { AuthkitAccessTokenIdentityOptions } from './src/identity_bridge.js';
+export {
+  bindAuthkitIdentity,
+  bridgeAuthkitToken,
+  identityFromAccessToken,
+} from './src/identity_bridge.js';
 export { clearJwksCache } from './src/jwks.js';
 export type { LucidMirrorOptions } from './src/lucid_mirror.js';
 export { lucidMirror } from './src/lucid_mirror.js';
@@ -102,6 +111,8 @@ export {
   generatePkce,
   refreshTokens,
 } from './src/oidc_login.js';
+export type { AuthkitOrgLabelsOptions, OrgLabelResolver } from './src/org_labels.js';
+export { authkitOrgLabels, installOrgLabeler, ORG_LABELS_PATH } from './src/org_labels.js';
 export type {
   PostLoginRedirects,
   RegisterOidcClientOptions,
@@ -110,6 +121,7 @@ export {
   registerAccountExtensionsEndpoint,
   registerOidcClient,
 } from './src/register_oidc_client.js';
+export { buildIdentityFromClaims as identityFromClaims } from './src/resolvers/identity.js';
 export type {
   LucidRevocationStoreOptions,
   RevocationStore,
@@ -125,6 +137,15 @@ export {
   authkitTenantToken,
   TenantTokenError,
 } from './src/tenant_token.js';
+export {
+  AuthkitTenantVerifier,
+  type AuthkitTenantVerifierFn,
+  type AuthkitTenantVerifierOptions,
+  authkitTenantVerifier,
+  type TenantVerifier,
+  type TenantVerifierRequest,
+  type VerifiedTenantToken,
+} from './src/tenant_verifier.js';
 export type { TokenSet } from './src/types.js';
 export type {
   ClaimsUser,
@@ -140,3 +161,18 @@ export type {
   VerifyJwtAccessTokenOptions,
 } from './src/verify_access_token.js';
 export { verifyJwtAccessToken } from './src/verify_access_token.js';
+export type {
+  AuthkitDiagnosticPayload,
+  AuthkitWebhookEvent,
+  AuthkitWebhookOptions,
+  WebhookRejection,
+  WebhookReplayStore,
+  WebhookVerification,
+} from './src/webhook_receiver.js';
+export {
+  authkitWebhookHandler,
+  emitAuthkitEvent,
+  memoryReplayStore,
+  registerAuthkitWebhook,
+  verifyAuthkitWebhook,
+} from './src/webhook_receiver.js';

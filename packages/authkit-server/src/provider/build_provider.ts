@@ -349,7 +349,7 @@ export function buildProvider(
       openid: ['sub'],
       profile: ['name', 'picture'],
       email: ['email', 'email_verified'],
-      roles: [config.globalRolesClaim, 'org_id', 'org_slug', 'org_role'],
+      roles: [config.globalRolesClaim, 'org_id', 'org_slug', 'org_role', 'org_name'],
     },
     scopes: ['openid', 'profile', 'email', 'offline_access', 'roles'],
     // Permite que o parametro `audience` (hint de intencao do client, ex.: 'advisor')

@@ -27,8 +27,9 @@ export interface ServiceTenantResourceServerInfo {
  * - a service-tenant resource is granted only to a service-tenant client, only on the
  *   `client_credentials` grant, always as a JWT access token (RFC 9068);
  * - a service-tenant client can only get tokens for a service-tenant resource (when
- *   it sends no `resource` and exactly one is declared, that one is used);
- * - its tokens carry the `partition` (and `capabilities`) claims read from the client
+ *   it sends no `resource` and exactly one is declared, that one is used). One client may
+ *   get tokens for every declared resource (one client per app, not per product);
+ * - its tokens carry the `partition` (and `capabilities`, `environment`) claims read from the client
  *   at issuance time, so an edit applies to the next token.
  */
 export function createServiceTenantHooks(deps: ServiceTenantHooksDeps) {
@@ -114,7 +115,7 @@ export function createServiceTenantHooks(deps: ServiceTenantHooksDeps) {
     async extraClaims(
       ctx: any,
       token: any,
-    ): Promise<{ partition: string; capabilities?: string[] } | undefined> {
+    ): Promise<{ partition: string; capabilities?: string[]; environment?: string } | undefined> {
       if (!serviceTenants.enabled || token?.kind !== 'ClientCredentials') return undefined;
       const rs = token.resourceServer;
       const indicator: unknown = typeof rs?.identifier === 'function' ? rs.identifier() : undefined;
@@ -143,6 +144,7 @@ export function createServiceTenantHooks(deps: ServiceTenantHooksDeps) {
       return {
         partition: tenant.partition,
         ...(tenant.capabilities.length ? { capabilities: tenant.capabilities } : {}),
+        ...(tenant.environment ? { environment: tenant.environment } : {}),
       };
     },
   };

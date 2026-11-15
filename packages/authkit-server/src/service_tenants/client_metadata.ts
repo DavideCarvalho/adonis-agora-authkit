@@ -15,6 +15,8 @@ export interface ServiceTenantInfo {
   partition: string;
   /** Granted capabilities. Emitted as the `capabilities` claim when non-empty. */
   capabilities: string[];
+  /** Environment the client acts in (`production`, `staging`, …). Emitted as the `environment` claim when set. */
+  environment?: string;
 }
 
 /** Letters, digits, `.`, `_`, `:` and `-`; starts with a letter or digit; up to 128 chars. */
@@ -22,20 +24,26 @@ export const PARTITION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 /** Like {@link PARTITION_PATTERN}, plus `*` and `/`. */
 export const CAPABILITY_PATTERN = /^[A-Za-z0-9*][A-Za-z0-9._:*/-]{0,127}$/;
 export const MAX_CAPABILITIES = 64;
+/** Letters, digits, `.`, `_` and `-`; starts with a letter or digit; up to 64 chars. */
+export const ENVIRONMENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 /** Reads the service-tenant metadata from a raw client payload, or `null`. */
 export function serviceTenantOf(
   payload: Record<string, unknown> | undefined | null,
 ): ServiceTenantInfo | null {
   const raw = payload?.[SERVICE_TENANT_KEY] as
-    | { partition?: unknown; capabilities?: unknown }
+    | { partition?: unknown; capabilities?: unknown; environment?: unknown }
     | undefined;
   if (!raw || typeof raw !== 'object') return null;
   if (typeof raw.partition !== 'string' || !PARTITION_PATTERN.test(raw.partition)) return null;
   const capabilities = Array.isArray(raw.capabilities)
     ? raw.capabilities.filter((c): c is string => typeof c === 'string' && c.length > 0)
     : [];
-  return { partition: raw.partition, capabilities };
+  const environment =
+    typeof raw.environment === 'string' && ENVIRONMENT_PATTERN.test(raw.environment)
+      ? raw.environment
+      : undefined;
+  return { partition: raw.partition, capabilities, ...(environment ? { environment } : {}) };
 }
 
 /** `true` when the raw client payload is disabled. */
@@ -50,6 +58,7 @@ export function isClientDisabled(payload: Record<string, unknown> | undefined | 
 export function normalizeServiceTenant(input: {
   partition: string;
   capabilities?: string[];
+  environment?: string | null;
 }): ServiceTenantInfo | string {
   // Called directly too (not only behind the HTTP validators): check the types here.
   const rawPartition: unknown = input?.partition;
@@ -71,7 +80,15 @@ export function normalizeServiceTenant(input: {
   if (capabilities.length > MAX_CAPABILITIES) {
     return `at most ${MAX_CAPABILITIES} capabilities per client`;
   }
-  return { partition, capabilities };
+  const rawEnvironment: unknown = input.environment ?? undefined;
+  if (rawEnvironment === undefined || rawEnvironment === '') return { partition, capabilities };
+  if (typeof rawEnvironment !== 'string') return 'environment must be a string';
+  const environment = rawEnvironment.trim();
+  if (environment === '') return { partition, capabilities };
+  if (!ENVIRONMENT_PATTERN.test(environment)) {
+    return `environment "${environment}" is invalid: use letters, digits, ".", "_" or "-" (max 64 chars)`;
+  }
+  return { partition, capabilities, environment };
 }
 
 /**

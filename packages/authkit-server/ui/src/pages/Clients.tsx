@@ -39,6 +39,8 @@ interface FormState {
   partition: string;
   /** Comma- or space-separated. */
   capabilities: string;
+  /** The `environment` claim; empty for none. */
+  environment: string;
   clientIdOverride: string;
   redirectUris: string[];
   postLogoutRedirectUris: string[];
@@ -63,6 +65,7 @@ function defaultForm(): FormState {
     kind: 'app',
     partition: '',
     capabilities: '',
+    environment: '',
     clientIdOverride: '',
     redirectUris: [],
     postLogoutRedirectUris: [],
@@ -110,6 +113,7 @@ export function Clients() {
       kind: c.serviceTenant ? 'serviceTenant' : 'app',
       partition: c.serviceTenant?.partition ?? '',
       capabilities: (c.serviceTenant?.capabilities ?? []).join(', '),
+      environment: c.serviceTenant?.environment ?? '',
       clientIdOverride: '',
       redirectUris: [...c.redirectUris],
       postLogoutRedirectUris: [...c.postLogoutRedirectUris],
@@ -171,6 +175,9 @@ export function Clients() {
               serviceTenant: {
                 partition: formData.partition.trim(),
                 capabilities: parseCapabilities(formData.capabilities),
+                ...(formData.environment.trim()
+                  ? { environment: formData.environment.trim() }
+                  : {}),
               },
             }
           : {
@@ -208,6 +215,7 @@ export function Clients() {
           serviceTenant: {
             partition: formData.partition.trim(),
             capabilities: parseCapabilities(formData.capabilities),
+            environment: formData.environment.trim() || null,
           },
         });
         queryClient.invalidateQueries({ queryKey: authkitKeys.admin.clients() });
@@ -413,6 +421,15 @@ export function Clients() {
               placeholder="reports, billing"
             />
           </Field>
+          <Field label="Environment (optional)" htmlFor="client-environment">
+            <TextInput
+              id="client-environment"
+              mono
+              value={formData.environment}
+              onChange={(e) => setFormData((f) => ({ ...f, environment: e.target.value }))}
+              placeholder="production"
+            />
+          </Field>
           <Field label="Name" htmlFor="client-name">
             <TextInput
               id="client-name"
@@ -423,7 +440,7 @@ export function Clients() {
           </Field>
           <div className="text-xs text-faint">
             Confidential client with only the client_credentials grant. Its tokens carry the
-            partition and capabilities as claims.
+            partition, capabilities and environment as claims.
           </div>
         </>
       ) : (

@@ -207,5 +207,10 @@ export async function verifyActiveOrgMembership(
   if (!org) return null;
   const membership = await orgs.getOrgMembership(claimed.orgId, accountId);
   if (!membership || typeof membership.role !== 'string' || !membership.role) return null;
-  return { orgId: org.id, orgSlug: org.slug, orgRole: membership.role };
+  return {
+    orgId: org.id,
+    orgSlug: org.slug,
+    orgRole: membership.role,
+    ...(typeof org.name === 'string' && org.name ? { orgName: org.name } : {}),
+  };
 }
