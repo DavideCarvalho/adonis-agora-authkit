@@ -19,7 +19,12 @@ import {
   installAgoraContext,
   resolveAppCaller,
 } from '../src/app_calls/inbound.js';
-import { type AppTokens, installAppCalls } from '../src/app_calls/outbound.js';
+import {
+  AppCallsInstallError,
+  type AppTokens,
+  fetchPassesThroughAppCalls,
+  installAppCalls,
+} from '../src/app_calls/outbound.js';
 import { Authenticator } from '../src/authenticator.js';
 import {
   type AuthorizationRequest,
@@ -791,6 +796,19 @@ export default class AuthkitClientProvider {
     server.use([() => import('../src/middleware/app_caller_middleware.js')]);
   }
 
+  /**
+   * Self-check, once every provider has installed its interceptors: a `fetch` must go
+   * through the app-calls interceptor, or calls to other apps would leave unauthenticated.
+   * Fails the start loudly instead.
+   */
+  async #checkAppCalls() {
+    if (!this.#uninstallAppCalls) return;
+    if (await fetchPassesThroughAppCalls()) return;
+    throw new AppCallsInstallError(
+      `authkit: the global fetch does not go through the calls-between-apps interceptor on Node ${process.version} (undici ${process.versions.undici ?? '?'}); calls to other apps would leave without their token. Something replaced the global dispatcher after authkit-client booted: compose onto it (dispatcher.compose) instead of replacing it.`,
+    );
+  }
+
   async shutdown() {
     this.#uninstallAppCalls?.();
     this.#uninstallAppCalls = undefined;
@@ -802,6 +820,7 @@ export default class AuthkitClientProvider {
    * config that cannot resolve here fails later, on first use, as before.
    */
   async ready() {
+    await this.#checkAppCalls();
     if (this.app.container.hasBinding('authkit.server' as never)) return;
     try {
       const manager = await this.app.container.make(AuthkitClientManager);

@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import {
   createServer,
   request as httpRequest,
@@ -5,6 +6,7 @@ import {
   type Server,
 } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { fileURLToPath } from 'node:url';
 import { IgnitorFactory } from '@adonisjs/core/factories';
 import type { HttpContext } from '@adonisjs/core/http';
 import type { ApplicationService } from '@adonisjs/core/types';
@@ -16,6 +18,7 @@ import {
   AppTokens,
   appCallsInterceptor,
   composeGlobalDispatcher,
+  fetchPassesThroughAppCalls,
   hasAuthorization,
   installNodeHttpHook,
 } from '../src/app_calls/outbound.js';
@@ -258,6 +261,12 @@ test.group('calls between apps (two AdonisJS apps, in-memory issuer)', (group) =
       await appS.terminate();
       await Promise.all([a.close(), b.close(), c.close(), ghost.close(), s.close(), idp.close()]);
     };
+  });
+
+  test('self-check: the global fetch goes through the interceptor (this Node, this undici)', async ({
+    assert,
+  }) => {
+    assert.isTrue(await fetchPassesThroughAppCalls(), `Node ${process.version}`);
   });
 
   test('node:http: static apps are pre-warmed at boot, before any call', async ({ assert }) => {
@@ -572,6 +581,101 @@ test.group('calls between apps: config and helpers', () => {
     } finally {
       if (saved === undefined) delete g[DISCOVERY_SLOT];
       else g[DISCOVERY_SLOT] = saved;
+    }
+  });
+
+  test('fresh process: composes before AND after a `.1` set ahead of the bundled undici', async ({
+    assert,
+  }) => {
+    const outbound = fileURLToPath(new URL('../src/app_calls/outbound.ts', import.meta.url));
+    const script = `
+      const g = globalThis;
+      const m = await import(${JSON.stringify(outbound)});
+      const results = {};
+      // 1. A clean process (nothing loaded): the bundled undici loads on the first fetch() call.
+      const S = [Symbol.for('undici.globalDispatcher.2'), Symbol.for('undici.globalDispatcher.1')];
+      const undo = m.composeGlobalDispatcher(m.appCallsInterceptor({ origins: new Map(), token: async () => 't' }));
+      const installed = S.map((s) => g[s]);
+      results.clean = await m.fetchPassesThroughAppCalls();
+      undo();
+      // Uninstalled: every slot is back to what it was (no network involved).
+      results.uninstalled = S.every((s, i) => g[s] !== installed[i]);
+      process.stdout.write(JSON.stringify(results));
+    `;
+    const clean = await new Promise<string>((resolve, reject) =>
+      execFile(
+        process.execPath,
+        ['--import=@poppinss/ts-exec', '--input-type=module', '-e', script],
+        { cwd: fileURLToPath(new URL('..', import.meta.url)) },
+        (error, stdout, stderr) =>
+          error ? reject(new Error(stderr || String(error))) : resolve(stdout),
+      ),
+    );
+    assert.deepEqual(JSON.parse(clean), { clean: true, uninstalled: true });
+
+    // 2. Only `.1` set before the bundled undici loads (an older npm undici, another lib).
+    const preset = script.replace(
+      'const results = {};',
+      `const results = {};
+       const fake = { dispatch() { return true }, compose(i) { return { dispatch: i(this.dispatch.bind(this)), compose: this.compose } } };
+       g[Symbol.for('undici.globalDispatcher.1')] = fake;`,
+    );
+    const out = await new Promise<string>((resolve, reject) =>
+      execFile(
+        process.execPath,
+        ['--import=@poppinss/ts-exec', '--input-type=module', '-e', preset],
+        { cwd: fileURLToPath(new URL('..', import.meta.url)) },
+        (error, stdout, stderr) =>
+          error ? reject(new Error(stderr || String(error))) : resolve(stdout),
+      ),
+    );
+    assert.isTrue(JSON.parse(out).clean, process.version);
+  }).timeout(20_000);
+
+  test('self-check: a global dispatcher replaced behind authkit fails the start loudly', async ({
+    assert,
+  }) => {
+    const slots = [
+      Symbol.for('undici.globalDispatcher.2'),
+      Symbol.for('undici.globalDispatcher.1'),
+    ];
+    const g = globalThis as any;
+    const saved = slots.map((slot) => g[slot]);
+    // A dispatcher that drops every interceptor composed onto it (what a replacement does).
+    const rogue: any = {
+      dispatch: (_opts: any, handler: any) => {
+        const error = new Error('rogue');
+        if (typeof handler.onResponseError === 'function') handler.onResponseError(null, error);
+        else handler.onError?.(error);
+        return true;
+      },
+      compose: () => rogue,
+    };
+    const slot = await listen();
+    try {
+      for (const s of slots) if (g[s]) g[s] = rogue;
+      assert.isFalse(await fetchPassesThroughAppCalls());
+      await assert.rejects(
+        () =>
+          bootApp(
+            slot,
+            {
+              issuer: 'http://127.0.0.1:1',
+              clientId: 'x',
+              redirectUri: 'http://127.0.0.1/cb',
+              resolver: resolvers.jwt({ tokenSource: 'session' }),
+              orgLabels: false,
+              service: { name: 'orders', clientId: 'orders', clientSecret: 's' },
+            },
+            () => {},
+          ),
+        /does not go through the calls-between-apps interceptor/,
+      );
+    } finally {
+      slots.forEach((s, i) => {
+        if (saved[i] !== undefined) g[s] = saved[i];
+      });
+      await slot.close();
     }
   });
 

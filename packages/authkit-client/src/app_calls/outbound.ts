@@ -124,6 +124,12 @@ function withAuthorization(headers: unknown, value: string): unknown {
 
 type Dispatch = (opts: any, handler: any) => boolean;
 
+/** Fails a dispatch, whichever handler API (undici 7/8 controller-style, or legacy) it has. */
+function failHandler(handler: any, error: unknown): void {
+  if (typeof handler?.onResponseError === 'function') handler.onResponseError(null, error);
+  else handler?.onError?.(error);
+}
+
 /**
  * The undici interceptor: for a request whose origin is exactly a known app (the static
  * `apps` map, else the published discovery), and that has no `Authorization` of its own, adds `Authorization: Bearer <token for that app>`.
@@ -142,6 +148,11 @@ export function appCallsInterceptor(options: {
   return (dispatch: Dispatch): Dispatch =>
     function agoraAppCalls(opts, handler) {
       const origin = originOf(opts?.origin);
+      if (origin === PROBE_ORIGIN) {
+        probeHits += 1;
+        failHandler(handler, new Error('agora app-calls probe'));
+        return true;
+      }
       const app = origin ? appForOrigin(origin, options.origins) : undefined;
       if (!app || tokenScope.getStore() || hasAuthorization(opts.headers)) {
         return dispatch(opts, handler);
@@ -154,19 +165,25 @@ export function appCallsInterceptor(options: {
               handler,
             );
           } catch (error) {
-            handler.onResponseError?.(null, error);
+            failHandler(handler, error);
           }
         },
-        (error) => {
-          if (typeof handler.onResponseError === 'function') handler.onResponseError(null, error);
-          else handler.onError?.(error);
-        },
+        (error) => failHandler(handler, error),
       );
       return true;
     };
 }
 
-const DISPATCHER = Symbol.for('undici.globalDispatcher.1');
+/**
+ * Where Node's bundled undici keeps the global dispatcher. undici 7 (Node 24 up to its
+ * 7.x line) reads `.1`; undici 8 (Node 26, recent Node 24) reads `.2` for `fetch` and keeps
+ * a legacy wrapper on `.1` for undici@7 code. Every slot present is composed: a request
+ * that went through two of them still gets one token (the second sees `Authorization`).
+ */
+const DISPATCHER_SLOTS = [
+  Symbol.for('undici.globalDispatcher.2'),
+  Symbol.for('undici.globalDispatcher.1'),
+];
 
 interface DispatcherLike {
   dispatch: Dispatch;
@@ -174,24 +191,71 @@ interface DispatcherLike {
 }
 
 /**
- * Composes `interceptor` onto the global dispatcher (the one `fetch` uses). Returns a
- * function that takes it out again, or `null` when this Node.js has no composable global
- * dispatcher.
+ * Node's bundled undici installs the global dispatcher when it loads, which happens on the
+ * first `fetch()` CALL (reading `fetch` is not enough on Node 26). It must be loaded before
+ * composing: undici 8, on load, finds no `.2` and REPLACES `.1` too (with a wrapper of a new
+ * Agent), dropping whatever had been composed onto a `.1` set earlier (e.g. by the npm
+ * `undici@7`). A `data:` URL loads it without touching the network.
+ */
+function loadBundledUndici(store: Record<symbol, unknown>): void {
+  if (store[DISPATCHER_SLOTS[0]!]) return;
+  try {
+    globalThis.fetch('data:,').catch(() => {});
+  } catch {
+    // no fetch: nothing to compose
+  }
+}
+
+/**
+ * Composes `interceptor` onto the global dispatcher(s) `fetch` uses. Returns a function that
+ * takes it out again, or `null` when this Node.js has no composable global dispatcher.
  */
 export function composeGlobalDispatcher(
   interceptor: (dispatch: Dispatch) => Dispatch,
 ): (() => void) | null {
   const store = globalThis as unknown as Record<symbol, DispatcherLike | undefined>;
-  // Reading `fetch` loads Node's bundled undici, which installs the default dispatcher.
-  void globalThis.fetch;
-  const previous = store[DISPATCHER];
-  if (!previous || typeof previous.compose !== 'function') return null;
-  const composed = previous.compose(interceptor);
-  store[DISPATCHER] = composed;
-  return () => {
+  loadBundledUndici(store);
+  const undo: Array<() => void> = [];
+  for (const slot of DISPATCHER_SLOTS) {
+    const previous = store[slot];
+    if (!previous || typeof previous.compose !== 'function') continue;
+    const composed = previous.compose(interceptor);
+    store[slot] = composed;
     // Only when nothing else was composed on top of it since.
-    if (store[DISPATCHER] === composed) store[DISPATCHER] = previous;
+    undo.push(() => {
+      if (store[slot] === composed) store[slot] = previous;
+    });
+  }
+  if (!undo.length) return null;
+  return () => {
+    for (const fn of undo) fn();
   };
+}
+
+/** The global `fetch` does not go through the app-calls interceptor. Fails the start. */
+export class AppCallsInstallError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AppCallsInstallError';
+  }
+}
+
+/** Origin the self-check fetches: answered by the interceptor, never by the network. */
+const PROBE_ORIGIN = 'http://agora-app-calls-probe.invalid';
+let probeHits = 0;
+
+/**
+ * `true` when the global `fetch` really goes through the app-calls interceptor (a request
+ * to a reserved `.invalid` origin that only the interceptor answers; no network).
+ */
+export async function fetchPassesThroughAppCalls(): Promise<boolean> {
+  const before = probeHits;
+  try {
+    await globalThis.fetch(`${PROBE_ORIGIN}/`, { signal: AbortSignal.timeout(5_000) });
+  } catch {
+    // expected: the interceptor fails the probe on purpose
+  }
+  return probeHits > before;
 }
 
 /** Minimal shape of a `node:http` `ClientRequest` at creation. */

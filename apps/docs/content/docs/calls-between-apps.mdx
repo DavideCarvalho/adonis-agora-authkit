@@ -72,6 +72,10 @@ const res = await fetch('https://billing.example.com/internal/invoices', {
 - When the token cannot be obtained (client disabled, app not granted), the `fetch` fails
   instead of leaving without it.
 
+When the app starts, AuthKit checks that the global `fetch` really goes through its
+interceptor; if another library replaced the global dispatcher instead of composing onto it,
+the start fails with an explicit error rather than letting calls go out unauthenticated.
+
 `node:http` / `node:https` clients (axios, got) are covered with `service.nodeHttp: true`.
 Their tokens are fetched ahead (at boot for the apps in `apps`, as soon as service discovery
 announces an app) and refreshed before they expire. A request to a known app whose token is
