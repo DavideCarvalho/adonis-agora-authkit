@@ -59,6 +59,8 @@ export interface ClientInput {
     partition: string;
     capabilities?: string[];
     environment?: string | null;
+    /** Apps it may call: target app name → capabilities on it (`urn:agora:app:<name>`). */
+    apps?: Record<string, string[]> | null;
   } | null;
   /**
    * Escopos que o client pode pedir (`scope`). Ausente = qualquer escopo do IdP. No update, `null`
@@ -250,6 +252,37 @@ export class AdminClientsService {
     }
     await this.#adapter.upsert(clientId, payload, 0);
     await this.oidc.evictDynamicClientCache();
+  }
+
+  /**
+   * Lets a service tenant call another app (calls between apps): with `capabilities`, the
+   * client may get tokens for `urn:agora:app:<app>` carrying them; `null` takes the grant
+   * away. Returns the updated client, or `undefined` when it does not exist. Throws
+   * `ClientMetadataError` for a client that is not a service tenant or an invalid input.
+   */
+  async setAppGrant(
+    clientId: string,
+    app: string,
+    capabilities: string[] | null,
+  ): Promise<AdminClient | undefined> {
+    const existing = await this.find(clientId);
+    if (!existing) return undefined;
+    const tenant = existing.serviceTenant;
+    if (!tenant) {
+      throw new ClientMetadataError(`client ${clientId} is not a service tenant`);
+    }
+    const apps = { ...(tenant.apps ?? {}) };
+    if (capabilities === null) delete apps[app];
+    else apps[app] = capabilities;
+    await this.update(clientId, {
+      serviceTenant: {
+        partition: tenant.partition,
+        capabilities: tenant.capabilities,
+        environment: tenant.environment ?? null,
+        apps,
+      },
+    });
+    return this.find(clientId);
   }
 
   /**

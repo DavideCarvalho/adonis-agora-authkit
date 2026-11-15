@@ -20,6 +20,7 @@
     "mcp-clients",
     "device-flow",
     "service-tenants",
+    "calls-between-apps",
     "personal-agents",
     "personal-agents-poppy",
     "native-apps",

@@ -3,7 +3,11 @@ import type { OidcAdapter } from '../adapters/adapter_contract.js';
 import type { OidcAdapterClass } from '../adapters/factory.js';
 import type { AuditSink } from '../audit/audit_sink.js';
 import { type ServiceTenantInfo, serviceTenantOf } from './client_metadata.js';
-import { findServiceTenantResource, type ResolvedServiceTenantsConfig } from './config.js';
+import {
+  appResourceName,
+  findServiceTenantResource,
+  type ResolvedServiceTenantsConfig,
+} from './config.js';
 
 export interface ServiceTenantHooksDeps {
   serviceTenants: ResolvedServiceTenantsConfig;
@@ -30,7 +34,9 @@ export interface ServiceTenantResourceServerInfo {
  *   it sends no `resource` and exactly one is declared, that one is used). One client may
  *   get tokens for every declared resource (one client per app, not per product);
  * - its tokens carry the `partition` (and `capabilities`, `environment`) claims read from the client
- *   at issuance time, so an edit applies to the next token.
+ *   at issuance time, so an edit applies to the next token;
+ * - calls between apps: `urn:agora:app:<name>` is granted only to a service tenant whose
+ *   `apps` lists `<name>`; `partition` is the caller, `capabilities` its grant on that app.
  */
 export function createServiceTenantHooks(deps: ServiceTenantHooksDeps) {
   const { serviceTenants } = deps;
@@ -60,6 +66,9 @@ export function createServiceTenantHooks(deps: ServiceTenantHooksDeps) {
     return pending;
   };
 
+  /** The target app of an app resource, when calls between apps are on. */
+  const appOf = (indicator: string) => (serviceTenants.apps ? appResourceName(indicator) : null);
+
   return {
     enabled: serviceTenants.enabled,
 
@@ -88,8 +97,22 @@ export function createServiceTenantHooks(deps: ServiceTenantHooksDeps) {
       signAlg: string,
     ): Promise<ServiceTenantResourceServerInfo | undefined> {
       if (!serviceTenants.enabled) return undefined;
-      const found = findServiceTenantResource(serviceTenants, indicator);
       const tenant = await tenantOf(ctx, client?.clientId);
+      const app = appOf(indicator);
+      if (app) {
+        const grantType = ctx?.oidc?.params?.grant_type;
+        if (!tenant || grantType !== 'client_credentials' || !tenant.apps?.[app]) {
+          throw new errors.InvalidTarget(`resource indicator not allowed: ${indicator}`);
+        }
+        return {
+          scope: '',
+          audience: indicator,
+          accessTokenFormat: 'jwt',
+          accessTokenTTL: serviceTenants.apps!.expiresIn,
+          jwt: { sign: { alg: signAlg } },
+        };
+      }
+      const found = findServiceTenantResource(serviceTenants, indicator);
       if (found) {
         const grantType = ctx?.oidc?.params?.grant_type;
         if (!tenant || grantType !== 'client_credentials') {
@@ -120,10 +143,17 @@ export function createServiceTenantHooks(deps: ServiceTenantHooksDeps) {
       const rs = token.resourceServer;
       const indicator: unknown = typeof rs?.identifier === 'function' ? rs.identifier() : undefined;
       if (typeof indicator !== 'string') return undefined;
-      const found = findServiceTenantResource(serviceTenants, indicator);
-      if (!found) return undefined;
+      const app = appOf(indicator);
+      const found = app ? null : findServiceTenantResource(serviceTenants, indicator);
+      if (!app && !found) return undefined;
       const tenant = await tenantOf(ctx, token.clientId);
       if (!tenant) return undefined;
+      // App resource: the capabilities are the grant on that app (re-read at issuance).
+      const appCapabilities = app ? tenant.apps?.[app] : undefined;
+      if (app && !appCapabilities) return undefined;
+      const capabilities = appCapabilities ?? tenant.capabilities;
+      const resource = app ? indicator : found!.key;
+      const expiresIn = app ? serviceTenants.apps!.expiresIn : found!.resource.expiresIn;
       try {
         await deps.audit
           ?.record({
@@ -132,9 +162,10 @@ export function createServiceTenantHooks(deps: ServiceTenantHooksDeps) {
             ip: typeof ctx?.ip === 'string' ? ctx.ip : null,
             metadata: {
               partition: tenant.partition,
-              resource: found.key,
+              resource,
+              ...(app ? { app } : {}),
               jti: token.jti,
-              expiresIn: found.resource.expiresIn,
+              expiresIn,
             },
           })
           .catch(() => {});
@@ -143,7 +174,7 @@ export function createServiceTenantHooks(deps: ServiceTenantHooksDeps) {
       }
       return {
         partition: tenant.partition,
-        ...(tenant.capabilities.length ? { capabilities: tenant.capabilities } : {}),
+        ...(capabilities.length ? { capabilities } : {}),
         ...(tenant.environment ? { environment: tenant.environment } : {}),
       };
     },

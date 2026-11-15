@@ -1,5 +1,6 @@
 import type { Identity, RunAccountExtensionCallOptions } from '@adonis-agora/authkit-core';
 import { configProvider } from '@adonisjs/core';
+import { type ResolvedAppCalls, resolveAppCalls, type ServiceInput } from './app_calls/config.js';
 import type { SessionIndex } from './backchannel_logout.js';
 import type { OidcEndpoints } from './discovery.js';
 import type { ResiliencePolicy } from './http/resilient_fetch.js';
@@ -113,6 +114,20 @@ export interface ClientConfigInput {
    * and authkit-server does not run in this app. `false` turns it off. Default: on.
    */
   orgLabels?: false | ClientOrgLabelsConfig;
+  /**
+   * This app as a service, for calls between apps: its `name` (requests carrying a token
+   * for `urn:agora:app:<name>` get `ctx.agora.caller`) and the `clientId`/`clientSecret` of
+   * its service-tenant client (to call other apps: found by the published service
+   * discovery, or in `apps`). See {@link ServiceInput}.
+   */
+  service?: ServiceInput;
+  /**
+   * Apps by origin, name → origin: `{ billing: 'https://billing.example.com' }`. Overrides
+   * the published service discovery (telescope), and is the whole answer without one. A
+   * plain `fetch` to exactly a known app's origin carries a token for that app; nothing is
+   * added for any other origin. Needs `service` with credentials.
+   */
+  apps?: Record<string, string>;
 }
 
 /** `orgLabels` in `config/authkit_client.ts`. */
@@ -149,10 +164,13 @@ export interface ResolvedClientConfig {
   accountConsole?: ClientAccountConsoleConfig;
   /** See {@link ClientConfigInput.orgLabels}. Absent means on with the defaults. */
   orgLabels?: false | ClientOrgLabelsConfig;
+  /** Calls between apps (`service` + `apps`). Absent when `service` is not configured. */
+  appCalls?: ResolvedAppCalls;
 }
 
 export function defineConfig(config: ClientConfigInput) {
   return configProvider.create(async (): Promise<ResolvedClientConfig> => {
+    const appCalls = resolveAppCalls(config.service, config.apps);
     const store = config.backchannelLogout?.store;
 
     // Compõe o callback de back-channel: o store grava a revogação; o callback do
@@ -190,6 +208,7 @@ export function defineConfig(config: ClientConfigInput) {
       tenancy: config.tenancy ?? {},
       ...(config.accountConsole ? { accountConsole: config.accountConsole } : {}),
       ...(config.orgLabels !== undefined ? { orgLabels: config.orgLabels } : {}),
+      ...(appCalls ? { appCalls } : {}),
     };
   });
 }

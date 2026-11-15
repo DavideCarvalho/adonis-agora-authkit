@@ -303,7 +303,8 @@ permanent.
 | `client.secret_regenerated` | The secret was rotated from the console | `actor`, `partition` |
 | `client.updated` with `action: 'regenerate_secret'` | The secret was rotated from the Admin API or SDK | `actor`, `partition` |
 | `client.disabled` / `client.enabled` | The client was disabled or enabled | `actor`, `partition` |
-| `service_tenant.token_issued` | A token was issued | `partition`, `resource`, `jti`, `expiresIn` |
+| `client.updated` with `action: 'grant_app'` / `'revoke_app'` | Another app was granted or taken away | `actor`, `app`, `partition` |
+| `service_tenant.token_issued` | A token was issued | `partition`, `resource`, `app` (calls between apps), `jti`, `expiresIn` |
 
 Each one also reaches your [events](/docs/events) handlers.
 
@@ -313,3 +314,5 @@ Each one also reaches your [events](/docs/events) handlers.
   token whose `sub` is a client, and a service tenant gets no ID token or refresh token.
 - A service tenant cannot get a token for any other resource, and no other client can get a
   token for a service-tenant resource.
+
+To let one app call another with these clients, see [Calls between apps](/docs/calls-between-apps).

@@ -2,7 +2,17 @@ import { userInfo } from 'node:os';
 import { args, BaseCommand, flags } from '@adonisjs/core/ace';
 import type { CommandOptions } from '@adonisjs/core/types/ace';
 
-const ACTIONS = ['list', 'create', 'show', 'update', 'rotate-secret', 'revoke', 'delete'] as const;
+const ACTIONS = [
+  'list',
+  'create',
+  'show',
+  'update',
+  'rotate-secret',
+  'revoke',
+  'delete',
+  'grant-app',
+  'revoke-app',
+] as const;
 type Action = (typeof ACTIONS)[number];
 
 /** Quem agiu, nos eventos de auditoria: `cli:<usuário do SO>`. */
@@ -21,7 +31,7 @@ export function cliActor(): string {
 export default class AuthkitClient extends BaseCommand {
   static commandName = 'authkit:client';
   static description =
-    'Manage OAuth clients: list, create, show, update, rotate-secret, revoke, delete.';
+    'Manage OAuth clients: list, create, show, update, rotate-secret, revoke, delete, grant-app, revoke-app.';
 
   static help = [
     'Actions:',
@@ -32,6 +42,8 @@ export default class AuthkitClient extends BaseCommand {
     '  rotate-secret <id>   a new secret, printed ONCE (the old one stops working)',
     '  revoke <id>          disable it and cut its grants/tokens in every account',
     '  delete <id>          delete it',
+    '  grant-app <id>       let a service tenant call another app (--app, --capability)',
+    '  revoke-app <id>      take that away (--app)',
     '',
     'Examples:',
     '  node ace authkit:client list --json',
@@ -40,6 +52,9 @@ export default class AuthkitClient extends BaseCommand {
     '  node ace authkit:client create --client-id=my-api --redirect-uri=https://api/cb --scope=openid --scope=email',
     '  node ace authkit:client create --client-id=my-mobile --native --redirect-uri=com.example.app:/oauth',
     '  node ace authkit:client create --client-id=worker-acme --partition=acme --capability=reports',
+    '  node ace authkit:client create --client-id=orders --partition=orders --app=billing=invoices:read',
+    '  node ace authkit:client grant-app orders --app=billing --capability=invoices:read',
+    '  node ace authkit:client revoke-app orders --app=billing',
     '  node ace authkit:client update my-spa --redirect-uri=https://app/cb --redirect-uri=https://app/cb2',
     '  node ace authkit:client rotate-secret my-api --force',
     '  node ace authkit:client revoke https://claude.ai/oauth/claude-code-client-metadata --force',
@@ -111,6 +126,14 @@ export default class AuthkitClient extends BaseCommand {
   })
   declare environment?: string;
 
+  @flags.array({
+    flagName: 'app',
+    description:
+      'create: an app the service tenant may call, `name` or `name=cap1,cap2` (repeatable). ' +
+      'grant-app/revoke-app: the app.',
+  })
+  declare targetApp?: string[];
+
   @flags.boolean({
     description: 'list: only MCP clients (dynamic registration or metadata document).',
   })
@@ -167,6 +190,10 @@ export default class AuthkitClient extends BaseCommand {
         return this.#revoke(service, this.id!);
       case 'delete':
         return this.#delete(service, svc, this.id!);
+      case 'grant-app':
+        return this.#appGrant(service, svc, this.id!, true);
+      case 'revoke-app':
+        return this.#appGrant(service, svc, this.id!, false);
     }
   }
 
@@ -249,9 +276,18 @@ export default class AuthkitClient extends BaseCommand {
   async #create(service: any, svc: any) {
     const { ClientMetadataError } = await import('../src/host/client_metadata.js');
     const tenant =
-      this.partition !== undefined || !!this.capability?.length || this.environment !== undefined;
+      this.partition !== undefined ||
+      !!this.capability?.length ||
+      this.environment !== undefined ||
+      !!this.targetApp?.length;
     if (tenant && !this.partition) {
-      return this.#fail('--capability and --environment need --partition.');
+      return this.#fail('--capability, --environment and --app need --partition.');
+    }
+    let apps: Record<string, string[]> = {};
+    try {
+      apps = parseAppFlags(this.targetApp ?? []);
+    } catch (error) {
+      return this.#fail((error as Error).message);
     }
     if (tenant) {
       const conflicting = [
@@ -285,6 +321,7 @@ export default class AuthkitClient extends BaseCommand {
               partition: this.partition,
               capabilities: this.capability ?? [],
               ...(this.environment ? { environment: this.environment } : {}),
+              ...(Object.keys(apps).length ? { apps } : {}),
             },
           }
         : {
@@ -372,8 +409,43 @@ export default class AuthkitClient extends BaseCommand {
       lines.push(['partition', c.serviceTenant.partition]);
       lines.push(['capabilities', c.serviceTenant.capabilities.join(', ')]);
       if (c.serviceTenant.environment) lines.push(['environment', c.serviceTenant.environment]);
+      for (const [app, caps] of Object.entries(c.serviceTenant.apps ?? {})) {
+        lines.push([`calls ${app}`, (caps as string[]).join(', ') || '(no capabilities)']);
+      }
     }
     for (const [k, v] of lines) this.logger.info(`  ${k.padEnd(14)} ${v}`);
+  }
+
+  /** `grant-app` / `revoke-app`: which other apps a service tenant may call. */
+  async #appGrant(service: any, svc: any, id: string, grant: boolean) {
+    const { ClientMetadataError } = await import('../src/host/client_metadata.js');
+    const app = this.targetApp?.length === 1 ? this.targetApp[0]!.trim() : '';
+    if (!app || app.includes('=')) {
+      return this.#fail(`authkit:client ${this.action} needs exactly one --app=<name>.`);
+    }
+    let client: any;
+    try {
+      client = await svc.setAppGrant(id, app, grant ? (this.capability ?? []) : null);
+    } catch (error) {
+      if (error instanceof ClientMetadataError) return this.#fail(error.message);
+      throw error;
+    }
+    if (!client) return this.#fail(`Client ${id} not found.`);
+    await service.config.audit?.record({
+      type: 'client.updated',
+      clientId: id,
+      actorId: cliActor(),
+      ip: null,
+      metadata: {
+        actor: 'cli',
+        action: grant ? 'grant_app' : 'revoke_app',
+        app,
+        partition: client.serviceTenant?.partition,
+      },
+    });
+    if (this.json) return this.#print(this.#dto(client));
+    this.logger.success(grant ? `${id} may now call ${app}.` : `${id} may no longer call ${app}.`);
+    this.#describe(client);
   }
 
   async #show(service: any, svc: any, id: string) {
@@ -491,4 +563,24 @@ export default class AuthkitClient extends BaseCommand {
     if (this.json) return this.#print({ clientId: id, deleted: true });
     this.logger.success(`Client deleted: ${id}`);
   }
+}
+
+/** `--app=billing` / `--app=billing=invoices:read,invoices:write` → `{ billing: [...] }`. */
+export function parseAppFlags(values: string[]): Record<string, string[]> {
+  const apps: Record<string, string[]> = {};
+  for (const raw of values) {
+    const at = raw.indexOf('=');
+    const name = (at === -1 ? raw : raw.slice(0, at)).trim();
+    if (!name) throw new Error(`--app "${raw}" has no app name.`);
+    const caps =
+      at === -1
+        ? []
+        : raw
+            .slice(at + 1)
+            .split(',')
+            .map((c) => c.trim())
+            .filter(Boolean);
+    apps[name] = [...new Set([...(apps[name] ?? []), ...caps])];
+  }
+  return apps;
 }

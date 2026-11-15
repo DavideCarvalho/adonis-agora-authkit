@@ -1,0 +1,5 @@
+---
+'@adonis-agora/authkit-client': minor
+---
+
+Calls between apps, from config only. With `service: { name, clientId, clientSecret }` in `config/authkit_client.ts`, a plain `fetch` to another app carries a cached token for `urn:agora:app:<target>` (an undici interceptor composed onto the global dispatcher). The target comes from the service discovery published on `Symbol.for('@adonis-agora/discovery')` (telescope), or from the static `apps` map (name → origin), which overrides it. Exact origin only, never across a redirect to another origin, never over an `Authorization` the app set. `service.nodeHttp: true` covers `node:http`/`https` too. On the receiving app, `service: { name }` exposes the calling app as `ctx.agora.caller` / `getAgoraCaller(ctx)` (server middleware registered by the provider), and `authkitService({ capabilities?, apps? })` protects routes only other apps may call. User requests are untouched.

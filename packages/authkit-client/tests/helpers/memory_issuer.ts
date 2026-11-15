@@ -15,7 +15,10 @@ export interface MemoryIssuer {
   sign(claims: JWTPayload, options?: { typ?: string; key?: 'issuer' | 'foreign' }): Promise<string>;
   /** Requests the token endpoint received. */
   tokenRequests: Array<{ authorization: string | undefined; body: URLSearchParams }>;
-  tokenResponse: (body: URLSearchParams) => { status: number; body: unknown };
+  tokenResponse: (
+    body: URLSearchParams,
+    authorization: string | undefined,
+  ) => { status: number; body: unknown } | Promise<{ status: number; body: unknown }>;
   /** Answer discovery with this status instead of the document. */
   discoveryStatus?: number;
   close(): Promise<void>;
@@ -48,10 +51,10 @@ export async function startMemoryIssuer(): Promise<MemoryIssuer> {
       req.on('data', (c) => {
         raw += c;
       });
-      req.on('end', () => {
+      req.on('end', async () => {
         const body = new URLSearchParams(raw);
         state.tokenRequests.push({ authorization: req.headers.authorization, body });
-        const answer = state.tokenResponse(body);
+        const answer = await state.tokenResponse(body, req.headers.authorization);
         send(answer.status, answer.body);
       });
       return;

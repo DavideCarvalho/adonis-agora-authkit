@@ -13,6 +13,8 @@ import {
   ClientAccountExtensionRegistry,
   serveAccountExtensions,
 } from '../src/account_extensions.js';
+import { AppCallerVerifier, resolveAppCaller } from '../src/app_calls/inbound.js';
+import { type AppTokens, installAppCalls } from '../src/app_calls/outbound.js';
 import { Authenticator } from '../src/authenticator.js';
 import {
   type AuthorizationRequest,
@@ -645,6 +647,62 @@ export class AuthkitClientManager {
   }
 
   /**
+   * Verifies service tokens addressed to this app (`urn:agora:app:<service.name>`), or
+   * `null` when `service` is not configured.
+   */
+  appCallerVerifier(): AppCallerVerifier | null {
+    const calls = this.config.appCalls;
+    if (!calls) return null;
+    if (this.#appCallerVerifier) return this.#appCallerVerifier;
+    const { discovery, endpoints: overrides } = this.config;
+    this.#appCallerVerifier = new AppCallerVerifier({
+      issuer: this.config.issuer,
+      name: calls.name,
+      ...(calls.environment ? { environment: calls.environment } : {}),
+      discovery: {
+        ...(overrides ? { overrides } : {}),
+        ...(discovery !== false && discovery.cacheTtlMs !== undefined
+          ? { cacheTtlMs: discovery.cacheTtlMs }
+          : {}),
+        ...(this.config.resilience ? { resilience: this.config.resilience } : {}),
+        ...(this.deps.fetchImpl ? { fetchImpl: this.deps.fetchImpl } : {}),
+      },
+    });
+    return this.#appCallerVerifier;
+  }
+
+  #appCallerVerifier: AppCallerVerifier | undefined;
+
+  /**
+   * Sets `ctx.agora.caller` when the request carries a valid service token for this app
+   * (what the server middleware runs). No-op without `service`.
+   */
+  async resolveAppCaller(ctx: HttpContext): Promise<void> {
+    const verifier = this.appCallerVerifier();
+    if (verifier) await resolveAppCaller(ctx, verifier, this.#logger);
+  }
+
+  /**
+   * Installs the outbound side of calls between apps: `fetch` (and, with
+   * `service.nodeHttp`, `node:http`) requests to an app in `apps` carry its service token.
+   * `null` when there is nothing to install.
+   */
+  installAppCalls(): { tokens: AppTokens; uninstall: () => void } | null {
+    const calls = this.config.appCalls;
+    if (!calls) return null;
+    const { discovery, endpoints: overrides, issuer } = this.config;
+    const tokenEndpoint =
+      overrides?.tokenEndpoint ??
+      (discovery === false ? conventionEndpoints(issuer).tokenEndpoint : undefined);
+    return installAppCalls({
+      calls,
+      issuer,
+      ...(tokenEndpoint ? { tokenEndpoint } : {}),
+      warn: (message) => this.#logger.warn({}, message),
+    });
+  }
+
+  /**
    * The request's {@link Authenticator}. `options.resolver` replaces the configured
    * resolver for this authenticator only (e.g. a guard for bearer-token API routes).
    */
@@ -668,6 +726,8 @@ export class AuthkitClientManager {
 
 export default class AuthkitClientProvider {
   constructor(protected app: ApplicationService) {}
+
+  #uninstallAppCalls: (() => void) | undefined;
 
   register() {
     // Bound by class, like the first-party packages do, so `@inject()` works with
@@ -700,6 +760,29 @@ export default class AuthkitClientProvider {
         async () => registry as never,
       );
     }
+  }
+
+  /**
+   * Calls between apps, when `service` is configured: the server middleware that exposes
+   * `ctx.agora.caller` (no kernel edit) and the `fetch` interceptor that authenticates
+   * calls to the apps in `apps` (in every environment: jobs and commands call apps too).
+   */
+  async boot() {
+    let manager: AuthkitClientManager;
+    try {
+      manager = await this.app.container.make(AuthkitClientManager);
+    } catch {
+      return; // no usable config yet: nothing to install
+    }
+    if (!manager.appCallerVerifier()) return;
+    const server = await this.app.container.make('server');
+    server.use([() => import('../src/middleware/app_caller_middleware.js')]);
+    this.#uninstallAppCalls = manager.installAppCalls()?.uninstall;
+  }
+
+  async shutdown() {
+    this.#uninstallAppCalls?.();
+    this.#uninstallAppCalls = undefined;
   }
 
   /**

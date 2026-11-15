@@ -1,5 +1,7 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
+import vine from '@vinejs/vine';
+import { CAPABILITY_PATTERN, MAX_CAPABILITIES } from '../../service_tenants/client_metadata.js';
 import { AdminClientsService, type CreatedClient } from '../admin_clients_service.js';
 import {
   clientCreateInput,
@@ -23,6 +25,16 @@ async function clientsService(ctx: HttpContext) {
 function invalidMetadata(ctx: HttpContext, err: ClientMetadataError) {
   return ctx.response.unprocessableEntity(apiError('invalid_client_metadata', err.message));
 }
+
+/** `PUT /clients/:id/apps/:app` body. */
+const appGrantValidator = vine.compile(
+  vine.object({
+    capabilities: vine
+      .array(vine.string().trim().regex(CAPABILITY_PATTERN))
+      .maxLength(MAX_CAPABILITIES)
+      .optional(),
+  }),
+);
 
 /**
  * Recurso de clients OIDC da Admin REST API (R6). Reaproveita o
@@ -113,6 +125,45 @@ export default class ApiClientsController {
     } catch (e) {
       return ctx.response.conflict(apiError('cannot_regenerate', (e as Error).message));
     }
+  }
+
+  /**
+   * PUT /clients/:id/apps/:app — `{ capabilities?: string[] }`: the service tenant may call
+   * that app (tokens for `urn:agora:app:<app>`). DELETE takes the grant away.
+   */
+  async grantApp(ctx: HttpContext) {
+    const { capabilities } = await ctx.request.validateUsing(appGrantValidator);
+    return this.#setAppGrant(ctx, capabilities ?? []);
+  }
+
+  async revokeApp(ctx: HttpContext) {
+    return this.#setAppGrant(ctx, null);
+  }
+
+  async #setAppGrant(ctx: HttpContext, capabilities: string[] | null) {
+    const { service, svc } = await clientsService(ctx);
+    const id = ctx.request.param('id');
+    const app = ctx.request.param('app');
+    let client: Awaited<ReturnType<typeof svc.find>>;
+    try {
+      client = await svc.setAppGrant(id, app, capabilities);
+    } catch (err) {
+      if (err instanceof ClientMetadataError) return invalidMetadata(ctx, err);
+      throw err;
+    }
+    if (!client) return ctx.response.notFound(apiError('not_found', 'Client não encontrado.'));
+    await service.config.audit?.record({
+      type: 'client.updated',
+      clientId: id,
+      ip: ctx.request.ip?.() ?? null,
+      metadata: {
+        actor: 'admin-api',
+        action: capabilities === null ? 'revoke_app' : 'grant_app',
+        app,
+        ...(client.serviceTenant ? { partition: client.serviceTenant.partition } : {}),
+      },
+    });
+    return clientDto(client);
   }
 
   async disable(ctx: HttpContext) {

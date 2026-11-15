@@ -1,4 +1,5 @@
 import type { OidcAdapter } from '../adapters/adapter_contract.js';
+import { APP_NAME_PATTERN } from './config.js';
 
 /**
  * authkit-owned keys in a persisted `Client` payload. oidc-provider strips unknown
@@ -17,7 +18,16 @@ export interface ServiceTenantInfo {
   capabilities: string[];
   /** Environment the client acts in (`production`, `staging`, …). Emitted as the `environment` claim when set. */
   environment?: string;
+  /**
+   * Apps this client may call (calls between apps): target app name → capabilities on it.
+   * Each one lets the client get tokens for `urn:agora:app:<name>`, whose `capabilities`
+   * claim is that list (`partition` stays the client's own). Absent = none.
+   */
+  apps?: Record<string, string[]>;
 }
+
+/** At most this many target apps per client. */
+export const MAX_APPS = 64;
 
 /** Letters, digits, `.`, `_`, `:` and `-`; starts with a letter or digit; up to 128 chars. */
 export const PARTITION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -32,7 +42,7 @@ export function serviceTenantOf(
   payload: Record<string, unknown> | undefined | null,
 ): ServiceTenantInfo | null {
   const raw = payload?.[SERVICE_TENANT_KEY] as
-    | { partition?: unknown; capabilities?: unknown; environment?: unknown }
+    | { partition?: unknown; capabilities?: unknown; environment?: unknown; apps?: unknown }
     | undefined;
   if (!raw || typeof raw !== 'object') return null;
   if (typeof raw.partition !== 'string' || !PARTITION_PATTERN.test(raw.partition)) return null;
@@ -43,7 +53,59 @@ export function serviceTenantOf(
     typeof raw.environment === 'string' && ENVIRONMENT_PATTERN.test(raw.environment)
       ? raw.environment
       : undefined;
-  return { partition: raw.partition, capabilities, ...(environment ? { environment } : {}) };
+  const apps: Record<string, string[]> = {};
+  if (raw.apps && typeof raw.apps === 'object' && !Array.isArray(raw.apps)) {
+    for (const [name, caps] of Object.entries(raw.apps as Record<string, unknown>)) {
+      if (!APP_NAME_PATTERN.test(name)) continue;
+      apps[name] = Array.isArray(caps)
+        ? caps.filter((c): c is string => typeof c === 'string' && c.length > 0)
+        : [];
+    }
+  }
+  return {
+    partition: raw.partition,
+    capabilities,
+    ...(environment ? { environment } : {}),
+    ...(Object.keys(apps).length ? { apps } : {}),
+  };
+}
+
+/** Validates one capability list. Returns an error message or the normalized list. */
+function normalizeCapabilities(raw: unknown): string[] | string {
+  if (!Array.isArray(raw)) return 'capabilities must be an array of strings';
+  const capabilities: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== 'string') return 'capabilities must be an array of strings';
+    const cap = item.trim();
+    if (!CAPABILITY_PATTERN.test(cap)) {
+      return `capability "${cap}" is invalid: use letters, digits, ".", "_", ":", "*", "/" or "-" (max 128 chars)`;
+    }
+    if (!capabilities.includes(cap)) capabilities.push(cap);
+  }
+  if (capabilities.length > MAX_CAPABILITIES) {
+    return `at most ${MAX_CAPABILITIES} capabilities per client`;
+  }
+  return capabilities;
+}
+
+/** Validates the `apps` grants. Returns an error message or the normalized map. */
+function normalizeApps(raw: unknown): Record<string, string[]> | string {
+  if (raw === undefined || raw === null) return {};
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    return 'apps must map an app name to its capabilities';
+  }
+  const apps: Record<string, string[]> = {};
+  for (const [rawName, caps] of Object.entries(raw as Record<string, unknown>)) {
+    const name = rawName.trim();
+    if (!APP_NAME_PATTERN.test(name)) {
+      return `app "${name}" is invalid: use letters, digits, ".", "_" or "-" (max 64 chars)`;
+    }
+    const capabilities = normalizeCapabilities(caps ?? []);
+    if (typeof capabilities === 'string') return `apps.${name}: ${capabilities}`;
+    apps[name] = capabilities;
+  }
+  if (Object.keys(apps).length > MAX_APPS) return `at most ${MAX_APPS} apps per client`;
+  return apps;
 }
 
 /** `true` when the raw client payload is disabled. */
@@ -59,6 +121,7 @@ export function normalizeServiceTenant(input: {
   partition: string;
   capabilities?: string[];
   environment?: string | null;
+  apps?: Record<string, string[]> | null;
 }): ServiceTenantInfo | string {
   // Called directly too (not only behind the HTTP validators): check the types here.
   const rawPartition: unknown = input?.partition;
@@ -66,29 +129,22 @@ export function normalizeServiceTenant(input: {
   if (!PARTITION_PATTERN.test(partition)) {
     return `partition "${partition}" is invalid: use letters, digits, ".", "_", ":" or "-" (max 128 chars)`;
   }
-  const rawCapabilities: unknown = input.capabilities ?? [];
-  if (!Array.isArray(rawCapabilities)) return 'capabilities must be an array of strings';
-  const capabilities: string[] = [];
-  for (const raw of rawCapabilities) {
-    if (typeof raw !== 'string') return 'capabilities must be an array of strings';
-    const cap = raw.trim();
-    if (!CAPABILITY_PATTERN.test(cap)) {
-      return `capability "${cap}" is invalid: use letters, digits, ".", "_", ":", "*", "/" or "-" (max 128 chars)`;
-    }
-    if (!capabilities.includes(cap)) capabilities.push(cap);
-  }
-  if (capabilities.length > MAX_CAPABILITIES) {
-    return `at most ${MAX_CAPABILITIES} capabilities per client`;
-  }
+  const capabilities = normalizeCapabilities(input.capabilities ?? []);
+  if (typeof capabilities === 'string') return capabilities;
+  const apps = normalizeApps(input.apps);
+  if (typeof apps === 'string') return apps;
+  const withApps = Object.keys(apps).length ? { apps } : {};
   const rawEnvironment: unknown = input.environment ?? undefined;
-  if (rawEnvironment === undefined || rawEnvironment === '') return { partition, capabilities };
+  if (rawEnvironment === undefined || rawEnvironment === '') {
+    return { partition, capabilities, ...withApps };
+  }
   if (typeof rawEnvironment !== 'string') return 'environment must be a string';
   const environment = rawEnvironment.trim();
-  if (environment === '') return { partition, capabilities };
+  if (environment === '') return { partition, capabilities, ...withApps };
   if (!ENVIRONMENT_PATTERN.test(environment)) {
     return `environment "${environment}" is invalid: use letters, digits, ".", "_" or "-" (max 64 chars)`;
   }
-  return { partition, capabilities, environment };
+  return { partition, capabilities, environment, ...withApps };
 }
 
 /**

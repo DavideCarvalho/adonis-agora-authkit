@@ -1473,6 +1473,11 @@ export interface AuthServerConfigInput {
    * serviceTenants: { resources: { 'urn:agora:durable': { expiresIn: 600 } } }
    * ```
    *
+   * Calls between apps are on with it: a service tenant granted another app (`apps` on the
+   * client, from the console, the Admin API or `authkit:client grant-app`) gets tokens for
+   * `urn:agora:app:<name>`. `apps: false` turns that off; `apps: { expiresIn }` sets their
+   * lifetime (default 300 s). `serviceTenants: {}` turns on only calls between apps.
+   *
    * Turns on the `client_credentials` grant. Default: off.
    */
   serviceTenants?: ServiceTenantsConfigInput;
