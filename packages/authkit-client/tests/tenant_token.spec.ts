@@ -272,8 +272,10 @@ test.group('authkitTenantToken against authkit-server', (group) => {
       issuer: () => service as unknown as TenantTokenIssuer,
     });
     assert.deepEqual(await verify.verify({ token: jwt }), {
-      tenant: 'acme',
+      partition: 'acme',
       capabilities: ['reports'],
+      clientId: 'tenant-e2e',
+      expiresAt: claims.exp! * 1000,
     });
   });
 

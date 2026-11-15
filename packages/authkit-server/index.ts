@@ -741,8 +741,8 @@ export {
   type AuthkitTenantVerifierOptions,
   authkitTenantVerifier,
   type TenantTokenIssuer,
-  type TenantVerifierInput,
-  type VerifiedTenant,
+  type TenantVerifierRequest,
+  type VerifiedTenantToken,
 } from './src/service_tenants/tenant_verifier.js';
 export {
   type AuthkitTenantLabelsOptions,

@@ -3,21 +3,30 @@ import { getBootedApp } from '../../services/booted_app.js';
 import type { ResolvedServiceTenantsConfig } from './config.js';
 
 /**
- * What a verified tenant token authenticates as. Same shape as `VerifiedTenant` in
- * `@adonis-agora/durable` (declared here: authkit never imports durable).
+ * What a verified tenant token authenticates as. The same shape as authkit-client's
+ * `VerifiedTenantToken`, so the in-process and the remote verifier are interchangeable in any
+ * Agora control plane's `verifyTenant`. Everything comes from the token, never the request.
  */
-export interface VerifiedTenant {
-  tenant: string;
-  capabilities?: string[] | undefined;
-  /** The token's `environment` claim, when it has one. */
-  environment?: string | undefined;
+export interface VerifiedTenantToken {
+  /** The `partition` claim: the app this tenant is. */
+  partition: string;
+  /** The `environment` claim, when the token has one. */
+  environment?: string;
+  /** The `capabilities` claim (product-defined). `[]` when absent. */
+  capabilities: string[];
+  /** The `client_id` of the service-tenant client. */
+  clientId: string;
+  /** Epoch ms at which the token expires. */
+  expiresAt: number;
 }
 
-/** The input a control plane hands to its tenant verifier. */
-export interface TenantVerifierInput {
+/** What a control plane hands to its tenant verifier. Only `token` is trusted, once verified. */
+export interface TenantVerifierRequest {
   /** The token the tenant presented. */
   token?: string | undefined;
-  /** The tenant the request claims to be. Advisory only: the token decides. */
+  /** The partition the request claims to be. Advisory only: the token decides. */
+  partition?: string | undefined;
+  /** Same as `partition` (the wire name some libs use). Advisory only. */
   tenant?: string | undefined;
 }
 
@@ -85,9 +94,8 @@ function audienceFor(issuer: TenantTokenIssuer, explicit: string | undefined): s
  * Verifies service-tenant tokens against the local authkit issuer and its JWKS (no
  * network call), and returns the tenant they authenticate as, or `null`.
  *
- * Satisfies durable's `TenantVerifierContract` (`verify(input)`); usable as a class in
- * `verifyTenant` (built by the container with the default options) or through
- * {@link authkitTenantVerifier}.
+ * Usable as a class in any Agora control plane's `verifyTenant` (built by the container with
+ * the default options) or through {@link authkitTenantVerifier}.
  */
 export class AuthkitTenantVerifier {
   #options: AuthkitTenantVerifierOptions;
@@ -107,8 +115,8 @@ export class AuthkitTenantVerifier {
     return this.#keySet;
   }
 
-  async verify(input: TenantVerifierInput): Promise<VerifiedTenant | null> {
-    const token = input?.token;
+  async verify(request: TenantVerifierRequest): Promise<VerifiedTenantToken | null> {
+    const token = request?.token;
     if (typeof token !== 'string' || !token) return null;
     const issuer = await (this.#options.issuer ?? defaultIssuer)();
     const audience = audienceFor(issuer, this.#options.audience);
@@ -143,41 +151,49 @@ export class AuthkitTenantVerifier {
     }
     // Pinned: fail closed, a token without the claim is not "this environment".
     if (this.#options.environment && environment !== this.#options.environment) return null;
-    const env = environment ? { environment } : {};
 
     const rawCapabilities = (payload as Record<string, unknown>)[
       this.#options.capabilitiesClaim ?? 'capabilities'
     ];
-    if (rawCapabilities === undefined) return { tenant: partition, ...env };
-    if (!Array.isArray(rawCapabilities) || rawCapabilities.some((c) => typeof c !== 'string')) {
+    if (
+      rawCapabilities !== undefined &&
+      (!Array.isArray(rawCapabilities) || rawCapabilities.some((c) => typeof c !== 'string'))
+    ) {
       return null;
     }
-    return { tenant: partition, capabilities: rawCapabilities as string[], ...env };
+    return {
+      partition,
+      ...(environment ? { environment: environment as string } : {}),
+      capabilities: (rawCapabilities as string[] | undefined) ?? [],
+      clientId,
+      expiresAt: (payload.exp as number) * 1000,
+    };
   }
 }
 
 /** A tenant verifier usable both as a function and as an object with `verify`. */
 export type AuthkitTenantVerifierFn = ((
-  input: TenantVerifierInput,
-) => Promise<VerifiedTenant | null>) & {
-  verify(input: TenantVerifierInput): Promise<VerifiedTenant | null>;
+  request: TenantVerifierRequest,
+) => Promise<VerifiedTenantToken | null>) & {
+  verify(request: TenantVerifierRequest): Promise<VerifiedTenantToken | null>;
 };
 
 /**
- * Tenant verifier for a durable control plane hosted by the authkit app:
+ * Tenant verifier for a control plane that runs in the authkit app itself (no discovery, no
+ * network call). On any other server use authkit-client's `authkitTenantVerifier`; both
+ * return the same `{ partition, environment?, capabilities, clientId, expiresAt }`.
  *
  * ```ts
  * // config/durable.ts
- * verifyTenant: authkitTenantVerifier()
+ * verifyTenant: authkitTenantVerifier({ audience: 'urn:agora:durable' })
  * ```
  *
- * The result is a function (durable's `TenantVerifier`) that also has `verify`
- * (durable's `TenantVerifierContract`).
+ * The result is a function that also has `verify` (the class form).
  */
 export function authkitTenantVerifier(
   options: AuthkitTenantVerifierOptions = {},
 ): AuthkitTenantVerifierFn {
   const verifier = new AuthkitTenantVerifier(options);
-  const verify = (input: TenantVerifierInput) => verifier.verify(input);
+  const verify = (request: TenantVerifierRequest) => verifier.verify(request);
   return Object.assign(verify, { verify });
 }

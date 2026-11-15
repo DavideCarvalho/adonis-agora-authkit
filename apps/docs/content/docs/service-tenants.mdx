@@ -164,7 +164,7 @@ behind it, or one without `partition`. Everything comes from the token, never fr
 
 `AuthkitTenantVerifier` is the class form (`super({ issuer, resource })`). The in-process
 `authkitTenantVerifier` of `@adonis-agora/authkit-server` takes the same `environment` option and
-returns the claim as `environment`.
+returns the same shape.
 
 ## Configure durable
 
@@ -184,13 +184,14 @@ export default defineConfig({
 ```
 
 It accepts a token when the signature, issuer, audience, `typ: at+jwt` and expiry check out and
-the token has a `partition`, and returns `{ tenant: partition, capabilities }`. Anything else
-returns `null`, so durable rejects the request.
+the token has a `partition`, and returns `{ partition, environment?, capabilities, clientId,
+expiresAt }`, the same as the authkit-client verifier. Anything else returns `null`, so durable
+rejects the request.
 
 With more than one resource in `serviceTenants.resources`, pass the one this control plane
 answers for: `authkitTenantVerifier({ audience: 'urn:agora:durable' })`.
 
-Prefer a class? `AuthkitTenantVerifier` implements durable's `TenantVerifierContract`:
+Prefer a class? `AuthkitTenantVerifier` has the `verify(request)` method `verifyTenant` accepts:
 
 ```ts title="app/tenants/verifier.ts"
 import { AuthkitTenantVerifier } from '@adonis-agora/authkit-server'
