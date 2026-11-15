@@ -45,7 +45,10 @@ export function DonutChart<T>({
   rowKey?: (row: T) => string;
   /** The slice size; negative and missing values count as zero. */
   value: (row: T) => number | null | undefined;
-  /** Any CSS colour; defaults to the kit palette by row position. */
+  /**
+   * Any CSS colour; defaults to the kit palette by row position. `index` is the row's position in
+   * `data` (dropped zero rows included), so a legend coloured over the same `data` matches.
+   */
   color?: (row: T, index: number) => string;
   /** What the value is, as the tooltip row label ("cost", "runs"). */
   valueLabel?: string;
@@ -69,7 +72,8 @@ export function DonutChart<T>({
       if (v === null || v === undefined || !Number.isFinite(v) || v <= 0) return;
       const name = label(row);
       out.push({
-        id: rowKey?.(row) ?? name,
+        // unique even when two rows share a name (the arc joins on this key)
+        id: rowKey?.(row) ?? `${name}\u0000${index}`,
         x: name,
         series: valueLabel,
         value: v,
