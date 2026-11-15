@@ -124,7 +124,9 @@ and pass their `createKeystoreVault(...)` result as `store` (any object with a
 `read()` method is accepted). With no `store` at all, keys are ephemeral per boot.
 
 Rotation tooling ships as `node ace authkit:key rotate`; health checks via
-`node ace authkit:doctor`.
+`node ace authkit:doctor`. The private keystore (and TOTP secrets) are sealed at rest with the
+app's `encryption` service; rotate the sealing key with `crypto: { keys: [new, old] }` and
+`node ace authkit:crypto:reseal` (docs `encryption-at-rest.mdx`).
 
 Source: `src/keys/keystore_manager.ts` (`resolveKeystoreVault`),
 `packages/authkit-core/src/types/server_config.ts` (`JwksConfig`), index.ts exports.

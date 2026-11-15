@@ -6,18 +6,34 @@ import type {
   verifyRegistrationResponse,
 } from '@simplewebauthn/server';
 import type { AuditSink } from '../../audit/audit_sink.js';
+import type { SealedStatus } from '../../crypto-kit/index.js';
 import type { PasswordManager } from '../../password/password_manager.js';
 import type { AuthAccount } from '../account_store.js';
+
+/** A conta dona do segredo: o default amarra o valor selado a ela. */
+export interface AccountSecretContext {
+  accountId: string;
+}
 
 /**
  * Encripta/decripta um valor (ex.: o segredo TOTP) em repouso. Mantém a lib
  * desacoplada do serviço de encryption do app — qualquer implementação que
- * faça round-trip serve (em prod, normalmente o `@adonisjs/core/services/encryption`).
- * `decrypt` retorna `null` se o valor foi adulterado/é inválido.
+ * faça round-trip serve (síncrona ou assíncrona). O default ({@link appKeyEncrypter}) é o
+ * crypto kit sobre a encryption do Adonis. `decrypt` retorna `null` se o valor foi
+ * adulterado/é inválido.
  */
 export interface AccountSecretEncrypter {
-  encrypt(value: string): string;
-  decrypt(value: string): string | null;
+  encrypt(value: string, context?: AccountSecretContext): string | Promise<string>;
+  decrypt(value: string, context?: AccountSecretContext): string | null | Promise<string | null>;
+  /** Como o valor está selado (encrypters do crypto kit): base de `authkit:crypto:reseal`. */
+  status?(value: string, context?: AccountSecretContext): Promise<SealedStatus>;
+}
+
+/** O encrypter default (crypto kit): sempre assíncrono, e sabe dizer como um valor está selado. */
+export interface KitAccountSecretEncrypter extends AccountSecretEncrypter {
+  encrypt(value: string, context?: AccountSecretContext): Promise<string>;
+  decrypt(value: string, context?: AccountSecretContext): Promise<string | null>;
+  status(value: string, context?: AccountSecretContext): Promise<SealedStatus>;
 }
 
 /**
@@ -77,10 +93,10 @@ export interface LucidStoreContext {
   Model: any;
   mfaIssuer: string;
   recoveryCodeCount: number;
-  /** Encripta o segredo antes de persistir (no-op sem encrypter). */
-  sealSecret(secret: string): string;
+  /** Encripta o segredo da conta antes de persistir (no-op sem encrypter). */
+  sealSecret(secret: string, accountId: string): Promise<string>;
   /** Decripta o segredo armazenado; null em falha/adulteração (no-op sem encrypter). */
-  openSecret(stored: string | null | undefined): string | null;
+  openSecret(stored: string | null | undefined, accountId: string): Promise<string | null>;
   toAccount(row: any): AuthAccount;
   /**
    * Gerência de senha: validação de política/vazamento (ao definir) e
@@ -260,6 +276,25 @@ export function buildMfaStateRepo(
           .table(table())
           .insert({ account_id: accountId, ...update });
       }
+    },
+
+    /** Todo segredo TOTP gravado (`authkit:crypto:reseal`). */
+    async listSecrets(): Promise<{ accountId: string; value: string }[]> {
+      const rows = await client().from(table()).select('account_id', 'totp_secret');
+      return rows
+        .filter((row: any) => typeof row.totp_secret === 'string' && row.totp_secret !== '')
+        .map((row: any) => ({ accountId: String(row.account_id), value: row.totp_secret }));
+    },
+
+    /** Troca o segredo selado se ainda for `from` (compare-and-swap). `false`: mudou no meio. */
+    async replaceSecret(accountId: string, from: string, to: string): Promise<boolean> {
+      const affected = await client()
+        .from(table())
+        .where('account_id', accountId)
+        .where('totp_secret', from)
+        .update({ totp_secret: to });
+      const count = Array.isArray(affected) ? (affected[0] ?? 0) : affected;
+      return Number(count ?? 0) > 0;
     },
 
     /** Remove o estado de MFA da conta (disable / reset total). No-op se ausente. */

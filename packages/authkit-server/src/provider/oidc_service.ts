@@ -5,6 +5,11 @@ import mount from 'koa-mount';
 import type { ActiveOrgInfo } from '../accounts/account_store.js';
 import { ProviderIdentities } from '../accounts/provider_identities.js';
 import type { JsonFetcher } from '../cimd/safe_fetch.js';
+import type {
+  AccountSecretsCapability,
+  ResealOptions,
+  SealedColumnReport,
+} from '../crypto/authkit_crypto.js';
 import type { ResolvedServerConfig } from '../define_config.js';
 import {
   normalizeActiveOrg,
@@ -465,6 +470,30 @@ export class OidcService {
     const build = this.#deps.keystoreManager;
     if (!build) return null;
     return (await build()).plan(keep, retire);
+  }
+
+  /**
+   * O que o AuthKit guarda selado em repouso — o keystore (chaves privadas do JWKS) e os
+   * segredos TOTP (`auth_mfa.totp_secret`) — por coluna: quantos estão na chave atual, numa
+   * antiga, no formato anterior ou ilegíveis. Sem `report`, sela de novo os que não estão na
+   * chave atual (`all`: todos). `authkit:crypto:reseal` e o doctor `authkit.crypto`.
+   */
+  async sealedAtRest(
+    options: ResealOptions & { report?: boolean } = {},
+  ): Promise<{ dryRun: boolean; columns: SealedColumnReport[] }> {
+    const columns: SealedColumnReport[] = [];
+    const build = this.#deps.keystoreManager;
+    if (build) {
+      const manager = await build();
+      const keystore = options.report
+        ? await manager.sealedReport()
+        : await manager.reseal(options);
+      if (keystore) columns.push(keystore);
+    }
+    const secrets = (this.#config.accountStore as { accountSecrets?: AccountSecretsCapability })
+      ?.accountSecrets;
+    if (secrets) columns.push(await secrets.reseal(options));
+    return { dryRun: options.dryRun === true && !options.report, columns };
   }
 
   /** `true` quando o JWKS é managed com um keystore persistido (rotacionável). */

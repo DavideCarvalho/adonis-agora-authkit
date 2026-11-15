@@ -1,4 +1,13 @@
 import type { AuditSink } from '../audit/audit_sink.js';
+import {
+  ACCOUNT_SECRETS_PURPOSE,
+  type AccountSecretsCapability,
+  type AuthkitCryptoConfig,
+  authkitKeyring,
+  BIND_CRYPTO,
+  emptyColumnReport,
+} from '../crypto/authkit_crypto.js';
+import { type Keyring, open, SEALED_PREFIX, seal, sealedStatus } from '../crypto-kit/index.js';
 import { type PasswordConfigInput, PasswordManager } from '../password/password_manager.js';
 import type { FetchLike, PwnedLogger } from '../password/pwned.js';
 import {
@@ -20,8 +29,11 @@ import { buildOrganizations } from './lucid_store/organizations.js';
 import { buildPasswordExpiration, buildPasswordHistory } from './lucid_store/password_hygiene.js';
 import { buildProviderIdentity } from './lucid_store/provider_identity.js';
 import {
+  type AccountSecretContext,
   type AccountSecretEncrypter,
+  buildMfaStateRepo,
   defaultWebauthnCeremonies,
+  type KitAccountSecretEncrypter,
   type LucidStoreContext,
   type WebauthnCeremonies,
 } from './lucid_store/shared.js';
@@ -34,7 +46,12 @@ import {
 } from './lucid_store/status_profile.js';
 import { buildWebauthn } from './lucid_store/webauthn.js';
 
-export type { AccountSecretEncrypter, WebauthnCeremonies };
+export type {
+  AccountSecretContext,
+  AccountSecretEncrypter,
+  KitAccountSecretEncrypter,
+  WebauthnCeremonies,
+};
 
 /**
  * TTLs dos tokens de verificação de e-mail / troca de e-mail (plan 009).
@@ -74,7 +91,7 @@ export function resolveEmailTokens(input?: EmailTokensConfigInput): ResolvedEmai
 }
 
 /**
- * Serviço de encryption do app (APP_KEY), carregado LAZY via import dinâmico.
+ * Serviço de encryption do app (`config/encryption.ts`), carregado LAZY via import dinâmico.
  *
  * Não importamos `@adonisjs/core/services/encryption` no topo do módulo de
  * propósito: esse módulo faz `await app.booted()` na carga, o que quebra em
@@ -83,11 +100,13 @@ export function resolveEmailTokens(input?: EmailTokensConfigInput): ResolvedEmai
  * em testes sem app, onde o import rejeita) o encrypter degrada p/ plaintext.
  */
 interface EncryptionService {
-  encrypt(value: string): string;
-  decrypt<T = string>(value: string): T | null;
+  encrypt(value: unknown, options?: { purpose?: string }): string;
+  decrypt<T = string>(value: string, purpose?: string): T | null;
 }
 let encSvc: EncryptionService | undefined;
 let encLoading: Promise<void> | undefined;
+/** Muda a cada troca do serviço (testes): os keyrings em cache são refeitos. */
+let encGeneration = 0;
 /** Resolve quando o `loadEncryption()` corrente terminar (sucesso OU falha). */
 function loadEncryption(): Promise<void> {
   if (encSvc) return Promise.resolve();
@@ -95,6 +114,7 @@ function loadEncryption(): Promise<void> {
   encLoading = import('@adonisjs/core/services/encryption')
     .then((m) => {
       encSvc = (m as { default: EncryptionService }).default;
+      if (encSvc) encGeneration++;
     })
     .catch(() => {
       /* sem app booted (ex.: testes) → encSvc fica undefined → plaintext */
@@ -106,6 +126,7 @@ function loadEncryption(): Promise<void> {
 export function __resetAppKeyEncryption(): void {
   encSvc = undefined;
   encLoading = undefined;
+  encGeneration++;
   appKeyEncrypterPlaintextWarned = false;
 }
 
@@ -118,61 +139,84 @@ export function __resetAppKeyEncryption(): void {
 export function __setAppKeyEncryptionForTesting(svc: EncryptionService | undefined): void {
   encSvc = svc;
   encLoading = Promise.resolve();
+  encGeneration++;
 }
 
 /** Garante que só logamos UMA vez o aviso de degradação para plaintext (evita flood). */
 let appKeyEncrypterPlaintextWarned = false;
 
+/** O que amarra um segredo à sua linha: copiado para outra conta, não abre. */
+const totpAad = (context?: AccountSecretContext) =>
+  context?.accountId === undefined ? undefined : `auth_mfa.totp_secret:${context.accountId}`;
+
 /**
- * Encrypter default do AuthKit, baseado no `APP_KEY` (`@adonisjs/core/services/encryption`).
- * É o default do {@link lucidAccountStore} — o segredo TOTP é encriptado em repouso
- * sem nenhum wiring no app. Passe `encrypter: false` p/ desligar (plaintext).
+ * Encrypter default do AuthKit: o crypto kit sobre a encryption do Adonis (o serviço
+ * `encryption` do app, ou `crypto.keys`/`crypto.encryption` de `config/authkit.ts`), propósito
+ * `authkit:account-secrets`, cada segredo amarrado à conta. Segredos gravados por versões
+ * anteriores (a encryption do app, sem propósito) continuam abrindo. É o default do
+ * {@link lucidAccountStore}; passe `encrypter: false` p/ desligar (plaintext).
  *
- * Resiliente: enquanto o serviço de encryption não está disponível (boot inicial /
- * testes sem app), opera em plaintext; uma vez carregado, encripta de verdade.
+ * Resiliente: enquanto nenhuma encryption está disponível (boot inicial / testes sem app),
+ * opera em plaintext (com um aviso); uma vez carregada, sela de verdade.
  */
-export function appKeyEncrypter(): AccountSecretEncrypter {
-  // Dispara o carregamento do serviço de encryption no boot. A primeira request
-  // já o encontra pronto; o `await` interno de `loadEncryption()` é exposto para
-  // call-sites que precisem garantir o serviço antes de aceitar escrita.
+export function appKeyEncrypter(
+  options: { crypto?: () => AuthkitCryptoConfig | undefined } = {},
+): KitAccountSecretEncrypter {
+  // Dispara o carregamento do serviço de encryption no boot.
   loadEncryption();
+  let cached: { key: unknown; generation: number; ring: Promise<Keyring | undefined> } | undefined;
+  const keyring = async (): Promise<Keyring | undefined> => {
+    await loadEncryption();
+    const crypto = options.crypto?.();
+    if (!cached || cached.key !== crypto || cached.generation !== encGeneration) {
+      const hasSource = !!(crypto?.keys?.length || crypto?.encryption || encSvc);
+      cached = {
+        key: crypto,
+        generation: encGeneration,
+        ring: hasSource
+          ? authkitKeyring(ACCOUNT_SECRETS_PURPOSE, crypto, encSvc)
+          : Promise.resolve(undefined),
+      };
+    }
+    return cached.ring;
+  };
   return {
-    encrypt: (value) => {
-      try {
-        if (encSvc) return encSvc.encrypt(value);
-        // M4: degradação para plaintext NÃO é silenciosa. Em vez de gravar o
-        // segredo em claro sem rastro, logamos um aviso CLARO (uma vez) para que
-        // o operador detecte a anomalia. O valor ainda é retornado as-is para não
-        // quebrar contextos de boot/teste sem app, mas o sinal fica visível.
-        if (!appKeyEncrypterPlaintextWarned) {
-          appKeyEncrypterPlaintextWarned = true;
-          console.warn(
-            '[authkit] appKeyEncrypter: serviço de encryption indisponível — ' +
-              'segredo TOTP sendo gravado em PLAINTEXT. Garanta que o app esteja ' +
-              'booted antes da primeira escrita, ou passe `encrypter: false` para ' +
-              'opt-out explícito.',
-          );
-        }
-        return value;
-      } catch {
-        return value;
+    async encrypt(value, context) {
+      const ring = await keyring();
+      if (ring) return seal(ring, value, aadOf(context));
+      // M4: degradação para plaintext NÃO é silenciosa: um aviso CLARO (uma vez).
+      if (!appKeyEncrypterPlaintextWarned) {
+        appKeyEncrypterPlaintextWarned = true;
+        console.warn(
+          '[authkit] appKeyEncrypter: serviço de encryption indisponível — ' +
+            'segredo TOTP sendo gravado em PLAINTEXT. Garanta que o app esteja ' +
+            'booted antes da primeira escrita, ou passe `encrypter: false` para ' +
+            'opt-out explícito.',
+        );
       }
+      return value;
     },
-    decrypt: (value) => {
+    async decrypt(value, context) {
       try {
-        // Com serviço: decrypt real; falha de integridade/formato → null (negar).
-        if (encSvc) return encSvc.decrypt<string>(value) ?? null;
-        // Sem serviço (boot/teste sem app): o valor foi gravado em plaintext (ver
-        // encrypt acima), então devolvê-lo as-is é o round-trip correto.
-        return value;
+        const ring = await keyring();
+        // Sem encryption (boot/teste sem app): o valor foi gravado em plaintext (ver encrypt).
+        if (!ring) return value.startsWith(SEALED_PREFIX) ? null : value;
+        return await open(ring, value, aadOf(context));
       } catch {
-        // M4 (fail-closed): adulteração / ciphertext inválido NÃO degrada para o
-        // valor cru (que mascararia a adulteração e poderia devolver o ciphertext
-        // como se fosse o segredo). Negamos o fator retornando null.
+        // M4 (fail-closed): adulteração / chave errada NÃO degrada para o valor cru.
         return null;
       }
     },
+    async status(value, context) {
+      const ring = await keyring();
+      return ring ? sealedStatus(ring, value, aadOf(context)) : 'unreadable';
+    },
   };
+
+  function aadOf(context: AccountSecretContext | undefined) {
+    const aad = totpAad(context);
+    return aad === undefined ? {} : { aad };
+  }
 }
 
 /** Opções do {@link lucidAccountStore}. */
@@ -376,8 +420,12 @@ export function lucidAccountStore(
   const recoveryCodeCount = options.recoveryCodeCount ?? 8;
   const emailTokens = resolveEmailTokens(options.emailTokens);
   // Default seguro: encripta o TOTP com APP_KEY. `false` desliga (plaintext).
+  // O `defineConfig` informa o `crypto` de config/authkit.ts via BIND_CRYPTO (o store nasce antes).
+  let boundCrypto: AuthkitCryptoConfig | undefined;
   const encrypter =
-    options.encrypter === false ? undefined : (options.encrypter ?? appKeyEncrypter());
+    options.encrypter === false
+      ? undefined
+      : (options.encrypter ?? appKeyEncrypter({ crypto: () => boundCrypto }));
   const ProviderIdentityModel = options.providerIdentityModel;
   const WebauthnCredentialModel = options.webauthnCredentialModel;
   // Organizations é padrão: ausente OU `true` → models default da lib. O
@@ -429,13 +477,18 @@ export function lucidAccountStore(
     emailChangeTtlHours: emailTokens.changeTtlHours,
     tablesClient,
     tableName: (name: string) => authkitTable(tablesLocation ?? undefined, name),
-    // Encripta o segredo antes de persistir (no-op sem encrypter).
-    sealSecret: (secret: string) => (encrypter ? encrypter.encrypt(secret) : secret),
+    // Encripta o segredo antes de persistir (no-op sem encrypter), amarrado à conta.
+    sealSecret: async (secret: string, accountId: string) =>
+      encrypter ? await encrypter.encrypt(secret, { accountId }) : secret,
     // Decripta o segredo armazenado; retorna null em falha/adulteração (no-op sem encrypter).
-    openSecret: (stored: string | null | undefined) => {
+    openSecret: async (stored: string | null | undefined, accountId: string) => {
       if (!stored) return null;
       if (!encrypter) return stored;
-      return encrypter.decrypt(stored);
+      try {
+        return (await encrypter.decrypt(stored, { accountId })) ?? null;
+      } catch {
+        return null;
+      }
     },
     toAccount: (row: any): AuthAccount => ({
       // `String(...)`: o `id` do AuthAccount vira o claim `sub`, que a spec OIDC
@@ -576,6 +629,48 @@ export function lucidAccountStore(
       tablesLocation = { connection: location.connection, schema: location.schema };
     },
   });
+  // Não-enumerável: o `defineConfig` informa o `crypto` de config/authkit.ts por aqui.
+  Object.defineProperty(store, BIND_CRYPTO, {
+    value: (crypto: AuthkitCryptoConfig | undefined) => {
+      boundCrypto = crypto;
+    },
+  });
+
+  // Segredos selados em repouso (`authkit:crypto:reseal`, doctor `authkit.crypto`): só com um
+  // encrypter que sabe dizer como um valor está selado (o default).
+  const status = encrypter?.status?.bind(encrypter);
+  if (encrypter && status) {
+    const repo = buildMfaStateRepo(Model, tablesClient, (name) =>
+      authkitTable(tablesLocation ?? undefined, name),
+    );
+    const accountSecrets: AccountSecretsCapability = {
+      async reseal(opts = {}) {
+        const report = emptyColumnReport('auth_mfa.totp_secret');
+        for (const { accountId, value } of await repo.listSecrets()) {
+          const state = await status(value, { accountId });
+          report.scanned++;
+          report[state]++;
+          if (opts.report) continue;
+          if (state === 'unreadable') {
+            report.failed++;
+            continue;
+          }
+          if (state === 'active' && opts.all !== true) continue;
+          const plain = await encrypter.decrypt(value, { accountId });
+          if (plain == null) {
+            report.failed++;
+            continue;
+          }
+          const fresh = await encrypter.encrypt(plain, { accountId });
+          if (opts.dryRun) report.resealed++;
+          else if (await repo.replaceSecret(accountId, value, fresh)) report.resealed++;
+          else report.skipped++;
+        }
+        return report;
+      },
+    };
+    Object.defineProperty(store, 'accountSecrets', { value: accountSecrets, enumerable: false });
+  }
 
   return store;
 }

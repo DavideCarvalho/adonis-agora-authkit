@@ -1,4 +1,9 @@
 import type { KeystoreStoreConfig } from '@adonis-agora/authkit-core';
+import {
+  emptyColumnReport,
+  type ResealOptions,
+  type SealedColumnReport,
+} from '../crypto/authkit_crypto.js';
 import { validateSchemaName } from '../schema/tables_location.js';
 import type { SigningAlg } from './jwks_manager.js';
 import {
@@ -107,6 +112,50 @@ export class KeystoreManager {
   /** Plano de rotação (puro, sem I/O de escrita). */
   async plan(keep: number, retire: boolean): Promise<RotationPlan> {
     return planRotation(await this.read(), keep, retire);
+  }
+
+  /**
+   * Como o keystore está selado em repouso (`keystore` numa {@link SealedColumnReport}); `null`
+   * quando não há blob ou ele não é encriptado.
+   */
+  async sealedReport(): Promise<SealedColumnReport | null> {
+    const blob = await this.vault.read();
+    if (blob == null) return null;
+    const status = await this.codec.status(blob);
+    if (status === 'plain') return null;
+    const report = emptyColumnReport('keystore');
+    report.scanned = 1;
+    report[status] = 1;
+    return report;
+  }
+
+  /**
+   * Sela o keystore de novo com a chave atual (`authkit:crypto:reseal`): quando foi selado com
+   * uma chave antiga ou no formato anterior (ou sempre, com `all`). Relê o blob antes de gravar:
+   * se mudou no meio (uma rotação), deixa como está (`skipped`).
+   */
+  async reseal(options: ResealOptions = {}): Promise<SealedColumnReport | null> {
+    const report = await this.sealedReport();
+    if (!report) return null;
+    if (report.unreadable) {
+      report.failed = 1;
+      return report;
+    }
+    if (report.active && options.all !== true) return report;
+    const blob = (await this.vault.read()) as string;
+    const fresh = await this.codec.reseal(blob, true);
+    if (fresh === null) return report;
+    if (options.dryRun) {
+      report.resealed = 1;
+      return report;
+    }
+    if ((await this.vault.read()) !== blob) {
+      report.skipped = 1;
+      return report;
+    }
+    await this.vault.write(fresh);
+    report.resealed = 1;
+    return report;
   }
 
   /** Token barato de mudança (delegado ao vault; fallback p/ read completo). */

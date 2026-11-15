@@ -87,6 +87,20 @@ node ace authkit:key retire <kid> --force  # drop a key that no longer signs
 `rotate` makes it the active one. Retiring a key makes the tokens it signed stop validating. With an
 ephemeral keystore (managed without a store) or keys from config, `list` works and the rest refuse.
 
+## Encryption at rest — `authkit:crypto:reseal`
+
+Rewrites, with the current key, what AuthKit keeps sealed: the managed keystore and the TOTP
+secrets. It touches values sealed with an older key of `crypto.keys` and values from before 1.0.
+
+```sh
+node ace authkit:crypto:reseal --dry-run   # counts per column, writes nothing
+node ace authkit:crypto:reseal --json
+node ace authkit:crypto:reseal --all       # every value (after rotating config/encryption.ts)
+```
+
+Exits 1 when a value doesn't open with the configured keys. See
+[Encryption at rest](/docs/encryption-at-rest).
+
 ## Cleanup — `authkit:purge`
 
 Deletes what can no longer be used. Safe to run from a cron:

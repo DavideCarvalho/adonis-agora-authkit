@@ -160,6 +160,51 @@ export function consoleGateResult(
       };
 }
 
+const CRYPTO_DOCS = 'https://davidecarvalho.github.io/agora/docs/authkit/encryption-at-rest';
+
+/** `authkit.crypto`: values sealed with a retired key or in the old format warn; unreadable errors. */
+export function sealedAtRestResult(report: {
+  columns: Array<{
+    column: string;
+    scanned: number;
+    retired: number;
+    legacy: number;
+    unreadable: number;
+  }>;
+}): AgoraDoctorResult {
+  if (report.columns.length === 0) {
+    return { status: 'skip', message: 'nothing sealed at rest (no encrypted keystore, no TOTP)' };
+  }
+  const sum = (field: 'scanned' | 'retired' | 'legacy' | 'unreadable') =>
+    report.columns.reduce((total, c) => total + c[field], 0);
+  const where = (field: 'retired' | 'legacy' | 'unreadable') =>
+    report.columns
+      .filter((c) => c[field] > 0)
+      .map((c) => `${c.column}: ${c[field]}`)
+      .join(', ');
+  if (sum('unreadable') > 0) {
+    return {
+      status: 'error',
+      message: `${sum('unreadable')} sealed value(s) do not open with the configured keys (${where('unreadable')})`,
+      fix: 'Put the key they were sealed with back in `crypto.keys` (config/authkit.ts)',
+      docs: CRYPTO_DOCS,
+    };
+  }
+  if (sum('retired') + sum('legacy') > 0) {
+    const parts = [
+      sum('legacy') > 0 ? `${sum('legacy')} in the pre-1.0 format (${where('legacy')})` : '',
+      sum('retired') > 0 ? `${sum('retired')} under a retired key (${where('retired')})` : '',
+    ].filter(Boolean);
+    return {
+      status: 'warn',
+      message: `${parts.join('; ')} of ${sum('scanned')} sealed value(s)`,
+      fix: 'Run `node ace authkit:crypto:reseal`',
+      docs: CRYPTO_DOCS,
+    };
+  }
+  return { status: 'ok', message: `${sum('scanned')} sealed value(s), all on the current key` };
+}
+
 /** The checks authkit registers into `agora:doctor`. */
 export function authkitDoctorChecks(): AgoraDoctorCheck[] {
   const checks: AgoraDoctorCheck[] = AUTHKIT_DOCTOR_TABLE.map(([id, title, fn]) => ({
@@ -216,6 +261,21 @@ export function authkitDoctorChecks(): AgoraDoctorCheck[] {
           () => app.container.make('lucid.db' as any),
           AUTHKIT_DOCTOR_DOCS,
         );
+      },
+    },
+    {
+      id: 'authkit.crypto',
+      lib: 'authkit',
+      package: AUTHKIT_DOCTOR_PACKAGE,
+      title: 'Secrets sealed at rest',
+      cost: 'deep',
+      async run(app) {
+        const { input, notBooted } = await prepare(app);
+        if (notBooted || !input) {
+          return { status: 'skip', message: 'needs a booted app (run without --no-boot)' };
+        }
+        const service: any = await app.container.make('authkit.server' as any);
+        return sealedAtRestResult(await service.sealedAtRest({ report: true }));
       },
     },
     {

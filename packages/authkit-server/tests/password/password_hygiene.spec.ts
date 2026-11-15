@@ -202,8 +202,8 @@ test.group('buildPasswordHistory — integração SQLite', (group) => {
       mfaIssuer: 'test',
       recoveryCodeCount: 8,
       passwords: {} as any,
-      sealSecret: (s: string) => s,
-      openSecret: (s: string | null | undefined) => s ?? null,
+      sealSecret: async (s: string) => s,
+      openSecret: async (s: string | null | undefined) => s ?? null,
       toAccount: (r: any) => r,
       // Verificador simples: HASH:<plain>
       nativeVerifyHash: async (hash: string, plain: string) => hash === `HASH:${plain}`,
@@ -366,8 +366,8 @@ test.group('buildPasswordExpiration — integração SQLite', (group) => {
       passwords: {} as any,
       mfaIssuer: '',
       recoveryCodeCount: 8,
-      sealSecret: (s: string) => s,
-      openSecret: (s: any) => s,
+      sealSecret: async (s: string) => s,
+      openSecret: async (s: any) => s,
       toAccount: (r: any) => r,
     };
     const cap = buildPasswordExpiration(ctx as any);
@@ -385,8 +385,8 @@ test.group('buildPasswordExpiration — integração SQLite', (group) => {
       passwords: {} as any,
       mfaIssuer: '',
       recoveryCodeCount: 8,
-      sealSecret: (s: string) => s,
-      openSecret: (s: any) => s,
+      sealSecret: async (s: string) => s,
+      openSecret: async (s: any) => s,
       toAccount: (r: any) => r,
     };
     const cap = buildPasswordExpiration(ctx as any);
@@ -403,8 +403,8 @@ test.group('buildPasswordExpiration — integração SQLite', (group) => {
       passwords: {} as any,
       mfaIssuer: '',
       recoveryCodeCount: 8,
-      sealSecret: (s: string) => s,
-      openSecret: (s: any) => s,
+      sealSecret: async (s: string) => s,
+      openSecret: async (s: any) => s,
       toAccount: (r: any) => r,
     };
     const cap = buildPasswordExpiration(ctx as any);

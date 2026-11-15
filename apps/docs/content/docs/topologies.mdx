@@ -120,8 +120,8 @@ export default defineConfig({
   // Lifecycle events for every app (authz provisioning, your own sync).
   events: {
     webhook: [
-      { url: 'https://shop.acme.com/authkit/webhook', secret: env.get('SHOP_WEBHOOK_SECRET') },
-      { url: 'https://backoffice.acme.com/authkit/webhook', secret: env.get('BO_WEBHOOK_SECRET') },
+      { url: 'https://shop.acme.com/authkit/webhook' },
+      { url: 'https://backoffice.acme.com/authkit/webhook' },
     ],
   },
 })
@@ -209,12 +209,13 @@ claims and the options.
 
 ### Events on every app
 
-AuthKit posts each event to the `events.webhook` URLs, signed. On each app:
+AuthKit posts each event to the `events.webhook` URLs, signed with Ed25519 (the public key is in
+its discovery, so no secret to share). On each app:
 
 ```ts title="start/routes.ts"
 import { registerAuthkitWebhook } from '@adonis-agora/authkit-client'
 
-registerAuthkitWebhook(router, { secret: env.get('AUTHKIT_WEBHOOK_SECRET') })
+registerAuthkitWebhook(router, { issuer: env.get('AUTHKIT_ISSUER') })
 ```
 
 ```ts title="config/shield.ts"

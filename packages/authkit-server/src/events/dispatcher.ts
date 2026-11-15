@@ -1,5 +1,6 @@
 import { createHmac, randomUUID } from 'node:crypto';
 import type { AuditEvent, AuditSink } from '../audit/audit_sink.js';
+import { deriveKeyPair, type OkpJwk, sign } from '../crypto-kit/index.js';
 import { emitDiagnostic } from '../observability/diagnostics_bridge.js';
 
 /**
@@ -8,7 +9,9 @@ import { emitDiagnostic } from '../observability/diagnostics_bridge.js';
  *   - `onEvent`: callback in-process disparado para CADA evento de auditoria
  *     (best-effort, fire-and-forget). Útil para encaminhar a um bus interno.
  *   - `webhook`: POST JSON do evento para uma URL externa (ou várias: uma por app).
- *     Quando `secret` é dado, assina o corpo com HMAC-SHA256 no header
+ *     Todo POST é assinado com Ed25519 no header `x-authkit-signature-ed25519`
+ *     (a chave pública sai na discovery, `authkit_webhook_jwks`: o receptor não precisa de
+ *     segredo). Quando `secret` é dado, assina também com HMAC-SHA256 no header
  *     `x-authkit-signature`. O corpo leva `id` (único por evento) e `ts`, que o
  *     receptor do authkit-client usa contra replay.
  *
@@ -22,6 +25,14 @@ export interface EventsConfigInput {
    * a cada URL — por exemplo, um app por servidor com o receptor do authkit-client.
    */
   webhook?: WebhookTarget | WebhookTarget[];
+  /**
+   * Assinatura Ed25519 de todo webhook (`x-authkit-signature-ed25519: agora:sig1:<kid>:<sig>`),
+   * verificável com a chave pública da discovery (`authkit_webhook_jwks`). Default: uma chave
+   * derivada da APP_KEY (a mesma em toda instância, nada a guardar). `keys`: JWKs PRIVADAS
+   * Ed25519 (ou o JSON delas, ex.: de uma env), a mais nova primeiro — a primeira assina, todas
+   * são publicadas. `false` desliga.
+   */
+  signing?: { keys: Array<OkpJwk | string> } | false;
 }
 
 /** One webhook destination. */
@@ -35,14 +46,52 @@ export interface WebhookTarget {
 export interface ResolvedEventsConfig {
   onEvent?: (event: AuditEvent) => void | Promise<void>;
   webhook?: WebhookTarget | WebhookTarget[];
+  /** A chave PRIVADA Ed25519 que assina os webhooks. */
+  signingKey?: OkpJwk;
 }
 
-export function resolveEvents(input?: EventsConfigInput): ResolvedEventsConfig | undefined {
+export function resolveEvents(
+  input?: EventsConfigInput,
+  signingKey?: OkpJwk,
+): ResolvedEventsConfig | undefined {
   if (!input || (!input.onEvent && !input.webhook)) return undefined;
   return {
     onEvent: input.onEvent,
     webhook: input.webhook,
+    ...(signingKey ? { signingKey } : {}),
   };
+}
+
+/** Propósito da chave de webhook derivada da APP_KEY. */
+export const WEBHOOK_SIGNING_PURPOSE = 'authkit:webhook-signing';
+
+/**
+ * As chaves PRIVADAS Ed25519 dos webhooks (a primeira assina): as de `signing.keys`, ou uma
+ * derivada de `appKey`. `[]` com `signing: false` ou sem nenhuma das duas.
+ */
+export function resolveWebhookSigningKeys(
+  signing: EventsConfigInput['signing'],
+  appKey: string | undefined,
+): OkpJwk[] {
+  if (signing === false) return [];
+  if (signing?.keys?.length) {
+    return signing.keys.map((key, index) => {
+      const jwk = (typeof key === 'string' ? JSON.parse(key) : key) as OkpJwk;
+      if (jwk?.kty !== 'OKP' || jwk.crv !== 'Ed25519' || typeof jwk.d !== 'string' || !jwk.kid) {
+        throw new Error(
+          `authkit: events.signing.keys[${index}] must be a private Ed25519 JWK with a kid`,
+        );
+      }
+      return jwk;
+    });
+  }
+  if (!appKey) return [];
+  return [deriveKeyPair('ed25519', appKey, WEBHOOK_SIGNING_PURPOSE).privateKey];
+}
+
+/** O header Ed25519 de um corpo de webhook (`agora:sig1:<kid>:<assinatura>`). */
+export function signWebhookBodyEd25519(body: string, privateKey: OkpJwk): string {
+  return sign(privateKey, body);
 }
 
 /** Timeout (ms) do POST do webhook antes de abortar. */
@@ -121,11 +170,18 @@ export function redactAuditEventForDiagnostics(event: AuditEvent): AuditEvent {
  * Dispara o webhook de forma fire-and-forget: timeout de 5s via AbortSignal,
  * captura QUALQUER erro (rede, abort, HMAC) sem propagar. Nunca lança.
  */
-async function dispatchWebhook(webhook: WebhookTarget, body: string): Promise<void> {
+async function dispatchWebhook(
+  webhook: WebhookTarget,
+  body: string,
+  signingKey: OkpJwk | undefined,
+): Promise<void> {
   try {
     const headers: Record<string, string> = {
       'content-type': 'application/json',
     };
+    if (signingKey) {
+      headers['x-authkit-signature-ed25519'] = signWebhookBodyEd25519(body, signingKey);
+    }
     if (webhook.secret) {
       headers['x-authkit-signature'] = signWebhookBody(body, webhook.secret);
     }
@@ -174,7 +230,7 @@ export function composeAuditSink(
         const targets = Array.isArray(events.webhook) ? events.webhook : [events.webhook];
         if (targets.length > 0) {
           const body = buildWebhookBody(event);
-          for (const target of targets) void dispatchWebhook(target, body);
+          for (const target of targets) void dispatchWebhook(target, body, events.signingKey);
         }
       }
       // Diagnostics Agora (best-effort, sempre ligado, no-op sem o slot).

@@ -175,6 +175,13 @@ export {
   registerAgoraConsole,
 } from './src/console_switcher.js';
 export type {
+  AccountSecretsCapability,
+  AuthkitCryptoConfig,
+  ResealOptions,
+  SealedColumnReport,
+} from './src/crypto/authkit_crypto.js';
+export type { KmsAdapter, KmsContext, OkpJwk, SecretLike } from './src/crypto-kit/index.js';
+export type {
   AdminApiConfigInput,
   AdminConfigInput,
   AuthHostRenderer,
@@ -227,7 +234,10 @@ export {
   buildWebhookBody,
   composeAuditSink,
   resolveEvents,
+  resolveWebhookSigningKeys,
   signWebhookBody,
+  signWebhookBodyEd25519,
+  WEBHOOK_SIGNING_PURPOSE,
 } from './src/events/dispatcher.js';
 export type {
   AccessTokenVerifier,

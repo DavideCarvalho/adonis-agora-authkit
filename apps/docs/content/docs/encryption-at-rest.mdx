@@ -1,0 +1,102 @@
+---
+icon: Lock
+title: Encryption at rest
+description: How AuthKit seals the JWKS private keys and the TOTP secrets it stores, and how to rotate the keys that seal them.
+---
+
+AuthKit keeps two kinds of secrets encrypted in your stores:
+
+- the **JWKS private keys** of a managed keystore (`jwks: { source: 'managed', store }` on a file,
+  Drive, Lucid or Redis store);
+- the **TOTP secrets** of `lucidAccountStore` (`auth_mfa.totp_secret`).
+
+Both are sealed with your app's own encryption, `config/encryption.ts`. Each value is bound to its
+use and its row: a TOTP secret copied onto another account doesn't open.
+
+Nothing to configure. Values written by earlier versions of AuthKit keep opening; you can rewrite
+them in the current format whenever you like (see [Moving old values](#moving-old-values)).
+
+## Rotating the key
+
+To rotate with keys of AuthKit's own, list them in `config/authkit.ts`, newest first. The first one
+seals; all of them open:
+
+```ts title="config/authkit.ts"
+export default defineConfig({
+  // ...
+  crypto: {
+    keys: [env.get('AUTHKIT_KEY_2026_11'), env.get('APP_KEY')],
+  },
+})
+```
+
+Deploy, then rewrite what the older key sealed:
+
+```sh
+node ace authkit:crypto:reseal --dry-run   # what would change
+node ace authkit:crypto:reseal
+node ace agora:doctor --deep --only=authkit.crypto
+```
+
+When the doctor reports every value on the current key, drop the old key from `keys`.
+
+If you rotate the keys of `config/encryption.ts` instead (`keys: [new, old]` there), AuthKit can't
+tell which of them sealed a value. Run `node ace authkit:crypto:reseal --all` after deploying: it
+rewrites every value with the app's current key.
+
+## Moving old values
+
+Values written before 1.0 keep opening. To rewrite them in the current format:
+
+```sh
+node ace authkit:crypto:reseal
+```
+
+The command is safe to run while the app serves traffic: a value the app changes meanwhile is
+left alone (run it again). It exits 1 when a value doesn't open with the configured keys.
+
+## Envelope encryption with a KMS
+
+With `kms`, every value gets its own data key, wrapped by your KMS:
+
+```ts title="config/authkit.ts"
+import { KMSClient, EncryptCommand, DecryptCommand } from '@aws-sdk/client-kms'
+
+const kms = new KMSClient({})
+const KeyId = env.get('AUTHKIT_KMS_KEY_ID')
+
+export default defineConfig({
+  // ...
+  crypto: {
+    kms: {
+      async wrap(dataKey, { purpose }) {
+        const out = await kms.send(
+          new EncryptCommand({ KeyId, Plaintext: dataKey, EncryptionContext: { purpose } }),
+        )
+        return out.CiphertextBlob!
+      },
+      async unwrap(wrapped, { purpose }) {
+        const out = await kms.send(
+          new DecryptCommand({ CiphertextBlob: wrapped, EncryptionContext: { purpose } }),
+        )
+        return out.Plaintext!
+      },
+    },
+  },
+})
+```
+
+GCP KMS (`encrypt` / `decrypt` with `additionalAuthenticatedData`) and Azure Key Vault
+(`wrapKey` / `unwrapKey`) fit the same two functions. After turning `kms` on, run
+`node ace authkit:crypto:reseal` to move existing values into the envelope.
+
+## Options
+
+| `crypto` field | Default | |
+| --- | --- | --- |
+| `keys` | — | Keys, newest first: the first seals, all open. Lets the doctor and the reseal command tell old keys apart. |
+| `encryption` | the app's `encryption` service | An Adonis encryption instance to seal with. |
+| `kms` | — | `{ wrap(dataKey, context), unwrap(wrapped, context) }` for envelope encryption. |
+
+A custom `encrypter` passed to `lucidAccountStore` keeps working (sync or async); its values are
+not covered by the reseal command.

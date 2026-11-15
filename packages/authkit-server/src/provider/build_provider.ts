@@ -1,6 +1,7 @@
 import * as oidc from 'oidc-provider';
 import { pickModelAdapterClass } from '../adapters/factory.js';
 import type { JsonFetcher } from '../cimd/safe_fetch.js';
+import { toJwks } from '../crypto-kit/index.js';
 import type { ResolvedServerConfig } from '../define_config.js';
 import { normalizeActiveOrg, readActiveOrgFromKoaCtx } from '../host/active_org_cookie.js';
 import { consoleSsoClientMetadata } from '../host/console_sso.js';
@@ -385,6 +386,16 @@ export function buildProvider(
     // Step-up auth (acr_values): anuncia os acr suportados para que clients possam
     // solicitá-los. A exigência efetiva do 2º fator acontece na interaction de login.
     acrValues: config.stepUp.acrValues,
+    // Chaves públicas Ed25519 dos webhooks: o receptor (authkit-client) verifica a assinatura
+    // `x-authkit-signature-ed25519` sem segredo compartilhado. Campo extra da discovery.
+    ...(config.webhookSigningKeys?.length
+      ? {
+          discovery: {
+            claim_types_supported: ['normal'],
+            authkit_webhook_jwks: toJwks(config.webhookSigningKeys),
+          },
+        }
+      : {}),
     ttl: {
       // AccessToken TTL: quando um TokenTtlHolder é fornecido, lê o valor atual do holder
       // (atualizado em runtime via setting `token_ttl`). Sem holder: fallback ao config.
