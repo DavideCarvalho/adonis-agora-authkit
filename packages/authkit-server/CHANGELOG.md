@@ -1,5 +1,14 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.27
+
+### Minor Changes
+
+- [#498](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/498) [`295e266`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/295e2662b6d5a4e1cf00c80ca4a61b4d567bf2f4) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Access tokens for MCP servers carry the user's roles (always) and email (with the `email` scope), so a
+  console gated by role admits callers coming through MCP. MCP servers listed in `mcpClients.resources`
+  (another process) now get JWT access tokens they verify from the JWKS; servers registered in-process
+  with `registerOAuthResource` keep opaque tokens.
+
 ## 1.0.0-rc.26
 
 ### Minor Changes
