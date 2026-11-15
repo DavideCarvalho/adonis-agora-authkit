@@ -53,7 +53,12 @@
 
 import type { HttpContext } from '@adonisjs/core/http';
 import { authkitTable } from '../schema/tables_location.js';
-import { isSettingLocked, SettingLockedError } from './config_locks.js';
+import {
+  isSettingLocked,
+  isSettingReadOnly,
+  SettingLockedError,
+  SettingReadOnlyError,
+} from './config_locks.js';
 
 /** Uma entrada da tabela `auth_settings`. */
 export interface SettingRow {
@@ -284,6 +289,7 @@ export class RuntimeSettings implements SettingsCapability {
   ): Promise<void> {
     // Travada por defineConfig → recusa a escrita (write path da Admin API/console mapeia p/ 423).
     if (isSettingLocked(key)) throw new SettingLockedError(key);
+    if (isSettingReadOnly(key)) throw new SettingReadOnlyError(key);
     if (!(await this.hasTable())) return;
     const json = JSON.stringify(value);
     const resolvedOrgId = orgId ?? null;
@@ -311,6 +317,7 @@ export class RuntimeSettings implements SettingsCapability {
 
   async deleteSetting(key: string, orgId?: string | null): Promise<void> {
     if (isSettingLocked(key)) throw new SettingLockedError(key);
+    if (isSettingReadOnly(key)) throw new SettingReadOnlyError(key);
     if (!(await this.hasTable())) return;
     const resolvedOrgId = orgId ?? null;
     try {

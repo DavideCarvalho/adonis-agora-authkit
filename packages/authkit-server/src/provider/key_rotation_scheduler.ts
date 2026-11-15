@@ -50,3 +50,22 @@ export class KeyRotationScheduler {
     }
   }
 }
+
+/**
+ * O agendador roda nesta instância? Só com keystore gerenciável (managed + store) e nunca com
+ * `jwks.readOnly` — lá quem rotaciona é a instância que escreve o keystore; esta só recarrega
+ * pelo poll.
+ */
+export async function keyRotationSchedulerApplies(
+  svc: {
+    rotateKeys?: unknown;
+    keystoreAgeDays?: () => Promise<number | null>;
+    keystoreReadOnly?: boolean;
+  } | null,
+): Promise<boolean> {
+  if (!svc || typeof svc.rotateKeys !== 'function' || typeof svc.keystoreAgeDays !== 'function') {
+    return false;
+  }
+  if (svc.keystoreReadOnly === true) return false;
+  return (await svc.keystoreAgeDays().catch(() => null)) !== null;
+}

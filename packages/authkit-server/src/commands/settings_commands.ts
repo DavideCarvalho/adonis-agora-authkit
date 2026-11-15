@@ -16,7 +16,7 @@
  */
 
 import type { ApplicationService } from '@adonisjs/core/types';
-import { SettingLockedError } from '../host/config_locks.js';
+import { isSettingLocked, SettingLockedError } from '../host/config_locks.js';
 import { RuntimeSettings, settingsLocation } from '../host/runtime_settings.js';
 import { SETTING_KEYS, type SettingKey } from '../host/runtime_toggles.js';
 import { validateMcpClientsSetting } from '../mcp/mcp_clients.js';
@@ -329,23 +329,30 @@ export async function settingsUnset(
     json?: boolean;
     logger: { info: (m: string) => void; warn: (m: string) => void; error: (m: string) => void };
   },
-): Promise<void> {
+): Promise<boolean> {
   const svc = await resolveSettingsService(app);
   if (!svc) {
     opts.logger.error('Could not connect to database.');
-    return;
+    return false;
   }
   const tablePresent = await svc.isTablePresent();
   if (!tablePresent) {
     opts.logger.error('The `auth_settings` table is not present.');
-    return;
+    return false;
+  }
+
+  // Travada por defineConfig: `getSetting` devolve null para ela, então sem isto o comando diria
+  // "não estava definida" e sairia 0 em vez de recusar.
+  if (isSettingLocked(key)) {
+    opts.logger.error(new SettingLockedError(key).message);
+    return false;
   }
 
   const existing = await svc.getSetting(key);
   if (existing === null) {
     opts.logger.warn(`Setting "${key}" was not set (nothing to unset).`);
     if (opts.json) opts.logger.info(JSON.stringify({ key, deleted: false }));
-    return;
+    return true;
   }
 
   const cfg = await resolveCfg(app);
@@ -365,14 +372,15 @@ export async function settingsUnset(
   } catch (error) {
     if (error instanceof SettingLockedError) {
       opts.logger.error(error.message);
-      return;
+      return false;
     }
     throw error;
   }
 
   if (opts.json) {
     opts.logger.info(JSON.stringify({ key, deleted: true }));
-    return;
+    return true;
   }
   opts.logger.info(`Setting "${key}" deleted — config/default is now the source of truth.`);
+  return true;
 }

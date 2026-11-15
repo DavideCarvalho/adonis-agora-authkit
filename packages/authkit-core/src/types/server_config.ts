@@ -46,6 +46,14 @@ export interface JwksConfig {
   store?: KeystoreStoreConfig;
   /** Encripta o keystore em repouso (APP_KEY). Default backend-aware: file/drive ON, vault real OFF. */
   encrypt?: boolean;
+  /**
+   * Só lê o keystore (`source: 'managed'` com `store`): para uma segunda instância que serve a
+   * mesma identidade (mesmo keystore, mesmo `auth_settings`) sob outro issuer. Não roda o
+   * agendador de rotação, recusa rotate/generate/retire/reseal e a edição de `key_rotation`, e no
+   * boot exige que o keystore exista (nunca o cria). Rotações da instância que escreve chegam
+   * pelo reload poll.
+   */
+  readOnly?: boolean;
   /** usado quando source='jwks' */
   keys?: Record<string, unknown>[];
 }

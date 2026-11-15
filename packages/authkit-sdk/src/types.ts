@@ -393,6 +393,11 @@ export interface KeysStatus {
     keep: number;
   };
   nextRotationInDays: number | null;
+  /**
+   * `jwks.readOnly` on the server: it reads the keystore another instance writes, so `rotate()`
+   * fails with 409 `keystore_read_only`. Absent on older servers.
+   */
+  readOnly?: boolean;
 }
 
 /** Input for `keys.rotate()`. */

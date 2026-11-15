@@ -27,6 +27,7 @@ import {
   toPublicJwks,
 } from '../keys/keystore.js';
 import type { KeystoreManager } from '../keys/keystore_manager.js';
+import { KeystoreReadOnlyError } from '../keys/keystore_read_only.js';
 import type { McpMetadataDocumentResolver } from '../mcp/mcp_clients.js';
 import { wireProviderEvents } from '../observability/wire_provider_events.js';
 import { buildProvider, type SessionTtlHolder, type TokenTtlHolder } from './build_provider.js';
@@ -384,6 +385,7 @@ export class OidcService {
     retire = false,
     actor?: { actorId: string },
   ): Promise<{ newKid: string; retiredKids: string[]; keptKids: string[] }> {
+    if (this.keystoreReadOnly) throw new KeystoreReadOnlyError('rotate');
     const run = async () => {
       const build = this.#deps.keystoreManager;
       if (!build) throw new Error('AuthKit: rotação indisponível (jwks não é managed+store).');
@@ -415,6 +417,7 @@ export class OidcService {
    * promove. Aplica ao vivo e audita `keys.generated`. Lança sem keystore gerenciável.
    */
   async generateKey(alg?: SigningAlg, actor?: { actorId: string }): Promise<{ kid: string }> {
+    if (this.keystoreReadOnly) throw new KeystoreReadOnlyError('generate');
     const run = async () => {
       const build = this.#deps.keystoreManager;
       if (!build) throw new Error('AuthKit: geração indisponível (jwks não é managed+store).');
@@ -442,6 +445,7 @@ export class OidcService {
     kid: string,
     actor?: { actorId: string },
   ): Promise<{ retiredKid: string; keptKids: string[] }> {
+    if (this.keystoreReadOnly) throw new KeystoreReadOnlyError('retire');
     const run = async () => {
       const build = this.#deps.keystoreManager;
       if (!build) throw new Error('AuthKit: retirada indisponível (jwks não é managed+store).');
@@ -481,6 +485,14 @@ export class OidcService {
   async sealedAtRest(
     options: ResealOptions & { report?: boolean } = {},
   ): Promise<{ dryRun: boolean; columns: SealedColumnReport[] }> {
+    // readOnly: a instância que escreve o keystore é quem o sela de novo (e os segredos TOTP, que
+    // estão no mesmo banco). Relatório e dry-run só leem.
+    if (this.keystoreReadOnly && !options.report && options.dryRun !== true) {
+      throw new KeystoreReadOnlyError(
+        'reseal',
+        'AuthKit: this instance has `jwks.readOnly` set, so it cannot reseal the keystore. Run `node ace authkit:crypto:reseal` on the instance that writes the keystore (it reseals the TOTP secrets too).',
+      );
+    }
     const columns: SealedColumnReport[] = [];
     const build = this.#deps.keystoreManager;
     if (build) {
@@ -494,6 +506,14 @@ export class OidcService {
       ?.accountSecrets;
     if (secrets) columns.push(await secrets.reseal(options));
     return { dryRun: options.dryRun === true && !options.report, columns };
+  }
+
+  /**
+   * `true` com `jwks.readOnly`: esta instância lê o keystore que outra escreve. rotate/generate/
+   * retire/reseal lançam {@link KeystoreReadOnlyError}; o agendador de rotação não roda.
+   */
+  get keystoreReadOnly(): boolean {
+    return (this.#config as { jwksConfig?: { readOnly?: boolean } }).jwksConfig?.readOnly === true;
   }
 
   /** `true` quando o JWKS é managed com um keystore persistido (rotacionável). */

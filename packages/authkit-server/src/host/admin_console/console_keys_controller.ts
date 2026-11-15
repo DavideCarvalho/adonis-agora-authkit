@@ -1,7 +1,8 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
+import { KeystoreReadOnlyError } from '../../keys/keystore_read_only.js';
 import { apiError } from '../admin_api/dto.js';
-import { buildKeysStatus, rotateNow } from '../key_rotation_actions.js';
+import { buildKeysStatus, keystoreReadOnlyBody, rotateNow } from '../key_rotation_actions.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { requireSudo } from '../sudo_mode.js';
 
@@ -55,8 +56,19 @@ export default class ConsoleKeysController {
     ) {
       return notSupported(ctx);
     }
+    // `jwks.readOnly`: 409 antes do sudo (não há o que confirmar numa instância que só lê).
+    if (svc.keystoreReadOnly === true) {
+      return ctx.response.status(409).send(keystoreReadOnlyBody());
+    }
     const denied = await gateSudo(ctx);
     if (denied) return denied;
-    return rotateNow(svc, ctx.request.body() as any);
+    try {
+      return await rotateNow(svc, ctx.request.body() as any);
+    } catch (error) {
+      if (error instanceof KeystoreReadOnlyError) {
+        return ctx.response.status(409).send(keystoreReadOnlyBody(error.message));
+      }
+      throw error;
+    }
   }
 }

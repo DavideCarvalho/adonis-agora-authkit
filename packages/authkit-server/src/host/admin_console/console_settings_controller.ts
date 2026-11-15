@@ -2,12 +2,24 @@ import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
 import { MCP_CLIENTS_SETTING_KEY } from '../../mcp/mcp_clients.js';
 import { apiError, settingDto } from '../admin_api/dto.js';
-import { isSettingLocked, lockedSettingKeys, SettingLockedError } from '../config_locks.js';
+import {
+  isSettingLocked,
+  lockedSettingKeys,
+  readOnlySettingKeys,
+  SettingLockedError,
+  SettingReadOnlyError,
+} from '../config_locks.js';
 import { resolveRuntimeSettings } from '../runtime_settings.js';
 import { writeMcpClientsFromConsole } from './console_mcp_clients_controller.js';
 
 /** 423 Locked: setting travada via defineConfig. */
 function lockedResponse(ctx: HttpContext, err: SettingLockedError) {
+  // `jwks.readOnly`: a key pertence à instância que escreve o keystore → 409, não 423.
+  if (err instanceof SettingReadOnlyError) {
+    return ctx.response
+      .status(409)
+      .send(apiError('keystore_read_only', err.message, { key: err.key, lockedBy: 'readOnly' }));
+  }
   return ctx.response
     .status(423)
     .send(apiError('setting_locked', err.message, { key: err.key, lockedBy: 'config' }));
@@ -55,7 +67,11 @@ export default class ConsoleSettingsController {
     if (!tablePresent) return notSupported(ctx);
     const orgId = resolveOrgId(ctx);
     const rows = await svc.listSettings(orgId);
-    return { data: rows.map(settingDto), locked: lockedSettingKeys() };
+    return {
+      data: rows.map(settingDto),
+      locked: lockedSettingKeys(),
+      readOnly: readOnlySettingKeys(),
+    };
   }
 
   /** PUT {prefix}/api/settings/:key — body: { value: any } */

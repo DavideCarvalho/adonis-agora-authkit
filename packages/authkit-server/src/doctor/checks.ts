@@ -655,6 +655,13 @@ export function checkJwks(input: DoctorInput): Finding | null {
           'jwks managed WITHOUT a `store` — a fresh ephemeral key is generated each boot (tokens stop validating after a restart and `node ace authkit:key rotate` has no effect). Set `jwks.store` to persist and enable real rotation.',
       };
     }
+    if (jwks.readOnly === true) {
+      return {
+        level: 'ok',
+        message:
+          'jwks managed and read-only — this instance reads the keystore another instance writes; rotate the signing keys there (`node ace authkit:key rotate`).',
+      };
+    }
     return {
       level: 'ok',
       message:

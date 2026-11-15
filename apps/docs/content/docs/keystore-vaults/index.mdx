@@ -392,6 +392,40 @@ until they expire. `--retire` skips that grace window and invalidates them immed
 See [Signing key rotation](/docs/security#signing-key-rotation) for the full flag
 reference.
 
+## Two servers, one identity
+
+Two AuthKit servers can serve the same accounts under different issuers — say your app at
+`https://app.example.com` and a hub at `https://hub.example.com`, both on the same database.
+They share the keystore and `auth_settings`, so exactly one of them may write the keystore.
+Mark the other one read-only:
+
+```ts title="config/authkit.ts (the second server)"
+jwks: {
+  source: 'managed',
+  store: { driver: 'lucid', table: 'authkit_keystore', key: 'jwks' }, // the same row as the writer
+  readOnly: true,
+}
+```
+
+Give it the same `store`, `encrypt` and `crypto.keys` as the writer, so it can open the blob.
+
+A read-only server:
+
+- signs with the shared keys and picks up the writer's rotations through the reload poll (within a minute);
+- never runs the scheduled rotation, and doesn't need `@adonisjs/lock`;
+- refuses `authkit:key generate|rotate|retire` and `authkit:crypto:reseal` (exit code 1; `authkit:key list`, `authkit:key rotate --dry-run` and `reseal --dry-run` still work);
+- answers `409 keystore_read_only` to `POST /keys/rotate` on the Admin API and the console, and the console's Keys page hides those actions;
+- shows the `key_rotation` policy but can't change it (`409 keystore_read_only` on the settings endpoints, an error from `authkit:settings:set`);
+- fails to boot if the keystore is empty or doesn't open. It never creates the key or the table, so boot the writer first.
+
+`node ace agora:doctor` reports it under **Keystore read-only**: ok when the keystore reads, error when it's missing.
+
+<Callout type="info">
+  Only `key_rotation` is guarded. Every other runtime setting (sign-up, login methods, lockout, …)
+  lives in the same `auth_settings` table, so changing it from either console changes it for both.
+  Change shared settings from one place, or set them in `defineConfig` to lock them.
+</Callout>
+
 Pick your cloud to continue:
 
 <Cards>

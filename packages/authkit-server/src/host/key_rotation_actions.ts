@@ -1,4 +1,5 @@
 import type { ManagedKeyInfo } from '../keys/keystore.js';
+import { apiError } from './admin_api/dto.js';
 import { type ResolvedKeyRotationSetting, resolveEffectiveKeyRotation } from './key_rotation.js';
 import type { SettingsCapability } from './runtime_settings.js';
 
@@ -13,6 +14,11 @@ export interface KeysStatus {
   policy: ResolvedKeyRotationSetting;
   nextRotationInDays: number | null;
   keys: ManagedKeyInfo[];
+  /**
+   * `jwks.readOnly`: esta instância lê o keystore de outra — o console esconde rotate/generate/
+   * retire e trava a política (que é da instância que escreve).
+   */
+  readOnly: boolean;
 }
 
 /**
@@ -24,6 +30,7 @@ export async function buildKeysStatus(
   svc: {
     keystoreAgeDays(): Promise<number | null>;
     listManagedKeys(): Promise<ManagedKeyInfo[]>;
+    keystoreReadOnly?: boolean;
   },
   settings: SettingsCapability | null,
 ): Promise<KeysStatus | null> {
@@ -34,7 +41,15 @@ export async function buildKeysStatus(
     : { enabled: false, maxAgeDays: 90, keep: 2 };
   const nextRotationInDays = policy.enabled ? Math.max(0, policy.maxAgeDays - ageDays) : null;
   const keys = await svc.listManagedKeys();
-  return { ageDays, policy, nextRotationInDays, keys };
+  // readOnly não rotaciona: sem ETA aqui (a instância que escreve é quem agenda).
+  const readOnly = svc.keystoreReadOnly === true;
+  return {
+    ageDays,
+    policy,
+    nextRotationInDays: readOnly ? null : nextRotationInDays,
+    keys,
+    readOnly,
+  };
 }
 
 /**
@@ -54,4 +69,13 @@ export async function rotateNow(
   const keep = typeof body?.keep === 'number' && body.keep >= 1 ? Math.floor(body.keep) : 2;
   const res = await svc.rotateKeys(keep, retire);
   return { rotated: true, ...res };
+}
+
+/** Corpo de erro do 409 que a Admin API e o console devolvem numa instância `jwks.readOnly`. */
+export function keystoreReadOnlyBody(message?: string) {
+  return apiError(
+    'keystore_read_only',
+    message ??
+      'This instance has `jwks.readOnly` set: it reads the keystore another instance writes. Rotate, generate and retire keys on that instance.',
+  );
 }

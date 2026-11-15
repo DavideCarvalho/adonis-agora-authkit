@@ -13,6 +13,11 @@ import {
   settingsSet,
   settingsUnset,
 } from '../src/commands/settings_commands.js';
+import {
+  resetLockedSettingKeys,
+  setLockedSettingKeys,
+  setReadOnlySettingKeys,
+} from '../src/host/config_locks.js';
 import { RuntimeSettings } from '../src/host/runtime_settings.js';
 import {
   resolveEffectiveAdminImpersonation,
@@ -820,7 +825,45 @@ test.group('settingsSet', () => {
   });
 });
 
-test.group('settingsUnset', () => {
+test.group('settingsUnset', (group) => {
+  group.each.teardown(() => resetLockedSettingKeys());
+
+  test('a key locked by defineConfig is refused (false), not reported as unset', async ({
+    assert,
+  }) => {
+    setLockedSettingKeys([SETTING_KEYS.LOCKOUT]);
+    const app = fakeApp({ lockout: { enabled: true } });
+    const errors: string[] = [];
+    const warns: string[] = [];
+    const ok = await settingsUnset(app as any, 'lockout', {
+      logger: { info: () => {}, warn: (m) => warns.push(m), error: (m) => errors.push(m) },
+    });
+    assert.isFalse(ok);
+    assert.match(errors.join('\n'), /locked/);
+    assert.lengthOf(warns, 0);
+    assert.isDefined((app as any).__db.__store.get('lockout|'));
+  });
+
+  test('a read-only key (jwks.readOnly) is refused (false) and kept', async ({ assert }) => {
+    setReadOnlySettingKeys([SETTING_KEYS.KEY_ROTATION]);
+    const app = fakeApp({ key_rotation: { enabled: true, maxAgeDays: 30, keep: 2 } });
+    const errors: string[] = [];
+    const ok = await settingsUnset(app as any, 'key_rotation', {
+      logger: { info: () => {}, warn: () => {}, error: (m) => errors.push(m) },
+    });
+    assert.isFalse(ok);
+    assert.match(errors.join('\n'), /jwks\.readOnly/);
+    assert.isDefined((app as any).__db.__store.get('key_rotation|'));
+  });
+
+  test('unset and nothing-to-unset both succeed (true)', async ({ assert }) => {
+    const logger = { info: () => {}, warn: () => {}, error: () => {} };
+    assert.isTrue(
+      await settingsUnset(fakeApp({ lockout: { enabled: true } }) as any, 'lockout', { logger }),
+    );
+    assert.isTrue(await settingsUnset(fakeApp({}) as any, 'lockout', { logger }));
+  });
+
   test('key not set — warns without error', async ({ assert }) => {
     const app = fakeApp({});
     const msgs: string[] = [];

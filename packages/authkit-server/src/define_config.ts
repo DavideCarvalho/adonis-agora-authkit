@@ -1910,6 +1910,13 @@ export function defineConfig(config: AuthServerConfigInput) {
       })(),
     );
 
+    // `jwks.readOnly`: só faz sentido lendo um keystore persistido que outra instância escreve.
+    if (jwksConfig.readOnly === true && (jwksConfig.source !== 'managed' || !jwksConfig.store)) {
+      throw new Error(
+        "AuthKit: `jwks.readOnly` needs `source: 'managed'` with a `store` (the keystore another instance writes).",
+      );
+    }
+
     let jwks: { keys: Record<string, any>[] };
     if (jwksConfig.source === 'managed') {
       const alg = jwksConfig.algorithm ?? 'RS256';
@@ -1923,8 +1930,11 @@ export function defineConfig(config: AuthServerConfigInput) {
           vault,
           await keystoreCodec(encrypt, config.crypto),
           alg,
+          { readOnly: jwksConfig.readOnly === true },
         );
-        const store = await manager.ensure();
+        // readOnly: só lê — ausente/ilegível derruba o boot (nunca gera chave nem cria tabela).
+        const store =
+          jwksConfig.readOnly === true ? await manager.readRequired() : await manager.ensure();
         // Remove o metadado interno `iat` antes de entregar ao oidc-provider.
         jwks = toProviderJwks(store);
       } else {
