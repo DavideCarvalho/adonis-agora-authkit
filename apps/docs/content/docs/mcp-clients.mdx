@@ -62,8 +62,21 @@ and the server logs one line at boot when it turned on.
   also served at `https://acme.com/.well-known/oauth-authorization-server/oidc`, where MCP clients
   look first.
 
-MCP clients never receive the `roles` / `org_*` claims: they sign themselves up, so they are never
-first-party. The consent screen shows the `client_name` the client registered (escaped) and the
+MCP clients never receive the `roles` / `org_*` claims in their ID token: they sign themselves up,
+so they are never first-party.
+
+The **access token** for your MCP server carries what that server needs to authorize the user:
+
+- the user's global roles, always, under the roles claim (`globalRolesClaim`, from
+  `resolveTokenRoles` when you set it). There is no active organization in these tokens: no
+  `org_*` claims, and `resolveTokenRoles` gets `activeOrg: null`;
+- the email and `email_verified`, only when the client was granted the `email` scope. Check
+  `email_verified` before trusting the address.
+
+The token only works for that server (`aud` is its URL). MCP servers listed in
+`mcpClients.resources` run in another process, so their tokens are JWTs (RFC 9068) they verify
+against AuthKit's `jwks_uri`. Servers that register in the AuthKit app with
+`registerOAuthResource` get opaque tokens, as before. The consent screen shows the `client_name` the client registered (escaped) and the
 scopes it asked for, and the account's **Connected apps** page lists clients by that name, each
 revocable.
 

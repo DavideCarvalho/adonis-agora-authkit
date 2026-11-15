@@ -16,6 +16,7 @@ import { hideDisabledClients } from '../service_tenants/client_metadata.js';
 import { createServiceTenantHooks } from '../service_tenants/provider_hooks.js';
 import { createDeviceSources } from './device_sources.js';
 import { createLogoutSources } from './logout_sources.js';
+import { mcpTokenClaims } from './mcp_token_claims.js';
 import { registrationPolicyMiddleware } from './registration_policy.js';
 import { impersonationExtraClaims } from './token_exchange.js';
 
@@ -162,6 +163,9 @@ export function buildProvider(
     audit: config.audit,
   });
   const signAlg = config.jwks.keys[0]?.alg ?? 'RS256';
+  const trimSlash = (value: string) => value.replace(/\/+$/, '');
+  const isDeclaredMcpResource = (audience: string) =>
+    mcpClients.resources.some((declared) => trimSlash(declared) === trimSlash(audience));
   const resourceIndicatorFeatures =
     at.anyJwt ||
     declaredResources.length > 0 ||
@@ -207,6 +211,17 @@ export function buildProvider(
                       resources: mcpClients.resources,
                     });
               if (mcpResource) {
+                // Os de `mcpClients.resources` são servidores em OUTRO processo: só enxergam o
+                // token, então ele sai JWT (verificável pelo JWKS). Os registrados em runtime
+                // vivem neste app e continuam opacos.
+                if (isDeclaredMcpResource(mcpResource.audience)) {
+                  return {
+                    scope: mcpResource.scopes.join(' '),
+                    audience: mcpResource.audience,
+                    accessTokenFormat: 'jwt',
+                    jwt: { sign: { alg: signAlg } },
+                  };
+                }
                 return {
                   scope: mcpResource.scopes.join(' '),
                   audience: mcpResource.audience,
@@ -249,10 +264,24 @@ export function buildProvider(
     // `impersonationExtraClaims` em `token_exchange.ts`. Sem isto o token trocado
     // não se distingue de um token do próprio alvo no resource server.
     // Service tenants add `partition`/`capabilities` (see `service_tenants/`).
+    // Servidores MCP ganham os papéis (e o email com escopo `email`) — ver `mcp_token_claims.ts`.
     extraTokenClaims: async (ctx: unknown, token: unknown) => {
       const actor = impersonationExtraClaims(token);
       const tenant = await serviceTenants.extraClaims(ctx, token);
-      return actor || tenant ? { ...tenant, ...actor } : undefined;
+      const user = await mcpTokenClaims(token, {
+        findAccount: config.findAccount,
+        globalRolesClaim: config.globalRolesClaim,
+        resolveTokenRoles: config.resolveTokenRoles,
+        isEmailVerified: config.accountStore.isEmailVerified
+          ? (id) => config.accountStore.isEmailVerified!(id)
+          : undefined,
+        isMcpResource: async (audience) =>
+          findMcpResource(audience, config.issuer, {
+            enabled: (await mcpClientsState(mcpClients)).enabled,
+            resources: mcpClients.resources,
+          }) !== null,
+      });
+      return actor || tenant || user ? { ...user, ...tenant, ...actor } : undefined;
     },
     // Dispatcher por modelo (suportado pelo oidc-provider: `Adapter` aceita
     // função `(name) => adapter` além de classe). Session-scoped vai pro
