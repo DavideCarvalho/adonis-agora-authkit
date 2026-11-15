@@ -67,9 +67,11 @@ so they are never first-party.
 
 The **access token** for your MCP server carries what that server needs to authorize the user:
 
-- the user's roles, always, under the roles claim (`globalRolesClaim`, from `resolveTokenRoles` when
-  you set it);
-- the email, only when the client was granted the `email` scope.
+- the user's global roles, always, under the roles claim (`globalRolesClaim`, from
+  `resolveTokenRoles` when you set it). There is no active organization in these tokens: no
+  `org_*` claims, and `resolveTokenRoles` gets `activeOrg: null`;
+- the email and `email_verified`, only when the client was granted the `email` scope. Check
+  `email_verified` before trusting the address.
 
 The token only works for that server (`aud` is its URL). MCP servers listed in
 `mcpClients.resources` run in another process, so their tokens are JWTs (RFC 9068) they verify

@@ -8,7 +8,9 @@ import type { AuthAccount } from '../accounts/account_store.js';
  * por papel recusa quem chega pelo MCP. Por isso:
  *   - os papéis (`globalRolesClaim`) vão sempre — da mesma fonte do id_token
  *     (`resolveTokenRoles` ou `globalRoles`);
- *   - o email vai só quando o escopo `email` foi concedido.
+ *   - o email vai só quando o escopo `email` foi concedido, com `email_verified`.
+ *
+ * Só papéis GLOBAIS: o token MCP não tem org ativa (`activeOrg: null`) nem claims `org_*`.
  *
  * O token é amarrado ao resource (`aud`), então esses dados só valem para aquele servidor.
  */
@@ -22,6 +24,8 @@ export interface McpTokenClaimsDeps {
       activeOrg?: { orgId: string; orgSlug: string; orgRole: string } | null;
     },
   ) => string[] | Promise<string[]>;
+  /** Se o email da conta foi verificado (vai como `email_verified` junto com o email). */
+  isEmailVerified?: (accountId: string) => boolean | Promise<boolean>;
   /** `true` quando `audience` é um servidor MCP conhecido agora. */
   isMcpResource: (audience: string) => boolean | Promise<boolean>;
 }
@@ -41,9 +45,17 @@ export async function mcpTokenClaims(
   const t = token as TokenLike | null | undefined;
   if (!t || t.kind !== 'AccessToken' || !t.accountId) return undefined;
   const raw = t.resourceServer?.audience;
-  const audience = Array.isArray(raw) ? raw[0] : raw;
-  if (typeof audience !== 'string' || !audience) return undefined;
-  if (!(await deps.isMcpResource(audience))) return undefined;
+  const audiences = (Array.isArray(raw) ? raw : [raw]).filter(
+    (a): a is string => typeof a === 'string' && a.length > 0,
+  );
+  let isMcp = false;
+  for (const audience of audiences) {
+    if (await deps.isMcpResource(audience)) {
+      isMcp = true;
+      break;
+    }
+  }
+  if (!isMcp) return undefined;
 
   const account = await deps.findAccount(t.accountId);
   if (!account) return undefined;
@@ -53,6 +65,9 @@ export async function mcpTokenClaims(
     : (account.globalRoles ?? []);
   const claims: Record<string, unknown> = { [deps.globalRolesClaim]: roles };
   const scopes = new Set((t.scope ?? '').split(' ').filter(Boolean));
-  if (scopes.has('email') && account.email) claims.email = account.email;
+  if (scopes.has('email') && account.email) {
+    claims.email = account.email;
+    claims.email_verified = (await deps.isEmailVerified?.(account.id)) ?? false;
+  }
   return claims;
 }

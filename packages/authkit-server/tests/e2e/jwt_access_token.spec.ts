@@ -697,6 +697,7 @@ test.group('e2e mcp — remote MCP server from mcpClients.resources', (group) =>
     assert.equal(payload.sub, ACCOUNT_ID);
     assert.deepEqual(payload.roles, ['USER']);
     assert.equal(payload.email, EMAIL);
+    assert.isFalse(payload.email_verified, 'remote servers see whether the address was proven');
   });
 
   test('without the email scope the token carries the roles but no email', async ({ assert }) => {

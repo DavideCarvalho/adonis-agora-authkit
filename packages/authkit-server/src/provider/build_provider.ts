@@ -272,6 +272,9 @@ export function buildProvider(
         findAccount: config.findAccount,
         globalRolesClaim: config.globalRolesClaim,
         resolveTokenRoles: config.resolveTokenRoles,
+        isEmailVerified: config.accountStore.isEmailVerified
+          ? (id) => config.accountStore.isEmailVerified!(id)
+          : undefined,
         isMcpResource: async (audience) =>
           findMcpResource(audience, config.issuer, {
             enabled: (await mcpClientsState(mcpClients)).enabled,

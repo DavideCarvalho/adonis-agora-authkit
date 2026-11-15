@@ -27,10 +27,23 @@ test.group('mcpTokenClaims', () => {
     assert.deepEqual(await mcpTokenClaims(token(), deps()), {
       roles: ['ADMIN'],
       email: 'u1@example.com',
+      email_verified: false,
     });
+    assert.deepEqual(
+      await mcpTokenClaims(token(), deps({ isEmailVerified: async (id) => id === 'u1' })),
+      { roles: ['ADMIN'], email: 'u1@example.com', email_verified: true },
+    );
     assert.deepEqual(await mcpTokenClaims(token({ scope: 'openid profile' }), deps()), {
       roles: ['ADMIN'],
     });
+  });
+
+  test('any audience of a multi-audience token counts', async ({ assert }) => {
+    const claims = await mcpTokenClaims(
+      token({ resourceServer: { audience: ['https://api.example.com', MCP] } }),
+      deps(),
+    );
+    assert.deepEqual(claims?.roles, ['ADMIN']);
   });
 
   test('roles come from resolveTokenRoles when the host sets it', async ({ assert }) => {
