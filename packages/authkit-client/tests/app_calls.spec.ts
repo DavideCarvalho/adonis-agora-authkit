@@ -55,6 +55,7 @@ async function bootApp(
   slot: Awaited<ReturnType<typeof listen>>,
   config: Parameters<typeof defineConfig>[0],
   routes: (router: any) => void,
+  beforeStart?: (app: ApplicationService) => void | Promise<void>,
 ): Promise<ApplicationService> {
   const app = new IgnitorFactory()
     .withCoreProviders()
@@ -70,6 +71,7 @@ async function bootApp(
   await app.init();
   await app.boot();
   routes(await app.container.make('router'));
+  await beforeStart?.(app);
   await app.start(async () => {});
   const server = await app.container.make('server');
   await server.boot();
@@ -270,7 +272,8 @@ test.group('calls between apps (two AdonisJS apps, in-memory issuer)', (group) =
   });
 
   test('node:http: static apps are pre-warmed at boot, before any call', async ({ assert }) => {
-    await until(() => resources().includes('urn:agora:app:billing'));
+    // No waiting: A's start (awaited in setup) only finished once the token was in.
+    assert.include(resources(), 'urn:agora:app:billing');
     const body = await nodeGet(`${b.origin}/internal/invoices`);
     assert.equal(body.caller?.app, 'orders');
   });
@@ -282,8 +285,11 @@ test.group('calls between apps (two AdonisJS apps, in-memory issuer)', (group) =
     assert.isAbove(listeners.size, 0);
     for (const fn of listeners) fn(new Map([['shipping', s.origin]]));
     await until(() => resources().includes('urn:agora:app:shipping'));
-    // The token request is recorded before its response is read: let it land.
-    await new Promise((r) => setTimeout(r, 50));
+    // Joins the in-flight fetch subscribe started (single-flight): no new request, no sleep.
+    const before = resources().length;
+    const manager = await appA.container.make('authkit.client');
+    await manager.appCallTokens()!.token('shipping');
+    assert.lengthOf(resources(), before);
     const body = await nodeGet(`${s.origin}/internal/labels`);
     assert.equal(body.caller?.app, 'orders');
   });
@@ -631,6 +637,64 @@ test.group('calls between apps: config and helpers', () => {
     );
     assert.isTrue(JSON.parse(out).clean, process.version);
   }).timeout(20_000);
+
+  test('pre-warm: a stalled issuer delays the start at most prewarmTimeoutMs, then warns', async ({
+    assert,
+  }) => {
+    const stalled = await startMemoryIssuer();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    stalled.tokenResponse = async () => {
+      await gate;
+      return { status: 503, body: { error: 'temporarily_unavailable' } };
+    };
+    const slot = await listen();
+    const warnings: string[] = [];
+    let app: ApplicationService | undefined;
+    try {
+      const started = Date.now();
+      app = await bootApp(
+        slot,
+        {
+          issuer: stalled.issuer,
+          clientId: 'x',
+          redirectUri: 'http://127.0.0.1/cb',
+          resolver: resolvers.jwt({ tokenSource: 'session' }),
+          orgLabels: false,
+          service: {
+            name: 'late',
+            clientId: 'orders',
+            clientSecret: 'orders-secret',
+            nodeHttp: true,
+            prewarmTimeoutMs: 100,
+          },
+          apps: { invoicing: 'http://invoicing.example.test' },
+        },
+        () => {},
+        async (booted) => {
+          const logger = await booted.container.make('logger');
+          const warn = logger.warn.bind(logger);
+          (logger as any).warn = (...args: any[]) => {
+            warnings.push(String(args.at(-1)));
+            return (warn as any)(...args);
+          };
+        },
+      );
+      const elapsed = Date.now() - started;
+      assert.isAtLeast(elapsed, 100);
+      assert.isBelow(elapsed, 3000);
+      const warning = warnings.find((w) => w.includes('no service token after 100 ms'));
+      assert.match(warning ?? '', /invoicing/);
+      assert.notMatch(warning ?? '', /orders-secret/);
+    } finally {
+      release();
+      await app?.terminate();
+      await slot.close();
+      await stalled.close();
+    }
+  }).timeout(10_000);
 
   test('self-check: a global dispatcher replaced behind authkit fails the start loudly', async ({
     assert,

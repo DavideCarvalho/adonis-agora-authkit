@@ -21,8 +21,8 @@ import {
 } from '../src/app_calls/inbound.js';
 import {
   AppCallsInstallError,
-  type AppTokens,
   fetchPassesThroughAppCalls,
+  type InstalledAppCalls,
   installAppCalls,
 } from '../src/app_calls/outbound.js';
 import { Authenticator } from '../src/authenticator.js';
@@ -697,19 +697,33 @@ export class AuthkitClientManager {
    * `service.nodeHttp`, `node:http`) requests to an app in `apps` carry its service token.
    * `null` when there is nothing to install.
    */
-  installAppCalls(): { tokens: AppTokens; uninstall: () => void } | null {
+  /** The resolved calls-between-apps config, or `undefined` without `service`. */
+  appCallsConfig() {
+    return this.config.appCalls;
+  }
+
+  /** The service tokens of calls between apps, once {@link installAppCalls} ran. */
+  appCallTokens() {
+    return this.#installedAppCalls?.tokens;
+  }
+
+  #installedAppCalls: InstalledAppCalls | undefined;
+
+  installAppCalls(): InstalledAppCalls | null {
     const calls = this.config.appCalls;
     if (!calls) return null;
     const { discovery, endpoints: overrides, issuer } = this.config;
     const tokenEndpoint =
       overrides?.tokenEndpoint ??
       (discovery === false ? conventionEndpoints(issuer).tokenEndpoint : undefined);
-    return installAppCalls({
+    const installed = installAppCalls({
       calls,
       issuer,
       ...(tokenEndpoint ? { tokenEndpoint } : {}),
       warn: (message) => this.#logger.warn({}, message),
     });
+    this.#installedAppCalls = installed ?? undefined;
+    return installed;
   }
 
   /**
@@ -737,7 +751,7 @@ export class AuthkitClientManager {
 export default class AuthkitClientProvider {
   constructor(protected app: ApplicationService) {}
 
-  #uninstallAppCalls: (() => void) | undefined;
+  #appCalls: InstalledAppCalls | undefined;
 
   register() {
     // `ctx.agora` (the request context shared by the Agora libs) is always an object.
@@ -789,7 +803,7 @@ export default class AuthkitClientProvider {
       return; // no usable config yet: nothing to install
     }
     // Outbound first, and whatever happens to the HTTP server: jobs and commands call apps too.
-    this.#uninstallAppCalls = manager.installAppCalls()?.uninstall;
+    this.#appCalls = manager.installAppCalls() ?? undefined;
     if (!manager.appCallerVerifier()) return;
     if (!this.app.container.hasBinding('server')) return; // no HTTP server here
     const server = await this.app.container.make('server');
@@ -802,16 +816,29 @@ export default class AuthkitClientProvider {
    * Fails the start loudly instead.
    */
   async #checkAppCalls() {
-    if (!this.#uninstallAppCalls) return;
-    if (await fetchPassesThroughAppCalls()) return;
-    throw new AppCallsInstallError(
-      `authkit: the global fetch does not go through the calls-between-apps interceptor on Node ${process.version} (undici ${process.versions.undici ?? '?'}); calls to other apps would leave without their token. Something replaced the global dispatcher after authkit-client booted: compose onto it (dispatcher.compose) instead of replacing it.`,
-    );
+    const calls = this.#appCalls;
+    if (!calls) return;
+    if (!(await fetchPassesThroughAppCalls())) {
+      throw new AppCallsInstallError(
+        `authkit: the global fetch does not go through the calls-between-apps interceptor on Node ${process.version} (undici ${process.versions.undici ?? '?'}); calls to other apps would leave without their token. Something replaced the global dispatcher after authkit-client booted: compose onto it (dispatcher.compose) instead of replacing it.`,
+      );
+    }
+    // node:http requests cannot wait for a token: the app is ready once the tokens of the
+    // static-map apps are in (bounded). Discovered apps keep warming in the background.
+    const manager = await this.app.container.make(AuthkitClientManager);
+    const timeoutMs = manager.appCallsConfig()?.prewarmTimeoutMs ?? 5_000;
+    const missing = await calls.prewarm(timeoutMs);
+    if (missing.length) {
+      const logger = await this.app.container.make('logger');
+      logger.warn(
+        `authkit: no service token after ${timeoutMs} ms for ${missing.join(', ')}; node:http requests to them fail until one is fetched`,
+      );
+    }
   }
 
   async shutdown() {
-    this.#uninstallAppCalls?.();
-    this.#uninstallAppCalls = undefined;
+    this.#appCalls?.uninstall();
+    this.#appCalls = undefined;
   }
 
   /**

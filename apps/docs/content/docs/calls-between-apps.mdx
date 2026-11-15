@@ -77,8 +77,10 @@ interceptor; if another library replaced the global dispatcher instead of compos
 the start fails with an explicit error rather than letting calls go out unauthenticated.
 
 `node:http` / `node:https` clients (axios, got) are covered with `service.nodeHttp: true`.
-Their tokens are fetched ahead (at boot for the apps in `apps`, as soon as service discovery
-announces an app) and refreshed before they expire. A request to a known app whose token is
+Their tokens are fetched ahead and refreshed before they expire: the app's start waits for
+the tokens of the apps in `apps` (at most `service.prewarmTimeoutMs`, default 5000 ms; past it,
+a warning names the apps still without one and the start goes on), and apps announced by
+service discovery are fetched in the background as soon as they appear. A request to a known app whose token is
 not ready yet (right after boot, AuthKit unreachable, app not granted) fails with an error
 whose `code` is `E_AGORA_APP_TOKEN_UNAVAILABLE`; it is never sent without the token.
 

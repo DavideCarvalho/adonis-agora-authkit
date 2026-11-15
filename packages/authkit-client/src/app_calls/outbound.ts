@@ -381,13 +381,25 @@ function portOf(req: ClientRequestLike): string | null {
   return hasPort ? header.slice(at) : '';
 }
 
+/** What {@link installAppCalls} installed. */
+export interface InstalledAppCalls {
+  tokens: AppTokens;
+  /**
+   * Fetches the tokens of the static-map apps (when `node:http` is hooked: its requests
+   * cannot wait for one), for at most `timeoutMs`. Resolves with the apps still without a
+   * token (empty when all are in). Never rejects.
+   */
+  prewarm(timeoutMs: number): Promise<string[]>;
+  uninstall: () => void;
+}
+
 /** Everything the outbound side installs, in one call. Returns how to take it out. */
 export function installAppCalls(options: {
   calls: ResolvedAppCalls;
   issuer: string;
   tokenEndpoint?: string;
   warn?: (message: string) => void;
-}): { tokens: AppTokens; uninstall: () => void } | null {
+}): InstalledAppCalls | null {
   const { calls } = options;
   // Without a static map, the targets come from the published discovery.
   if (!calls.clientId || !calls.clientSecret) return null;
@@ -401,16 +413,31 @@ export function installAppCalls(options: {
   const restore = composeGlobalDispatcher(
     appCallsInterceptor({ origins: calls.origins, token: (app) => tokens.token(app) }),
   );
-  if (restore) undo.push(restore);
-  else
-    options.warn?.(
-      'authkit: the global fetch dispatcher cannot be composed; fetch calls between apps are not authenticated',
+  if (!restore) {
+    throw new AppCallsInstallError(
+      `authkit: no composable global fetch dispatcher on Node ${process.version}; calls to other apps cannot be authenticated.`,
     );
+  }
+  undo.push(restore);
   if (calls.nodeHttp) {
     undo.push(installNodeHttpHook({ origins: calls.origins, tokens, warn: options.warn }));
   }
+  const staticApps = [...new Set(calls.origins.values())];
   return {
     tokens,
+    async prewarm(timeoutMs) {
+      if (!calls.nodeHttp || !staticApps.length) return [];
+      let timer: NodeJS.Timeout | undefined;
+      await Promise.race([
+        Promise.allSettled(staticApps.map((app) => tokens.token(app))),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, timeoutMs);
+          timer.unref?.();
+        }),
+      ]);
+      clearTimeout(timer);
+      return staticApps.filter((app) => !tokens.peek(app));
+    },
     uninstall: () => {
       for (const fn of undo.reverse()) fn();
     },

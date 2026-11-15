@@ -52,6 +52,12 @@ export interface ServiceInput {
    * Default: `false`.
    */
   nodeHttp?: boolean;
+  /**
+   * With `nodeHttp`: how long the app's start waits for the tokens of the apps in `apps`
+   * (it reports ready only once they are in). On timeout a warning names the apps still
+   * without a token and the start goes on. Default: 5000 ms.
+   */
+  prewarmTimeoutMs?: number;
 }
 
 /** Resolved `service` + `apps`. */
@@ -61,6 +67,8 @@ export interface ResolvedAppCalls {
   clientSecret?: string;
   environment?: string;
   nodeHttp: boolean;
+  /** See {@link ServiceInput.prewarmTimeoutMs}. */
+  prewarmTimeoutMs: number;
   /** Static origin (`https://billing.example.com`) → app name; overrides discovery. */
   origins: Map<string, string>;
 }
@@ -85,6 +93,14 @@ export function resolveAppCalls(
   if (typeof service.name !== 'string' || !APP_NAME_PATTERN.test(service.name)) {
     throw new AppCallsConfigError(
       `authkit_client: service.name "${service.name}" is invalid: use letters, digits, ".", "_" or "-" (max 64 chars).`,
+    );
+  }
+  if (
+    service.prewarmTimeoutMs !== undefined &&
+    (!Number.isFinite(service.prewarmTimeoutMs) || service.prewarmTimeoutMs < 0)
+  ) {
+    throw new AppCallsConfigError(
+      'authkit_client: service.prewarmTimeoutMs must be a number of ms >= 0.',
     );
   }
   const origins = new Map<string, string>();
@@ -122,6 +138,7 @@ export function resolveAppCalls(
     ...(service.clientSecret ? { clientSecret: service.clientSecret } : {}),
     ...(service.environment ? { environment: service.environment } : {}),
     nodeHttp: service.nodeHttp === true,
+    prewarmTimeoutMs: service.prewarmTimeoutMs ?? 5_000,
     origins,
   };
 }
