@@ -234,6 +234,48 @@ test.group('authkit:client', (group) => {
     assert.equal((await h.run(AuthkitClient, ['create', '--capability=reports'])).exitCode, 1);
   });
 
+  test('create --app, grant-app and revoke-app manage the apps a service tenant can call', async ({
+    assert,
+  }) => {
+    const created = await h.run(AuthkitClient, [
+      'create',
+      '--client-id=orders',
+      '--partition=orders',
+      '--app=billing=invoices:read,invoices:write',
+      '--app=reports',
+    ]);
+    assert.equal(created.exitCode, 0);
+    const svc = new AdminClientsService(h.service);
+    assert.deepEqual((await svc.find('orders'))?.serviceTenant?.apps, {
+      billing: ['invoices:read', 'invoices:write'],
+      reports: [],
+    });
+
+    const granted = await h.run(AuthkitClient, [
+      'grant-app',
+      'orders',
+      '--app=shipping',
+      '--capability=labels:create',
+    ]);
+    assert.equal(granted.exitCode, 0);
+    assert.isTrue(granted.logs.some((m) => m.includes('orders may now call shipping')));
+    assert.deepEqual((await svc.find('orders'))?.serviceTenant?.apps?.shipping, ['labels:create']);
+    assert.isTrue(
+      h.audit.some((e) => e.metadata?.action === 'grant_app' && e.metadata?.app === 'shipping'),
+    );
+
+    assert.equal(
+      (await h.run(AuthkitClient, ['revoke-app', 'orders', '--app=reports'])).exitCode,
+      0,
+    );
+    assert.notProperty((await svc.find('orders'))!.serviceTenant!.apps!, 'reports');
+
+    // Exactly one --app, a service tenant, a known client.
+    assert.equal((await h.run(AuthkitClient, ['grant-app', 'orders'])).exitCode, 1);
+    assert.equal((await h.run(AuthkitClient, ['grant-app', 'nope', '--app=x'])).exitCode, 1);
+    assert.equal((await h.run(AuthkitClient, ['create', '--app=billing'])).exitCode, 1);
+  });
+
   test('list --json, list --mcp (dynamic + metadata-document clients with grants)', async ({
     assert,
   }) => {

@@ -1,0 +1,131 @@
+---
+icon: ArrowLeftRight
+title: Calls between apps
+description: Authenticate one AdonisJS app calling another with plain fetch and plain routes, configured in two files.
+---
+
+One app (`orders`) calls another (`billing`) with a plain `fetch`. AuthKit adds a short-lived
+token for `billing` to the request, `billing` verifies it and knows `orders` called. Nothing
+changes in your controllers or HTTP calls: it is configuration.
+
+## 1. Let `orders` call `billing` (authkit-server)
+
+Each app has a [service tenant](/docs/service-tenants) client. Grant the caller the
+apps it may call, with the capabilities it holds on each one:
+
+```bash
+node ace authkit:client create --client-id=orders --partition=orders \
+  --app=billing=invoices:read,invoices:write
+
+# later
+node ace authkit:client grant-app orders --app=shipping --capability=labels:create
+node ace authkit:client revoke-app orders --app=shipping
+```
+
+The same grant is in the admin console (client → **Apps it can call**, one per line:
+`billing: invoices:read, invoices:write`) and in the Admin API:
+
+```http
+PUT    /clients/orders/apps/billing   { "capabilities": ["invoices:read"] }
+DELETE /clients/orders/apps/billing
+```
+
+`config/authkit.ts` needs `serviceTenants` (calls between apps are on with it):
+
+```ts title="config/authkit.ts"
+serviceTenants: {
+  resources: { 'urn:agora:durable': {} }, // or {} for calls between apps only
+  apps: { expiresIn: 300 },               // default; `false` turns calls between apps off
+},
+```
+
+## 2. The caller: `orders`
+
+```ts title="config/authkit_client.ts"
+export default defineConfig({
+  // …your login settings
+  service: {
+    name: 'orders',
+    clientId: env.get('AUTHKIT_SERVICE_CLIENT_ID'),
+    clientSecret: env.get('AUTHKIT_SERVICE_CLIENT_SECRET'),
+  },
+  // Only needed without service discovery (telescope), or to pin an origin:
+  apps: { billing: 'https://billing.example.com' },
+})
+```
+
+```ts title="app/services/invoices.ts"
+const res = await fetch('https://billing.example.com/internal/invoices', {
+  method: 'POST',
+  body: JSON.stringify(invoice),
+})
+```
+
+- The request carries `Authorization: Bearer <token>` for `urn:agora:app:billing`. Tokens
+  are cached per app and refreshed before they expire.
+- Which app an origin is comes from the service discovery telescope publishes (so
+  `fetch('http://billing/…')` works too); `apps` overrides it, and is the whole answer
+  without telescope.
+- Only the exact origin of a known app gets a token. Any other origin, and a redirect to
+  another origin, never does.
+- A request that already has an `Authorization` header is left as it is.
+- When the token cannot be obtained (client disabled, app not granted), the `fetch` fails
+  instead of leaving without it.
+
+When the app starts, AuthKit checks that the global `fetch` really goes through its
+interceptor; if another library replaced the global dispatcher instead of composing onto it,
+the start fails with an explicit error rather than letting calls go out unauthenticated.
+
+`node:http` / `node:https` clients (axios, got) are covered with `service.nodeHttp: true`.
+Their tokens are fetched ahead and refreshed before they expire: the app's start waits for
+the tokens of the apps in `apps` (at most `service.prewarmTimeoutMs`, default 5000 ms; past it,
+a warning names the apps still without one and the start goes on), and apps announced by
+service discovery are fetched in the background as soon as they appear. A request to a known app whose token is
+not ready yet (right after boot, AuthKit unreachable, app not granted) fails with an error
+whose `code` is `E_AGORA_APP_TOKEN_UNAVAILABLE`; it is never sent without the token.
+
+## 3. The callee: `billing`
+
+```ts title="config/authkit_client.ts"
+export default defineConfig({
+  // …your login settings
+  service: { name: 'billing' },
+})
+```
+
+Every request that carries a valid token for `billing` gets its caller:
+
+```ts title="app/controllers/invoices_controller.ts"
+import { getAgoraCaller } from '@adonis-agora/authkit-client'
+
+export default class InvoicesController {
+  async store(ctx: HttpContext) {
+    const caller = getAgoraCaller(ctx) // or ctx.agora.caller
+    // { app: 'orders', capabilities: ['invoices:read', 'invoices:write'], environment?, clientId, expiresAt }
+  }
+}
+```
+
+Routes only other apps may call use `authkitService`:
+
+```ts title="start/routes.ts"
+import { authkitService } from '@adonis-agora/authkit-client'
+
+router
+  .post('/internal/invoices', [InvoicesController, 'store'])
+  .use(authkitService({ capabilities: ['invoices:write'] }))
+
+router
+  .get('/internal/reports', [ReportsController, 'index'])
+  .use(authkitService({ apps: ['orders', 'analytics'] }))
+```
+
+| Request | `authkitService` answers |
+|---|---|
+| no token for this app (a user, a user token, no token) | 401 |
+| token for this app, expired or not signed by AuthKit | 401 `invalid_token` |
+| caller not in `apps`, or missing a capability | 403 |
+
+A caller is an app, never a user: `ctx.auth` and `ctx.authkit` stay empty for it, so your
+user routes keep refusing it, and user requests are not touched. Set `service.environment`
+to accept only callers from that environment.

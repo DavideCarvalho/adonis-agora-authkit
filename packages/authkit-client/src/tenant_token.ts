@@ -111,6 +111,15 @@ export class AuthkitTenantToken {
     return pending;
   }
 
+  /**
+   * The cached token while it stays valid for at least `minValidityMs` more, without any
+   * I/O; `undefined` otherwise.
+   */
+  peek(minValidityMs = 0): string | undefined {
+    const cached = this.#cached;
+    return cached && Date.now() + minValidityMs < cached.expiresAt ? cached.value : undefined;
+  }
+
   /** Drops the cached token: the next `token()` fetches a new one. */
   reset(): void {
     this.#generation += 1;

@@ -961,6 +961,42 @@ test.group('Admin REST API + console: service-tenant clients', (group) => {
     assert.equal(missing.captured.status(), 404);
   });
 
+  test('PUT/DELETE /clients/:id/apps/:app grant and take away a call to another app', async ({
+    assert,
+  }) => {
+    const clients = new ApiClientsController();
+    await clients.store(
+      fakeCtx({
+        service,
+        inputs: { clientId: 'orders', serviceTenant: { partition: 'orders' } },
+      }).ctx,
+    );
+    const granted: any = await clients.grantApp(
+      fakeCtx({
+        service,
+        params: { id: 'orders', app: 'billing' },
+        inputs: { capabilities: ['invoices:read'] },
+      }).ctx,
+    );
+    assert.deepEqual(granted.serviceTenant.apps, { billing: ['invoices:read'] });
+    const event = service.config.audit.events.find(
+      (e: any) => e.type === 'client.updated' && e.metadata?.action === 'grant_app',
+    );
+    assert.equal(event.metadata.app, 'billing');
+
+    const revoked: any = await clients.revokeApp(
+      fakeCtx({ service, params: { id: 'orders', app: 'billing' } }).ctx,
+    );
+    assert.notProperty(revoked.serviceTenant, 'apps');
+
+    const bad = fakeCtx({ service, params: { id: 'orders', app: 'bad name' }, inputs: {} });
+    await clients.grantApp(bad.ctx);
+    assert.equal(bad.captured.status(), 422);
+    const missing = fakeCtx({ service, params: { id: 'nope', app: 'billing' }, inputs: {} });
+    await clients.grantApp(missing.ctx);
+    assert.equal(missing.captured.status(), 404);
+  });
+
   test('refuses a service tenant with redirect URIs or a public auth method (422)', async ({
     assert,
   }) => {

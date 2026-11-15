@@ -19,7 +19,29 @@ export interface ServiceTenantsConfigInput {
    * Resource indicators (RFC 8707) that issue service-tenant tokens, e.g.
    * `{ 'urn:agora:durable': {} }`. Only service-tenant clients can get tokens for them.
    */
-  resources: Record<string, ServiceTenantResourceInput>;
+  resources?: Record<string, ServiceTenantResourceInput>;
+  /**
+   * Calls between apps: a service tenant granted another app (`apps` on the client) gets
+   * tokens for `urn:agora:app:<name>`. On by default; `false` turns it off.
+   * `expiresIn` is the token lifetime in seconds (default 300).
+   */
+  apps?: false | { expiresIn?: number };
+}
+
+/** Resource indicator prefix of an app (calls between apps): `urn:agora:app:<name>`. */
+export const APP_RESOURCE_PREFIX = 'urn:agora:app:';
+
+/** Default lifetime of an app-to-app token: 5 minutes. */
+export const DEFAULT_APP_TOKEN_TTL = 300;
+
+/** Letters, digits, `.`, `_` and `-`; starts with a letter or digit; up to 64 chars. */
+export const APP_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+/** The app name of a `urn:agora:app:<name>` indicator, or `null`. */
+export function appResourceName(indicator: string): string | null {
+  if (typeof indicator !== 'string' || !indicator.startsWith(APP_RESOURCE_PREFIX)) return null;
+  const name = indicator.slice(APP_RESOURCE_PREFIX.length);
+  return APP_NAME_PATTERN.test(name) ? name : null;
 }
 
 export interface ResolvedServiceTenantResource {
@@ -29,9 +51,11 @@ export interface ResolvedServiceTenantResource {
 }
 
 export interface ResolvedServiceTenantsConfig {
-  /** `true` when at least one resource is declared. */
+  /** `true` when at least one resource is declared or calls between apps are on. */
   enabled: boolean;
   resources: Record<string, ResolvedServiceTenantResource>;
+  /** Calls between apps (`urn:agora:app:<name>`). Absent = off. */
+  apps?: { expiresIn: number };
 }
 
 /** Default token lifetime: 10 minutes. */
@@ -50,11 +74,23 @@ export function resolveServiceTenants(
 ): ResolvedServiceTenantsConfig {
   const resources: Record<string, ResolvedServiceTenantResource> = {};
   const userResources = new Set(Object.keys(accessTokenResources).map(trimSlash));
+  for (const declared of userResources) {
+    if (input && input.apps !== false && declared.startsWith(APP_RESOURCE_PREFIX)) {
+      throw new Error(
+        `authkit: "${declared}" is an app resource (calls between apps): grant the app to a service tenant instead of declaring it in accessTokens.resources.`,
+      );
+    }
+  }
   for (const [indicator, rc] of Object.entries(input?.resources ?? {})) {
     const parsed = URL.parse(indicator);
     if (!parsed || indicator.includes('#')) {
       throw new Error(
         `authkit: serviceTenants.resources["${indicator}"] must be an absolute URI without a fragment (e.g. "urn:agora:durable").`,
+      );
+    }
+    if (indicator.startsWith(APP_RESOURCE_PREFIX)) {
+      throw new Error(
+        `authkit: serviceTenants.resources["${indicator}"]: app resources are not declared, they are granted per client (\`apps\` on the service tenant).`,
       );
     }
     if (userResources.has(trimSlash(indicator))) {
@@ -74,7 +110,21 @@ export function resolveServiceTenants(
       scopes: [...(rc?.scopes ?? [])],
     };
   }
-  return { enabled: Object.keys(resources).length > 0, resources };
+  let apps: { expiresIn: number } | undefined;
+  if (input && input.apps !== false) {
+    const expiresIn = input.apps?.expiresIn ?? DEFAULT_APP_TOKEN_TTL;
+    if (!Number.isInteger(expiresIn) || expiresIn <= 0) {
+      throw new Error(
+        'authkit: serviceTenants.apps.expiresIn must be a positive integer (seconds).',
+      );
+    }
+    apps = { expiresIn };
+  }
+  return {
+    enabled: Object.keys(resources).length > 0 || apps !== undefined,
+    resources,
+    ...(apps ? { apps } : {}),
+  };
 }
 
 /** Finds a declared service-tenant resource, tolerating a trailing slash. */

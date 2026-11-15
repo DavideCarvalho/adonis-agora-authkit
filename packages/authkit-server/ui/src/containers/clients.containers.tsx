@@ -131,6 +131,15 @@ export function ClientsListContainer({
                     )}
                     {c.disabled && <Badge variant="neutral">disabled</Badge>}
                   </div>
+                  {c.serviceTenant?.apps && Object.keys(c.serviceTenant.apps).length > 0 && (
+                    <div className="mb-1.5 flex flex-wrap gap-1">
+                      {Object.keys(c.serviceTenant.apps).map((app) => (
+                        <Badge key={app} variant="info" title="Apps this client can call">
+                          calls: {app}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
                   {c.serviceTenant && c.serviceTenant.capabilities.length > 0 && (
                     <div className="mb-1.5 flex flex-wrap gap-1">
                       {c.serviceTenant.capabilities.map((cap) => (

@@ -24,6 +24,7 @@ import {
   Notice,
   SecretBox,
   SelectInput,
+  TextArea,
   TextInput,
 } from '../components/primitives';
 import { ClientsListContainer, useClientsCount } from '../containers/clients.containers';
@@ -41,6 +42,8 @@ interface FormState {
   capabilities: string;
   /** The `environment` claim; empty for none. */
   environment: string;
+  /** Apps it may call, one per line: `billing` or `billing: invoices:read, invoices:write`. */
+  apps: string;
   clientIdOverride: string;
   redirectUris: string[];
   postLogoutRedirectUris: string[];
@@ -60,12 +63,31 @@ function parseCapabilities(raw: string): string[] {
     .filter(Boolean);
 }
 
+/** One app per line: `billing` or `billing: invoices:read, invoices:write`. */
+function parseApps(raw: string): Record<string, string[]> {
+  const apps: Record<string, string[]> = {};
+  for (const line of raw.split('\n')) {
+    const at = line.indexOf(':');
+    const name = (at === -1 ? line : line.slice(0, at)).trim();
+    if (!name) continue;
+    apps[name] = at === -1 ? [] : parseCapabilities(line.slice(at + 1));
+  }
+  return apps;
+}
+
+function formatApps(apps: Record<string, string[]> | undefined): string {
+  return Object.entries(apps ?? {})
+    .map(([name, caps]) => (caps.length ? `${name}: ${caps.join(', ')}` : name))
+    .join('\n');
+}
+
 function defaultForm(): FormState {
   return {
     kind: 'app',
     partition: '',
     capabilities: '',
     environment: '',
+    apps: '',
     clientIdOverride: '',
     redirectUris: [],
     postLogoutRedirectUris: [],
@@ -114,6 +136,7 @@ export function Clients() {
       partition: c.serviceTenant?.partition ?? '',
       capabilities: (c.serviceTenant?.capabilities ?? []).join(', '),
       environment: c.serviceTenant?.environment ?? '',
+      apps: formatApps(c.serviceTenant?.apps),
       clientIdOverride: '',
       redirectUris: [...c.redirectUris],
       postLogoutRedirectUris: [...c.postLogoutRedirectUris],
@@ -178,6 +201,7 @@ export function Clients() {
                 ...(formData.environment.trim()
                   ? { environment: formData.environment.trim() }
                   : {}),
+                apps: parseApps(formData.apps),
               },
             }
           : {
@@ -216,6 +240,7 @@ export function Clients() {
             partition: formData.partition.trim(),
             capabilities: parseCapabilities(formData.capabilities),
             environment: formData.environment.trim() || null,
+            apps: parseApps(formData.apps),
           },
         });
         queryClient.invalidateQueries({ queryKey: authkitKeys.admin.clients() });
@@ -430,6 +455,16 @@ export function Clients() {
               placeholder="production"
             />
           </Field>
+          <Field label="Apps it can call (optional, one per line)" htmlFor="client-apps">
+            <TextArea
+              id="client-apps"
+              mono
+              rows={3}
+              value={formData.apps}
+              onChange={(e) => setFormData((f) => ({ ...f, apps: e.target.value }))}
+              placeholder={'billing: invoices:read, invoices:write\nreports'}
+            />
+          </Field>
           <Field label="Name" htmlFor="client-name">
             <TextInput
               id="client-name"
@@ -440,7 +475,8 @@ export function Clients() {
           </Field>
           <div className="text-xs text-faint">
             Confidential client with only the client_credentials grant. Its tokens carry the
-            partition, capabilities and environment as claims.
+            partition, capabilities and environment as claims. Each app it can call gets tokens for
+            urn:agora:app:&lt;name&gt; with the capabilities listed on that line.
           </div>
         </>
       ) : (

@@ -191,6 +191,8 @@ export interface ServiceTenantSettings {
   capabilities: string[];
   /** The `environment` claim, when set. */
   environment?: string;
+  /** Apps it may call: target app name → capabilities on it (`urn:agora:app:<name>`). */
+  apps?: Record<string, string[]>;
 }
 
 /** A page of clients; `canList` is `false` when the adapter cannot enumerate them. */
@@ -221,7 +223,12 @@ export interface CreateClientInput {
   clientName?: string;
   logoUri?: string;
   /** Makes it a service tenant (confidential, `client_credentials` only, no redirect URIs). */
-  serviceTenant?: { partition: string; capabilities?: string[]; environment?: string };
+  serviceTenant?: {
+    partition: string;
+    capabilities?: string[];
+    environment?: string;
+    apps?: Record<string, string[]>;
+  };
 }
 
 /**
@@ -239,6 +246,7 @@ export type UpdateClientInput = Omit<
     partition: string;
     capabilities?: string[];
     environment?: string | null;
+    apps?: Record<string, string[]> | null;
   } | null;
 };
 

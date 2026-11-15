@@ -128,6 +128,13 @@ export const clientInputValidator = vine.compile(
           .maxLength(MAX_CAPABILITIES)
           .optional(),
         environment: vine.string().trim().regex(ENVIRONMENT_PATTERN).nullable().optional(),
+        // Calls between apps: target app name → capabilities on it (names checked by the service).
+        apps: vine
+          .record(
+            vine.array(vine.string().trim().regex(CAPABILITY_PATTERN)).maxLength(MAX_CAPABILITIES),
+          )
+          .nullable()
+          .optional(),
       })
       .nullable()
       .optional(),
@@ -150,6 +157,7 @@ export type ClientInputFields = {
     partition: string;
     capabilities?: string[];
     environment?: string | null;
+    apps?: Record<string, string[]> | null;
   } | null;
 };
 

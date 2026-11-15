@@ -18,6 +18,14 @@ export {
 } from './src/account_extensions.js';
 export type { AgoraConsoleSignOut, ConsolesAppLike } from './src/agora_consoles.js';
 export { AGORA_CONSOLES_BINDING, announceAgoraSignOut } from './src/agora_consoles.js';
+export type { ServiceInput } from './src/app_calls/config.js';
+export type { AgoraDiscovery } from './src/app_calls/discovery.js';
+export type {
+  AgoraCaller,
+  AgoraRequestContext,
+  AuthkitServiceOptions,
+} from './src/app_calls/inbound.js';
+export { authkitService, getAgoraCaller } from './src/app_calls/inbound.js';
 export { Authenticator } from './src/authenticator.js';
 export type {
   AuthorizationRequest,

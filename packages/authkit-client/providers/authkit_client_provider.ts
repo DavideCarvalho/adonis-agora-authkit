@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import type { SessionResolver } from '@adonis-agora/authkit-core';
 import { configProvider } from '@adonisjs/core';
 import { RuntimeException } from '@adonisjs/core/exceptions';
-import type { HttpContext } from '@adonisjs/core/http';
+import { HttpContext } from '@adonisjs/core/http';
 import type { ApplicationService } from '@adonisjs/core/types';
 import { decodeJwt, type JWTVerifyGetKey } from 'jose';
 import {
@@ -13,6 +13,18 @@ import {
   ClientAccountExtensionRegistry,
   serveAccountExtensions,
 } from '../src/account_extensions.js';
+import { AppCallsConfigError } from '../src/app_calls/config.js';
+import {
+  AppCallerVerifier,
+  installAgoraContext,
+  resolveAppCaller,
+} from '../src/app_calls/inbound.js';
+import {
+  AppCallsInstallError,
+  fetchPassesThroughAppCalls,
+  type InstalledAppCalls,
+  installAppCalls,
+} from '../src/app_calls/outbound.js';
 import { Authenticator } from '../src/authenticator.js';
 import {
   type AuthorizationRequest,
@@ -645,6 +657,76 @@ export class AuthkitClientManager {
   }
 
   /**
+   * Verifies service tokens addressed to this app (`urn:agora:app:<service.name>`), or
+   * `null` when `service` is not configured.
+   */
+  appCallerVerifier(): AppCallerVerifier | null {
+    const calls = this.config.appCalls;
+    if (!calls) return null;
+    if (this.#appCallerVerifier) return this.#appCallerVerifier;
+    const { discovery, endpoints: overrides } = this.config;
+    this.#appCallerVerifier = new AppCallerVerifier({
+      issuer: this.config.issuer,
+      name: calls.name,
+      ...(calls.environment ? { environment: calls.environment } : {}),
+      discovery: {
+        ...(overrides ? { overrides } : {}),
+        ...(discovery !== false && discovery.cacheTtlMs !== undefined
+          ? { cacheTtlMs: discovery.cacheTtlMs }
+          : {}),
+        ...(this.config.resilience ? { resilience: this.config.resilience } : {}),
+        ...(this.deps.fetchImpl ? { fetchImpl: this.deps.fetchImpl } : {}),
+      },
+    });
+    return this.#appCallerVerifier;
+  }
+
+  #appCallerVerifier: AppCallerVerifier | undefined;
+
+  /**
+   * Sets `ctx.agora.caller` when the request carries a valid service token for this app
+   * (what the server middleware runs). No-op without `service`.
+   */
+  async resolveAppCaller(ctx: HttpContext): Promise<void> {
+    const verifier = this.appCallerVerifier();
+    if (verifier) await resolveAppCaller(ctx, verifier, this.#logger);
+  }
+
+  /**
+   * Installs the outbound side of calls between apps: `fetch` (and, with
+   * `service.nodeHttp`, `node:http`) requests to an app in `apps` carry its service token.
+   * `null` when there is nothing to install.
+   */
+  /** The resolved calls-between-apps config, or `undefined` without `service`. */
+  appCallsConfig() {
+    return this.config.appCalls;
+  }
+
+  /** The service tokens of calls between apps, once {@link installAppCalls} ran. */
+  appCallTokens() {
+    return this.#installedAppCalls?.tokens;
+  }
+
+  #installedAppCalls: InstalledAppCalls | undefined;
+
+  installAppCalls(): InstalledAppCalls | null {
+    const calls = this.config.appCalls;
+    if (!calls) return null;
+    const { discovery, endpoints: overrides, issuer } = this.config;
+    const tokenEndpoint =
+      overrides?.tokenEndpoint ??
+      (discovery === false ? conventionEndpoints(issuer).tokenEndpoint : undefined);
+    const installed = installAppCalls({
+      calls,
+      issuer,
+      ...(tokenEndpoint ? { tokenEndpoint } : {}),
+      warn: (message) => this.#logger.warn({}, message),
+    });
+    this.#installedAppCalls = installed ?? undefined;
+    return installed;
+  }
+
+  /**
    * The request's {@link Authenticator}. `options.resolver` replaces the configured
    * resolver for this authenticator only (e.g. a guard for bearer-token API routes).
    */
@@ -669,7 +751,11 @@ export class AuthkitClientManager {
 export default class AuthkitClientProvider {
   constructor(protected app: ApplicationService) {}
 
+  #appCalls: InstalledAppCalls | undefined;
+
   register() {
+    // `ctx.agora` (the request context shared by the Agora libs) is always an object.
+    installAgoraContext(HttpContext as never);
     // Bound by class, like the first-party packages do, so `@inject()` works with
     // `AuthkitClientManager` as a constructor type.
     this.app.container.singleton(AuthkitClientManager, async (resolver) => {
@@ -703,11 +789,65 @@ export default class AuthkitClientProvider {
   }
 
   /**
+   * Calls between apps, when `service` is configured: the server middleware that exposes
+   * `ctx.agora.caller` (no kernel edit) and the `fetch` interceptor that authenticates
+   * calls to the apps in `apps` (in every environment: jobs and commands call apps too).
+   */
+  async boot() {
+    let manager: AuthkitClientManager;
+    try {
+      manager = await this.app.container.make(AuthkitClientManager);
+    } catch (error) {
+      // A wrong `service` / `apps` fails the boot: a typo must not become 401s elsewhere.
+      if (error instanceof AppCallsConfigError) throw error;
+      return; // no usable config yet: nothing to install
+    }
+    // Outbound first, and whatever happens to the HTTP server: jobs and commands call apps too.
+    this.#appCalls = manager.installAppCalls() ?? undefined;
+    if (!manager.appCallerVerifier()) return;
+    if (!this.app.container.hasBinding('server')) return; // no HTTP server here
+    const server = await this.app.container.make('server');
+    server.use([() => import('../src/middleware/app_caller_middleware.js')]);
+  }
+
+  /**
+   * Self-check, once every provider has installed its interceptors: a `fetch` must go
+   * through the app-calls interceptor, or calls to other apps would leave unauthenticated.
+   * Fails the start loudly instead.
+   */
+  async #checkAppCalls() {
+    const calls = this.#appCalls;
+    if (!calls) return;
+    if (!(await fetchPassesThroughAppCalls())) {
+      throw new AppCallsInstallError(
+        `authkit: the global fetch does not go through the calls-between-apps interceptor on Node ${process.version} (undici ${process.versions.undici ?? '?'}); calls to other apps would leave without their token. Something replaced the global dispatcher after authkit-client booted: compose onto it (dispatcher.compose) instead of replacing it.`,
+      );
+    }
+    // node:http requests cannot wait for a token: the app is ready once the tokens of the
+    // static-map apps are in (bounded). Discovered apps keep warming in the background.
+    const manager = await this.app.container.make(AuthkitClientManager);
+    const timeoutMs = manager.appCallsConfig()?.prewarmTimeoutMs ?? 5_000;
+    const missing = await calls.prewarm(timeoutMs);
+    if (missing.length) {
+      const logger = await this.app.container.make('logger');
+      logger.warn(
+        `authkit: no service token after ${timeoutMs} ms for ${missing.join(', ')}; node:http requests to them fail until one is fetched`,
+      );
+    }
+  }
+
+  async shutdown() {
+    this.#appCalls?.uninstall();
+    this.#appCalls = undefined;
+  }
+
+  /**
    * Org labels for the consoles' org pickers, when authkit-server is not in this app (it
    * serves them locally through `tenancy.label: authkitTenantLabels()`). Best effort: a
    * config that cannot resolve here fails later, on first use, as before.
    */
   async ready() {
+    await this.#checkAppCalls();
     if (this.app.container.hasBinding('authkit.server' as never)) return;
     try {
       const manager = await this.app.container.make(AuthkitClientManager);
