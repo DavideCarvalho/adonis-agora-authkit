@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.25
+
+### Minor Changes
+
+- [#496](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/496) [`3a6c135`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/3a6c1350ff8bd7fd3b84360b8e500570cade3a8d) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The in-process `authkitTenantVerifier` / `AuthkitTenantVerifier` now return the same shape as authkit-client's verifier: `{ partition, environment?, capabilities, clientId, expiresAt }` (was `{ tenant, capabilities?, environment? }`). `capabilities` is always an array (`[]` when the token has none). The exported types are renamed without alias: `VerifiedTenant` → `VerifiedTenantToken`, `TenantVerifierInput` → `TenantVerifierRequest` (which also takes an advisory `partition`). Needs `@adonis-agora/durable` 1.0.0-rc with the `partition` verifier contract.
+
 ## 1.0.0-rc.24
 
 ### Minor Changes
