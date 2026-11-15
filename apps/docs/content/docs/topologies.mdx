@@ -235,6 +235,10 @@ An app's MCP server is a protected resource of AuthKit. List its URL in `mcpClie
 on the AuthKit server (above): that is how a remote MCP server is registered. Inside the AuthKit
 app, `registerOAuthResource` does the same from code.
 
+Tokens for a server in `mcpClients.resources` are JWTs with the user's roles (and the email when the
+client was granted `email`), so the remote server verifies them from the JWKS and checks roles
+without calling AuthKit.
+
 To turn a verified bearer token into a signed-in request, so a console gated by
 `authkitDashboardAuthorize` admits the caller:
 

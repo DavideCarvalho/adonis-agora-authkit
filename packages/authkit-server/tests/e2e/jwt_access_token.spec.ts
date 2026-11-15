@@ -639,6 +639,9 @@ test.group('e2e mcp — dynamic MCP client, runtime resource, refresh token', (g
     assert.isString(token.refresh_token, 'an MCP client stays connected');
     const stored = await (service.provider as any).AccessToken.find(token.access_token);
     assert.equal(stored.aud, resource);
+    // The MCP server sees the user's roles, and the email because `email` was granted.
+    assert.deepEqual(stored.extra?.roles, ['USER']);
+    assert.equal(stored.extra?.email, EMAIL);
   });
 
   test('a callback outside the known MCP clients is refused at registration', async ({
@@ -660,5 +663,57 @@ test.group('e2e mcp — dynamic MCP client, runtime resource, refresh token', (g
     const tokens = await loginAndExchange();
     assert.isString(tokens.access_token, JSON.stringify(tokens));
     assert.isUndefined(tokens.refresh_token);
+  });
+});
+
+// ===========================================================================
+// VARIANT — MCP server in ANOTHER process (`mcpClients.resources`): JWT with roles
+// ===========================================================================
+
+test.group('e2e mcp — remote MCP server from mcpClients.resources', (group) => {
+  let server: Server;
+  const REMOTE = 'https://tools.example.com/mcp';
+  group.setup(async () => {
+    SESSIONS.clear();
+    usePort(9861);
+    ({ server } = await startServer(undefined, undefined, { mcpClients: { resources: [REMOTE] } }));
+    return () => stopServer(server);
+  });
+
+  test('the token is a JWT the remote server verifies from the jwks_uri, with roles and email', async ({
+    assert,
+  }) => {
+    const tokens = await loginAndExchange({ resource: REMOTE }, { resource: REMOTE });
+    assert.isString(tokens.access_token, JSON.stringify(tokens));
+    assert.equal(decodeProtectedHeader(tokens.access_token).typ, 'at+jwt');
+    const disco = await fetch(`${ISSUER}/.well-known/openid-configuration`).then(
+      (r) => r.json() as Promise<{ jwks_uri: string }>,
+    );
+    const jwks = createRemoteJWKSet(new URL(disco.jwks_uri));
+    const { payload } = await jwtVerify(tokens.access_token, jwks, {
+      issuer: ISSUER,
+      audience: REMOTE,
+    });
+    assert.equal(payload.sub, ACCOUNT_ID);
+    assert.deepEqual(payload.roles, ['USER']);
+    assert.equal(payload.email, EMAIL);
+  });
+
+  test('without the email scope the token carries the roles but no email', async ({ assert }) => {
+    const tokens = await loginAndExchange(
+      { resource: REMOTE, scope: 'openid profile' },
+      { resource: REMOTE },
+    );
+    const payload = decodeJwt(tokens.access_token);
+    assert.deepEqual(payload.roles, ['USER']);
+    assert.notProperty(payload, 'email');
+  });
+
+  test('a web login without resource keeps the opaque token, without user claims', async ({
+    assert,
+  }) => {
+    const tokens = await loginAndExchange();
+    assert.isString(tokens.access_token);
+    assert.throws(() => decodeJwt(tokens.access_token));
   });
 });
