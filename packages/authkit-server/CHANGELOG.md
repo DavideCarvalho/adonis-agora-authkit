@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.28
+
+### Patch Changes
+
+- [#499](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/499) [`1eb5621`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/1eb5621ee9b620a1e492d984a6efa4d71050c50f) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The admin console's sign-in and sign-up charts are now drawn with the console kit's TanStack Charts components instead of Recharts (smaller bundle, same tooltip on hover, now also on keyboard focus). The console kit gains charts on TanStack Charts (`agora-kit/charts`: TimeSeriesChart, BarChart, Sparkline, DonutChart) with a themed tooltip on hover and keyboard focus.
+
 ## 1.0.0-rc.27
 
 ### Minor Changes
