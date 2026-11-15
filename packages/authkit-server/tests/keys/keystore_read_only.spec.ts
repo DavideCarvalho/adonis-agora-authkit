@@ -4,6 +4,7 @@ import { AppFactory } from '@adonisjs/core/factories/app';
 import { test } from '@japa/runner';
 import AuthkitCryptoReseal from '../../commands/crypto_reseal.js';
 import AuthkitKey from '../../commands/key.js';
+import AuthkitSettingsUnset from '../../commands/settings_unset.js';
 import { adapters, defineConfig, type ResolvedServerConfig } from '../../src/define_config.js';
 import ApiKeysController from '../../src/host/admin_api/api_keys_controller.js';
 import ApiSettingsController from '../../src/host/admin_api/api_settings_controller.js';
@@ -14,6 +15,7 @@ import {
   resetLockedSettingKeys,
   SettingLockedError,
   SettingReadOnlyError,
+  setLockedSettingKeys,
   setReadOnlySettingKeys,
 } from '../../src/host/config_locks.js';
 import { RuntimeSettings } from '../../src/host/runtime_settings.js';
@@ -423,6 +425,16 @@ test.group('jwks.readOnly | commands', () => {
     const app: any = new AppFactory().create(new URL('../', import.meta.url), () => {});
     await app.init();
     app.container.singleton('authkit.server' as any, async () => ro.service);
+    const db = createTestDatabase();
+    await db.connection().schema.createTable('auth_settings', (t) => {
+      t.increments('id');
+      t.string('key').notNullable();
+      t.string('organization_id').nullable();
+      t.text('value').notNullable();
+      t.timestamp('updated_at').nullable();
+      t.string('updated_by').nullable();
+    });
+    app.container.singleton('lucid.db' as any, async () => db);
     const kernel = new Kernel(app);
     kernel.ui.switchMode('raw');
     async function run(Command: any, argv: string[]) {
@@ -439,13 +451,15 @@ test.group('jwks.readOnly | commands', () => {
         .map((l: any) => l.message as string);
       return { exitCode: command.exitCode ?? 0, logs };
     }
-    return { ...ro, run };
+    return { ...ro, run, db };
   }
 
-  test('authkit:key generate|rotate|retire exit 1 with the reason; list still works', async ({
+  test('authkit:key generate|rotate|retire exit 1 with the reason; list and rotate --dry-run work', async ({
     assert,
+    cleanup,
   }) => {
     const h = await harness();
+    cleanup(() => h.db.manager.closeAll());
     const kid = h.store.keys[0]!.kid as string;
     for (const argv of [['generate'], ['rotate', '--force'], ['retire', kid, '--force']]) {
       const { exitCode, logs } = await h.run(AuthkitKey, argv);
@@ -453,13 +467,52 @@ test.group('jwks.readOnly | commands', () => {
       assert.match(logs.join('\n'), /jwks\.readOnly/);
     }
     assert.equal(h.vault.writes(), 0);
+    // `rotate --dry-run` only plans (a read), like `crypto:reseal --dry-run`.
+    const plan = await h.run(AuthkitKey, ['rotate', '--dry-run', '--json']);
+    assert.equal(plan.exitCode, 0);
+    assert.include(plan.logs.join('\n'), kid);
+    assert.equal(h.vault.writes(), 0);
     const list = await h.run(AuthkitKey, ['list', '--json']);
     assert.equal(list.exitCode, 0);
     assert.include(list.logs.join('\n'), kid);
   });
 
-  test('authkit:crypto:reseal exits 1; --dry-run still reports', async ({ assert }) => {
+  test('authkit:settings:unset exits 1 on a read-only and on a config-locked key', async ({
+    assert,
+    cleanup,
+  }) => {
     const h = await harness();
+    cleanup(async () => {
+      resetLockedSettingKeys();
+      await h.db.manager.closeAll();
+    });
+    const settings = new RuntimeSettings(h.db as any);
+    await settings.setSetting(SETTING_KEYS.KEY_ROTATION, {
+      enabled: true,
+      maxAgeDays: 30,
+      keep: 2,
+    });
+    await settings.setSetting(SETTING_KEYS.LOCKOUT, { enabled: true });
+
+    setReadOnlySettingKeys([SETTING_KEYS.KEY_ROTATION]);
+    const readOnly = await h.run(AuthkitSettingsUnset, [SETTING_KEYS.KEY_ROTATION]);
+    assert.equal(readOnly.exitCode, 1);
+    assert.match(readOnly.logs.join('\n'), /jwks\.readOnly/);
+
+    setLockedSettingKeys([SETTING_KEYS.LOCKOUT]);
+    const locked = await h.run(AuthkitSettingsUnset, [SETTING_KEYS.LOCKOUT]);
+    assert.equal(locked.exitCode, 1);
+    assert.match(locked.logs.join('\n'), /locked/);
+
+    resetLockedSettingKeys();
+    assert.lengthOf(await h.db.connection().from('auth_settings'), 2);
+    const unset = await h.run(AuthkitSettingsUnset, [SETTING_KEYS.LOCKOUT]);
+    assert.equal(unset.exitCode, 0);
+  });
+
+  test('authkit:crypto:reseal exits 1; --dry-run still reports', async ({ assert, cleanup }) => {
+    const h = await harness();
+    cleanup(() => h.db.manager.closeAll());
     const real = await h.run(AuthkitCryptoReseal, []);
     assert.equal(real.exitCode, 1);
     assert.match(real.logs.join('\n'), /jwks\.readOnly/);

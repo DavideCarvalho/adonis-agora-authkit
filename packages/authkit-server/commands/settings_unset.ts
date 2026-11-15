@@ -33,7 +33,7 @@ export default class AuthkitSettingsUnset extends BaseCommand {
   declare json?: boolean;
 
   async run() {
-    await settingsUnset(this.app, this.key, {
+    const ok = await settingsUnset(this.app, this.key, {
       json: this.json,
       logger: {
         info: (m: string) => this.logger.info(m),
@@ -41,5 +41,7 @@ export default class AuthkitSettingsUnset extends BaseCommand {
         error: (m: string) => this.logger.logError(m),
       },
     });
+    // Recusa (key travada por config ou só-leitura com `jwks.readOnly`) ou sem banco → exit 1.
+    if (!ok) this.exitCode = 1;
   }
 }

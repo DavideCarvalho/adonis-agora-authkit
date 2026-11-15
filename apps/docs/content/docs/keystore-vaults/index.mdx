@@ -413,7 +413,7 @@ A read-only server:
 
 - signs with the shared keys and picks up the writer's rotations through the reload poll (within a minute);
 - never runs the scheduled rotation, and doesn't need `@adonisjs/lock`;
-- refuses `authkit:key generate|rotate|retire` and `authkit:crypto:reseal` (exit code 1; `authkit:key list` and `reseal --dry-run` still work);
+- refuses `authkit:key generate|rotate|retire` and `authkit:crypto:reseal` (exit code 1; `authkit:key list`, `authkit:key rotate --dry-run` and `reseal --dry-run` still work);
 - answers `409 keystore_read_only` to `POST /keys/rotate` on the Admin API and the console, and the console's Keys page hides those actions;
 - shows the `key_rotation` policy but can't change it (`409 keystore_read_only` on the settings endpoints, an error from `authkit:settings:set`);
 - fails to boot if the keystore is empty or doesn't open. It never creates the key or the table, so boot the writer first.
