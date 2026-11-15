@@ -195,7 +195,12 @@ export function authkitWebhookHandler(options: AuthkitWebhookOptions) {
       }
       return ctx.response.badRequest({ error: verdict.reason });
     }
-    if (options.onEvent) await options.onEvent(verdict.event);
+    try {
+      if (options.onEvent) await options.onEvent(verdict.event);
+    } catch {
+      // A failing listener must not suppress the bus emit: the delivery was valid and its id
+      // is already claimed, so a redelivery would be ignored.
+    }
     if (options.emit !== false) emitAuthkitEvent(verdict.event);
     return ctx.response.noContent();
   };

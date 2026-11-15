@@ -48,20 +48,23 @@ test.group('authkitTenantVerifier (in-memory issuer)', (group) => {
     assert.deepEqual(await verify.verify({ token }), result);
   });
 
-  test('capabilities default to [] and the environment option fills a missing claim', async ({
-    assert,
-  }) => {
+  test('capabilities default to []; a pinned environment needs the claim', async ({ assert }) => {
     const verify = authkitTenantVerifier({
       issuer: idp.issuer,
       resource: RESOURCE,
       environment: 'staging',
     });
-    const token = await idp.sign(tenantClaims({ capabilities: undefined }));
+    const token = await idp.sign(tenantClaims({ capabilities: undefined, environment: 'staging' }));
     assert.deepInclude((await verify({ token }))!, {
       partition: 'acme',
       environment: 'staging',
       capabilities: [],
     });
+    // Fail closed: a token without the claim is not a staging token.
+    assert.isNull(await verify({ token: await idp.sign(tenantClaims()) }));
+    // Unpinned: no claim, no environment.
+    const any = authkitTenantVerifier({ issuer: idp.issuer, resource: RESOURCE });
+    assert.notProperty((await any({ token: await idp.sign(tenantClaims()) }))!, 'environment');
   });
 
   test('rejects a token for another environment', async ({ assert }) => {

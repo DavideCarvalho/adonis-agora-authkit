@@ -9,6 +9,8 @@ import type { ResolvedServiceTenantsConfig } from './config.js';
 export interface VerifiedTenant {
   tenant: string;
   capabilities?: string[] | undefined;
+  /** The token's `environment` claim, when it has one. */
+  environment?: string | undefined;
 }
 
 /** The input a control plane hands to its tenant verifier. */
@@ -37,6 +39,12 @@ export interface AuthkitTenantVerifierOptions {
   capabilitiesClaim?: string;
   /** Allowed clock skew in seconds for `exp`/`nbf`/`iat`. Default: 30. */
   clockToleranceSec?: number;
+  /**
+   * The environment this control plane serves. Only tokens whose `environment` claim is
+   * exactly this value are accepted (a token without the claim is rejected). Same rule as
+   * authkit-client's `authkitTenantVerifier`.
+   */
+  environment?: string;
   /**
    * Where the issuer comes from. Default: the `authkit.server` binding of the booted
    * app. Read on every call, so a signing-key rotation applies right away.
@@ -129,14 +137,22 @@ export class AuthkitTenantVerifier {
     ];
     if (typeof partition !== 'string' || !partition) return null;
 
+    const environment = (payload as Record<string, unknown>).environment;
+    if (environment !== undefined && (typeof environment !== 'string' || !environment)) {
+      return null;
+    }
+    // Pinned: fail closed, a token without the claim is not "this environment".
+    if (this.#options.environment && environment !== this.#options.environment) return null;
+    const env = environment ? { environment } : {};
+
     const rawCapabilities = (payload as Record<string, unknown>)[
       this.#options.capabilitiesClaim ?? 'capabilities'
     ];
-    if (rawCapabilities === undefined) return { tenant: partition };
+    if (rawCapabilities === undefined) return { tenant: partition, ...env };
     if (!Array.isArray(rawCapabilities) || rawCapabilities.some((c) => typeof c !== 'string')) {
       return null;
     }
-    return { tenant: partition, capabilities: rawCapabilities as string[] };
+    return { tenant: partition, capabilities: rawCapabilities as string[], ...env };
   }
 }
 

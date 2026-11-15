@@ -157,6 +157,22 @@ test.group('authkit webhook receiver', () => {
     assert.isTrue(await store.claim('a', 20));
   });
 
+  test('a failing onEvent does not suppress the bus emit', async ({ assert }) => {
+    const body = buildWebhookBody(event as any);
+    const handler = authkitWebhookHandler({
+      secret: SECRET,
+      onEvent: () => {
+        throw new Error('listener bug');
+      },
+    });
+    const { ctx, reply } = fakeCtx(body, signWebhookBody(body, SECRET));
+    const emitted = await captureBus(async () => {
+      await handler(ctx);
+    });
+    assert.equal(reply.status, 204);
+    assert.lengthOf(emitted, 1);
+  });
+
   test('requires a secret', ({ assert }) => {
     assert.throws(() => authkitWebhookHandler({ secret: '' }));
   });

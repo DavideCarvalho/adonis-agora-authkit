@@ -47,6 +47,7 @@ test.group('account.signOut on the agora.consoles registry', () => {
   test('refuses a sign-out that is not a same-origin path', async ({ assert }) => {
     await assert.rejects(() => announceAgoraSignOut(fakeApp(), 'https://evil.example/logout'));
     await assert.rejects(() => announceAgoraSignOut(fakeApp(), '//evil.example/logout'));
+    await assert.rejects(() => announceAgoraSignOut(fakeApp(), '/auth/logout\n'));
   });
 
   test('registerOidcClient announces its logout route', async ({ assert }) => {

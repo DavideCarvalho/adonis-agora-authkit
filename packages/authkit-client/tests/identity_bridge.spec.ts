@@ -56,6 +56,10 @@ test.group('bridging a remote authkit token into ctx.authkit', (group) => {
     assert.isNull(
       await identityFromAccessToken(await idp.sign(userClaims(), { key: 'foreign' }), opts),
     );
+    // No exp, no identity.
+    assert.isNull(
+      await identityFromAccessToken(await idp.sign(userClaims({ exp: undefined })), opts),
+    );
     // A client_credentials token is not a user.
     assert.isNull(
       await identityFromAccessToken(await idp.sign(userClaims({ sub: 'claude' })), opts),

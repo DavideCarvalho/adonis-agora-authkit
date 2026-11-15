@@ -52,6 +52,8 @@ export async function identityFromAccessToken(
     return null;
   }
   if (typeof claims.sub !== 'string' || !claims.sub) return null;
+  // An access token without an expiry is never accepted, whatever the issuer mints.
+  if (typeof claims.exp !== 'number') return null;
   // A client_credentials token authenticates a client, never a user.
   if (typeof claims.client_id === 'string' && claims.sub === claims.client_id) return null;
   return buildIdentityFromClaims(claims, options.globalRolesClaim ?? 'roles');

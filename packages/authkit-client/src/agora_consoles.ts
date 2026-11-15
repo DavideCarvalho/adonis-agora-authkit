@@ -26,8 +26,15 @@ export interface ConsolesAppLike {
   };
 }
 
-function isSameOriginPath(path: string): boolean {
-  return path.startsWith('/') && !path.startsWith('//') && !path.includes('\\');
+function isSameOriginPath(path: unknown): path is string {
+  return (
+    typeof path === 'string' &&
+    path.startsWith('/') &&
+    !path.startsWith('//') &&
+    !path.includes('\\') &&
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters is the point
+    !/[\u0000-\u001f\u007f]/.test(path)
+  );
 }
 
 /**

@@ -158,11 +158,13 @@ behind it, or one without `partition`. Everything comes from the token, never fr
 | --- | --- | --- | --- |
 | `issuer` | `string` | | AuthKit's issuer URL. |
 | `resource` | `string` | | The resource this control plane answers for. |
-| `environment` | `string` | | Refuse tokens of another environment; tokens without one get this value. |
+| `environment` | `string` | | Accept only tokens whose `environment` claim is this value; a token without the claim is refused. |
 | `audience` | `string` | `resource` | When the resource declares another `audience`. |
 | `clockToleranceSec` | `number` | `30` | Allowed clock skew. |
 
-`AuthkitTenantVerifier` is the class form (`super({ issuer, resource })`).
+`AuthkitTenantVerifier` is the class form (`super({ issuer, resource })`). The in-process
+`authkitTenantVerifier` of `@adonis-agora/authkit-server` takes the same `environment` option and
+returns the claim as `environment`.
 
 ## Configure durable
 

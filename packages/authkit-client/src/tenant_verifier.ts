@@ -22,7 +22,7 @@ export interface TenantVerifierRequest {
 export interface VerifiedTenantToken {
   /** The `partition` claim: the app this tenant is. */
   partition: string;
-  /** The `environment` claim, or the verifier's `environment` option. */
+  /** The `environment` claim, when the token has one. */
   environment?: string;
   /** The `capabilities` claim (product-defined, e.g. `flags:ruleset:read`). `[]` when absent. */
   capabilities: string[];
@@ -46,8 +46,9 @@ export interface AuthkitTenantVerifierOptions {
    */
   resource: string;
   /**
-   * The environment this control plane serves. A token whose `environment` claim names
-   * another one is rejected; a token without the claim gets this value.
+   * The environment this control plane serves. Only tokens whose `environment` claim is
+   * exactly this value are accepted (a token without the claim is rejected). Without it,
+   * any environment is accepted and returned as claimed.
    */
   environment?: string;
   /** Expected `aud` when the server declares a different `audience` for the resource. Default: `resource`. */
@@ -125,8 +126,9 @@ export class AuthkitTenantVerifier {
 
     const claimed = claims.environment;
     if (claimed !== undefined && (typeof claimed !== 'string' || !claimed)) return null;
-    if (o.environment && typeof claimed === 'string' && claimed !== o.environment) return null;
-    const environment = (claimed as string | undefined) ?? o.environment;
+    // Pinned: fail closed, a token without the claim is not "this environment".
+    if (o.environment && claimed !== o.environment) return null;
+    const environment = claimed as string | undefined;
 
     return {
       partition,
