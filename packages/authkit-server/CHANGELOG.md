@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.29
+
+### Patch Changes
+
+- [#500](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/500) [`7bd2748`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/7bd274895a0f86dad254195f4cf51bb5b6d7663e) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - ⌘K now navigates: it lists every page of the console's sidebar and every other Agora console you can open ("Go to Workflows", found by "durable" too), matched case- and accent-insensitively, before the console's own commands and the cross-console search hits. ⌘K opens even without a search endpoint, and shows the pages and consoles before anything is typed.
+
 ## 1.0.0-rc.28
 
 ### Patch Changes
