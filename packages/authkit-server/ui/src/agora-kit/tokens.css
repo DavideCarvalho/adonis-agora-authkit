@@ -379,3 +379,38 @@ html.light .agora-tile,
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* Charts (charts/*, TanStack Charts). Tick labels in mono, the series palette from the tokens, the
+   tooltip as a kit popover. The tooltip variables live on its own class: the portal can re-parent
+   it under <body>, where the chart's inherited variables don't reach. */
+.agora-chart {
+  color: var(--agora-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  --ts-chart-1: var(--agora-accent);
+  --ts-chart-2: var(--agora-info);
+  --ts-chart-3: var(--agora-good);
+  --ts-chart-4: var(--agora-warn);
+  --ts-chart-5: var(--agora-violet);
+  --ts-chart-6: var(--agora-teal);
+}
+.agora-chart svg {
+  overflow: visible;
+  border-radius: 6px;
+}
+.agora-chart svg:focus-visible {
+  outline: 2px solid var(--agora-accent-ink);
+  outline-offset: 2px;
+}
+.agora-chart-tooltip {
+  --ts-chart-tooltip-background: var(--agora-panel-2);
+  --ts-chart-tooltip-color: var(--agora-text);
+  --ts-chart-tooltip-border: 1px solid var(--agora-line-strong);
+  --ts-chart-tooltip-border-radius: 8px;
+  --ts-chart-tooltip-shadow: var(--agora-shadow);
+  --ts-chart-tooltip-padding: 7px 10px;
+  --ts-chart-tooltip-max-width: 280px;
+  --ts-chart-tooltip-font: 500 11.5px / 1.45 var(--font-sans);
+  --ts-chart-tooltip-active-row-background: var(--agora-accent-soft);
+  font-variant-numeric: tabular-nums;
+}
