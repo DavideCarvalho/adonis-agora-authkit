@@ -44,6 +44,7 @@ export function TrendChart({
       series={series}
       formatX={fmtDay}
       formatValue={fmtCount}
+      integer
       ariaLabel={`${label} per day`}
       height={height}
     />

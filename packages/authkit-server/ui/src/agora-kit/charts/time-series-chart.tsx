@@ -14,6 +14,7 @@ import {
   chartTooltip,
   isEmptyChart,
   toChartRows,
+  valueTicks,
 } from './chart-kit';
 
 /**
@@ -32,6 +33,8 @@ export function TimeSeriesChart<T>({
   variant = 'area',
   height = 200,
   empty = 'No data in this window.',
+  emptyWhenZero = false,
+  integer,
   className,
 }: ChartBaseProps<T> & { variant?: 'area' | 'line' }) {
   const rows = useMemo(() => toChartRows(data, x, series), [data, x, series]);
@@ -62,7 +65,8 @@ export function TimeSeriesChart<T>({
             key: 'id',
             stroke: (r) => r.color,
             strokeWidth: 2,
-            points: rows.length <= 62,
+            // dots only while each day stays distinguishable (per x, however many series)
+            points: new Set(rows.map((r) => r.x)).size <= 62,
           }),
         ],
         scales: {
@@ -80,19 +84,23 @@ export function TimeSeriesChart<T>({
             grid: true,
             axis: {
               line: false,
-              ticks: { count: 4, size: 0, ...(formatValue ? { format: formatValue } : {}) },
+              ticks: valueTicks(rows, integer, formatValue),
             },
           },
         },
         theme: CHART_THEME,
         focus: 'group-x',
         maxFocusDistance: Number.POSITIVE_INFINITY,
-        tooltip: chartTooltip<T>({ formatValue, formatX, extraRows }),
+        // anchored on the focused x's group, so the box doesn't jump between series
+        tooltip: {
+          ...chartTooltip<T>({ formatValue, formatX, extraRows }),
+          anchor: 'group-center',
+        },
       }),
-    [rows, variant, formatValue, formatX, extraRows],
+    [rows, variant, integer, formatValue, formatX, extraRows],
   );
 
-  if (isEmptyChart(rows)) return <ChartEmpty height={height}>{empty}</ChartEmpty>;
+  if (isEmptyChart(rows, emptyWhenZero)) return <ChartEmpty height={height}>{empty}</ChartEmpty>;
   return (
     <Chart
       definition={definition}

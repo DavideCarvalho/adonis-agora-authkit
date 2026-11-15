@@ -41,8 +41,12 @@ export interface ChartBaseProps<T> {
   /** More tooltip lines for the focused row. */
   extraRows?: (row: T) => readonly ChartExtraRow[];
   height?: number;
-  /** Shown instead of the chart when there is no row or every value is zero. */
+  /** Shown instead of the chart when there is no row (or, with `emptyWhenZero`, every value is 0). */
   empty?: string;
+  /** Treat an all-zero window as empty. Off by default: zero activity is data (a flat line). */
+  emptyWhenZero?: boolean;
+  /** Whole-number ticks on the value axis (counts), so it never labels 0.5. */
+  integer?: boolean;
   className?: string;
 }
 
@@ -98,9 +102,23 @@ export function toChartRows<T>(
   return out;
 }
 
-/** True when there is nothing worth drawing: no row, or every value is zero. */
-export function isEmptyChart<T>(rows: readonly ChartRow<T>[]): boolean {
-  return rows.every((r) => r.value === 0);
+/** True when there is nothing to draw: no row, or (`whenZero`) every value is zero. */
+export function isEmptyChart<T>(rows: readonly ChartRow<T>[], whenZero = false): boolean {
+  return rows.length === 0 || (whenZero && rows.every((r) => r.value === 0));
+}
+
+/**
+ * Value-axis tick options shared by the cartesian charts. With `integer`, the tick count never
+ * exceeds the largest value, so a 0..2 count axis reads 0 · 1 · 2 instead of 0 · 0.5 · 1 · ….
+ */
+export function valueTicks<T>(
+  rows: readonly ChartRow<T>[],
+  integer: boolean | undefined,
+  format: ((value: number) => string) | undefined,
+) {
+  const max = rows.reduce((m, r) => Math.max(m, r.value), 0);
+  const count = integer ? Math.max(1, Math.min(4, Math.ceil(max))) : 4;
+  return { count, size: 0, ...(format ? { format } : {}) };
 }
 
 /** Axis/grid paint from the kit tokens, so light and dark follow the theme with no rebuild. */

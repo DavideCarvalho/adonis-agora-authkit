@@ -25,6 +25,7 @@ export function Sparkline<T>({
   value,
   label,
   ariaLabel,
+  ariaDescription,
   formatValue,
   formatX,
   extraRows,
@@ -39,6 +40,7 @@ export function Sparkline<T>({
   /** The series name in the tooltip ("requests"). */
   label: string;
   ariaLabel: string;
+  ariaDescription?: string;
   formatValue?: (value: number) => string;
   formatX?: (x: string) => string;
   extraRows?: (row: T) => readonly ChartExtraRow[];
@@ -70,7 +72,13 @@ export function Sparkline<T>({
         scales: {
           x: { scale: scalePoint<string> },
           // a flat-zero series sits on the baseline instead of mid-height
-          y: { scale: () => scaleLinear().domain([0, Math.max(1, ...rows.map((r) => r.value))]) },
+          y: {
+            scale: () =>
+              scaleLinear().domain([
+                Math.min(0, ...rows.map((r) => r.value)),
+                Math.max(1, ...rows.map((r) => r.value)),
+              ]),
+          },
         },
         guides: false,
         margin: 2,
@@ -99,6 +107,7 @@ export function Sparkline<T>({
       definition={definition}
       height={height}
       ariaLabel={ariaLabel}
+      {...(ariaDescription ? { ariaDescription } : {})}
       className={cn('agora-chart', className)}
     />
   );

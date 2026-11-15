@@ -14,6 +14,7 @@ import {
   chartTooltip,
   isEmptyChart,
   toChartRows,
+  valueTicks,
 } from './chart-kit';
 
 /**
@@ -33,6 +34,8 @@ export function BarChart<T>({
   layout = 'stacked',
   height = 200,
   empty = 'No data in this window.',
+  emptyWhenZero = false,
+  integer,
   className,
 }: ChartBaseProps<T> & { layout?: 'stacked' | 'grouped' }) {
   const rows = useMemo(() => toChartRows(data, x, series), [data, x, series]);
@@ -67,21 +70,23 @@ export function BarChart<T>({
             grid: true,
             axis: {
               line: false,
-              ticks: { count: 4, size: 0, ...(formatValue ? { format: formatValue } : {}) },
+              ticks: valueTicks(rows, integer, formatValue),
             },
           },
         },
         theme: CHART_THEME,
         focus: 'group-x',
+        // like the line charts: the pointer anywhere over the plot focuses the nearest x
+        maxFocusDistance: Number.POSITIVE_INFINITY,
         tooltip: {
           ...chartTooltip<T>({ formatValue, formatX, extraRows }),
           anchor: 'group-center',
         },
       }),
-    [rows, layout, series.length, formatValue, formatX, extraRows],
+    [rows, layout, integer, series.length, formatValue, formatX, extraRows],
   );
 
-  if (isEmptyChart(rows)) return <ChartEmpty height={height}>{empty}</ChartEmpty>;
+  if (isEmptyChart(rows, emptyWhenZero)) return <ChartEmpty height={height}>{empty}</ChartEmpty>;
   return (
     <Chart
       definition={definition}
