@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-core
 
+## 1.0.0-rc.4
+
+### Minor Changes
+
+- [#502](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/502) [`4c91361`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/4c91361fe209ee76e1cc4a0a3189568f6d4c0558) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Read-only keystore: `jwks: { source: 'managed', store, readOnly: true }` lets a second authkit-server serve the same identity (same keystore, same `auth_settings`) under another issuer while only the first one writes the keys. A read-only instance never runs the scheduled rotation and picks up the writer's rotations through the reload poll. Rotate, generate, retire and reseal throw `KeystoreReadOnlyError` (`E_KEYSTORE_READ_ONLY`): `authkit:key generate|rotate|retire` and `authkit:crypto:reseal` exit 1 (their `--dry-run` still works), the Admin API and the console answer `409 keystore_read_only`, and the console's Keys page hides those actions (`GET /keys` returns `readOnly: true`). The `key_rotation` setting reads but can't be changed there (`409 keystore_read_only`). At boot it reads the keystore and fails with `KeystoreUnavailableError` (`E_KEYSTORE_UNAVAILABLE`) when it's missing or doesn't open: it never creates a key or a table. `agora:doctor` adds the **Keystore read-only** check. `authkit:settings:unset` now exits 1 when it refuses a locked key (it used to print the refusal and exit 0, and for a key locked by `defineConfig` it reported "not set").
+
 ## 1.0.0-rc.3
 
 ### Minor Changes

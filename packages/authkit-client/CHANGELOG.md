@@ -1,5 +1,12 @@
 # @adonis-agora/authkit-client
 
+## 1.0.0-rc.10
+
+### Patch Changes
+
+- Updated dependencies [[`4c91361`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/4c91361fe209ee76e1cc4a0a3189568f6d4c0558)]:
+  - @adonis-agora/authkit-core@1.0.0-rc.4
+
 ## 1.0.0-rc.9
 
 ### Minor Changes
