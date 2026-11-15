@@ -8,6 +8,7 @@ import { adapters, defineConfig, type ResolvedServerConfig } from '../src/define
 import { AdminClientsService, type ClientInput } from '../src/host/admin_clients_service.js';
 import { ClientMetadataError } from '../src/host/client_metadata.js';
 import { OidcService } from '../src/provider/oidc_service.js';
+import { SERVICE_TENANT_KEY, serviceTenantOf } from '../src/service_tenants/client_metadata.js';
 import { appResourceName, resolveServiceTenants } from '../src/service_tenants/config.js';
 import { createTestDatabase, fakeAccountStore } from './bootstrap.js';
 
@@ -121,6 +122,24 @@ test.group('calls between apps: config', () => {
     assert.isNull(appResourceName('urn:agora:app:'));
     assert.isNull(appResourceName('urn:agora:app:a/b'));
     assert.isNull(appResourceName(DURABLE));
+  });
+});
+
+test.group('calls between apps: stored grants', () => {
+  test('a corrupted grant is dropped whole, never narrowed (fail closed)', ({ assert }) => {
+    const read = serviceTenantOf({
+      [SERVICE_TENANT_KEY]: {
+        partition: 'orders',
+        capabilities: [],
+        apps: {
+          billing: ['invoices:read'],
+          'bad name': ['x'],
+          reports: ['ok', 42],
+          shipping: 'labels',
+        },
+      },
+    });
+    assert.deepEqual(read?.apps, { billing: ['invoices:read'] });
   });
 });
 

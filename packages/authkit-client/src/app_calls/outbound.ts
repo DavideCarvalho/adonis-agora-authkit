@@ -9,7 +9,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import diagnostics from 'node:diagnostics_channel';
 import { AuthkitTenantToken } from '../tenant_token.js';
 import { appResource, type ResolvedAppCalls } from './config.js';
-import { appForOrigin } from './discovery.js';
+import { type AgoraDiscovery, agoraDiscovery, appForOrigin, namesOf } from './discovery.js';
 
 /** Requests made while fetching a service token: never intercepted (no recursion). */
 const tokenScope = new AsyncLocalStorage<true>();
@@ -54,9 +54,9 @@ export class AppTokens {
     return this.#source(app).token();
   }
 
-  /** The cached token for `app` when it has not expired, without any I/O. */
+  /** The cached token for `app` when it stays valid for 5 s more, without any I/O. */
   peek(app: string): string | undefined {
-    return this.#source(app).peek();
+    return this.#source(app).peek(5_000);
   }
 
   /** Drops every cached token. */
@@ -107,6 +107,11 @@ export function hasAuthorization(headers: unknown): boolean {
 /** The headers with `authorization` added, in the shape they came in. */
 function withAuthorization(headers: unknown, value: string): unknown {
   if (!headers) return { authorization: value };
+  if (headers instanceof Headers) {
+    const copy = new Headers(headers);
+    copy.set('authorization', value);
+    return copy;
+  }
   if (Array.isArray(headers)) {
     if (headers.length && Array.isArray(headers[0])) return [...headers, ['authorization', value]];
     return [...headers, 'authorization', value];
@@ -121,11 +126,14 @@ type Dispatch = (opts: any, handler: any) => boolean;
 
 /**
  * The undici interceptor: for a request whose origin is exactly a known app (the static
- * `apps` map, else the published discovery — it runs after discovery rewrote the origin),
- * and that has no `Authorization` of its own, adds `Authorization: Bearer <token for that app>`.
+ * `apps` map, else the published discovery), and that has no `Authorization` of its own, adds `Authorization: Bearer <token for that app>`.
  * Every other request passes untouched. A redirect is a new dispatch with the new origin,
  * so the token never follows a redirect to another origin. When the token cannot be
  * fetched, the request fails with that error instead of leaving unauthenticated.
+ *
+ * Works on either side of a discovery rewrite (`http://billing/…` → billing's origin): after
+ * it, the origin is matched with `appOf`; before it, `http://<name>` is matched when
+ * discovery `resolve`s that name (the token is then for the app the rewrite targets).
  */
 export function appCallsInterceptor(options: {
   origins: Map<string, string>;
@@ -192,28 +200,83 @@ interface ClientRequestLike {
   host?: string;
   getHeader(name: string): unknown;
   setHeader(name: string, value: string): void;
+  destroy(error?: Error): unknown;
+}
+
+/** Thrown on a `node:http` request to a known app when no token is ready for it. */
+export class AppTokenUnavailableError extends Error {
+  readonly code = 'E_AGORA_APP_TOKEN_UNAVAILABLE';
+  constructor(
+    readonly app: string,
+    options?: { cause?: unknown },
+  ) {
+    super(
+      `authkit: no service token for app "${app}" yet; the request was not sent (a node:http request cannot wait for one). Retry, or use fetch.`,
+      options,
+    );
+    this.name = 'AppTokenUnavailableError';
+  }
 }
 
 /**
- * Opt-in `node:http` / `node:https` hook (axios, got, …): on `http.client.request.created`,
- * a request to a known app with no `Authorization` of its own gets the cached token.
- * Tokens of the static `apps` are fetched ahead; every app's token, once fetched, is kept
- * fresh in the background (the hook cannot wait).
+ * Opt-in `node:http` / `node:https` hook (axios, got, …). On `http.client.request.created`,
+ * a request to a known app with no `Authorization` of its own gets that app's cached
+ * token. The hook cannot wait, so tokens are fetched ahead: at install for every app of
+ * the static map, when discovery announces apps (its `subscribe`), and on every tick
+ * (which also refreshes them before they expire). A request to a known app with no token
+ * ready is destroyed with {@link AppTokenUnavailableError}; it never leaves without one.
  */
 export function installNodeHttpHook(options: {
   origins: Map<string, string>;
   tokens: AppTokens;
   warn?: (message: string) => void;
+  /** How often tokens are refreshed (and discovery re-checked). Default: 15 s. */
   refreshEveryMs?: number;
 }): () => void {
   const apps = new Set(options.origins.values());
-  const warm = () => {
-    for (const app of apps) options.tokens.token(app).catch(() => {});
+  const lastErrors = new Map<string, unknown>();
+  const warmOne = (app: string) => {
+    apps.add(app);
+    options.tokens.token(app).then(
+      () => lastErrors.delete(app),
+      (error) => {
+        if (!lastErrors.has(app)) {
+          options.warn?.(
+            `authkit: could not get a service token for app "${app}": ${String((error as Error)?.message ?? error)}`,
+          );
+        }
+        lastErrors.set(app, error);
+      },
+    );
   };
-  warm();
-  const timer = setInterval(warm, options.refreshEveryMs ?? 30_000);
+
+  // Discovery may be published after this hook: subscribed to on first sight.
+  let subscribedTo: AgoraDiscovery | undefined;
+  let unsubscribe: (() => void) | undefined;
+  const watchDiscovery = () => {
+    const discovery = agoraDiscovery();
+    if (!discovery || discovery === subscribedTo || typeof discovery.subscribe !== 'function') {
+      return;
+    }
+    unsubscribe?.();
+    subscribedTo = discovery;
+    try {
+      const off = discovery.subscribe((known?: unknown) => {
+        for (const app of namesOf(known)) warmOne(app);
+      });
+      unsubscribe = typeof off === 'function' ? (off as () => void) : undefined;
+    } catch {
+      unsubscribe = undefined;
+    }
+  };
+
+  const tick = () => {
+    watchDiscovery();
+    for (const app of apps) warmOne(app);
+  };
+  tick();
+  const timer = setInterval(tick, options.refreshEveryMs ?? 15_000);
   timer.unref?.();
-  const warned = new Set<string>();
 
   const onCreated = (message: unknown) => {
     const req = (message as { request?: ClientRequestLike })?.request;
@@ -228,19 +291,14 @@ export function installNodeHttpHook(options: {
       req.setHeader('authorization', `Bearer ${token}`);
       return;
     }
-    // A discovered app: fetch its token now and keep it fresh from here on.
-    apps.add(app);
-    options.tokens.token(app).catch(() => {});
-    if (!warned.has(app)) {
-      warned.add(app);
-      options.warn?.(
-        `authkit: no service token for ${app} yet; a node:http request to it left without one`,
-      );
-    }
+    // A known app without a token ready: fetch one for next time, never send this bare.
+    warmOne(app);
+    req.destroy(new AppTokenUnavailableError(app, { cause: lastErrors.get(app) }));
   };
   diagnostics.subscribe('http.client.request.created', onCreated);
   return () => {
     clearInterval(timer);
+    unsubscribe?.();
     diagnostics.unsubscribe('http.client.request.created', onCreated);
   };
 }

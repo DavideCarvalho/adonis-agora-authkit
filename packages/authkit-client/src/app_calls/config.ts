@@ -17,6 +17,14 @@ export const APP_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 /** The resource indicator (and token audience) of an app. */
 export const appResource = (name: string) => `${APP_RESOURCE_PREFIX}${name}`;
 
+/** An invalid `service` / `apps` in `config/authkit_client.ts`. Fails the boot. */
+export class AppCallsConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AppCallsConfigError';
+  }
+}
+
 /** `service` in `config/authkit_client.ts`. */
 export interface ServiceInput {
   /**
@@ -38,8 +46,10 @@ export interface ServiceInput {
   environment?: string;
   /**
    * Also add the token to `node:http` / `node:https` requests (axios, got, …), not only
-   * to `fetch`. They get the cached token: right after boot, or while the issuer is
-   * unreachable, a request may leave without one. Default: `false`.
+   * to `fetch`. Tokens are fetched ahead (at boot for `apps`, when discovery announces an
+   * app) and refreshed before they expire; a request to a known app with no token ready
+   * fails with `E_AGORA_APP_TOKEN_UNAVAILABLE` instead of leaving without one.
+   * Default: `false`.
    */
   nodeHttp?: boolean;
 }
@@ -66,41 +76,43 @@ export function resolveAppCalls(
   const entries = Object.entries(apps ?? {});
   if (!service) {
     if (entries.length) {
-      throw new Error(
+      throw new AppCallsConfigError(
         'authkit_client: `apps` needs `service: { name, clientId, clientSecret }` (this app as a service).',
       );
     }
     return undefined;
   }
   if (typeof service.name !== 'string' || !APP_NAME_PATTERN.test(service.name)) {
-    throw new Error(
+    throw new AppCallsConfigError(
       `authkit_client: service.name "${service.name}" is invalid: use letters, digits, ".", "_" or "-" (max 64 chars).`,
     );
   }
   const origins = new Map<string, string>();
   for (const [name, raw] of entries) {
     if (!APP_NAME_PATTERN.test(name)) {
-      throw new Error(`authkit_client: apps["${name}"]: invalid app name.`);
+      throw new AppCallsConfigError(`authkit_client: apps["${name}"]: invalid app name.`);
     }
     const url = typeof raw === 'string' ? URL.parse(raw) : null;
     if (!url || (url.protocol !== 'https:' && url.protocol !== 'http:')) {
-      throw new Error(`authkit_client: apps.${name} must be an http(s) URL, got "${raw}".`);
+      throw new AppCallsConfigError(
+        `authkit_client: apps.${name} must be an http(s) URL, got "${raw}".`,
+      );
     }
     if ((url.pathname !== '/' && url.pathname !== '') || url.search || url.hash || url.username) {
-      throw new Error(
+      throw new AppCallsConfigError(
         `authkit_client: apps.${name} must be an origin only (e.g. "https://billing.example.com"), got "${raw}".`,
       );
     }
     const taken = origins.get(url.origin);
     if (taken) {
-      throw new Error(
+      throw new AppCallsConfigError(
         `authkit_client: apps.${name} and apps.${taken} share the origin ${url.origin}.`,
       );
     }
     origins.set(url.origin, name);
   }
   if (origins.size && (!service.clientId || !service.clientSecret)) {
-    throw new Error(
+    throw new AppCallsConfigError(
       'authkit_client: calling other apps (`apps`) needs service.clientId and service.clientSecret (a service-tenant client).',
     );
   }

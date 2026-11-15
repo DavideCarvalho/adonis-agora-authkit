@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import type { SessionResolver } from '@adonis-agora/authkit-core';
 import { configProvider } from '@adonisjs/core';
 import { RuntimeException } from '@adonisjs/core/exceptions';
-import type { HttpContext } from '@adonisjs/core/http';
+import { HttpContext } from '@adonisjs/core/http';
 import type { ApplicationService } from '@adonisjs/core/types';
 import { decodeJwt, type JWTVerifyGetKey } from 'jose';
 import {
@@ -13,7 +13,12 @@ import {
   ClientAccountExtensionRegistry,
   serveAccountExtensions,
 } from '../src/account_extensions.js';
-import { AppCallerVerifier, resolveAppCaller } from '../src/app_calls/inbound.js';
+import { AppCallsConfigError } from '../src/app_calls/config.js';
+import {
+  AppCallerVerifier,
+  installAgoraContext,
+  resolveAppCaller,
+} from '../src/app_calls/inbound.js';
 import { type AppTokens, installAppCalls } from '../src/app_calls/outbound.js';
 import { Authenticator } from '../src/authenticator.js';
 import {
@@ -730,6 +735,8 @@ export default class AuthkitClientProvider {
   #uninstallAppCalls: (() => void) | undefined;
 
   register() {
+    // `ctx.agora` (the request context shared by the Agora libs) is always an object.
+    installAgoraContext(HttpContext as never);
     // Bound by class, like the first-party packages do, so `@inject()` works with
     // `AuthkitClientManager` as a constructor type.
     this.app.container.singleton(AuthkitClientManager, async (resolver) => {
@@ -771,13 +778,17 @@ export default class AuthkitClientProvider {
     let manager: AuthkitClientManager;
     try {
       manager = await this.app.container.make(AuthkitClientManager);
-    } catch {
+    } catch (error) {
+      // A wrong `service` / `apps` fails the boot: a typo must not become 401s elsewhere.
+      if (error instanceof AppCallsConfigError) throw error;
       return; // no usable config yet: nothing to install
     }
+    // Outbound first, and whatever happens to the HTTP server: jobs and commands call apps too.
+    this.#uninstallAppCalls = manager.installAppCalls()?.uninstall;
     if (!manager.appCallerVerifier()) return;
+    if (!this.app.container.hasBinding('server')) return; // no HTTP server here
     const server = await this.app.container.make('server');
     server.use([() => import('../src/middleware/app_caller_middleware.js')]);
-    this.#uninstallAppCalls = manager.installAppCalls()?.uninstall;
   }
 
   async shutdown() {

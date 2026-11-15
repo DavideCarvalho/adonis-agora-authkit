@@ -73,8 +73,10 @@ const res = await fetch('https://billing.example.com/internal/invoices', {
   instead of leaving without it.
 
 `node:http` / `node:https` clients (axios, got) are covered with `service.nodeHttp: true`.
-They get the cached token, so a request right after boot, or while AuthKit is unreachable,
-may leave without one.
+Their tokens are fetched ahead (at boot for the apps in `apps`, as soon as service discovery
+announces an app) and refreshed before they expire. A request to a known app whose token is
+not ready yet (right after boot, AuthKit unreachable, app not granted) fails with an error
+whose `code` is `E_AGORA_APP_TOKEN_UNAVAILABLE`; it is never sent without the token.
 
 ## 3. The callee: `billing`
 
@@ -92,7 +94,7 @@ import { getAgoraCaller } from '@adonis-agora/authkit-client'
 
 export default class InvoicesController {
   async store(ctx: HttpContext) {
-    const caller = getAgoraCaller(ctx) // or ctx.agora?.caller
+    const caller = getAgoraCaller(ctx) // or ctx.agora.caller
     // { app: 'orders', capabilities: ['invoices:read', 'invoices:write'], environment?, clientId, expiresAt }
   }
 }

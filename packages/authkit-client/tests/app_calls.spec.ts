@@ -12,7 +12,13 @@ import { test } from '@japa/runner';
 import { resolveAppCalls } from '../src/app_calls/config.js';
 import { appForOrigin, DISCOVERY_SLOT } from '../src/app_calls/discovery.js';
 import { authkitService, getAgoraCaller } from '../src/app_calls/inbound.js';
-import { composeGlobalDispatcher, hasAuthorization } from '../src/app_calls/outbound.js';
+import {
+  AppTokens,
+  appCallsInterceptor,
+  composeGlobalDispatcher,
+  hasAuthorization,
+  installNodeHttpHook,
+} from '../src/app_calls/outbound.js';
 import { defineConfig, resolvers } from '../src/define_config.js';
 import { __clearDiscoveryCacheForTests } from '../src/discovery.js';
 import { type MemoryIssuer, startMemoryIssuer } from './helpers/memory_issuer.js';
@@ -97,6 +103,30 @@ test.group('calls between apps (two AdonisJS apps, in-memory issuer)', (group) =
   let appS: ApplicationService;
   /** The discovery telescope would publish: only `shipping` (and a lie about B). */
   const discovered = new Map<string, string>();
+  /** Who subscribed to the published discovery. */
+  const listeners = new Set<(apps?: unknown) => void>();
+  const resources = () => idp.tokenRequests.map((r) => r.body.get('resource'));
+  async function until(check: () => boolean, ms = 2000) {
+    const end = Date.now() + ms;
+    while (!check()) {
+      if (Date.now() > end) throw new Error('timed out');
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  }
+  /** A node:http GET; resolves with the parsed JSON body or rejects with the request error. */
+  function nodeGet(url: string): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const req = httpRequest(url, (res) => {
+        let raw = '';
+        res.on('data', (chunk) => {
+          raw += chunk;
+        });
+        res.on('end', () => resolve(raw ? JSON.parse(raw) : null));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+  }
   /** Requests the unknown origin C received. */
   const seenByC: IncomingHttpHeaders[] = [];
 
@@ -151,6 +181,10 @@ test.group('calls between apps (two AdonisJS apps, in-memory issuer)', (group) =
           authorization: ctx.request.header('authorization') ?? null,
         });
         router.get('/whoami', whoami);
+        router.get('/agora', (ctx: HttpContext) => ({
+          type: typeof ctx.agora,
+          caller: ctx.agora.caller ?? null,
+        }));
         router.get('/internal/invoices', whoami).use(authkitService());
         router
           .get('/internal/invoices/write', whoami)
@@ -176,6 +210,21 @@ test.group('calls between apps (two AdonisJS apps, in-memory issuer)', (group) =
       },
     );
 
+    // What telescope does: publish discovery on the shared slot and rewrite
+    // `http://<app>/…` to the app's origin in an interceptor that runs BEFORE authkit's
+    // (composed later = outer).
+    discovered.set(s.origin, 'shipping');
+    discovered.set(b.origin, 'shipping'); // the static `apps` map must win over this
+    const names = new Map([['shipping', s.origin]]);
+    (globalThis as any)[DISCOVERY_SLOT] = {
+      resolve: (name: string) => names.get(name),
+      appOf: (origin: string) => discovered.get(origin),
+      subscribe: (fn: (apps?: unknown) => void) => {
+        listeners.add(fn);
+        return () => listeners.delete(fn);
+      },
+    };
+
     // A (orders): calls billing (B) and a "ghost" app it was never granted.
     appA = await bootApp(
       a,
@@ -195,17 +244,7 @@ test.group('calls between apps (two AdonisJS apps, in-memory issuer)', (group) =
       },
     );
 
-    // What telescope does: publish discovery on the shared slot and rewrite
-    // `http://<app>/…` to the app's origin in an interceptor that runs BEFORE authkit's
-    // (composed later = outer).
-    discovered.set(s.origin, 'shipping');
-    discovered.set(b.origin, 'shipping'); // the static `apps` map must win over this
-    const names = new Map([['shipping', s.origin]]);
-    (globalThis as any)[DISCOVERY_SLOT] = {
-      resolve: (name: string) => names.get(name),
-      appOf: (origin: string) => discovered.get(origin),
-      subscribe: () => () => {},
-    };
+    // Composed after A's provider installed its interceptor: runs before it.
     const unrewrite = composeGlobalDispatcher((dispatch) => (opts: any, handler: any) => {
       const target = names.get(new URL(opts.origin).hostname);
       return dispatch(target ? { ...opts, origin: target } : opts, handler);
@@ -219,6 +258,44 @@ test.group('calls between apps (two AdonisJS apps, in-memory issuer)', (group) =
       await appS.terminate();
       await Promise.all([a.close(), b.close(), c.close(), ghost.close(), s.close(), idp.close()]);
     };
+  });
+
+  test('node:http: static apps are pre-warmed at boot, before any call', async ({ assert }) => {
+    await until(() => resources().includes('urn:agora:app:billing'));
+    const body = await nodeGet(`${b.origin}/internal/invoices`);
+    assert.equal(body.caller?.app, 'orders');
+  });
+
+  test('node:http: an app announced by discovery is pre-warmed through subscribe', async ({
+    assert,
+  }) => {
+    assert.notInclude(resources(), 'urn:agora:app:shipping');
+    assert.isAbove(listeners.size, 0);
+    for (const fn of listeners) fn(new Map([['shipping', s.origin]]));
+    await until(() => resources().includes('urn:agora:app:shipping'));
+    // The token request is recorded before its response is read: let it land.
+    await new Promise((r) => setTimeout(r, 50));
+    const body = await nodeGet(`${s.origin}/internal/labels`);
+    assert.equal(body.caller?.app, 'orders');
+  });
+
+  test('node:http: a known app with no token is failed, never sent bare', async ({ assert }) => {
+    let reached = false;
+    ghost.setHandler((_req, res) => {
+      reached = true;
+      res.end();
+    });
+    const error = await nodeGet(`${ghost.origin}/x`).catch((e) => e);
+    assert.equal(error?.code, 'E_AGORA_APP_TOKEN_UNAVAILABLE');
+    assert.equal(error?.app, 'ghost');
+    assert.match(error.message, /was not sent/);
+    assert.isFalse(reached);
+  });
+
+  test('ctx.agora is always an object; ctx.agora.caller only for apps', async ({ assert }) => {
+    // With an Authorization of its own (any process fetch to B would get a token).
+    const res = await fetch(`${b.origin}/agora`, { headers: { authorization: 'Basic eDp5' } });
+    assert.deepEqual(await res.json(), { type: 'object', caller: null });
   });
 
   test('a plain fetch from A to B is authenticated; B sees caller A', async ({ assert }) => {
@@ -370,22 +447,11 @@ test.group('calls between apps (two AdonisJS apps, in-memory issuer)', (group) =
     assert.isFalse(reached);
   });
 
-  test('node:http requests get the cached token (opt-in hook)', async ({ assert }) => {
-    // The token for billing is cached by the previous calls.
-    const body = await new Promise<WhoAmI>((resolve, reject) => {
-      const req = httpRequest(`${b.origin}/internal/invoices`, (res) => {
-        let raw = '';
-        res.on('data', (chunk) => {
-          raw += chunk;
-        });
-        res.on('end', () => resolve(JSON.parse(raw)));
-      });
-      req.on('error', reject);
-      req.end();
-    });
+  test('node:http requests get the cached token (opt-in hook), only for apps', async ({
+    assert,
+  }) => {
+    const body = await nodeGet(`${b.origin}/internal/invoices`);
     assert.equal(body.caller?.app, 'orders');
-
-    // Not for another origin.
     seenByC.length = 0;
     await new Promise<void>((resolve) => {
       httpRequest(`${c.origin}/node`, (res) => res.resume().on('end', resolve)).end();
@@ -454,6 +520,102 @@ test.group('calls between apps: config and helpers', () => {
       if (saved === undefined) delete g[DISCOVERY_SLOT];
       else g[DISCOVERY_SLOT] = saved;
     }
+  });
+
+  test('interceptor: keeps a Headers instance a Headers instance', async ({ assert }) => {
+    let seen: any;
+    const dispatch = appCallsInterceptor({
+      origins: new Map([['https://billing.example.com', 'billing']]),
+      token: async () => 'tok',
+    })((opts) => {
+      seen = opts;
+      return true;
+    });
+    dispatch(
+      { origin: 'https://billing.example.com', headers: new Headers({ accept: 'x' }) },
+      { onResponseError: () => {} },
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    assert.instanceOf(seen.headers, Headers);
+    assert.equal(seen.headers.get('authorization'), 'Bearer tok');
+    assert.equal(seen.headers.get('accept'), 'x');
+  });
+
+  test('interceptor: also works composed outside a discovery rewrite (`http://<name>`)', async ({
+    assert,
+  }) => {
+    const g = globalThis as any;
+    const saved = g[DISCOVERY_SLOT];
+    g[DISCOVERY_SLOT] = {
+      resolve: (n: string) => (n === 'shipping' ? 'https://ship.internal:8443' : undefined),
+      appOf: (o: string) => (o === 'https://ship.internal:8443' ? 'shipping' : undefined),
+    };
+    try {
+      let seen: any;
+      // Rewrite INSIDE authkit (authkit sees `http://shipping` first).
+      const rewrite = (opts: any) => {
+        seen = { ...opts, origin: 'https://ship.internal:8443' };
+        return true;
+      };
+      const dispatch = appCallsInterceptor({
+        origins: new Map(),
+        token: async (app) => `tok-${app}`,
+      })(rewrite);
+      dispatch({ origin: 'http://shipping', headers: {} }, { onResponseError: () => {} });
+      await new Promise((r) => setTimeout(r, 0));
+      assert.equal(seen.headers.authorization, 'Bearer tok-shipping');
+      assert.equal(seen.origin, 'https://ship.internal:8443');
+      // A host discovery does not resolve gets nothing.
+      assert.isUndefined(appForOrigin('http://unknown', new Map()));
+      assert.equal(appForOrigin('http://shipping', new Map()), 'shipping');
+      assert.isUndefined(appForOrigin('http://shipping:8080', new Map()));
+    } finally {
+      if (saved === undefined) delete g[DISCOVERY_SLOT];
+      else g[DISCOVERY_SLOT] = saved;
+    }
+  });
+
+  test('a wrong `service`/`apps` fails the boot instead of being swallowed', async ({ assert }) => {
+    const slot = await listen();
+    try {
+      await assert.rejects(
+        () =>
+          bootApp(
+            slot,
+            {
+              issuer: 'http://127.0.0.1:1',
+              clientId: 'x',
+              redirectUri: 'http://127.0.0.1/cb',
+              resolver: resolvers.jwt({ tokenSource: 'session' }),
+              service: { name: 'orders', clientId: 'orders', clientSecret: 's' },
+              apps: { billing: 'https://billing.example.com/api' },
+            },
+            () => {},
+          ),
+        /origin only/,
+      );
+    } finally {
+      await slot.close();
+    }
+  });
+
+  test('the node:http hook refreshes tokens on every tick', async ({ assert }) => {
+    let calls = 0;
+    const tokens = {
+      token: async () => {
+        calls += 1;
+        return 't';
+      },
+      peek: () => 't',
+    } as unknown as AppTokens;
+    const stop = installNodeHttpHook({
+      origins: new Map([['https://billing.example.com', 'billing']]),
+      tokens,
+      refreshEveryMs: 10,
+    });
+    await new Promise((r) => setTimeout(r, 60));
+    stop();
+    assert.isAtLeast(calls, 3);
   });
 
   test('hasAuthorization reads every undici header shape', ({ assert }) => {

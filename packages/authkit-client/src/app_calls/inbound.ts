@@ -29,17 +29,37 @@ export interface AgoraCaller {
   expiresAt: number;
 }
 
-/** `ctx.agora`: what the Agora libs put on a request. */
-export interface AgoraRequestContext {
-  /** The app that called, when the request carries a valid service token for this app. */
-  caller?: AgoraCaller;
+/**
+ * `ctx.agora`: the request context every Agora lib shares. Each lib adds its own optional
+ * fields to `AgoraRequestContext` in this same module (interfaces merge), and declares
+ * `agora: AgoraRequestContext` on `HttpContext` identically, so the declarations never
+ * conflict. At runtime `ctx.agora` is a per-request object (see {@link installAgoraContext}).
+ */
+declare module '@adonisjs/core/http' {
+  interface AgoraRequestContext {
+    /** The app that called, when the request carries a valid service token for this app. */
+    caller?: AgoraCaller;
+  }
+  interface HttpContext {
+    agora: AgoraRequestContext;
+  }
 }
 
-declare module '@adonisjs/core/http' {
-  interface HttpContext {
-    /** Set by the Agora libs. `caller`: the app that made this request (calls between apps). */
-    agora?: AgoraRequestContext;
-  }
+/** `ctx.agora`'s type (the merged {@link AgoraRequestContext} of every Agora lib). */
+export type AgoraRequestContext = import('@adonisjs/core/http').AgoraRequestContext;
+
+interface HttpContextClass {
+  prototype: object;
+  getter(name: string, fn: (this: unknown) => unknown, singleton?: boolean): unknown;
+}
+
+/**
+ * Makes `ctx.agora` a per-request object (a singleton getter on `HttpContext`), unless
+ * another Agora lib already did. Idempotent; every Agora lib may call it.
+ */
+export function installAgoraContext(HttpContext: HttpContextClass): void {
+  if ('agora' in HttpContext.prototype) return;
+  HttpContext.getter('agora', () => ({}), true);
 }
 
 /** The app that made this request, or `undefined` (a user, or no valid service token). */
@@ -135,7 +155,8 @@ export async function resolveAppCaller(
     holder[REJECTED] = true;
     return;
   }
-  holder.agora = { ...holder.agora, caller };
+  if (holder.agora) holder.agora.caller = caller;
+  else holder.agora = { caller };
 }
 
 /** Options of {@link authkitService}. */

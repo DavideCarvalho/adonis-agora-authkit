@@ -53,13 +53,15 @@ export function serviceTenantOf(
     typeof raw.environment === 'string' && ENVIRONMENT_PATTERN.test(raw.environment)
       ? raw.environment
       : undefined;
+  // Fail closed and visibly: a grant that would not pass `normalizeServiceTenant` (bad
+  // name, bad capability) is dropped whole — never narrowed — and since the console, the
+  // Admin API and issuance all read through here, none of them shows or honours it.
   const apps: Record<string, string[]> = {};
   if (raw.apps && typeof raw.apps === 'object' && !Array.isArray(raw.apps)) {
     for (const [name, caps] of Object.entries(raw.apps as Record<string, unknown>)) {
-      if (!APP_NAME_PATTERN.test(name)) continue;
-      apps[name] = Array.isArray(caps)
-        ? caps.filter((c): c is string => typeof c === 'string' && c.length > 0)
-        : [];
+      if (!APP_NAME_PATTERN.test(name) || !Array.isArray(caps)) continue;
+      if (!caps.every((c) => typeof c === 'string' && CAPABILITY_PATTERN.test(c))) continue;
+      apps[name] = [...(caps as string[])];
     }
   }
   return {
