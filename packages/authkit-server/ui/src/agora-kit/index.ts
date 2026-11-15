@@ -42,11 +42,15 @@ export {
 export {
   ConsoleSearch,
   filterCommands,
+  groupCommands,
+  matchScore,
+  normalizeSearchText,
   type SearchCommand,
   SearchTrigger,
   useSearchShortcut,
 } from './shell/console-search';
 export { ConsoleSwitcher, type CurrentConsole, useConsoles } from './shell/console-switcher';
+export { consoleCommands, pageCommands } from './shell/navigation';
 export { UserFooter } from './shell/user-footer';
 export {
   type AgoraShellConfig,

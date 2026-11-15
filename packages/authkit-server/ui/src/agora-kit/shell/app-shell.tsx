@@ -1,4 +1,4 @@
-import { type CSSProperties, type ReactNode, useCallback, useState } from 'react';
+import { type CSSProperties, type ReactNode, useCallback, useMemo, useState } from 'react';
 import { ChevronDownIcon } from '../icons';
 import { cn } from '../lib/utils';
 import type { AgoraShellConfig } from '../shell-config';
@@ -27,7 +27,8 @@ import {
   SearchTrigger,
   useSearchShortcut,
 } from './console-search';
-import { ConsoleSwitcher, type CurrentConsole } from './console-switcher';
+import { ConsoleSwitcher, type CurrentConsole, useConsoles } from './console-switcher';
+import { consoleCommands, pageCommands } from './navigation';
 import { UserFooter } from './user-footer';
 
 /** One sidebar entry. Give it an `href` (a real link) or an `onSelect` (an in-app action). */
@@ -40,6 +41,8 @@ export interface NavItem {
   onSelect?: () => void;
   /** A small count/status at the end of the row. */
   badge?: ReactNode;
+  /** agora: more words ⌘K finds this page by ("flamegraphs" for Profiles). */
+  keywords?: string[];
 }
 
 /** A group of entries under an UPPERCASE section label. */
@@ -255,11 +258,21 @@ export function AppShell({
   searchPlaceholder?: string | undefined;
   /** Classes for the scrolling content column (pages that manage their own scroll pass `overflow-hidden`). */
   contentClassName?: string | undefined;
-  /** agora: console-local ⌘K entries (pages, filters); ⌘K works with these even without `shell.search`. */
+  /**
+   * agora: console-local ⌘K entries (filters, views). The nav's pages and the other consoles are
+   * already in ⌘K; don't repeat them here.
+   */
   commands?: readonly SearchCommand[] | undefined;
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
-  const searchEnabled = shell.search !== undefined || (commands?.length ?? 0) > 0;
+  // ⌘K navigation: this console's pages, then the consoles in the switcher (same cached request).
+  const consoles = useConsoles(shell.switcher);
+  const navigation = useMemo(
+    () => [...pageCommands(nav, brand.current.title), ...consoleCommands(consoles)],
+    [nav, brand.current.title, consoles],
+  );
+  const searchEnabled =
+    shell.search !== undefined || navigation.length > 0 || (commands?.length ?? 0) > 0;
   useSearchShortcut(searchEnabled, setSearchOpen);
   const openSearch = useCallback(() => setSearchOpen(true), []);
   return (
@@ -311,6 +324,7 @@ export function AppShell({
       {searchEnabled && (
         <ConsoleSearch
           config={shell.search}
+          navigation={navigation}
           commands={commands}
           open={searchOpen}
           onOpenChange={setSearchOpen}
