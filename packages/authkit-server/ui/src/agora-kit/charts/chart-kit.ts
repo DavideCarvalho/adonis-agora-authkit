@@ -5,6 +5,7 @@ import type {
   ChartTheme,
   ChartTooltipContent,
   ChartTooltipRow,
+  ChartValue,
 } from '@tanstack/charts';
 import { tooltip } from '@tanstack/charts/tooltip';
 import { portal } from '@tanstack/charts/tooltip/portal';
@@ -116,7 +117,12 @@ export const CHART_THEME: Partial<ChartTheme> = {
  * caller's extra rows. Opens on hover and on keyboard focus (arrow keys move it); portalled so a
  * card's `overflow: hidden` can't clip it. Styled by `.agora-chart-tooltip` in tokens.css.
  */
-export function chartTooltip<T>(opts: {
+export function chartTooltip<
+  T,
+  D extends ChartRow<T> = ChartRow<T>,
+  X extends ChartValue = string,
+  Y extends ChartValue = number,
+>(opts: {
   formatValue?: ((value: number) => string) | undefined;
   formatX?: ((x: string) => string) | undefined;
   extraRows?: ((row: T) => readonly ChartExtraRow[]) | undefined;
@@ -129,7 +135,7 @@ export function chartTooltip<T>(opts: {
     className: 'agora-chart-tooltip',
     placement: ['top', 'right', 'left', 'bottom'] as const,
     content: (
-      points: readonly ChartPoint<ChartRow<T>, string, number>[],
+      points: readonly ChartPoint<D, X, Y>[],
       context: { primaryPoint?: ChartPoint | undefined },
     ): ChartTooltipContent => {
       const first = points[0]?.datum;
