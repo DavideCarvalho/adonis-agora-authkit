@@ -58,16 +58,19 @@ async function lookup(options: DiscoverControlPlaneOptions): Promise<string | un
   return find(endpoints.controlPlanes, options.resource);
 }
 
-/** Refetches the document unless that already happened in the last 10 s for this issuer. */
+/**
+ * Refetches the document unless a refetch succeeded in the last 10 s for this issuer.
+ * Concurrent callers share one fetch (`refreshDiscovery` is single-flight); the throttle is
+ * set only once it succeeds, so a failure is never remembered and the next call retries.
+ */
 async function forceRefresh(options: DiscoverControlPlaneOptions): Promise<boolean> {
   const key = trimSlash(options.issuer);
-  const now = Date.now();
-  if (now - (lastForced.get(key) ?? 0) < FORCED_REFRESH_INTERVAL_MS) return false;
-  lastForced.set(key, now);
+  if (Date.now() - (lastForced.get(key) ?? 0) < FORCED_REFRESH_INTERVAL_MS) return false;
   await refreshDiscovery(options.issuer, {
     ...(options.fetch ? { fetchImpl: options.fetch } : {}),
     ...(options.resilience ? { resilience: options.resilience } : {}),
   });
+  lastForced.set(key, Date.now());
   return true;
 }
 

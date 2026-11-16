@@ -150,7 +150,8 @@ function isLoopback(hostname: string): boolean {
  */
 function assertControlPlaneUrl(indicator: string, url: unknown): void {
   const where = `authkit: serviceTenants.resources["${indicator}"].url`;
-  const parsed = typeof url === 'string' ? URL.parse(url) : null;
+  // `URL.parse` trims; the raw value is what gets published, so refuse padding.
+  const parsed = typeof url === 'string' && url === url.trim() ? URL.parse(url) : null;
   if (!parsed || (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')) {
     throw new Error(`${where} must be an absolute https URL (e.g. "https://telescope.acme.com").`);
   }

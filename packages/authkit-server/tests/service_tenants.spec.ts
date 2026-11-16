@@ -170,6 +170,7 @@ test.group('service tenants: config', () => {
     assert.throws(bad('http://durable.example.com'), /http is only allowed for localhost/);
     assert.throws(bad('https://user:pass@durable.example.com'), /credentials/);
     assert.throws(bad('https://durable.example.com/#x'), /fragment/);
+    assert.throws(bad(' https://durable.example.com '), /absolute https URL/);
   });
 });
 

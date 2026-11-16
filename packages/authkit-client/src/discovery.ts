@@ -290,7 +290,7 @@ function controlPlanesOf(value: unknown): Record<string, string> | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const out: Record<string, string> = {};
   for (const [resource, url] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof url !== 'string') continue;
+    if (typeof url !== 'string' || url !== url.trim()) continue;
     const parsed = URL.parse(url);
     if (parsed && (parsed.protocol === 'https:' || parsed.protocol === 'http:')) {
       out[resource] = url;

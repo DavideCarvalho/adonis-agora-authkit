@@ -164,10 +164,25 @@ test.group('control planes: discovery', (group) => {
           [TELESCOPE]: 'https://telescope.example.com',
           [DURABLE]: 'javascript:alert(1)',
           'urn:agora:flags': 42,
+          'urn:agora:config': ' https://config.example.com',
         }),
       })).impl,
     });
     assert.deepEqual(endpoints.controlPlanes, { [TELESCOPE]: 'https://telescope.example.com' });
+  });
+
+  test('concurrent misses share one refetch and all see its result', async ({ assert }) => {
+    let planes: Record<string, string> = { [DURABLE]: 'https://durable.example.com' };
+    const { impl, calls } = countingFetch(() => ({ status: 200, json: doc(planes) }));
+    await discoverControlPlane({ issuer: ISSUER, resource: DURABLE, fetch: impl });
+    planes = { ...planes, [TELESCOPE]: 'https://telescope.example.com' };
+    const urls = await Promise.all(
+      [1, 2, 3].map(() =>
+        discoverControlPlane({ issuer: ISSUER, resource: TELESCOPE, fetch: impl }),
+      ),
+    );
+    assert.deepEqual(urls, Array(3).fill('https://telescope.example.com'));
+    assert.lengthOf(calls, 2);
   });
 
   test('requires issuer and resource', ({ assert }) => {
