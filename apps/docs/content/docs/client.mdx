@@ -396,6 +396,10 @@ origin. You can also set them through `endpoints` (`accountUri`, `accountHomeUri
 When authkit-server runs in the same app ([embedded topology](/docs/topologies#embedded)),
 it serves these pages itself and the redirects are not registered.
 
+If your app already has its own route on one of these paths (a hand-written `/account`
+redirect, say), remove it: two routes on the same path stop the app at boot with
+`Duplicate route found`. To keep yours, mount the handlers yourself instead (below).
+
 ### Mounting the routes yourself
 
 To mount only some routes, or at other paths, skip `registerOidcClient` and mount the

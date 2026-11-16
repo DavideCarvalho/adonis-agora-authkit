@@ -86,7 +86,7 @@ import router from '@adonisjs/core/services/router'
 import { registerOidcClient } from '@adonis-agora/authkit-client'
 
 // /auth/login, /auth/signup (prompt=create), /auth/callback, /auth/logout,
-// POST /auth/backchannel-logout, plus issuer-page redirects (/account[/ *],
+// POST /auth/backchannel-logout, plus issuer-page redirects (/account[/*],
 // /auth/forgot-password, /auth/reset-password[/*], /auth/admin[/*]) when
 // authkit-server is not in this app
 registerOidcClient(router)
@@ -180,7 +180,7 @@ registerOidcClient(router, {
   redirects: { byGlobalRole: { ADMIN: '/admin' }, default: '/' },
   // prefix defaults to /auth → /auth/login, /auth/signup, /auth/callback, /auth/logout
   // backchannelLogout defaults to true → also registers POST /auth/backchannel-logout
-  // also mounts GET /account[/ *], {prefix}/forgot-password,
+  // also mounts GET /account[/*], {prefix}/forgot-password,
   // {prefix}/reset-password[/*], {prefix}/admin[/*] → issuer pages from discovery
   // (authkit_*_uri, same-origin only); skipped when authkit-server runs in this
   // app. For custom paths use oidcClientRoutes(options) (same
