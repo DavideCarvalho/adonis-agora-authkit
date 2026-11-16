@@ -64,17 +64,28 @@ function fakeResponse(redirects: Redirect[]) {
   };
 }
 
-/** HttpContext for the client routes: container (→ `manager`), query string, session. */
+/**
+ * HttpContext for the client routes: container (→ `manager`), query string, session, the
+ * route's wildcard (`params['*']`) and the raw URL (`url`, query included).
+ */
 export function fakeHttpCtx(options: {
   manager?: unknown;
   qs?: Record<string, string>;
   session?: FakeSession;
+  wildcard?: string[];
+  url?: string;
 }) {
   const redirects: Redirect[] = [];
   const qs = options.qs ?? {};
+  const rawUrl = options.url ?? '/';
   const ctx = {
     containerResolver: { make: async () => options.manager },
-    request: { qs: () => qs, input: (key: string) => qs[key] },
+    request: {
+      qs: () => qs,
+      input: (key: string) => qs[key],
+      url: (withQuery?: boolean) => (withQuery ? rawUrl : rawUrl.split('?')[0]),
+    },
+    params: options.wildcard ? { '*': options.wildcard } : {},
     session: options.session,
     response: fakeResponse(redirects),
   } as any;
@@ -83,18 +94,43 @@ export function fakeHttpCtx(options: {
 
 type Handler = (ctx: any) => Promise<unknown>;
 
-/** Registers the real client routes on a fake router; returns their handlers by pattern. */
-export function oidcRoutes(options?: RegisterOidcClientOptions): (pattern: string) => Handler {
-  const table = new Map<string, Handler>();
-  const add = (pattern: string, handler: Handler) => {
-    table.set(pattern, handler);
-    const chain = { use: () => chain, as: () => chain };
+/** A route registered on the fake router: method, pattern, name and middleware. */
+export interface FakeRoute {
+  method: 'GET' | 'POST';
+  pattern: string;
+  handler: Handler;
+  name?: string;
+  middleware: unknown[];
+}
+
+/** Registers the real client routes on a fake router; returns the routes it got. */
+export function registeredOidcRoutes(options?: RegisterOidcClientOptions): FakeRoute[] {
+  const routes: FakeRoute[] = [];
+  const add = (method: FakeRoute['method']) => (pattern: string, handler: Handler) => {
+    const route: FakeRoute = { method, pattern, handler, middleware: [] };
+    routes.push(route);
+    const chain = {
+      use: (middleware: unknown) => {
+        route.middleware.push(middleware);
+        return chain;
+      },
+      as: (name: string) => {
+        route.name = name;
+        return chain;
+      },
+    };
     return chain;
   };
-  registerOidcClient({ get: add, post: add } as any, options);
+  registerOidcClient({ get: add('GET'), post: add('POST') } as any, options);
+  return routes;
+}
+
+/** Registers the real client routes on a fake router; returns their handlers by pattern. */
+export function oidcRoutes(options?: RegisterOidcClientOptions): (pattern: string) => Handler {
+  const routes = registeredOidcRoutes(options);
   return (pattern) => {
-    const handler = table.get(pattern);
-    if (!handler) throw new Error(`no route ${pattern}`);
-    return handler;
+    const route = routes.find((r) => r.pattern === pattern);
+    if (!route) throw new Error(`no route ${pattern}`);
+    return route.handler;
   };
 }

@@ -35,8 +35,8 @@ AuthKit-only data. `configure` installs `@adonisjs/auth` if missing, publishes
 `config/authkit_client.ts`, `config/auth.ts` (guard + `sessionUserProvider`, `--model`,
 default `#models/user`; an existing file is left alone) and the named `auth` /
 `silentAuth` middleware, and registers the providers plus `initialize_auth_middleware` and
-`authkit_context_middleware`; the login/callback/logout routes come from
-`registerOidcClient(router)`. (`configure` also publishes an `OidcSessionController` stub,
+`authkit_context_middleware`; the login/signup/callback/logout plus issuer-page
+redirect routes come from `registerOidcClient(router)`. (`configure` also publishes an `OidcSessionController` stub,
 only for apps that must customise the flow.)
 
 ## Setup
@@ -85,7 +85,10 @@ export default defineConfig({
 import router from '@adonisjs/core/services/router'
 import { registerOidcClient } from '@adonis-agora/authkit-client'
 
-// /auth/login, /auth/callback, /auth/logout and /auth/backchannel-logout
+// /auth/login, /auth/signup (prompt=create), /auth/callback, /auth/logout,
+// POST /auth/backchannel-logout, plus issuer-page redirects (/account[/*],
+// /auth/forgot-password, /auth/reset-password[/*], /auth/admin[/*]) when
+// authkit-server is not in this app
 registerOidcClient(router)
 ```
 
@@ -165,8 +168,9 @@ Source: `packages/authkit-client/README.md` § Topologias de banco,
 
 ### Pattern 3 — one-liner routes with `registerOidcClient`
 
-Instead of hand-writing the controller trio, register PKCE + state, code exchange,
-RP-initiated logout and role-based redirects in one call:
+Instead of hand-writing the controllers, register PKCE + state, code exchange
+(login plus `signup` with `prompt=create`), RP-initiated logout, role-based
+redirects, and redirects to the issuer's identity pages in one call:
 
 ```ts
 import router from '@adonisjs/core/services/router'
@@ -174,8 +178,13 @@ import { registerOidcClient } from '@adonis-agora/authkit-client'
 
 registerOidcClient(router, {
   redirects: { byGlobalRole: { ADMIN: '/admin' }, default: '/' },
-  // prefix defaults to /auth → /auth/login, /auth/callback, /auth/logout
+  // prefix defaults to /auth → /auth/login, /auth/signup, /auth/callback, /auth/logout
   // backchannelLogout defaults to true → also registers POST /auth/backchannel-logout
+  // also mounts GET /account[/*], {prefix}/forgot-password,
+  // {prefix}/reset-password[/*], {prefix}/admin[/*] → issuer pages from discovery
+  // (authkit_*_uri, same-origin only); skipped when authkit-server runs in this
+  // app. For custom paths use oidcClientRoutes(options) (same
+  // login/signup/callback/logout/backchannelLogout/account/forgotPassword/resetPassword/admin handlers).
 })
 ```
 

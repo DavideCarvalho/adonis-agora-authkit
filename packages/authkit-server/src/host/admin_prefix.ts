@@ -39,6 +39,21 @@ export function normalizeAdminPrefix(raw: string): string {
  */
 export function setAdminPrefix(prefix: string): void {
   _prefix = normalizeAdminPrefix(prefix);
+  _mounted = true;
+}
+
+/** Whether `registerAuthHost` mounted the admin console in this process. */
+let _mounted = false;
+
+/** `true` once `registerAuthHost` mounted the admin console (it sets the prefix then). */
+export function isAdminConsoleMounted(): boolean {
+  return _mounted;
+}
+
+/** Back to the defaults: `/admin`, not mounted (tests). */
+export function resetAdminPrefix(): void {
+  _prefix = DEFAULT_ADMIN_PREFIX;
+  _mounted = false;
 }
 
 /**

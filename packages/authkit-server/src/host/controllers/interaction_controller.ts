@@ -8,6 +8,7 @@ import {
   supportsPasskeys,
 } from '../../accounts/account_store.js';
 import type { ResolvedServerConfig } from '../../define_config.js';
+import { requestsCreate } from '../../provider/create_prompt.js';
 import { resolveAccountRoles } from '../account_roles.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
 import { guardBotProtection, resolveEffectiveBotProtection } from '../bot_protection.js';
@@ -45,6 +46,7 @@ import {
   rawToDbOtpUnlockToken,
   resolveEffectiveOtpLockout,
 } from '../otp_lockout.js';
+import { redirectExact } from '../redirect_exact.js';
 import { type RuntimeSettings, resolveRuntimeSettingsOrNoop } from '../runtime_settings.js';
 import {
   type ResolvedAuthMethods,
@@ -110,6 +112,8 @@ function accountStatusErrorKey(reason: AccountStatusReason): string {
  * para que a canonicalização não vire um oráculo de "esta conta existe".
  */
 const SESSION_KEY = LOGIN_EMAIL_SESSION_KEY;
+/** The interaction whose `prompt=create` already opened the sign-up screen. */
+const CREATE_PROMPT_SESSION_KEY = 'authkit_create_prompt_uid';
 /** accountId aguardando o 2º fator depois da senha verificada. */
 const MFA_PENDING_KEY = 'authkit_mfa_pending';
 /**
@@ -384,6 +388,20 @@ export default class AuthInteractionController {
         cfg.registration?.enabled ?? true,
         runtimeSettingsForMaintenance,
       );
+      // `prompt=create`: open on the sign-up screen, once per interaction — its "I already
+      // have an account" link comes back here and must show the login. With signup closed,
+      // the login screen as usual.
+      if (
+        registrationEnabled &&
+        requestsCreate(details.params) &&
+        ctx.session.get(CREATE_PROMPT_SESSION_KEY) !== details.uid
+      ) {
+        ctx.session.put(CREATE_PROMPT_SESSION_KEY, details.uid);
+        return redirectExact(
+          ctx.response,
+          `/auth/interaction/${encodeURIComponent(details.uid)}/signup`,
+        );
+      }
       return render(ctx, 'login', {
         ...loginMethods,
         uid: details.uid,
