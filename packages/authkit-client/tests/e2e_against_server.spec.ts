@@ -8,6 +8,7 @@ import {
 import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
 import RedisMock from 'ioredis-mock';
+import { discoverControlPlane } from '../src/control_planes.js';
 import { buildAuthorizeUrl, generatePkce } from '../src/oidc_login.js';
 import { resolvers } from '../src/resolvers/factory.js';
 import { resolverContext } from './helpers/resolvers.js';
@@ -28,6 +29,9 @@ test.group('client ↔ server (e2e)', (group) => {
         issuer: ISSUER,
         adapter: adapters.redis({ connection: 'main' }),
         jwks: { source: 'managed' },
+        serviceTenants: {
+          resources: { 'urn:agora:telescope': { url: 'https://telescope.example.com' } },
+        },
         // `findAccount` NÃO é mais uma chave de input: o contrato primário de
         // identidade é o `accountStore`, e o resolved config deriva
         // `findAccount: (sub) => accountStore.findById(sub)` (define_config.ts).
@@ -90,5 +94,12 @@ test.group('client ↔ server (e2e)', (group) => {
     const factory = resolvers.jwt({ jwksUri: disco.jwks_uri });
     const resolver = await factory.resolver(resolverContext(ISSUER));
     assert.isOk(resolver);
+  });
+
+  test('discoverControlPlane reads agora_control_planes from the server', async ({ assert }) => {
+    assert.equal(
+      await discoverControlPlane({ issuer: ISSUER, resource: 'urn:agora:telescope' }),
+      'https://telescope.example.com',
+    );
   });
 });

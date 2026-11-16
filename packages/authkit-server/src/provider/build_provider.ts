@@ -13,6 +13,7 @@ import {
 } from '../mcp/mcp_clients.js';
 import { findMcpResource, hasGuardResources, mcpAuthorizeMiddleware } from '../mcp/mcp_oauth.js';
 import { hideDisabledClients } from '../service_tenants/client_metadata.js';
+import { controlPlaneLocations } from '../service_tenants/config.js';
 import { createServiceTenantHooks } from '../service_tenants/provider_hooks.js';
 import { interactionPolicyWithCreate, promptValuesSupported } from './create_prompt.js';
 import { createDeviceSources } from './device_sources.js';
@@ -159,6 +160,9 @@ export function buildProvider(
     : null;
   // Service tenants (`serviceTenants`): `client_credentials` clients with a partition,
   // whose tokens are JWTs for a service-tenant resource. See `service_tenants/`.
+  const controlPlanes = controlPlaneLocations(
+    config.serviceTenants ?? { enabled: false, resources: {} },
+  );
   const serviceTenants = createServiceTenantHooks({
     serviceTenants: config.serviceTenants ?? { enabled: false, resources: {} },
     AdapterClass: config.AdapterClass,
@@ -428,6 +432,9 @@ export function buildProvider(
       ...(config.webhookSigningKeys?.length
         ? { authkit_webhook_jwks: toJwks(config.webhookSigningKeys) }
         : {}),
+      // Where each control plane lives (`serviceTenants.resources[*].url`), keyed by the
+      // resource indicator its tokens are for: apps find it here instead of an env var each.
+      ...(Object.keys(controlPlanes).length ? { agora_control_planes: controlPlanes } : {}),
     },
     ttl: {
       // AccessToken TTL: quando um TokenTtlHolder é fornecido, lê o valor atual do holder

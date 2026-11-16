@@ -222,6 +222,8 @@ Nothing on this server may need authkit-server in-process. The remote-safe helpe
 ```ts
 import {
   authkitTenantToken, // tenant side: client_credentials token for one resource; endpoint from discovery only
+  controlPlaneUrl, // lazy URL of a control plane from the issuer's `agora_control_planes` (serviceTenants.resources[*].url); peek()/refresh()
+  discoverControlPlane, // one-shot: Promise<string>; ControlPlaneNotFoundError when not published
   authkitTenantVerifier, // control-plane side: (request) => { partition, environment?, capabilities, clientId, expiresAt } | null
   registerAuthkitWebhook, // signed authkit events → diagnostics bus as agora:authkit:<type>
   bridgeAuthkitToken, // bearer token (MCP/API) → ctx.authkit, so authkitDashboardAuthorize admits it
