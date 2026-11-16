@@ -977,6 +977,7 @@ export default class AuthInteractionController {
     await notifyLoginSuccess(ctx, cfg, {
       accountId: account.id,
       email: account.email,
+      ip: ctx.request.ip?.() ?? null,
       clientId: (details.params.client_id as string | undefined) ?? null,
       metadata: { mfa: flow.completed.map((entry) => entry.method) },
     });
