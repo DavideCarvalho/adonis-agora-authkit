@@ -1204,7 +1204,7 @@ export interface AccountCreatedEvent {
    * de uma interaction (admin, import).
    */
   client?: { clientId: string; appName?: string };
-  /** Quem criou, com `source: 'admin'`: o id do admin (ausente para chamadas sem ator). */
+  /** Quem criou, com `source: 'admin'`: o id do admin (`null` para chamadas sem ator). */
   actorId?: string | null;
 }
 

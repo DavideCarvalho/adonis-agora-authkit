@@ -69,7 +69,15 @@ export default class AuthkitImportUsers extends BaseCommand {
         notifyAccountCreated(
           authkitConfig ?? {},
           { account: { id: account.id, email: account.email }, source: 'import' },
-          { logger: { error: (_meta, message) => this.logger.error(String(message)) } },
+          {
+            logger: {
+              error: (meta, message) => {
+                const err = (meta as { err?: unknown } | undefined)?.err;
+                const cause = err instanceof Error ? err.message : String(err ?? 'unknown error');
+                this.logger.error(`${String(message)} (${account.email}, ${account.id}): ${cause}`);
+              },
+            },
+          },
         ),
     });
     // Erros de parsing entram no relatório agregado.
