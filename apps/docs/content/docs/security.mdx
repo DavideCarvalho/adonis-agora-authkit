@@ -794,17 +794,19 @@ mail: {
 | Hook | Payload | When sent |
 | --- | --- | --- |
 | `onPasswordReset` | `{ email, resetUrl, token }` | A password-reset token was issued. |
-| `onEmailVerification` | `{ email, verifyUrl, token }` | An email-verification token was issued. |
-| `onMagicLink` | `{ email, magicUrl, token, code?, channel? }` | A [magic link](/docs/passwordless#magic-link) was issued. `code` is present only when [email login codes](/docs/passwordless#email-login-codes-otp) are enabled; `channel` (`'code'` or `'link'`) carries the user's choose-first selection so you can render a code-only or link-only email. Both are absent in the plain magic-link flow. |
+| `onEmailVerification` | `{ email, verifyUrl, token, client? }` | An email-verification token was issued. |
+| `onMagicLink` | `{ email, magicUrl, token, code?, channel?, kind?, client? }` | A [magic link](/docs/passwordless#magic-link) was issued. `code` is present only when [email login codes](/docs/passwordless#email-login-codes-otp) are enabled; `channel` (`'code'` or `'link'`) carries the user's choose-first selection so you can render a code-only or link-only email. Both are absent in the plain magic-link flow. |
 | `onSudoLink` | `{ email, sudoUrl }` | A [sudo-mode](#sudo-mode) confirmation link was requested. Distinct from `onMagicLink` on purpose: a magic link **authenticates**, a sudo link only grants sudo to someone already signed in, and the two tokens share nothing. |
-| `onNewLogin` | `{ account, ip, userAgent, timestamp }` | A login succeeded from an IP never seen for the account (`notifications.newLoginEmail`). |
-| `onNewDeviceLogin` | `{ account, ip, userAgent, timestamp }` | A login succeeded from a device with no valid [trusted-device](/docs/mfa#trusted-devices) cookie. |
+| `onNewLogin` | `{ account, ip, userAgent, timestamp, client? }` | A login succeeded from an IP never seen for the account (`notifications.newLoginEmail`). |
+| `onNewDeviceLogin` | `{ account, ip, userAgent, timestamp, client? }` | A login succeeded from a device with no valid [trusted-device](/docs/mfa#trusted-devices) cookie. |
 | `onOrgInvitation` | `{ email, invitationId, orgName, orgSlug, role, acceptUrl, token }` | An [organization](/docs/organizations) invitation was created, from the account console or the Admin API. Without the hook the bundled mailer sends the invitation, carrying the org name, the role being offered, and the accept link. |
 | `onEmailChangeConfirm` | `{ email, confirmUrl, token, oldEmail }` | An email change was requested; the confirmation link goes to the **new** address. `oldEmail` is the current one, for context in the template. |
 | `onEmailChangeNotice` | `{ email, newEmail }` | The same request, notifying the **current** address that a change was asked for. |
-| `onOtpUnlock` | `{ email, unlockUrl, token }` | The TOTP/recovery factor was locked; the unlock link was issued. |
+| `onOtpUnlock` | `{ email, unlockUrl, token, client? }` | The TOTP/recovery factor was locked; the unlock link was issued. |
 | `onAccountExpirationWarning` | `{ email, expiresInDays }` | `authkit:expire-scan` found an account about to be deactivated for inactivity. Deduplicated by the `account_expiration` warning window, so an account gets at most one warning per window. |
 | `onSecurityNotice` | `{ account, kind, ip, userAgent, timestamp, metadata? }` | A security-relevant change happened. `kind` is one of `password_changed`, `mfa_enabled`, `mfa_disabled`, `passkey_added`, `passkey_removed`, `email_changed`; `metadata` carries extras such as the old and new address for `email_changed`. |
+
+`client` is `{ clientId, appName? }`, the app the user is signing in to; it is absent outside an app's sign-in. See [Emails](/docs/emails#hooks).
 
 ### `from` — a sender just for auth mail
 

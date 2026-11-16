@@ -18,6 +18,7 @@ import {
 } from '../default_mailer.js';
 import { translate } from '../i18n.js';
 import { rememberLastLoginMethod } from '../last_login_method.js';
+import { mailClientField, resolveMailClient } from '../mail_client.js';
 import { authkitOrigin } from '../origin.js';
 import { RuntimeSettings, resolveRuntimeSettings } from '../runtime_settings.js';
 import {
@@ -264,9 +265,15 @@ export default class AuthRegistrationController {
         const verifyUrl = `${origin}/auth/verify-email?token=${issued.token}`;
         // Hook do config tem prioridade (override); senão usa o mailer default do host.
         if (cfg.mail?.onEmailVerification) {
-          await cfg.mail.onEmailVerification({ email: data.email, verifyUrl, token: issued.token });
+          const client = await resolveMailClient(ctx, cfg, clientId);
+          await cfg.mail.onEmailVerification({
+            email: data.email,
+            verifyUrl,
+            token: issued.token,
+            ...mailClientField(client),
+          });
         } else {
-          await sendEmailVerificationEmail(ctx, { email: data.email, verifyUrl }, cfg);
+          await sendEmailVerificationEmail(ctx, { email: data.email, verifyUrl, clientId }, cfg);
         }
       }
     } catch (error) {
@@ -285,8 +292,10 @@ export default class AuthRegistrationController {
    * os dois casos também levam um código de digitar (`otpVerify`).
    */
   async #passwordlessSignup(ctx: HttpContext, deps: { cfg: any; brand: any; details: any }) {
-    const { cfg, brand } = deps;
+    const { cfg, brand, details } = deps;
     const render = cfg.render!;
+    const clientId = (details.params.client_id as string | undefined) ?? null;
+    const mailClient = async () => mailClientField(await resolveMailClient(ctx, cfg, clientId));
     const accountStore = cfg.accountStore;
     const uid = ctx.request.param('uid');
     const data = await ctx.request.validateUsing(passwordlessSignupValidator);
@@ -311,9 +320,15 @@ export default class AuthRegistrationController {
         const magicUrl = `${origin}/auth/interaction/${uid}/magic?token=${encodeURIComponent(issued.token)}`;
         const to = issued.account.email;
         if (cfg.mail?.onMagicLink) {
-          await cfg.mail.onMagicLink({ email: to, magicUrl, token: issued.token, code });
+          await cfg.mail.onMagicLink({
+            email: to,
+            magicUrl,
+            token: issued.token,
+            code,
+            ...(await mailClient()),
+          });
         } else {
-          await sendMagicLinkEmail(ctx, { email: to, magicUrl, code }, cfg);
+          await sendMagicLinkEmail(ctx, { email: to, magicUrl, code, clientId }, cfg);
         }
       }
     } else {
@@ -333,9 +348,16 @@ export default class AuthRegistrationController {
           })
         : undefined;
       if (cfg.mail?.onMagicLink) {
-        await cfg.mail.onMagicLink({ email: data.email, magicUrl, token, code, kind: 'signup' });
+        await cfg.mail.onMagicLink({
+          email: data.email,
+          magicUrl,
+          token,
+          code,
+          kind: 'signup',
+          ...(await mailClient()),
+        });
       } else {
-        await sendMagicLinkEmail(ctx, { email: data.email, magicUrl, code }, cfg);
+        await sendMagicLinkEmail(ctx, { email: data.email, magicUrl, code, clientId }, cfg);
       }
     }
 

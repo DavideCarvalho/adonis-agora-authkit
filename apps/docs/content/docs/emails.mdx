@@ -21,8 +21,11 @@ The defaults take their look and language from the config you already have:
 - **Language**: `i18n.locale` picks the catalog (`'pt-BR'` and `'en'` are built in). Every
   string lives under the `mail.*` keys and can be overridden with `i18n.messages`. See
   [i18n](/docs/i18n).
-- **Brand name**: `branding.default.appName`, then `branding.company`, then `'AuthKit'`.
-- **Accent color**: `branding.default.accent`, or the neutral theme.
+- **Brand name**: `branding.clients[clientId].appName` when the email belongs to a sign-in
+  for an app with its own branding, then `branding.default.appName`, then `branding.company`,
+  then `'AuthKit'`.
+- **Accent color**: `branding.clients[clientId].accent`, then `branding.default.accent`, or
+  the neutral theme.
 - **Sender**: `mail.from`, then the `from` in `config/mail.ts`.
 
 ```ts title="config/authkit.ts"
@@ -89,15 +92,15 @@ sets its own sender.
 | Hook | Sent when | Data |
 | --- | --- | --- |
 | `onPasswordReset` | A user asks to reset their password. | `email`, `resetUrl`, `token` |
-| `onEmailVerification` | A verification link is issued. | `email`, `verifyUrl`, `token` |
-| `onMagicLink` | A passwordless login or signup link is issued. | `email`, `magicUrl`, `token`, `code?`, `channel?`, `kind?` |
+| `onEmailVerification` | A verification link is issued. | `email`, `verifyUrl`, `token`, `client?` |
+| `onMagicLink` | A passwordless login or signup link is issued. | `email`, `magicUrl`, `token`, `code?`, `channel?`, `kind?`, `client?` |
 | `onSudoLink` | A signed-in user confirms their identity by email. | `email`, `sudoUrl` |
-| `onNewLogin` | A sign-in comes from an IP the account has not used before. | `account`, `ip`, `userAgent?`, `timestamp` |
-| `onNewDeviceLogin` | A sign-in comes from a device without a trusted-device cookie. | `account`, `ip?`, `userAgent?`, `timestamp` |
+| `onNewLogin` | A sign-in comes from an IP the account has not used before. | `account`, `ip`, `userAgent?`, `timestamp`, `client?` |
+| `onNewDeviceLogin` | A sign-in comes from a device without a trusted-device cookie. | `account`, `ip?`, `userAgent?`, `timestamp`, `client?` |
 | `onOrgInvitation` | Someone is invited to an organization. | `email`, `invitationId`, `orgName`, `orgSlug`, `role`, `acceptUrl`, `token` |
 | `onEmailChangeConfirm` | A user asks to change their email (sent to the new address). | `email`, `confirmUrl`, `token`, `oldEmail` |
 | `onEmailChangeNotice` | A user asks to change their email (sent to the current address). | `email`, `newEmail` |
-| `onOtpUnlock` | The OTP factor is locked after too many failed attempts. | `email`, `unlockUrl`, `token` |
+| `onOtpUnlock` | The OTP factor is locked after too many failed attempts. | `email`, `unlockUrl`, `token`, `client?` |
 | `onAccountExpirationWarning` | `authkit:expire-scan` finds an account about to be deactivated for inactivity. | `email`, `expiresInDays` |
 | `onSecurityNotice` | Password changed, MFA enabled or disabled, passkey added or removed, email changed. | `account`, `kind`, `ip?`, `userAgent?`, `timestamp`, `metadata?` |
 
@@ -106,6 +109,21 @@ On `onMagicLink`:
 - `code` is only present when `login.otp.enabled` is on.
 - `channel` is `'code'` or `'link'` when the user picked one, so you can render only that one.
 - `kind: 'signup'` marks a signup confirmation rather than a login link.
+
+`client` is the app the user is signing in to, as `{ clientId, appName? }`. `appName` is
+`branding.clients[clientId].appName`, or the client's registered `client_name`. It is absent
+when there is no app in play, such as the account pages. When one server signs users in to
+several apps, use it to send each app's own email:
+
+```ts title="config/authkit.ts"
+mail: {
+  onMagicLink: async ({ email, magicUrl, client }) => {
+    const { default: mail } = await import('@adonisjs/mail/services/main')
+    const { default: MagicLinkMail } = await import('#mails/magic_link_mail')
+    await mail.send(new MagicLinkMail({ email, magicUrl, app: client?.appName ?? 'Acme' }))
+  },
+},
+```
 
 `onSecurityNotice` receives one of these `kind` values: `password_changed`, `mfa_enabled`,
 `mfa_disabled`, `passkey_added`, `passkey_removed`, `email_changed`.

@@ -39,6 +39,7 @@ import {
 } from '../login_attempt.js';
 import { magicChannelProp, normalizeLoginChannel } from '../login_channel.js';
 import { notifyLoginSuccess } from '../login_notify.js';
+import { mailClientField, resolveMailClient } from '../mail_client.js';
 import { authkitOrigin } from '../origin.js';
 import {
   createOtpLockout,
@@ -976,6 +977,8 @@ export default class AuthInteractionController {
     await notifyLoginSuccess(ctx, cfg, {
       accountId: account.id,
       email: account.email,
+      ip: ctx.request.ip?.() ?? null,
+      clientId: (details.params.client_id as string | undefined) ?? null,
       metadata: { mfa: flow.completed.map((entry) => entry.method) },
     });
     const stepUp = this.acrRequiresMfa(cfg, details) ? { acr: cfg.stepUp?.mfaAcr } : {};
@@ -1060,7 +1063,13 @@ export default class AuthInteractionController {
 
       if (nowLocked) {
         // Emite e-mail de desbloqueio (best-effort, fail-safe).
-        await this.sendOtpUnlockEmailIfAble(ctx, cfg, accountId, otpLockoutCfg.unlockTtlHours);
+        await this.sendOtpUnlockEmailIfAble(
+          ctx,
+          cfg,
+          accountId,
+          otpLockoutCfg.unlockTtlHours,
+          clientId,
+        );
 
         return this.renderMfaChallenge(ctx, cfg, {
           uid: ctx.request.param('uid'),
@@ -1356,6 +1365,7 @@ export default class AuthInteractionController {
     cfg: any,
     accountId: string,
     unlockTtlHours: number,
+    clientId: string | null = null,
   ): Promise<void> {
     try {
       const account = await cfg.accountStore.findById(accountId);
@@ -1378,9 +1388,14 @@ export default class AuthInteractionController {
       const unlockUrl = `${origin}/auth/otp-unlock/${encodeURIComponent(raw)}`;
 
       if (cfg.mail?.onOtpUnlock) {
-        await cfg.mail.onOtpUnlock({ email: account.email, unlockUrl, token: raw }).catch(() => {});
+        const client = await resolveMailClient(ctx, cfg, clientId);
+        await cfg.mail
+          .onOtpUnlock({ email: account.email, unlockUrl, token: raw, ...mailClientField(client) })
+          .catch(() => {});
       } else {
-        await sendOtpUnlockEmail(ctx, { email: account.email, unlockUrl }, cfg).catch(() => {});
+        await sendOtpUnlockEmail(ctx, { email: account.email, unlockUrl, clientId }, cfg).catch(
+          () => {},
+        );
       }
     } catch {
       // Best-effort: nunca propaga erro para o fluxo de login.
@@ -1483,9 +1498,17 @@ export default class AuthInteractionController {
         const magicUrl = `${origin}/auth/interaction/${uid}/magic?token=${encodeURIComponent(issued.token)}`;
         const to = issued.account.email;
         if (cfg.mail?.onMagicLink) {
-          await cfg.mail.onMagicLink({ email: to, magicUrl, token: issued.token, code, channel });
+          const client = await resolveMailClient(ctx, cfg, clientId);
+          await cfg.mail.onMagicLink({
+            email: to,
+            magicUrl,
+            token: issued.token,
+            code,
+            channel,
+            ...mailClientField(client),
+          });
         } else {
-          await sendMagicLinkEmail(ctx, { email: to, magicUrl, code, channel }, cfg);
+          await sendMagicLinkEmail(ctx, { email: to, magicUrl, code, channel, clientId }, cfg);
         }
       }
     }
