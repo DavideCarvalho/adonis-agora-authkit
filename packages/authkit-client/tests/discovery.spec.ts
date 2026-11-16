@@ -50,6 +50,27 @@ test.group('discoverEndpoints', (group) => {
     assert.equal(endpoints.introspectionEndpoint, KEYCLOAK_DOC.introspection_endpoint);
   });
 
+  test('reads the authkit-server identity pages (authkit_*_uri)', async ({ assert }) => {
+    const endpoints = await discoverEndpoints(ISSUER, {
+      fetchImpl: fakeFetch(() => ({
+        status: 200,
+        json: {
+          ...KEYCLOAK_DOC,
+          authkit_account_uri: 'https://idp.example.com/conta',
+          authkit_account_home_uri: 'https://idp.example.com/conta/seguranca',
+          authkit_admin_uri: 'https://idp.example.com/admin',
+          authkit_forgot_password_uri: 'https://idp.example.com/auth/forgot-password',
+          authkit_reset_password_uri: 'https://idp.example.com/auth/reset-password',
+        },
+      })),
+    });
+    assert.equal(endpoints.accountUri, 'https://idp.example.com/conta');
+    assert.equal(endpoints.accountHomeUri, 'https://idp.example.com/conta/seguranca');
+    assert.equal(endpoints.adminUri, 'https://idp.example.com/admin');
+    assert.equal(endpoints.forgotPasswordUri, 'https://idp.example.com/auth/forgot-password');
+    assert.equal(endpoints.resetPasswordUri, 'https://idp.example.com/auth/reset-password');
+  });
+
   test('campos ausentes no documento caem na convenção do oidc-provider', async ({ assert }) => {
     const endpoints = await discoverEndpoints(ISSUER, {
       fetchImpl: fakeFetch(() => ({

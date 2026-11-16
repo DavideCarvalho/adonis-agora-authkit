@@ -129,7 +129,8 @@ Infrastructure fields only. Bucket policy (`login`, `introspection`) is managed 
 
 | Export | Purpose |
 | --- | --- |
-| `registerOidcClient(router, options)` | Registers `/auth/login`, the callback, `/auth/logout` and the back-channel endpoint in one call, with PKCE, state, and role-based post-login redirects. The path most relying parties want — see [Client](/docs/client#the-login--callback--logout-flow). |
+| `registerOidcClient(router, options)` | Registers `/auth/login`, `/auth/signup`, the callback, `/auth/logout`, the back-channel endpoint and the redirects to the identity server's pages (`/account/*`, forgot/reset password, admin) in one call, with PKCE, state, and role-based post-login redirects. The path most relying parties want — see [Client](/docs/client#the-login--callback--logout-flow). |
+| `oidcClientRoutes(options)` | The handlers `registerOidcClient` mounts (`login`, `signup`, `callback`, `logout`, `backchannelLogout`, `account`, `forgotPassword`, `resetPassword`, `admin`), to mount only some of them yourself — see [Mounting the routes yourself](/docs/client#mounting-the-routes-yourself). |
 | `authkitClientGuard({ provider, resolver? })` / `AuthkitClientGuard` | `@adonisjs/auth` guard backed by the AuthKit session (also on the `/auth` subpath), so `ctx.auth.user`, `middleware.auth()` and Bouncer work natively. The user comes from `resolveUser` first, then the provider. `resolver` replaces the configured resolver for this guard only — bearer JWT/DPoP, opaque or PAT API routes. See [AdonisJS auth](/docs/adonis-auth). |
 | `authkitIdentityProvider()` / `IdentityUserProviderContract` | A user provider with no database: `ctx.auth.user` is the AuthKit `Identity`. See [Choosing a user provider](/docs/adonis-auth#choosing-a-user-provider). |
 | `getAuthkit(ctx)` | Read the request's `Authenticator` without going through the container. |

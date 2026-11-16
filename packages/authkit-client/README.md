@@ -22,9 +22,11 @@ na sessão do AuthKit pelo `authkitClientGuard`. O `configure`:
 ## Rotas de sessão
 
 O caminho **recomendado** é `registerOidcClient(router)`: uma chamada que monta
-`/auth/login`, `/auth/callback`, `/auth/logout` e o back-channel logout
-(`POST /auth/backchannel-logout`), já usando `startSession`/`endSession` e o
-RP-initiated logout. Substitui o boilerplate do controller ejetado.
+`/auth/login`, `/auth/signup` (`prompt=create`), `/auth/callback`, `/auth/logout`, o
+back-channel logout (`POST /auth/backchannel-logout`) e os redirects para as páginas do
+identity server (`/account/*`, `/auth/forgot-password`, `/auth/reset-password`,
+`/auth/admin/*`), já usando `startSession`/`endSession` e o RP-initiated logout. Para montar
+só algumas rotas, use os handlers de `oidcClientRoutes(options)`.
 ```ts
 // start/routes.ts
 import { registerOidcClient } from '@adonis-agora/authkit-client'

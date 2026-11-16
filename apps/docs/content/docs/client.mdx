@@ -313,8 +313,9 @@ Neither middleware does authorization. Role checks belong on the route, in a pol
 ## The login / callback / logout flow
 
 `registerOidcClient` registers the whole relying-party surface in one call: authorization
-code + PKCE, a `state` nonce round-tripped through the session, the code exchange, the
-RP-initiated logout, and the back-channel logout endpoint.
+code + PKCE, a `state` nonce round-tripped through the session, the code exchange, sign-up,
+the RP-initiated logout, the back-channel logout endpoint, and redirects to the pages the
+identity server owns.
 
 ```ts title="start/routes.ts"
 import router from "@adonisjs/core/services/router";
@@ -330,20 +331,100 @@ registerOidcClient(router, {
 });
 ```
 
-That single call registers four routes:
+That single call registers these routes:
 
 | Method & path | Route name | What it does |
 | --- | --- | --- |
 | `GET /auth/login` | `auth.login` | Generates PKCE + `state`, stores them in the session, redirects to the IdP. |
+| `GET /auth/signup` | `auth.signup` | Same as login, asking the IdP for its sign-up screen (`prompt=create`). |
 | `GET /auth/callback` | `auth.callback` | Verifies `state`, exchanges the code, starts the session, redirects. |
 | `POST /auth/logout` | `auth.logout` | Ends the local session and redirects to the IdP's end-session endpoint. |
 | `POST /auth/backchannel-logout` | `auth.backchannel_logout` | Receives the IdP's `logout_token`. |
+| `GET /account`, `GET /account/*` | `auth.account`, `auth.account.page` | Redirects to the IdP's account console. |
+| `GET /auth/forgot-password` | `auth.forgot_password` | Redirects to the IdP's forgot-password page. |
+| `GET /auth/reset-password`, `GET /auth/reset-password/*` | `auth.reset_password`, `auth.reset_password.token` | Redirects to the IdP's reset-password page. |
+| `GET /auth/admin`, `GET /auth/admin/*` | `auth.admin`, `auth.admin.page` | Redirects to the IdP's admin console. |
+| `GET`/`POST /.well-known/agora-account-extensions` | `authkit.account_extensions` | [Account extensions](/docs/account-extensions) this app serves to the IdP. |
 
 <Callout type="info">
   `redirectUri` in `config/authkit_client.ts` must point at the callback route — with the
   default prefix that is `https://your-app.example.com/auth/callback` — and the same URI must
   be registered on the client at the IdP.
 </Callout>
+
+### Sign-up
+
+Link "Create account" buttons to `/auth/signup`. It runs the same flow as `/auth/login` —
+the user comes back signed in to your app, `afterLogin` and `redirects` apply — and the
+`passthroughParams` go along, so campaign parameters survive:
+
+```ts
+registerOidcClient(router, { passthroughParams: ["audience", "gclid", "utm_source", "utm_campaign"] });
+```
+
+```html
+<a href="/auth/signup?gclid=abc&utm_source=ads">Start for free</a>
+```
+
+The authorize request carries `prompt=create` (OpenID Connect *Initiating User Registration*).
+An AuthKit server opens its sign-up screen; see [`prompt=create`](/docs/customizing-auth#sign-up-with-promptcreate).
+`/auth/login?audience=signup` keeps working as before.
+
+### Pages on the identity server
+
+The account console, password recovery and the admin console live on the identity server.
+Old links to them on your app — e-mails, bookmarks — are redirected there, with the rest of
+the path and the query string:
+
+| On your app | Goes to |
+| --- | --- |
+| `/account` | the account console's home page |
+| `/account/orgs?tab=1` | `{account console}/orgs?tab=1` |
+| `/auth/forgot-password?email=…` | `{forgot-password page}?email=…` |
+| `/auth/reset-password?token=…`, `/auth/reset-password/<token>` | `{reset-password page}?token=…`, `{reset-password page}/<token>` |
+| `/auth/admin/users/42` | `{admin console}/users/42` |
+
+The targets come from the IdP's discovery document (`authkit_account_uri`,
+`authkit_account_home_uri`, `authkit_admin_uri`, `authkit_forgot_password_uri`,
+`authkit_reset_password_uri`), so a server that mounts its consoles elsewhere (`/conta`,
+`/admin`, `/auth/admin`) needs nothing on your side. When the IdP does not publish them, the
+AuthKit defaults on the issuer's origin are used: `/account` (home `/account/security`),
+`/admin`, `/auth/forgot-password`, `/auth/reset-password`. Redirects never leave the issuer's
+origin. You can also set them through `endpoints` (`accountUri`, `accountHomeUri`, `adminUri`,
+`forgotPasswordUri`, `resetPasswordUri`).
+
+When authkit-server runs in the same app ([embedded topology](/docs/topologies#embedded)),
+it serves these pages itself and the redirects are not registered.
+
+### Mounting the routes yourself
+
+To mount only some routes, or at other paths, skip `registerOidcClient` and mount the
+handlers from `oidcClientRoutes`. It takes the same options, and the handlers behave exactly
+like the ones `registerOidcClient` mounts:
+
+```ts title="start/routes.ts"
+import router from "@adonisjs/core/services/router";
+import { oidcClientRoutes, registerAccountExtensionsEndpoint } from "@adonis-agora/authkit-client";
+import { middleware } from "#start/kernel";
+
+const oidc = oidcClientRoutes({ redirects: { default: "/dashboard" } });
+
+router.get("/auth/login", oidc.login).use(middleware.guest()).as("auth.login");
+router.get("/auth/signup", oidc.signup).use(middleware.guest()).as("auth.signup");
+router.get("/auth/callback", oidc.callback).as("auth.callback");
+router.post("/auth/logout", oidc.logout).as("auth.logout");
+router.post("/auth/backchannel-logout", oidc.backchannelLogout);
+router.get("/minha-conta/*", oidc.account);
+registerAccountExtensionsEndpoint(router);
+```
+
+| Handler | Does what the route of the same name does |
+| --- | --- |
+| `login`, `signup`, `callback`, `logout`, `backchannelLogout` | The flow. |
+| `account`, `forgotPassword`, `resetPassword`, `admin` | The redirects to the identity server. Mount them on a wildcard route (`/*`) to keep the rest of the path. |
+
+A failed callback restarts at `{prefix}/login` (`/auth/login` by default): pass the same
+`prefix` you mount the login route under.
 
 ### Options
 
@@ -367,13 +448,14 @@ registerOidcClient(router, {
 
 | Option | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `prefix` | `string` | `/auth` | Path prefix for all four routes. |
-| `loginMiddleware` | middleware | — | Applied to the login route only, in the shape `.use()` accepts. |
+| `prefix` | `string` | `/auth` | Path prefix of the flow routes and of the forgot/reset-password and admin redirects. |
+| `loginMiddleware` | middleware | — | Applied to the login and sign-up routes, in the shape `.use()` accepts. |
 | `passthroughParams` | `string[]` | `['audience']` | Query params forwarded from the login request to the authorize URL. |
 | `afterLogin` | `(ctx, identity) => string \| void` | — | Post-exchange hook. Return a path to redirect there. |
 | `redirects` | `PostLoginRedirects` | — | Role-based destination when `afterLogin` returns nothing. |
 | `postLogoutRedirect` | `string \| (ctx) => string` | origin of `redirectUri` + `/` | Where the IdP sends the browser after logout. |
 | `backchannelLogout` | `boolean` | `true` | Set `false` to skip the back-channel endpoint. |
+| `accountExtensions` | `boolean` | `true` | Set `false` to skip `/.well-known/agora-account-extensions`. |
 
 The redirect decision runs in a fixed order: an `afterLogin` that returns a string wins;
 otherwise `redirects.byGlobalRole` is scanned in declaration order and the first global role

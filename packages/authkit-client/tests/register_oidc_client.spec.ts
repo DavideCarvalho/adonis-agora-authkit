@@ -2,7 +2,8 @@ import { test } from '@japa/runner';
 import { AuthkitClientManager } from '../providers/authkit_client_provider.js';
 import { OidcCallbackError } from '../src/authorization.js';
 import type { ResolvedClientConfig } from '../src/define_config.js';
-import { fakeHttpCtx, fakeSession, oidcRoutes } from './helpers/http.js';
+import { oidcClientRoutes } from '../src/register_oidc_client.js';
+import { fakeHttpCtx, fakeSession, oidcRoutes, registeredOidcRoutes } from './helpers/http.js';
 import { signIdToken, testKeys } from './helpers/id_tokens.js';
 
 /**
@@ -219,5 +220,277 @@ test.group('registerOidcClient: id_token and IdP endpoints', () => {
     });
     await route('/auth/logout')(ctx);
     assert.strictEqual(redirects[0].url, 'https://app.test/');
+  });
+});
+
+test.group('registerOidcClient: mounted routes', () => {
+  test('mounts the flow, the signup and the issuer redirects', ({ assert }) => {
+    const routes = registeredOidcRoutes().map((r) => `${r.method} ${r.pattern}`);
+    assert.sameMembers(routes, [
+      'GET /auth/login',
+      'GET /auth/signup',
+      'GET /auth/callback',
+      'POST /auth/logout',
+      'POST /auth/backchannel-logout',
+      'GET /account',
+      'GET /account/*',
+      'GET /auth/forgot-password',
+      'GET /auth/reset-password',
+      'GET /auth/reset-password/*',
+      'GET /auth/admin',
+      'GET /auth/admin/*',
+      'GET /.well-known/agora-account-extensions',
+      'POST /.well-known/agora-account-extensions',
+    ]);
+  });
+
+  test('follows the prefix and gives every route a distinct name', ({ assert }) => {
+    const routes = registeredOidcRoutes({ prefix: '/sso' });
+    assert.includeMembers(
+      routes.map((r) => r.pattern),
+      ['/sso/signup', '/sso/forgot-password', '/sso/reset-password/*', '/sso/admin/*', '/account'],
+    );
+    const names = routes.map((r) => r.name);
+    assert.equal(new Set(names).size, names.length);
+    assert.include(names, 'auth.signup');
+  });
+
+  test('embedded topology: no issuer redirects when authkit-server runs in this app', ({
+    assert,
+  }) => {
+    const app = {
+      container: {
+        hasBinding: (binding: string) => binding === 'authkit.server',
+        bindValue: () => {},
+        make: async () => undefined,
+      },
+    };
+    const patterns = registeredOidcRoutes({ app }).map((r) => r.pattern);
+    assert.includeMembers(patterns, ['/auth/login', '/auth/signup', '/auth/callback']);
+    for (const page of ['/account', '/account/*', '/auth/forgot-password', '/auth/admin/*']) {
+      assert.notInclude(patterns, page);
+    }
+  });
+
+  test('loginMiddleware goes on login and signup only', ({ assert }) => {
+    const guest = ['guest'];
+    const routes = registeredOidcRoutes({ loginMiddleware: guest });
+    const withGuest = routes.filter((r) => r.middleware.includes(guest)).map((r) => r.pattern);
+    assert.sameMembers(withGuest, ['/auth/login', '/auth/signup']);
+  });
+
+  test('registerOidcClient mounts the oidcClientRoutes handlers (same behaviour)', async ({
+    assert,
+  }) => {
+    const mounted = fakeHttpCtx({ manager: manager(), session: fakeSession() });
+    await oidcRoutes()('/auth/signup')(mounted.ctx);
+    const standalone = fakeHttpCtx({ manager: manager(), session: fakeSession() });
+    await oidcClientRoutes().signup(standalone.ctx);
+    const a = new URL(mounted.redirects[0].url);
+    const b = new URL(standalone.redirects[0].url);
+    assert.equal(a.origin + a.pathname, b.origin + b.pathname);
+    assert.equal(a.searchParams.get('prompt'), b.searchParams.get('prompt'));
+  });
+});
+
+test.group('registerOidcClient: signup', () => {
+  test('starts the authorize flow with prompt=create and the passthrough params', async ({
+    assert,
+  }) => {
+    const session = fakeSession();
+    const { ctx, redirects } = fakeHttpCtx({
+      manager: manager(),
+      session,
+      qs: { audience: 'signup', utm_source: 'ads' },
+    });
+    await oidcRoutes()('/auth/signup')(ctx);
+
+    assert.lengthOf(redirects, 1);
+    assert.isFalse(redirects[0].forward);
+    const url = new URL(redirects[0].url);
+    assert.equal(url.pathname, '/oidc/auth');
+    assert.equal(url.searchParams.get('prompt'), 'create');
+    assert.equal(url.searchParams.get('audience'), 'signup');
+    assert.isNull(url.searchParams.get('utm_source'), 'only the passthrough params go along');
+    const pending = session.store.get('authkit_pkce') as typeof PENDING;
+    assert.equal(url.searchParams.get('state'), pending.state);
+    assert.equal(url.searchParams.get('nonce'), pending.nonce);
+    assert.isString(url.searchParams.get('code_challenge'));
+  });
+
+  test('keeps custom passthrough params (gclid, utm_*)', async ({ assert }) => {
+    const { ctx, redirects } = fakeHttpCtx({
+      manager: manager(),
+      session: fakeSession(),
+      qs: { gclid: 'g1', utm_campaign: 'c', prompt: 'login' },
+    });
+    await oidcRoutes({ passthroughParams: ['gclid', 'utm_campaign', 'prompt'] })('/auth/signup')(
+      ctx,
+    );
+    const url = new URL(redirects[0].url);
+    assert.equal(url.searchParams.get('gclid'), 'g1');
+    assert.equal(url.searchParams.get('utm_campaign'), 'c');
+    assert.equal(url.searchParams.get('prompt'), 'create', 'signup always asks for create');
+  });
+
+  test('login with ?audience=signup still passes audience through, without prompt', async ({
+    assert,
+  }) => {
+    const { ctx, redirects } = fakeHttpCtx({
+      manager: manager(),
+      session: fakeSession(),
+      qs: { audience: 'signup' },
+    });
+    await oidcRoutes()('/auth/login')(ctx);
+    const url = new URL(redirects[0].url);
+    assert.equal(url.searchParams.get('audience'), 'signup');
+    assert.isNull(url.searchParams.get('prompt'));
+  });
+});
+
+test.group('registerOidcClient: redirects to the issuer pages', () => {
+  /** Manager whose discovery publishes `pages` (or fails, with `null`). */
+  function pagesManager(pages: Record<string, string> | null) {
+    const m = manager({ discovery: {} });
+    (m as any).endpoints = async () => {
+      if (pages === null) throw new Error('discovery down');
+      return {
+        issuer: ISSUER,
+        authorizationEndpoint: `${ISSUER}/auth`,
+        tokenEndpoint: `${ISSUER}/token`,
+        jwksUri: `${ISSUER}/jwks`,
+        ...pages,
+      };
+    };
+    return m;
+  }
+
+  const HUB = {
+    accountUri: 'https://idp.test/conta',
+    accountHomeUri: 'https://idp.test/conta/seguranca',
+    adminUri: 'https://idp.test/admin',
+    forgotPasswordUri: 'https://idp.test/auth/forgot-password',
+    resetPasswordUri: 'https://idp.test/auth/reset-password',
+  };
+
+  async function follow(
+    pattern: string,
+    request: { url: string; wildcard?: string[] },
+    pages: Record<string, string> | null = HUB,
+  ) {
+    const { ctx, redirects } = fakeHttpCtx({ manager: pagesManager(pages), ...request });
+    await oidcRoutes()(pattern)(ctx);
+    return redirects[0];
+  }
+
+  test('/account goes to the account home', async ({ assert }) => {
+    const r = await follow('/account', { url: '/account' });
+    assert.equal(r.url, 'https://idp.test/conta/seguranca');
+    assert.isFalse(r.forward);
+  });
+
+  test('/account/* keeps the rest of the path and the query', async ({ assert }) => {
+    const r = await follow('/account/*', {
+      url: '/account/orgs/invitations/abc/accept?x=1&y=a%20b',
+      wildcard: ['orgs', 'invitations', 'abc', 'accept'],
+    });
+    assert.equal(r.url, 'https://idp.test/conta/orgs/invitations/abc/accept?x=1&y=a%20b');
+  });
+
+  test('forgot-password keeps the query', async ({ assert }) => {
+    const r = await follow('/auth/forgot-password', { url: '/auth/forgot-password?email=a%40b' });
+    assert.equal(r.url, 'https://idp.test/auth/forgot-password?email=a%40b');
+  });
+
+  test('reset-password keeps the token, in the query or as a path segment', async ({ assert }) => {
+    const q = await follow('/auth/reset-password', { url: '/auth/reset-password?token=t0k' });
+    assert.equal(q.url, 'https://idp.test/auth/reset-password?token=t0k');
+    const p = await follow('/auth/reset-password/*', {
+      url: '/auth/reset-password/t0k',
+      wildcard: ['t0k'],
+    });
+    assert.equal(p.url, 'https://idp.test/auth/reset-password/t0k');
+  });
+
+  test('admin and admin/* go to the published admin console', async ({ assert }) => {
+    const root = await follow('/auth/admin', { url: '/auth/admin' });
+    assert.equal(root.url, 'https://idp.test/admin');
+    const page = await follow('/auth/admin/*', {
+      url: '/auth/admin/users/42?tab=roles',
+      wildcard: ['users', '42'],
+    });
+    assert.equal(page.url, 'https://idp.test/admin/users/42?tab=roles');
+  });
+
+  test('falls back to the authkit-server defaults when nothing is published', async ({
+    assert,
+  }) => {
+    const cases: Array<[string, { url: string; wildcard?: string[] }, string]> = [
+      ['/account', { url: '/account' }, 'https://idp.test/account/security'],
+      [
+        '/account/*',
+        { url: '/account/tokens', wildcard: ['tokens'] },
+        'https://idp.test/account/tokens',
+      ],
+      [
+        '/auth/forgot-password',
+        { url: '/auth/forgot-password' },
+        'https://idp.test/auth/forgot-password',
+      ],
+      [
+        '/auth/reset-password',
+        { url: '/auth/reset-password?token=t' },
+        'https://idp.test/auth/reset-password?token=t',
+      ],
+      [
+        '/auth/admin/*',
+        { url: '/auth/admin/users', wildcard: ['users'] },
+        'https://idp.test/admin/users',
+      ],
+    ];
+    for (const [pattern, request, expected] of cases) {
+      assert.equal((await follow(pattern, request, {})).url, expected, pattern);
+      assert.equal(
+        (await follow(pattern, request, null)).url,
+        expected,
+        `${pattern} (discovery down)`,
+      );
+    }
+  });
+
+  test('a published page on another origin is ignored', async ({ assert }) => {
+    const r = await follow(
+      '/auth/admin',
+      { url: '/auth/admin' },
+      { adminUri: 'https://evil.test/admin' },
+    );
+    assert.equal(r.url, 'https://idp.test/admin');
+  });
+
+  test('the path rest cannot leave the issuer page nor the issuer origin', async ({ assert }) => {
+    const dots = await follow('/account/*', {
+      url: '/account/../admin',
+      wildcard: ['..', 'admin'],
+    });
+    assert.equal(dots.url, 'https://idp.test/conta/seguranca');
+
+    const hostish = await follow('/account/*', {
+      url: '/account//evil.test/x',
+      wildcard: ['', 'evil.test', 'x'],
+    });
+    assert.equal(new URL(hostish.url).origin, 'https://idp.test');
+    assert.equal(hostish.url, 'https://idp.test/conta/evil.test/x');
+
+    const encoded = await follow('/account/*', {
+      url: '/account/a%2F..%2F..%2Fadmin',
+      wildcard: ['a/../../admin'],
+    });
+    assert.equal(encoded.url, 'https://idp.test/conta/a%2F..%2F..%2Fadmin');
+
+    const backslash = await follow('/account/*', {
+      url: '/account/%5C%5Cevil.test',
+      wildcard: ['\\\\evil.test'],
+    });
+    assert.equal(new URL(backslash.url).origin, 'https://idp.test');
   });
 });

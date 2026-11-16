@@ -1,5 +1,6 @@
 import { ACCOUNT_EXTENSIONS_WELL_KNOWN, type Identity } from '@adonis-agora/authkit-core';
 import type { HttpContext, Router } from '@adonisjs/core/http';
+import appService from '@adonisjs/core/services/app';
 import { announceAgoraSignOut, type ConsolesAppLike } from './agora_consoles.js';
 import { OidcCallbackError } from './authorization.js';
 import type { OidcEndpoints } from './discovery.js';
@@ -18,7 +19,7 @@ export interface PostLoginRedirects {
 }
 
 export interface RegisterOidcClientOptions {
-  /** Prefixo das rotas. Default `/auth` → `/auth/login`, `/auth/callback`, `/auth/logout`. */
+  /** Prefixo das rotas. Default `/auth` → `/auth/login`, `/auth/signup`, `/auth/callback`, `/auth/logout`, … */
   prefix?: string;
   /**
    * Hook após troca de code bem-sucedida. Retorne uma STRING para redirecionar
@@ -40,7 +41,7 @@ export interface RegisterOidcClientOptions {
    */
   accountExtensions?: boolean;
   /**
-   * Middleware(s) aplicados à rota de login (ex.: `middleware.guest()`). Array no
+   * Middleware(s) aplicados às rotas de login e de signup (ex.: `middleware.guest()`). Array no
    * formato aceito por `.use()` do AdonisJS.
    */
   loginMiddleware?: any;
@@ -52,40 +53,92 @@ export interface RegisterOidcClientOptions {
    * in this app (it announces its own) or when something announced one first. Default: `true`.
    */
   announceSignOut?: boolean;
-  /** The application to announce on. Default: `@adonisjs/core/services/app`. */
+  /**
+   * The application to announce on, and where `registerOidcClient` looks for authkit-server
+   * (embedded topology). Default: `@adonisjs/core/services/app`.
+   */
   app?: ConsolesAppLike;
 }
 
+/** A route handler of {@link oidcClientRoutes}: mount it on any route of your app. */
+export type OidcClientHandler = (ctx: HttpContext) => Promise<unknown>;
+
+/** The handlers {@link registerOidcClient} mounts, for apps that mount the routes themselves. */
+export interface OidcClientRoutes {
+  /** Starts the authorize flow (state, nonce, PKCE) and redirects to the identity server. */
+  login: OidcClientHandler;
+  /** Same flow as `login`, asking the identity server for its sign-up screen (`prompt=create`). */
+  signup: OidcClientHandler;
+  /** Finishes the authorize flow, starts the session and redirects into the app. */
+  callback: OidcClientHandler;
+  /** Ends the local session and sends the browser to the identity server's end-session endpoint. */
+  logout: OidcClientHandler;
+  /** OIDC Back-Channel Logout receiver (`POST`). */
+  backchannelLogout: OidcClientHandler;
+  /** Redirects to the identity server's account pages, keeping the wildcard rest and the query. */
+  account: OidcClientHandler;
+  /** Redirects to the identity server's forgot-password page, keeping the query. */
+  forgotPassword: OidcClientHandler;
+  /** Redirects to the identity server's reset-password page, keeping the wildcard rest and the query. */
+  resetPassword: OidcClientHandler;
+  /** Redirects to the identity server's admin console, keeping the wildcard rest and the query. */
+  admin: OidcClientHandler;
+}
+
 /**
- * Registra as rotas OIDC de CLIENT (login/callback/logout [+ back-channel logout])
- * absorvendo o boilerplate que cada app reescrevia no OidcSessionController: PKCE +
- * state na sessão, troca de code, validação, logout RP-initiated e redirect por papel.
+ * The identity pages of the issuer the redirect handlers point at. Each one comes from the
+ * issuer's discovery document (`authkit_*_uri`, see the server docs) or the `endpoints`
+ * overrides, falling back to the authkit-server defaults on the issuer origin.
+ */
+type IssuerPage =
+  | 'accountUri'
+  | 'accountHomeUri'
+  | 'adminUri'
+  | 'forgotPasswordUri'
+  | 'resetPasswordUri';
+
+const ISSUER_PAGE_DEFAULTS: Record<IssuerPage, string> = {
+  accountUri: '/account',
+  accountHomeUri: '/account/security',
+  adminUri: '/admin',
+  forgotPasswordUri: '/auth/forgot-password',
+  resetPasswordUri: '/auth/reset-password',
+};
+
+/**
+ * The client routes as standalone handlers, built from the same options as
+ * {@link registerOidcClient} (which mounts exactly these). Use it to mount only some of
+ * them, or at your own paths:
  *
  * ```ts
  * // start/routes.ts
- * import { registerOidcClient } from '@adonis-agora/authkit-client'
- * registerOidcClient(router, {
- *   loginMiddleware: middleware.guest(),
- *   redirects: { byGlobalRole: { ADMIN: '/admin' }, default: '/' },
- * })
+ * import { oidcClientRoutes } from '@adonis-agora/authkit-client'
+ * const oidc = oidcClientRoutes({ redirects: { default: '/dashboard' } })
+ * router.get('/auth/login', oidc.login).use(middleware.guest()).as('auth.login')
+ * router.get('/auth/callback', oidc.callback).as('auth.callback')
+ * router.post('/auth/logout', oidc.logout).as('auth.logout')
  * ```
+ *
+ * The redirect handlers (`account`, `resetPassword`, `admin`) append the route's wildcard
+ * (`/*`) to the issuer page, so mount them on a wildcard route to keep the rest of the path.
+ * `prefix` is only used to restart a failed callback at `{prefix}/login`.
  */
-export function registerOidcClient(router: Router, options: RegisterOidcClientOptions = {}): void {
+export function oidcClientRoutes(options: RegisterOidcClientOptions = {}): OidcClientRoutes {
   const prefix = options.prefix ?? '/auth';
   const passthrough = options.passthroughParams ?? ['audience'];
   const pkceKey = 'authkit_pkce';
 
-  // Todo redirect desta função vai para uma URL que a PRÓPRIA lib monta (authorize,
-  // /login, destino do app, end-session), então nenhum deve encaminhar a query da
-  // request atual. Isso precisa ser o builder `withQs(false)`, NÃO o segundo
+  // Todo redirect destes handlers vai para uma URL que a PRÓPRIA lib monta (authorize,
+  // /login, destino do app, end-session, página do issuer), então nenhum deve encaminhar
+  // a query da request atual. Isso precisa ser o builder `withQs(false)`, NÃO o segundo
   // argumento de `redirect(path, forwardQueryString)`: quando o app liga
   // `redirect.forwardQueryString` no config/app.ts — que é o caso comum — o
   // positional é ignorado e o Redirect herda a config global, encaminhando mesmo
   // assim. Sem o opt-out explícito o `code`/`state`/`iss` do callback vazam para o
   // destino (o app termina em `/?code=…`) e o `/auth/login` de um callback falho
-  // arrasta o code antigo para o authorize seguinte.
-
-  const loginRoute = router.get(`${prefix}/login`, async (ctx: HttpContext) => {
+  // arrasta o code antigo para o authorize seguinte. Os redirects para o issuer
+  // repassam a query por conta própria, já dentro da URL montada.
+  const startAuthorize = async (ctx: HttpContext, forced: Record<string, string>) => {
     const manager = await ctx.containerResolver.make('authkit.client');
 
     const extraParams: Record<string, string> = {};
@@ -93,16 +146,35 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
       const v = ctx.request.input(param);
       if (v !== undefined && v !== null && v !== '') extraParams[param] = String(v);
     }
+    Object.assign(extraParams, forced);
 
     const { url, pending } = await manager.createAuthorizationRequest({ extraParams });
     (ctx as any).session?.put(pkceKey, pending);
     return ctx.response.redirect().withQs(false).toPath(url);
-  });
-  if (options.loginMiddleware) loginRoute.use(options.loginMiddleware);
-  loginRoute.as('auth.login');
+  };
 
-  router
-    .get(`${prefix}/callback`, async (ctx: HttpContext) => {
+  const toIssuerPage =
+    (page: IssuerPage, options: { rest?: boolean; home?: IssuerPage } = {}): OidcClientHandler =>
+    async (ctx) => {
+      const manager = await ctx.containerResolver.make('authkit.client');
+      const rest = options.rest ? wildcardRest(ctx) : '';
+      const target =
+        rest === '' && options.home
+          ? await issuerPage(manager, options.home)
+          : await issuerPage(manager, page);
+      if (rest) target.pathname = `${target.pathname.replace(/\/+$/, '')}${rest}`;
+      const query = rawQuery(ctx);
+      if (query) target.search = target.search ? `${target.search}&${query}` : `?${query}`;
+      return ctx.response.redirect().withQs(false).toPath(target.toString());
+    };
+
+  return {
+    login: (ctx) => startAuthorize(ctx, {}),
+
+    // OpenID Connect "Initiating User Registration via OpenID Connect 1.0".
+    signup: (ctx) => startAuthorize(ctx, { prompt: 'create' }),
+
+    callback: async (ctx) => {
       const manager = await ctx.containerResolver.make('authkit.client');
       const pending = (ctx as any).session?.get(pkceKey);
       // Single use, whatever the outcome.
@@ -137,11 +209,9 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
       // 2) Redirect por role global (do token).
       const dest = resolveDestination(identity, options.redirects);
       return ctx.response.redirect().withQs(false).toPath(dest);
-    })
-    .as('auth.callback');
+    },
 
-  router
-    .post(`${prefix}/logout`, async (ctx: HttpContext) => {
+    logout: async (ctx) => {
       const manager = await ctx.containerResolver.make('authkit.client');
       const cfg = manager.clientConfig;
       const idToken = manager.getIdToken(ctx);
@@ -172,16 +242,75 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
         endSessionEndpoint,
       });
       return ctx.response.redirect().withQs(false).toPath(endSessionUrl);
-    })
-    .as('auth.logout');
+    },
+
+    backchannelLogout: async (ctx) => {
+      const manager = await ctx.containerResolver.make('authkit.client');
+      return manager.handleBackchannelLogout(ctx);
+    },
+
+    account: toIssuerPage('accountUri', { rest: true, home: 'accountHomeUri' }),
+    forgotPassword: toIssuerPage('forgotPasswordUri'),
+    resetPassword: toIssuerPage('resetPasswordUri', { rest: true }),
+    admin: toIssuerPage('adminUri', { rest: true }),
+  };
+}
+
+/**
+ * Registra as rotas OIDC de CLIENT — tudo o que um app relying party precisa para que a
+ * identidade fique no identity server:
+ *
+ * - `GET {prefix}/login`, `GET {prefix}/signup` (`prompt=create`), `GET {prefix}/callback`,
+ *   `POST {prefix}/logout`, `POST {prefix}/backchannel-logout`;
+ * - redirects para as páginas do issuer (path restante + query preservados):
+ *   `GET /account` e `/account/*`, `GET {prefix}/forgot-password`,
+ *   `GET {prefix}/reset-password[/*]`, `GET {prefix}/admin[/*]`;
+ * - `GET`/`POST /.well-known/agora-account-extensions`.
+ *
+ * When authkit-server runs in this same app (embedded topology) it serves those pages
+ * itself, so the redirects are not mounted.
+ *
+ * Para montar só uma parte (ou em outros paths), use {@link oidcClientRoutes}.
+ *
+ * ```ts
+ * // start/routes.ts
+ * import { registerOidcClient } from '@adonis-agora/authkit-client'
+ * registerOidcClient(router, {
+ *   loginMiddleware: middleware.guest(),
+ *   redirects: { byGlobalRole: { ADMIN: '/admin' }, default: '/' },
+ * })
+ * ```
+ */
+export function registerOidcClient(router: Router, options: RegisterOidcClientOptions = {}): void {
+  const prefix = options.prefix ?? '/auth';
+  const routes = oidcClientRoutes(options);
+
+  const loginRoute = router.get(`${prefix}/login`, routes.login).as('auth.login');
+  const signupRoute = router.get(`${prefix}/signup`, routes.signup).as('auth.signup');
+  if (options.loginMiddleware) {
+    loginRoute.use(options.loginMiddleware);
+    signupRoute.use(options.loginMiddleware);
+  }
+
+  router.get(`${prefix}/callback`, routes.callback).as('auth.callback');
+  router.post(`${prefix}/logout`, routes.logout).as('auth.logout');
 
   if (options.backchannelLogout !== false) {
     router
-      .post(`${prefix}/backchannel-logout`, async (ctx: HttpContext) => {
-        const manager = await ctx.containerResolver.make('authkit.client');
-        return manager.handleBackchannelLogout(ctx);
-      })
+      .post(`${prefix}/backchannel-logout`, routes.backchannelLogout)
       .as('auth.backchannel_logout');
+  }
+
+  // The identity server owns these pages; old links (e-mails, bookmarks) land on the issuer.
+  // Embedded topology: this app IS the issuer and already serves them.
+  if (!hostsAuthkitServer(options.app)) {
+    router.get('/account', routes.account).as('auth.account');
+    router.get('/account/*', routes.account).as('auth.account.page');
+    router.get(`${prefix}/forgot-password`, routes.forgotPassword).as('auth.forgot_password');
+    router.get(`${prefix}/reset-password`, routes.resetPassword).as('auth.reset_password');
+    router.get(`${prefix}/reset-password/*`, routes.resetPassword).as('auth.reset_password.token');
+    router.get(`${prefix}/admin`, routes.admin).as('auth.admin');
+    router.get(`${prefix}/admin/*`, routes.admin).as('auth.admin.page');
   }
 
   if (options.accountExtensions !== false) registerAccountExtensionsEndpoint(router);
@@ -192,16 +321,64 @@ export function registerOidcClient(router: Router, options: RegisterOidcClientOp
 }
 
 /**
+ * The issuer page `page` as a URL on the issuer origin: what the issuer publishes (or the
+ * `endpoints` override) when it is on that origin, else the authkit-server default. Never a
+ * URL on another origin, so no redirect handler can be pointed off the identity server.
+ */
+async function issuerPage(manager: any, page: IssuerPage): Promise<URL> {
+  const origin = new URL(manager.clientConfig.issuer).origin;
+  const endpoints: Partial<OidcEndpoints> | undefined = await manager
+    .endpoints()
+    .catch(() => undefined);
+  const published = endpoints?.[page];
+  if (published) {
+    try {
+      const url = new URL(published, origin);
+      if (url.origin === origin) return url;
+    } catch {
+      // not a URL: use the default
+    }
+  }
+  return new URL(ISSUER_PAGE_DEFAULTS[page], origin);
+}
+
+/**
+ * The route's wildcard (`/*`) as a path suffix (`/a/b`), each segment re-encoded. A `.` or
+ * `..` segment drops the whole rest, so the suffix always stays under the issuer page.
+ */
+function wildcardRest(ctx: HttpContext): string {
+  const raw = (ctx.params as Record<string, unknown> | undefined)?.['*'];
+  const segments = (Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split('/') : [])
+    .map(String)
+    .filter((segment) => segment !== '');
+  if (segments.some((segment) => segment === '.' || segment === '..')) return '';
+  return segments.map((segment) => `/${encodeURIComponent(segment)}`).join('');
+}
+
+/** The request's raw query string, without the `?`. */
+function rawQuery(ctx: HttpContext): string {
+  const url = ctx.request.url(true);
+  const index = url.indexOf('?');
+  return index === -1 ? '' : url.slice(index + 1);
+}
+
+/** Whether authkit-server runs in this app (it binds `authkit.server`). Never throws. */
+function hostsAuthkitServer(app: ConsolesAppLike | undefined): boolean {
+  try {
+    const target = app ?? (appService as unknown as ConsolesAppLike | undefined);
+    return target?.container?.hasBinding('authkit.server') === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Announces the RP logout on the consoles registry, unless authkit-server (which announces
  * its account sign-out) runs in this app. Best effort: never throws.
  */
 async function announceRpSignOut(app: ConsolesAppLike | undefined, action: string): Promise<void> {
   try {
-    const target =
-      app ??
-      ((await import('@adonisjs/core/services/app')).default as unknown as
-        | ConsolesAppLike
-        | undefined);
+    const target = app ?? (appService as unknown as ConsolesAppLike | undefined);
     if (!target?.container) return;
     if (target.container.hasBinding('authkit.server')) return;
     await announceAgoraSignOut(target, action);

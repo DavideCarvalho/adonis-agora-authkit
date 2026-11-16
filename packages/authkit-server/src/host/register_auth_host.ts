@@ -7,6 +7,7 @@ import { announceAgoraSignOut, registerAgoraConsole } from '../console_switcher.
 import type { AuthSocialConfig, RateLimitConfigInput } from '../define_config.js';
 import { resolveRateLimit } from '../define_config.js';
 import { PROTECTED_RESOURCE_WELL_KNOWN, servedProtectedResources } from '../mcp/mcp_oauth.js';
+import { FORGOT_PASSWORD_PATH, RESET_PASSWORD_PATH } from '../provider/identity_pages.js';
 import { accountHome } from './account_home.js';
 import { getAccountLoginUrl, setAccountLoginUrl } from './account_login_url.js';
 import {
@@ -1182,10 +1183,11 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
   router.get('/auth/interaction/:uid/signup/confirm', [C.registration, 'signupConfirm']);
 
   // Recuperação de senha (standalone).
-  router.get('/auth/forgot-password', [C.registration, 'showForgot']);
-  withLogin(router.post('/auth/forgot-password', [C.registration, 'forgot']));
-  router.get('/auth/reset-password', [C.registration, 'showReset']);
-  withLogin(router.post('/auth/reset-password', [C.registration, 'reset']));
+  // Paths publicados na discovery (`authkit_*_password_uri`, ver provider/identity_pages.ts).
+  router.get(FORGOT_PASSWORD_PATH, [C.registration, 'showForgot']);
+  withLogin(router.post(FORGOT_PASSWORD_PATH, [C.registration, 'forgot']));
+  router.get(RESET_PASSWORD_PATH, [C.registration, 'showReset']);
+  withLogin(router.post(RESET_PASSWORD_PATH, [C.registration, 'reset']));
 
   // Verificação de e-mail (standalone, GET-only — consome o token do link).
   router.get('/auth/verify-email', [C.registration, 'verifyEmail']);

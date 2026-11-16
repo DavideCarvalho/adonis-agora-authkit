@@ -57,7 +57,7 @@ above. Nothing to wire:
 import router from '@adonisjs/core/services/router'
 import { registerOidcClient } from '@adonis-agora/authkit-client'
 
-registerOidcClient(router) // registers /auth/backchannel-logout among the four routes
+registerOidcClient(router) // registers /auth/backchannel-logout among the client routes
 ```
 
 Pass `backchannelLogout: false` to skip it, or mount the handler yourself if you build the

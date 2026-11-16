@@ -489,6 +489,42 @@ export default defineConfig({
 The default locale is `en`; `pt-BR` is a built-in extra. See [i18n](/docs/i18n) for the full
 key catalogue and adding whole new locales.
 
+## Sign-up with `prompt=create`
+
+A relying party can open the sign-up screen directly with the standard `prompt=create`
+(OpenID Connect *Initiating User Registration*). authkit-client's `/auth/signup` route sends it.
+
+```
+GET /oidc/auth?client_id=web&response_type=code&scope=openid&prompt=create&...
+```
+
+- With no IdP session, the interaction opens on the sign-up screen. Its "I already have an
+  account" link goes to the login screen of the same interaction. After the sign-up the user
+  goes back to the client signed in, as after a login.
+- With an IdP session, the request completes as a normal login.
+- With public sign-up closed (`registration.enabled: false` or the runtime setting), the
+  login screen is shown, without the sign-up link.
+
+Discovery lists it in `prompt_values_supported`. Other prompt values the server does not
+support are still rejected with `invalid_request`.
+
+## Identity pages in discovery
+
+The discovery document (`{issuer}/.well-known/openid-configuration`) publishes where this
+server's identity pages are, so relying parties can send old links there (authkit-client's
+`registerOidcClient` does):
+
+| Field | Value |
+| --- | --- |
+| `authkit_account_uri` | The account console (`accountRoutes.prefix`, default `/account`). |
+| `authkit_account_home_uri` | The account console's home page (`accountHome`, default `/account/security`). |
+| `authkit_admin_uri` | The admin console (`admin.prefix`). Only when the console is mounted and `admin.enabled` is on. |
+| `authkit_forgot_password_uri` | `/auth/forgot-password` |
+| `authkit_reset_password_uri` | `/auth/reset-password` |
+
+They are absolute URLs on the issuer's origin and follow the options passed to
+`registerAuthHost`.
+
 ## Custom emails
 
 Reset-password, email-verification, and magic-link mails go through the host's

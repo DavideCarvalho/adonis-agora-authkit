@@ -14,7 +14,9 @@ import {
 import { findMcpResource, hasGuardResources, mcpAuthorizeMiddleware } from '../mcp/mcp_oauth.js';
 import { hideDisabledClients } from '../service_tenants/client_metadata.js';
 import { createServiceTenantHooks } from '../service_tenants/provider_hooks.js';
+import { interactionPolicyWithCreate, promptValuesSupported } from './create_prompt.js';
 import { createDeviceSources } from './device_sources.js';
+import { identityPagesMiddleware } from './identity_pages.js';
 import { createLogoutSources } from './logout_sources.js';
 import { mcpTokenClaims } from './mcp_token_claims.js';
 import { registrationPolicyMiddleware } from './registration_policy.js';
@@ -254,6 +256,8 @@ export function buildProvider(
         }
       : {};
 
+  const policy = interactionPolicyWithCreate();
+
   const provider = new oidc.Provider(config.issuer, {
     // Client interno do login do console pelo IdP (ver `host/console_sso.ts`).
     // Estático: não passa pelo adapter, então não aparece no console de clients.
@@ -415,16 +419,16 @@ export function buildProvider(
     // Step-up auth (acr_values): anuncia os acr suportados para que clients possam
     // solicitá-los. A exigência efetiva do 2º fator acontece na interaction de login.
     acrValues: config.stepUp.acrValues,
-    // Chaves públicas Ed25519 dos webhooks: o receptor (authkit-client) verifica a assinatura
-    // `x-authkit-signature-ed25519` sem segredo compartilhado. Campo extra da discovery.
-    ...(config.webhookSigningKeys?.length
-      ? {
-          discovery: {
-            claim_types_supported: ['normal'],
-            authkit_webhook_jwks: toJwks(config.webhookSigningKeys),
-          },
-        }
-      : {}),
+    discovery: {
+      claim_types_supported: ['normal'],
+      // `prompt=create` (OIDC "Initiating User Registration") is in the interaction policy.
+      prompt_values_supported: promptValuesSupported(policy),
+      // Chaves públicas Ed25519 dos webhooks: o receptor (authkit-client) verifica a assinatura
+      // `x-authkit-signature-ed25519` sem segredo compartilhado. Campo extra da discovery.
+      ...(config.webhookSigningKeys?.length
+        ? { authkit_webhook_jwks: toJwks(config.webhookSigningKeys) }
+        : {}),
+    },
     ttl: {
       // AccessToken TTL: quando um TokenTtlHolder é fornecido, lê o valor atual do holder
       // (atualizado em runtime via setting `token_ttl`). Sem holder: fallback ao config.
@@ -463,6 +467,8 @@ export function buildProvider(
         : config.ttl.refreshToken,
     },
     interactions: {
+      // oidc-provider's default policy plus `prompt=create` (see create_prompt.ts).
+      policy,
       // Telas de interaction são servidas pelo CONSUMIDOR na RAIZ (fora do koa-mount do
       // provider sob /oidc), evitando colisão com o catch-all /oidc/*. O provider redireciona
       // o browser para cá; o consumidor chama interactionFinished, que devolve ao resume do
@@ -499,6 +505,9 @@ export function buildProvider(
   // metadata (RFC 8414) anuncia o registro e os Client ID Metadata Documents só quando ligados.
   // ANTES da política: um `/reg` recusado não tem o corpo lido.
   if (mcpClients.allowed) provider.use(mcpClientsMiddleware(mcpClients) as any);
+
+  // Discovery publica as páginas de identidade (conta, admin, senha) para os RPs.
+  provider.use(identityPagesMiddleware(config.issuer, config) as any);
 
   // Política do registro dinâmico (redirect URIs + só fluxo de código + gancho do
   // host). Middleware PRÉ-rota: roda antes do `/reg` do provider, que sozinho

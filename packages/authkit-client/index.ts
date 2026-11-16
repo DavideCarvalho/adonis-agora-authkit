@@ -122,10 +122,13 @@ export {
 export type { AuthkitOrgLabelsOptions, OrgLabelResolver } from './src/org_labels.js';
 export { authkitOrgLabels, installOrgLabeler, ORG_LABELS_PATH } from './src/org_labels.js';
 export type {
+  OidcClientHandler,
+  OidcClientRoutes,
   PostLoginRedirects,
   RegisterOidcClientOptions,
 } from './src/register_oidc_client.js';
 export {
+  oidcClientRoutes,
   registerAccountExtensionsEndpoint,
   registerOidcClient,
 } from './src/register_oidc_client.js';

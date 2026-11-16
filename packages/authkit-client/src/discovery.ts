@@ -31,6 +31,16 @@ export interface OidcEndpoints {
   endSessionEndpoint?: string;
   userinfoEndpoint?: string;
   introspectionEndpoint?: string;
+  /**
+   * authkit-server identity pages (discovery `authkit_*_uri`), where the redirect routes of
+   * `registerOidcClient` send old links: the account console base and its home, the admin
+   * console, and the forgot/reset password pages. Unset when the issuer does not publish them.
+   */
+  accountUri?: string;
+  accountHomeUri?: string;
+  adminUri?: string;
+  forgotPasswordUri?: string;
+  resetPasswordUri?: string;
 }
 
 /**
@@ -94,6 +104,11 @@ interface DiscoveryDocument {
   endSessionEndpoint?: string;
   userinfoEndpoint?: string;
   introspectionEndpoint?: string;
+  accountUri?: string;
+  accountHomeUri?: string;
+  adminUri?: string;
+  forgotPasswordUri?: string;
+  resetPasswordUri?: string;
 }
 
 const DEFAULT_TTL_MS = 15 * 60_000;
@@ -243,6 +258,11 @@ async function fetchDiscovery(
     endSessionEndpoint: str(raw.end_session_endpoint),
     userinfoEndpoint: str(raw.userinfo_endpoint),
     introspectionEndpoint: str(raw.introspection_endpoint),
+    accountUri: str(raw.authkit_account_uri),
+    accountHomeUri: str(raw.authkit_account_home_uri),
+    adminUri: str(raw.authkit_admin_uri),
+    forgotPasswordUri: str(raw.authkit_forgot_password_uri),
+    resetPasswordUri: str(raw.authkit_reset_password_uri),
   };
 }
 
