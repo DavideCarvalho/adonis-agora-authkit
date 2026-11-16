@@ -77,7 +77,11 @@ export function parseImportFile(content: string): {
 export async function importUsers(
   store: AccountStore,
   records: { line: number; record: ImportUserRecord }[],
-  options: { dryRun?: boolean } = {},
+  options: {
+    dryRun?: boolean;
+    /** Chamado para cada conta criada (o comando dispara o `onAccountCreated` daqui). */
+    onCreated?: (account: { id: string; email: string }) => Promise<void>;
+  } = {},
 ): Promise<ImportReport> {
   const report: ImportReport = { created: 0, skippedDuplicate: 0, errors: [] };
   const canImport = supportsAccountImport(store);
@@ -115,8 +119,10 @@ export async function importUsers(
           emailVerified: record.email_verified ?? false,
         });
         // null = corrida (e-mail criado entre o check e o insert) → conta como dup.
-        if (created) report.created++;
-        else report.skippedDuplicate++;
+        if (created) {
+          report.created++;
+          await options.onCreated?.(created);
+        } else report.skippedDuplicate++;
       } else {
         // Fallback: store sem import — usa create (re-hasheia e aplica política).
         // Útil quando o registro traz senha em claro; sem hash nem senha falha.

@@ -10,6 +10,7 @@ import {
   supportsProviderIdentity,
 } from '../../accounts/account_store.js';
 import type { SocialSecondFactorPolicy } from '../../define_config.js';
+import { notifyAccountCreated } from '../account_created.js';
 import { resolveAccountRoles } from '../account_roles.js';
 import { normalizeEmailIdentifier } from '../email_identifier.js';
 import { rememberLastLoginMethod } from '../last_login_method.js';
@@ -195,6 +196,16 @@ export default class AuthSocialController {
         email,
       });
       user = created;
+      await notifyAccountCreated(
+        cfg,
+        {
+          account: { id: created.id, email: created.email },
+          source: 'social',
+          provider,
+          clientId: cfg.onAccountCreated ? await interactionClientId(service, ctx) : null,
+        },
+        { ctx },
+      );
     }
 
     // Status da conta: mesmo gate compartilhado dos demais fluxos de login. O
@@ -276,5 +287,15 @@ export default class AuthSocialController {
     // Conclui a interaction OIDC para este usuário (escreve o 303 de volta ao authorize).
     // O cookie de interaction (path '/') sobrevive ao round-trip do provider OAuth.
     await service.interactions.completeLogin(ctx, user.id);
+  }
+}
+
+/** `client_id` da interaction que o login social retoma; `null` se ela não puder ser lida. */
+async function interactionClientId(service: any, ctx: HttpContext): Promise<string | null> {
+  try {
+    const details = await service.interactions.details(ctx);
+    return (details?.params?.client_id as string | undefined) ?? null;
+  } catch {
+    return null;
   }
 }

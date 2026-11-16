@@ -1227,6 +1227,40 @@ export interface ResolvedInteractionRecoveryConfig {
   redirectTo?: string;
 }
 
+/** Por onde a conta nasceu — ver {@link OnAccountCreated}. */
+export type AccountCreatedSource = 'signup' | 'social' | 'admin' | 'import';
+
+/** O que `onAccountCreated` recebe. */
+export interface AccountCreatedEvent {
+  /** A conta recém-criada. */
+  account: { id: string; email: string | null };
+  /**
+   * `'signup'`: cadastro na tela (senha, ou passwordless por link ou código).
+   * `'social'`: primeiro login social sem conta para o e-mail.
+   * `'admin'`: console admin, Admin API ou ferramentas de dev (`AdminUsersService.create`).
+   * `'import'`: `authkit:users:import`.
+   */
+  source: AccountCreatedSource;
+  /** Provider do login social (ex.: `'google'`). Só com `source: 'social'`. */
+  provider?: string;
+  /**
+   * O app (client OIDC) da interaction em que a conta nasceu: `clientId` e `appName`
+   * (`branding.clients[clientId].appName`, senão o `client_name` registrado). Ausente fora
+   * de uma interaction (admin, import).
+   */
+  client?: { clientId: string; appName?: string };
+  /** Quem criou, com `source: 'admin'`: o id do admin (`null` para chamadas sem ator). */
+  actorId?: string | null;
+}
+
+/**
+ * Chamado UMA vez por conta criada, depois que a conta foi gravada e o cadastro não
+ * será mais desfeito, em todo caminho que cria conta. Aguardado antes de o fluxo seguir
+ * (o login que vem em seguida já enxerga o que o hook gravou, ex.: um papel). Um hook
+ * que lança NÃO desfaz a conta nem quebra o fluxo: o erro é logado e o fluxo continua.
+ */
+export type OnAccountCreated = (event: AccountCreatedEvent) => void | Promise<void>;
+
 export interface AuthServerConfigInput {
   /** Host-defined primary authentication classes or instances, keyed by stable method ID. */
   customLoginMethods?: CustomLoginMethods;
@@ -1285,6 +1319,12 @@ export interface AuthServerConfigInput {
       activeOrg?: { orgId: string; orgSlug: string; orgRole: string } | null;
     },
   ) => string[] | Promise<string[]>;
+  /**
+   * Chamado uma vez para cada conta criada (cadastro, login social, admin, import). Use para
+   * dar à conta nova um papel de domínio, provisionar dados etc. Erros são logados e não
+   * desfazem a conta. Ver {@link AccountCreatedEvent}.
+   */
+  onAccountCreated?: OnAccountCreated;
   cookieKeys?: string[];
   observability?: ObservabilityConfig;
   /** Contrato primário de identidade. Deriva findAccount/verifyCredentials do provider. */
@@ -1714,6 +1754,8 @@ export interface ResolvedServerConfig {
       activeOrg?: { orgId: string; orgSlug: string; orgRole: string } | null;
     },
   ) => string[] | Promise<string[]>;
+  /** Hook de conta criada (ver `AuthServerConfigInput.onAccountCreated`). */
+  onAccountCreated?: OnAccountCreated;
   cookieKeys: string[];
   observability: ObservabilityConfig;
   findAccount: (sub: string) => Promise<AuthAccount | null>;
@@ -2059,6 +2101,7 @@ export function defineConfig(config: AuthServerConfigInput) {
       },
       globalRolesClaim: config.globalRolesClaim ?? 'roles',
       resolveTokenRoles: config.resolveTokenRoles,
+      onAccountCreated: config.onAccountCreated,
       cookieKeys: config.cookieKeys ?? [],
       observability: config.observability ?? {},
       findAccount: (sub: string) => config.accountStore.findById(sub),

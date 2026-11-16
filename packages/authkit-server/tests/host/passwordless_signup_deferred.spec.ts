@@ -270,3 +270,113 @@ test.group('cadastro com senha — login que falha desfaz a conta', () => {
     assert.deepEqual(calls.deleted, ['acc-1']);
   });
 });
+
+test.group('onAccountCreated — cadastro', (group) => {
+  group.each.setup(async () => {
+    __setEncryptionServiceForTests((await realEncryption()) as any);
+    return () => __setEncryptionServiceForTests(undefined);
+  });
+
+  const BRANDED = {
+    default: { appName: 'Acme', logoUrl: null },
+    clients: { web: { appName: 'Entre Textos' } },
+    firstParty: [],
+  };
+
+  test('passwordless (link ou código levam ao signupConfirm): dispara uma vez', async ({
+    assert,
+  }) => {
+    const { store } = makeStore();
+    const events: any[] = [];
+    const { service } = buildService(store, {
+      branding: BRANDED,
+      onAccountCreated: (event: any) => {
+        events.push(event);
+      },
+    });
+    const token = await issueSignupToken({ email: EMAIL, fullName: 'Nova Pessoa' });
+
+    await new AuthRegistrationController().signupConfirm(fakeCtx(service, { qs: { token } }).ctx);
+    // O mesmo link de novo: a conta já existe, nada nasce, nada dispara.
+    await new AuthRegistrationController().signupConfirm(fakeCtx(service, { qs: { token } }).ctx);
+
+    assert.deepEqual(events, [
+      {
+        account: { id: 'acc-1', email: EMAIL },
+        source: 'signup',
+        client: { clientId: 'web', appName: 'Entre Textos' },
+      },
+    ]);
+  });
+
+  test('POST de cadastro passwordless (só envia o link) não dispara', async ({ assert }) => {
+    const { store } = makeStore({ existing: true });
+    const events: any[] = [];
+    const { service } = buildService(store, { onAccountCreated: (e: any) => events.push(e) });
+
+    await signup(service);
+    await signup(service, { email: 'outra@example.com', fullName: 'x' });
+
+    assert.lengthOf(events, 0);
+  });
+
+  test('com senha: dispara depois do login do cadastro', async ({ assert }) => {
+    const { store } = makeStore();
+    const order: string[] = [];
+    const events: any[] = [];
+    const { service } = buildService(store, {
+      passwordless: resolvePasswordless({}),
+      onAccountCreated: (event: any) => {
+        order.push('hook');
+        events.push(event);
+      },
+    });
+    service.interactions.login = async () => {
+      order.push('login');
+      return { ok: true };
+    };
+
+    await signup(service, { email: EMAIL, fullName: 'x', password: 'uma senha longa' } as any);
+
+    assert.deepEqual(order, ['login', 'hook']);
+    assert.deepEqual(events, [
+      { account: { id: 'acc-1', email: EMAIL }, source: 'signup', client: { clientId: 'web' } },
+    ]);
+  });
+
+  test('com senha: conta desfeita por login que falhou não dispara', async ({ assert }) => {
+    const { store, calls } = makeStore();
+    const events: any[] = [];
+    const { service } = buildService(store, {
+      passwordless: resolvePasswordless({}),
+      onAccountCreated: (e: any) => events.push(e),
+    });
+    service.interactions.login = async () => ({ ok: false });
+
+    await signup(service, { email: EMAIL, fullName: 'x', password: 'uma senha longa' } as any);
+
+    assert.deepEqual(calls.deleted, ['acc-1']);
+    assert.lengthOf(events, 0);
+  });
+
+  test('hook que lança: a conta fica, o fluxo segue e o erro é logado', async ({ assert }) => {
+    const { store, calls } = makeStore();
+    const { service } = buildService(store, {
+      onAccountCreated: async () => {
+        throw new Error('authz down');
+      },
+    });
+    const token = await issueSignupToken({ email: EMAIL, fullName: 'x' });
+    const { ctx, redirects, errors } = fakeCtx(service, { qs: { token } });
+
+    await new AuthRegistrationController().signupConfirm(ctx);
+
+    assert.lengthOf(calls.created, 1);
+    assert.lengthOf(calls.deleted, 0);
+    assert.deepEqual(redirects, [
+      `/auth/interaction/${UID}/magic?token=${encodeURIComponent(`magic-${EMAIL}`)}`,
+    ]);
+    assert.lengthOf(errors, 1);
+    assert.equal((errors[0] as any).err.message, 'authz down');
+  });
+});
