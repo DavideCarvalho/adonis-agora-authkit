@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.34
+
+### Minor Changes
+
+- [#506](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/506) [`dee39e2`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/dee39e24773bf71b60b869ecf7dd48b4174634e3) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - New `onAccountCreated` config hook, called once for every account the IdP creates: sign-up (password, or passwordless by link or code), a social sign-in that creates the account, the admin console / Admin API / dev tools, and `authkit:users:import`. It receives `{ account, source, provider?, client?, actorId? }`, runs after the account is final and before the flow continues, and never fires when a sign-in reuses an existing account. A throwing hook is logged and does not undo the account or break the flow.
+
 ## 1.0.0-rc.33
 
 ### Minor Changes
