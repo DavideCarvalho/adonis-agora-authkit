@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.33
+
+### Minor Changes
+
+- [#505](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/505) [`429a36f`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/429a36f25cbd3ef0d8dfd25a42e037df812221f4) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Mail hooks now say which app the email is for. `onMagicLink`, `onEmailVerification`, `onOtpUnlock`, `onNewLogin` and `onNewDeviceLogin` receive an optional `client: { clientId, appName? }` when the flow belongs to an OIDC client (`appName` from `branding.clients[clientId].appName`, else the client's `client_name`). The default emails use `branding.clients[clientId]` for the brand name and accent when the client has one, falling back to `branding.default`. Hooks that ignore the field keep working.
+
 ## 1.0.0-rc.32
 
 ### Minor Changes
