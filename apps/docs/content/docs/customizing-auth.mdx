@@ -674,6 +674,39 @@ For HTTP delivery to an external service (with optional HMAC-SHA256 signing), se
 `events.webhook` instead of — or alongside — `onEvent`. See [Events](/docs/events) for the
 event catalogue and webhook details.
 
+### Set up every new account: `onAccountCreated`
+
+`onAccountCreated` runs once for each account the IdP creates, whichever way it was created,
+so you can give it a default role or create its rows in your app:
+
+```ts title="config/authkit.ts"
+export default defineConfig({
+  // ...
+  onAccountCreated: async ({ account }) => {
+    const { default: authz } = await import('@adonis-agora/authz/services/main')
+    await authz.assignRole({ type: 'user', id: account.id }, 'RESEARCHER')
+  },
+})
+```
+
+Import services inside the hook: `config/authkit.ts` is loaded while the app boots, before
+they are ready.
+
+| `source` | When |
+| --- | --- |
+| `'signup'` | Sign-up on the login screen: with a password, or passwordless by link or code. |
+| `'social'` | A social sign-in with no account for its email (`provider` is set, e.g. `'google'`). |
+| `'admin'` | The admin console, the Admin API or the dev tools (`actorId` is the admin). |
+| `'import'` | `node ace authkit:users:import`. |
+
+It does not run when a sign-in reuses an existing account, such as a social sign-in linked
+to an account with the same email. `client` is `{ clientId, appName? }`, the app the user was
+signing up to, and is absent for `admin` and `import`.
+
+The sign-up waits for the hook, so the first token already sees what it wrote. If the hook
+throws, the error is logged and the sign-up carries on: the account is kept, so make the
+hook safe to run again (for example, assign roles idempotently) if you retry it elsewhere.
+
 ## Custom token resolution
 
 The client's `resolver` decides how a request becomes an `Identity`. Pick by your token model

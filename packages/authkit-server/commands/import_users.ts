@@ -4,6 +4,7 @@ import type { CommandOptions } from '@adonisjs/core/types/ace';
 import type { AccountStore } from '../src/accounts/account_store.js';
 import { importUsers, parseImportFile } from '../src/commands/import_users.js';
 import { resolveAuthkitConfig } from '../src/commands/resolve_config.js';
+import { notifyAccountCreated } from '../src/host/account_created.js';
 
 /**
  * Importa usuários de outro sistema para o account store do AuthKit. Os hashes
@@ -62,7 +63,15 @@ export default class AuthkitImportUsers extends BaseCommand {
     }
 
     const { records, parseErrors } = parseImportFile(content);
-    const report = await importUsers(store, records, { dryRun: this.dryRun });
+    const report = await importUsers(store, records, {
+      dryRun: this.dryRun,
+      onCreated: (account) =>
+        notifyAccountCreated(
+          authkitConfig ?? {},
+          { account: { id: account.id, email: account.email }, source: 'import' },
+          { logger: { error: (_meta, message) => this.logger.error(String(message)) } },
+        ),
+    });
     // Erros de parsing entram no relatório agregado.
     report.errors.unshift(...parseErrors);
 

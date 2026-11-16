@@ -182,6 +182,8 @@ export type {
 } from './src/crypto/authkit_crypto.js';
 export type { KmsAdapter, KmsContext, OkpJwk, SecretLike } from './src/crypto-kit/index.js';
 export type {
+  AccountCreatedEvent,
+  AccountCreatedSource,
   AdminApiConfigInput,
   AdminConfigInput,
   AuthHostRenderer,
@@ -190,6 +192,7 @@ export type {
   AuthSocialConfig,
   DynamicRegistrationConfigInput,
   LoginConfigInput,
+  OnAccountCreated,
   OrganizationsConfigInput,
   PasswordlessConfigInput,
   RateLimitBucket,

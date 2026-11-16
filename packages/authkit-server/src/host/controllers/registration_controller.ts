@@ -8,6 +8,7 @@ import {
   supportsOtpLogin,
 } from '../../accounts/account_store.js';
 import { PasswordPolicyError } from '../../password/password_manager.js';
+import { notifyAccountCreated } from '../account_created.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
 import { guardBotProtection, resolveEffectiveBotProtection } from '../bot_protection.js';
 import { brandFor } from '../branding.js';
@@ -250,6 +251,19 @@ export default class AuthRegistrationController {
       } satisfies ScreenRenderProps<'signup'>);
     }
 
+    // A conta ficou (o login acima deu certo): agora é definitiva.
+    if (created) {
+      await notifyAccountCreated(
+        cfg,
+        {
+          account: { id: created.id, email: created.email },
+          source: 'signup',
+          clientId: (details.params.client_id as string | undefined) ?? null,
+        },
+        { ctx },
+      );
+    }
+
     // Verificação de e-mail (best-effort — não bloqueia nem reverte o login).
     try {
       const issued = await accountStore.issueEmailVerificationToken(data.email);
@@ -401,6 +415,15 @@ export default class AuthRegistrationController {
       ip: ctx.request.ip?.() ?? null,
       clientId: (details.params.client_id as string | undefined) ?? null,
     });
+    await notifyAccountCreated(
+      cfg,
+      {
+        account: { id: created.id, email: created.email },
+        source: 'signup',
+        clientId: (details.params.client_id as string | undefined) ?? null,
+      },
+      { ctx },
+    );
 
     const issued = await accountStore.issueMagicLinkToken(claim.email);
     if (!issued) return ctx.response.redirect(backToLogin);

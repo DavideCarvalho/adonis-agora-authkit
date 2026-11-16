@@ -11,6 +11,7 @@ import type { ResolvedServerConfig } from '../../define_config.js';
 import { ADMIN_LIST_DEFAULT_SIZE, LIST_FIRST_PAGE } from '../../pagination.js';
 import { PasswordPolicyError } from '../../password/password_manager.js';
 import type { OidcService } from '../../provider/oidc_service.js';
+import { notifyAccountCreated } from '../account_created.js';
 import { AccountDeletionService, type DeletionResult } from '../account_deletion_service.js';
 import { sendPasswordResetEmail } from '../default_mailer.js';
 import { normalizeEmailIdentifier } from '../email_identifier.js';
@@ -131,6 +132,15 @@ export class AdminUsersService {
         ...(actor.source ? { actor: actor.source } : {}),
       },
     });
+    await notifyAccountCreated(
+      this.cfg,
+      {
+        account: { id: account.id, email: account.email },
+        source: 'admin',
+        actorId: actor.actorId ?? null,
+      },
+      { ctx },
+    );
 
     if (!hasPassword) {
       await this.sendResetEmail(ctx, account.email);

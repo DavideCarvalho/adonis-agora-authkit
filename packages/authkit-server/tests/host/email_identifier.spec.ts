@@ -508,3 +508,115 @@ test.group('import de usuários', () => {
     assert.equal(imported[0].email, 'davi.carvalho96@gmail.com');
   });
 });
+
+// ─── 8) onAccountCreated ────────────────────────────────────────────────────
+
+function socialStore(existing: AuthAccount | null) {
+  const created: CreateAccountInput[] = [];
+  const store: any = {
+    findById: async (id: string) => (existing?.id === id ? existing : null),
+    findByEmail: async (email: string) => (existing?.email === email ? existing : null),
+    findByProviderIdentity: async () => null,
+    linkProviderIdentity: async () => {},
+    create: async (input: CreateAccountInput) => {
+      created.push(input);
+      return { id: 'acc-new', email: input.email };
+    },
+  };
+  return { store, created };
+}
+
+test.group('onAccountCreated — social, admin, import', () => {
+  test('social que cria a conta: dispara com provider e client', async ({ assert }) => {
+    const { store } = socialStore(null);
+    const events: any[] = [];
+    const service = {
+      config: {
+        accountStore: store,
+        branding: { clients: {} },
+        onAccountCreated: (e: any) => events.push(e),
+      },
+      interactions: {
+        completeLogin: async () => {},
+        details: async () => ({ uid: 'test-uid', params: { client_id: 'eduliberta' } }),
+      },
+      provider: { Client: { find: async () => ({ clientName: 'EduLiberta' }) } },
+    };
+
+    await new AuthSocialController().callback(fakeSocialCtx(service, 'nova@gmail.com'));
+
+    assert.deepEqual(events, [
+      {
+        account: { id: 'acc-new', email: 'nova@gmail.com' },
+        source: 'social',
+        provider: 'google',
+        client: { clientId: 'eduliberta', appName: 'EduLiberta' },
+      },
+    ]);
+  });
+
+  test('social que liga a identidade a uma conta existente: não dispara', async ({ assert }) => {
+    const { store, created } = socialStore({ id: 'acc-1', email: 'davi@gmail.com' });
+    const events: any[] = [];
+    const service = {
+      config: { accountStore: store, onAccountCreated: (e: any) => events.push(e) },
+      interactions: { completeLogin: async () => {}, details: async () => ({ params: {} }) },
+    };
+
+    await new AuthSocialController().callback(fakeSocialCtx(service, 'davi@gmail.com'));
+
+    assert.lengthOf(created, 0);
+    assert.lengthOf(events, 0);
+  });
+
+  test('admin: dispara com source admin e o ator; e-mail já usado não dispara', async ({
+    assert,
+  }) => {
+    const events: any[] = [];
+    const store: any = {
+      findByEmail: async (email: string) =>
+        email === 'velho@x.com' ? { id: 'acc-1', email } : null,
+      create: async (input: CreateAccountInput) => ({ id: 'acc-2', email: input.email }),
+    };
+    const service = new AdminUsersService({
+      accountStore: store,
+      login: resolveLogin(),
+      onAccountCreated: (e: any) => events.push(e),
+    } as any);
+    const actor = { actorId: 'admin-1', ip: null, source: 'admin-api' } as any;
+
+    await service.create(
+      null as any,
+      { email: 'novo@x.com', password: 'senha-super-segura' },
+      actor,
+    );
+    await service.create(
+      null as any,
+      { email: 'velho@x.com', password: 'senha-super-segura' },
+      actor,
+    );
+
+    assert.deepEqual(events, [
+      { account: { id: 'acc-2', email: 'novo@x.com' }, source: 'admin', actorId: 'admin-1' },
+    ]);
+  });
+
+  test('import: chama onCreated só para as contas criadas', async ({ assert }) => {
+    const createdAccounts: any[] = [];
+    const store: any = {
+      findByEmail: async (email: string) => (email === 'velho@x.com' ? { id: 'acc-1' } : null),
+      importAccount: async (input: { email: string }) => ({ id: 'acc-2', email: input.email }),
+    };
+
+    await importUsers(
+      store,
+      [
+        { line: 1, record: { email: 'velho@x.com', password_hash: 'x' } },
+        { line: 2, record: { email: 'novo@x.com', password_hash: 'x' } },
+      ],
+      { onCreated: async (account) => void createdAccounts.push(account) },
+    );
+
+    assert.deepEqual(createdAccounts, [{ id: 'acc-2', email: 'novo@x.com' }]);
+  });
+});
