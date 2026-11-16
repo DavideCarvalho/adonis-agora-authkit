@@ -151,6 +151,7 @@ function hostMailFrom(ctx: HttpContext): MailSettings['from'] {
 async function resolveMailSettings(
   ctx: HttpContext,
   cfg: ResolvedServerConfig | undefined,
+  clientId?: string | null,
 ): Promise<MailSettings> {
   const resolved = await resolveServerConfig(ctx, cfg);
   if (!resolved) {
@@ -167,17 +168,29 @@ async function resolveMailSettings(
     return { brand: { appName: 'AuthKit' }, messages: resolveMessages(), locale: 'en' };
   }
   const branding = resolved.branding as Partial<BrandingConfig> | undefined;
-  const defaultBrand = resolveDefaultBrand(branding);
   return {
-    brand: {
-      appName: defaultBrand.appName,
-      accent: defaultBrand.accent,
-      company: branding?.company,
-    },
+    brand: resolveBrand(branding, clientId),
     messages: resolved.messages ?? resolveMessages(),
     locale: resolved.locale ?? 'en',
     // `from` próprio do authkit tem prioridade; senão o `from` global do `config/mail.ts`.
     from: resolved.mail?.from ?? hostMailFrom(ctx),
+  };
+}
+
+/**
+ * Marca do e-mail: a de `branding.clients[clientId]` quando o fluxo tem um client com
+ * marca própria, senão a marca default do host.
+ */
+function resolveBrand(
+  branding: Partial<BrandingConfig> | undefined,
+  clientId?: string | null,
+): MailSettings['brand'] {
+  const defaultBrand = resolveDefaultBrand(branding);
+  const clientBrand = clientId ? branding?.clients?.[clientId] : undefined;
+  return {
+    appName: clientBrand?.appName || defaultBrand.appName,
+    accent: clientBrand?.accent || defaultBrand.accent,
+    company: branding?.company,
   };
 }
 
@@ -279,10 +292,10 @@ export async function sendEmailChangeConfirmationEmail(
 export async function sendNewLoginEmail(
   ctx: HttpContext,
   cfg: ResolvedServerConfig,
-  data: { email: string; ip: string; when: string },
+  data: { email: string; ip: string; when: string; clientId?: string | null },
 ): Promise<void> {
   try {
-    const settings = await resolveMailSettings(ctx, cfg);
+    const settings = await resolveMailSettings(ctx, cfg, data.clientId);
     const { brand, messages: t, locale } = settings;
     const origin = authkitOrigin(cfg);
     const intro = [
@@ -323,10 +336,16 @@ export async function sendNewLoginEmail(
 export async function sendNewDeviceLoginEmail(
   ctx: HttpContext,
   cfg: ResolvedServerConfig,
-  data: { email: string; ip?: string | null; userAgent?: string | null; when: string },
+  data: {
+    email: string;
+    ip?: string | null;
+    userAgent?: string | null;
+    when: string;
+    clientId?: string | null;
+  },
 ): Promise<void> {
   try {
-    const settings = await resolveMailSettings(ctx, cfg);
+    const settings = await resolveMailSettings(ctx, cfg, data.clientId);
     const { brand, messages: t, locale } = settings;
     const origin = authkitOrigin(cfg);
     const lines = [
@@ -368,11 +387,17 @@ export async function sendNewDeviceLoginEmail(
  */
 export async function sendMagicLinkEmail(
   ctx: HttpContext,
-  data: { email: string; magicUrl: string; code?: string; channel?: 'code' | 'link' },
+  data: {
+    email: string;
+    magicUrl: string;
+    code?: string;
+    channel?: 'code' | 'link';
+    clientId?: string | null;
+  },
   cfg?: ResolvedServerConfig,
 ): Promise<void> {
   try {
-    const settings = await resolveMailSettings(ctx, cfg);
+    const settings = await resolveMailSettings(ctx, cfg, data.clientId);
     const { brand, messages: t, locale } = settings;
     // Login choose-first: o `channel` decide o que o e-mail SURFA (os dois tokens
     // continuam emitidos co-locados a montante — isto é só renderização).
@@ -683,11 +708,11 @@ export async function sendSecurityNoticeEmail(
  */
 export async function sendOtpUnlockEmail(
   ctx: HttpContext,
-  data: { email: string; unlockUrl: string },
+  data: { email: string; unlockUrl: string; clientId?: string | null },
   cfg?: ResolvedServerConfig,
 ): Promise<void> {
   try {
-    const settings = await resolveMailSettings(ctx, cfg);
+    const settings = await resolveMailSettings(ctx, cfg, data.clientId);
     const { brand, messages: t, locale } = settings;
     const content = renderTransactionalEmail({
       brand,
@@ -823,11 +848,11 @@ export async function sendOrgInvitationEmail(
  */
 export async function sendEmailVerificationEmail(
   ctx: HttpContext,
-  data: { email: string; verifyUrl: string },
+  data: { email: string; verifyUrl: string; clientId?: string | null },
   cfg?: ResolvedServerConfig,
 ): Promise<void> {
   try {
-    const settings = await resolveMailSettings(ctx, cfg);
+    const settings = await resolveMailSettings(ctx, cfg, data.clientId);
     const { brand, messages: t, locale } = settings;
     const content = renderTransactionalEmail({
       brand,

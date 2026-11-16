@@ -2,6 +2,7 @@ import type { HttpContext } from '@adonisjs/core/http';
 import type { ResolvedServerConfig } from '../define_config.js';
 import { ADMIN_LIST_MAX_SIZE } from '../pagination.js';
 import { sendNewDeviceLoginEmail, sendNewLoginEmail } from './default_mailer.js';
+import { mailClientField, resolveMailClient } from './mail_client.js';
 import { isTrustedDeviceValid, TRUSTED_DEVICE_COOKIE } from './trusted_device.js';
 
 /** Dados de um login bem-sucedido a auditar/notificar. */
@@ -85,6 +86,7 @@ export async function notifyLoginSuccess(
         email: resolvedEmail,
         ip: ip ?? null,
         userAgent,
+        clientId: clientId ?? null,
       });
     }
     if (onNewDevice && cfg.notifications.newDeviceEmail && resolvedEmail) {
@@ -93,6 +95,7 @@ export async function notifyLoginSuccess(
         email: resolvedEmail,
         ip: ip ?? null,
         userAgent,
+        clientId: clientId ?? null,
       });
     }
   })().catch((error) => {
@@ -126,15 +129,23 @@ function hasTrustedDeviceCookie(ctx: HttpContext, accountId: string): boolean {
 async function notifyNewDevice(
   ctx: HttpContext,
   cfg: ResolvedServerConfig,
-  data: { accountId: string; email: string; ip: string | null; userAgent: string | null },
+  data: {
+    accountId: string;
+    email: string;
+    ip: string | null;
+    userAgent: string | null;
+    clientId: string | null;
+  },
 ): Promise<void> {
   const timestamp = new Date().toISOString();
   if (cfg.mail?.onNewDeviceLogin) {
+    const client = await resolveMailClient(ctx, cfg, data.clientId);
     await cfg.mail.onNewDeviceLogin({
       account: { id: data.accountId, email: data.email },
       ip: data.ip,
       userAgent: data.userAgent,
       timestamp,
+      ...mailClientField(client),
     });
     return;
   }
@@ -143,6 +154,7 @@ async function notifyNewDevice(
     ip: data.ip,
     userAgent: data.userAgent,
     when: timestamp,
+    clientId: data.clientId,
   });
 }
 
@@ -155,9 +167,15 @@ async function notifyNewDevice(
 async function maybeNotifyNewLogin(
   ctx: HttpContext,
   cfg: ResolvedServerConfig,
-  data: { accountId: string; email: string | null; ip: string | null; userAgent: string | null },
+  data: {
+    accountId: string;
+    email: string | null;
+    ip: string | null;
+    userAgent: string | null;
+    clientId: string | null;
+  },
 ): Promise<void> {
-  const { accountId, email, ip, userAgent } = data;
+  const { accountId, email, ip, userAgent, clientId } = data;
   if (!ip || !email) return;
   // Sem consulta do histórico não dá pra decidir se o IP é novo → no-op.
   if (typeof cfg.audit?.list !== 'function') return;
@@ -180,17 +198,19 @@ async function maybeNotifyNewLogin(
     // este try, um hook que lança cortaria o audit abaixo e o alerta de novo
     // dispositivo, que roda depois deste na mesma tarefa.
     try {
+      const client = await resolveMailClient(ctx, cfg, clientId);
       await cfg.mail.onNewLogin({
         account: { id: accountId, email },
         ip,
         userAgent,
         timestamp: when,
+        ...mailClientField(client),
       });
     } catch (error) {
       ctx.logger?.error?.({ err: error, accountId }, 'authkit: falha no hook mail.onNewLogin');
     }
   } else {
-    await sendNewLoginEmail(ctx, cfg, { email, ip, when });
+    await sendNewLoginEmail(ctx, cfg, { email, ip, when, clientId });
   }
   await cfg.audit?.record({
     type: 'login.new_ip_notified',

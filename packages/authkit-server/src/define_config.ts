@@ -138,6 +138,17 @@ export interface AuthSocialConfig {
 }
 
 /**
+ * O app (client OIDC) a que um e-mail transacional pertence — ver o campo `client`
+ * dos hooks `mail.on*`.
+ */
+export interface MailHookClient {
+  /** `client_id` da interaction/login em curso. */
+  clientId: string;
+  /** `branding.clients[clientId].appName`, senão o `client_name` do client; ausente se nenhum. */
+  appName?: string;
+}
+
+/**
  * Hooks de e-mail plugáveis (best-effort). Quando ausentes, o host-kit cai no
  * fallback de log em dev (sem enviar e-mail). O envio real fica a cargo do host
  * (ex.: @adonisjs/mail), mantendo a lib agnóstica de transporte.
@@ -150,6 +161,12 @@ export interface MailHooks {
     email: string;
     verifyUrl: string;
     token: string;
+    /**
+     * O app (client OIDC) a que o fluxo pertence: `clientId` da interaction/login em curso e
+     * `appName` (`branding.clients[clientId].appName`, senão o `client_name` registrado).
+     * Ausente quando não há client (ex.: páginas da conta fora de um login).
+     */
+    client?: MailHookClient;
   }) => Promise<void>;
   /** Disparado após gerar o magic link de login (passwordless). */
   onMagicLink?: (data: {
@@ -175,6 +192,12 @@ export interface MailHooks {
      * e-mail ("confirme seu cadastro"); ignorar o campo continua funcionando.
      */
     kind?: 'signup';
+    /**
+     * O app (client OIDC) a que o fluxo pertence: `clientId` da interaction/login em curso e
+     * `appName` (`branding.clients[clientId].appName`, senão o `client_name` registrado).
+     * Ausente quando não há client (ex.: páginas da conta fora de um login).
+     */
+    client?: MailHookClient;
   }) => Promise<void>;
   /**
    * Envia o link de CONFIRMAÇÃO DE IDENTIDADE (sudo). Distinto de
@@ -200,6 +223,12 @@ export interface MailHooks {
     ip: string;
     userAgent?: string | null;
     timestamp: string;
+    /**
+     * O app (client OIDC) a que o fluxo pertence: `clientId` da interaction/login em curso e
+     * `appName` (`branding.clients[clientId].appName`, senão o `client_name` registrado).
+     * Ausente quando não há client (ex.: páginas da conta fora de um login).
+     */
+    client?: MailHookClient;
   }) => Promise<void>;
   /**
    * Disparado num login bem-sucedido a partir de um dispositivo NOVO (sem cookie
@@ -212,6 +241,12 @@ export interface MailHooks {
     ip?: string | null;
     userAgent?: string | null;
     timestamp: string;
+    /**
+     * O app (client OIDC) a que o fluxo pertence: `clientId` da interaction/login em curso e
+     * `appName` (`branding.clients[clientId].appName`, senão o `client_name` registrado).
+     * Ausente quando não há client (ex.: páginas da conta fora de um login).
+     */
+    client?: MailHookClient;
   }) => Promise<void>;
   /**
    * Disparado ao criar um convite de organização.
@@ -259,7 +294,17 @@ export interface MailHooks {
    * tentativas falhas. Envia o link de desbloqueio para o e-mail da conta.
    * Best-effort, fire-and-forget.
    */
-  onOtpUnlock?: (data: { email: string; unlockUrl: string; token: string }) => Promise<void>;
+  onOtpUnlock?: (data: {
+    email: string;
+    unlockUrl: string;
+    token: string;
+    /**
+     * O app (client OIDC) a que o fluxo pertence: `clientId` da interaction/login em curso e
+     * `appName` (`branding.clients[clientId].appName`, senão o `client_name` registrado).
+     * Ausente quando não há client (ex.: páginas da conta fora de um login).
+     */
+    client?: MailHookClient;
+  }) => Promise<void>;
   /**
    * Disparado pelo `authkit:expire-scan` quando uma conta está prestes a ser
    * desativada por inatividade. Substitui o e-mail default de aviso quando
