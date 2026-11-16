@@ -143,6 +143,80 @@ test.group('service tenants: config', () => {
       /positive integer/,
     );
   });
+
+  test('accepts a control-plane url: https, or http on localhost', ({ assert }) => {
+    const r = resolveServiceTenants({
+      resources: {
+        [RESOURCE]: { url: 'https://durable.example.com/_durable' },
+        'urn:agora:telescope': { url: 'http://localhost:3333' },
+        'urn:agora:flags': { url: 'http://127.0.0.1:4000' },
+        'urn:agora:config': {},
+      },
+    });
+    assert.equal(r.resources[RESOURCE].url, 'https://durable.example.com/_durable');
+    assert.equal(r.resources['urn:agora:telescope'].url, 'http://localhost:3333');
+    assert.notProperty(r.resources['urn:agora:config'], 'url');
+  });
+
+  test('refuses a control-plane url that is relative, not http(s), plain http, with credentials or a fragment', ({
+    assert,
+  }) => {
+    const bad = (url: unknown) => () =>
+      resolveServiceTenants({ resources: { [RESOURCE]: { url: url as string } } });
+    assert.throws(bad('/durable'), /absolute https URL/);
+    assert.throws(bad(''), /absolute https URL/);
+    assert.throws(bad(42), /absolute https URL/);
+    assert.throws(bad('ftp://durable.example.com'), /absolute https URL/);
+    assert.throws(bad('http://durable.example.com'), /http is only allowed for localhost/);
+    assert.throws(bad('https://user:pass@durable.example.com'), /credentials/);
+    assert.throws(bad('https://durable.example.com/#x'), /fragment/);
+    assert.throws(bad(' https://durable.example.com '), /absolute https URL/);
+  });
+});
+
+test.group('service tenants: control planes in discovery', (group) => {
+  let db: any;
+  group.each.setup(async () => {
+    db = createTestDatabase();
+    await migrate(db);
+    return () => db.manager.closeAll();
+  });
+
+  const discovery = async (issuer: string) =>
+    (await (await fetch(`${issuer}/.well-known/openid-configuration`)).json()) as Record<
+      string,
+      any
+    >;
+
+  test('publishes agora_control_planes for every resource with a url', async ({ assert }) => {
+    const s = await start(db, {
+      serviceTenants: {
+        resources: {
+          [RESOURCE]: { url: 'https://durable.example.com' },
+          'urn:agora:telescope': { url: 'https://telescope.example.com/_telescope' },
+          'urn:agora:flags': {},
+        },
+      },
+    });
+    try {
+      const doc = await discovery(s.issuer);
+      assert.deepEqual(doc.agora_control_planes, {
+        [RESOURCE]: 'https://durable.example.com',
+        'urn:agora:telescope': 'https://telescope.example.com/_telescope',
+      });
+    } finally {
+      await s.close();
+    }
+  });
+
+  test('omits the field when no resource declares a url', async ({ assert }) => {
+    const s = await start(db);
+    try {
+      assert.notProperty(await discovery(s.issuer), 'agora_control_planes');
+    } finally {
+      await s.close();
+    }
+  });
 });
 
 test.group('service tenants: issuance', (group) => {

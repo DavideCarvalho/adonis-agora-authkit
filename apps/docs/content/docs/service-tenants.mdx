@@ -58,6 +58,7 @@ defineConfig({
 | `resources[*].expiresIn` | `number` (seconds) | `600` | Token lifetime. Tokens are not revocable, so keep it short. |
 | `resources[*].audience` | `string` | the key | The `aud` of the token. |
 | `resources[*].scopes` | `string[]` | `[]` | Scopes a service tenant may request for it. |
+| `resources[*].url` | `string` | | Where the control plane lives. See [Find the control planes](#find-the-control-planes). |
 
 A resource listed here cannot also be in `accessTokens.resources`: a resource is for users or
 for service tenants, never both.
@@ -261,6 +262,73 @@ tenant: { token: () => import('#tenants/credentials') },
 
 Keep the partition in `config/durable.ts` the same as the client's: the control plane trusts the
 token, so a pod that claims another partition only gets its own.
+
+## Find the control planes
+
+Give each resource a `url` and your apps read it from AuthKit instead of one env var per
+control plane. Moving a control plane is then a change in `config/authkit.ts` only:
+
+```ts title="config/authkit.ts"
+serviceTenants: {
+  resources: {
+    'urn:agora:durable': { url: 'https://durable.acme.com' },
+    'urn:agora:telescope': { url: 'https://telescope.acme.com' },
+  },
+},
+```
+
+The URL must be absolute `https` (`http` only on `localhost`). AuthKit publishes the map in its
+discovery document as `agora_control_planes`:
+
+```json
+{
+  "agora_control_planes": {
+    "urn:agora:durable": "https://durable.acme.com",
+    "urn:agora:telescope": "https://telescope.acme.com"
+  }
+}
+```
+
+In the app, `controlPlaneUrl` from `@adonis-agora/authkit-client` gives a lazy URL for a config
+file. It fetches nothing until a lib calls it, then caches the discovery document (15 minutes):
+
+```ts title="config/telescope.ts"
+import env from '#start/env'
+import { authkitTenantToken, controlPlaneUrl } from '@adonis-agora/authkit-client'
+
+const issuer = env.get('AUTHKIT_ISSUER')
+
+export default defineConfig({
+  topology: 'tenant',
+  tenant: {
+    url: controlPlaneUrl({ issuer, resource: 'urn:agora:telescope' }),
+    partition: 'acme',
+    token: authkitTenantToken({
+      issuer,
+      clientId: env.get('TENANT_CLIENT_ID'),
+      clientSecret: env.get('TENANT_CLIENT_SECRET'),
+      resource: 'urn:agora:telescope',
+    }),
+  },
+})
+```
+
+<Callout type="warn">
+A lib takes this lazy form only once it supports it in `tenant.url`. Until then, resolve the URL
+yourself with `await discoverControlPlane({ issuer, resource })`, for example in a provider's
+`boot()`.
+</Callout>
+
+| Call | Returns |
+| --- | --- |
+| `await url()` | The URL. Cached; a resource missing from the cached document triggers one refetch. |
+| `url.peek()` | The last resolved URL with no I/O, or `undefined` before the first call. |
+| `await url.refresh()` | Refetches the document and resolves again. Call it when the control plane stops answering, in case it moved. |
+
+`discoverControlPlane({ issuer, resource })` is the one-shot form and returns `Promise<string>`.
+Both throw `ControlPlaneNotFoundError` (`E_CONTROL_PLANE_NOT_FOUND`) when AuthKit does not
+publish the resource, and `OidcDiscoveryError` when the document cannot be fetched (the next call
+retries). Options: `fetch`, `cacheTtlMs`, `resilience`.
 
 ## Rotate the secret
 

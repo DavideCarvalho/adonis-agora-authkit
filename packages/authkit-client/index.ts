@@ -52,6 +52,13 @@ export {
   InvalidLogoutTokenError,
   validateLogoutToken,
 } from './src/backchannel_logout.js';
+export {
+  ControlPlaneNotFoundError,
+  type ControlPlaneUrl,
+  controlPlaneUrl,
+  type DiscoverControlPlaneOptions,
+  discoverControlPlane,
+} from './src/control_planes.js';
 export type {
   BackchannelLogoutCallback,
   BackchannelLogoutInput,

@@ -12,6 +12,12 @@ export interface ServiceTenantResourceInput {
   expiresIn?: number;
   /** Scopes a service tenant may request for this resource. Default: none. */
   scopes?: string[];
+  /**
+   * Where this control plane lives, e.g. `'https://telescope.acme.com'`. Published in the
+   * discovery document (`agora_control_planes`) so apps find it from the issuer instead of
+   * an env var each. Absolute `https` URL; `http` only for localhost. Default: not published.
+   */
+  url?: string;
 }
 
 export interface ServiceTenantsConfigInput {
@@ -48,6 +54,8 @@ export interface ResolvedServiceTenantResource {
   audience: string;
   expiresIn: number;
   scopes: string[];
+  /** Where the control plane lives (published as `agora_control_planes`). */
+  url?: string;
 }
 
 export interface ResolvedServiceTenantsConfig {
@@ -104,10 +112,12 @@ export function resolveServiceTenants(
         `authkit: serviceTenants.resources["${indicator}"].expiresIn must be a positive integer (seconds).`,
       );
     }
+    if (rc?.url !== undefined) assertControlPlaneUrl(indicator, rc.url);
     resources[indicator] = {
       audience: rc?.audience ?? indicator,
       expiresIn,
       scopes: [...(rc?.scopes ?? [])],
+      ...(rc?.url !== undefined ? { url: rc.url } : {}),
     };
   }
   let apps: { expiresIn: number } | undefined;
@@ -125,6 +135,51 @@ export function resolveServiceTenants(
     resources,
     ...(apps ? { apps } : {}),
   };
+}
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** `http` is only for a control plane on this machine (local development). */
+function isLoopback(hostname: string): boolean {
+  return LOOPBACK_HOSTS.has(hostname) || hostname.endsWith('.localhost');
+}
+
+/**
+ * Throws unless `url` is an absolute `https` URL (`http` on localhost) without
+ * credentials or a fragment: it is published in the public discovery document.
+ */
+function assertControlPlaneUrl(indicator: string, url: unknown): void {
+  const where = `authkit: serviceTenants.resources["${indicator}"].url`;
+  // `URL.parse` trims; the raw value is what gets published, so refuse padding.
+  const parsed = typeof url === 'string' && url === url.trim() ? URL.parse(url) : null;
+  if (!parsed || (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')) {
+    throw new Error(`${where} must be an absolute https URL (e.g. "https://telescope.acme.com").`);
+  }
+  if (parsed.protocol === 'http:' && !isLoopback(parsed.hostname)) {
+    throw new Error(`${where} must use https (http is only allowed for localhost).`);
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error(
+      `${where} must not carry credentials: it is published in the discovery document.`,
+    );
+  }
+  if (parsed.hash || (url as string).includes('#')) {
+    throw new Error(`${where} must not have a fragment.`);
+  }
+}
+
+/**
+ * The `agora_control_planes` discovery field: resource indicator → URL, for every
+ * service-tenant resource that declares a `url`. Empty when none does.
+ */
+export function controlPlaneLocations(
+  config: ResolvedServiceTenantsConfig,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [indicator, resource] of Object.entries(config.resources)) {
+    if (resource.url) out[indicator] = resource.url;
+  }
+  return out;
 }
 
 /** Finds a declared service-tenant resource, tolerating a trailing slash. */

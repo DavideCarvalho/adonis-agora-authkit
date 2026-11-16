@@ -1558,6 +1558,10 @@ export interface AuthServerConfigInput {
    * serviceTenants: { resources: { 'urn:agora:durable': { expiresIn: 600 } } }
    * ```
    *
+   * `url` on a resource publishes where that control plane lives in the discovery document
+   * (`agora_control_planes`), so apps find it with authkit-client's `controlPlaneUrl()`
+   * instead of an env var per control plane.
+   *
    * Calls between apps are on with it: a service tenant granted another app (`apps` on the
    * client, from the console, the Admin API or `authkit:client grant-app`) gets tokens for
    * `urn:agora:app:<name>`. `apps: false` turns that off; `apps: { expiresIn }` sets their

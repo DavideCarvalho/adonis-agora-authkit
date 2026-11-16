@@ -41,6 +41,11 @@ export interface OidcEndpoints {
   adminUri?: string;
   forgotPasswordUri?: string;
   resetPasswordUri?: string;
+  /**
+   * Where each Agora control plane lives (discovery `agora_control_planes`): resource
+   * indicator (e.g. `urn:agora:telescope`) → URL. Unset when the issuer publishes none.
+   */
+  controlPlanes?: Record<string, string>;
 }
 
 /**
@@ -109,6 +114,7 @@ interface DiscoveryDocument {
   adminUri?: string;
   forgotPasswordUri?: string;
   resetPasswordUri?: string;
+  controlPlanes?: Record<string, string>;
 }
 
 const DEFAULT_TTL_MS = 15 * 60_000;
@@ -189,6 +195,18 @@ export async function discoverEndpoints(
   return endpoints;
 }
 
+/**
+ * Fetches the issuer's discovery document now, bypassing the cache, and caches it on
+ * success (concurrent callers share one fetch). Throws {@link OidcDiscoveryError} on failure,
+ * leaving the cached document as it was.
+ */
+export async function refreshDiscovery(
+  issuer: string,
+  options: Pick<DiscoverOptions, 'fetchImpl' | 'resilience'> = {},
+): Promise<void> {
+  await refresh(issuer.replace(/\/$/, ''), options);
+}
+
 function refresh(base: string, options: DiscoverOptions): Promise<DiscoveryDocument> {
   let pending = inflight.get(base);
   if (!pending) {
@@ -263,7 +281,22 @@ async function fetchDiscovery(
     adminUri: str(raw.authkit_admin_uri),
     forgotPasswordUri: str(raw.authkit_forgot_password_uri),
     resetPasswordUri: str(raw.authkit_reset_password_uri),
+    controlPlanes: controlPlanesOf(raw.agora_control_planes),
   };
+}
+
+/** `agora_control_planes` keeping only string keys with absolute http(s) URLs. */
+function controlPlanesOf(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [resource, url] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof url !== 'string' || url !== url.trim()) continue;
+    const parsed = URL.parse(url);
+    if (parsed && (parsed.protocol === 'https:' || parsed.protocol === 'http:')) {
+      out[resource] = url;
+    }
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 /**
