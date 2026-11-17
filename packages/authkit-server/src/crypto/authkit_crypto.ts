@@ -70,6 +70,37 @@ export function emptyColumnReport(column: string): SealedColumnReport {
 }
 
 /**
+ * The keyring of one AuthKit purpose, plus why the app's `encryption` could not be loaded (when it
+ * could not): {@link authkitKeyring} without hiding the cause.
+ */
+async function resolveAuthkitKeyring(
+  purpose: string,
+  crypto: AuthkitCryptoConfig | undefined,
+  appEncryption?: EncrypterLike,
+): Promise<{ keyring?: Keyring; loadError?: unknown }> {
+  let loadError: unknown;
+  const app =
+    appEncryption ??
+    (await loadEncryptionService().catch((error: unknown) => {
+      loadError = error;
+      return undefined;
+    }));
+  const source = crypto?.keys?.length
+    ? { keys: crypto.keys }
+    : (crypto?.encryption ?? app)
+      ? { encryption: (crypto?.encryption ?? app) as EncrypterLike }
+      : undefined;
+  if (!source) return { loadError };
+  const keyring = createKeyring({
+    purpose,
+    ...source,
+    ...(crypto?.kms ? { kms: crypto.kms } : {}),
+    legacy: app ? [(value) => app.decrypt<string>(value) ?? undefined] : [],
+  });
+  return { keyring, loadError };
+}
+
+/**
  * The keyring of one AuthKit purpose: `crypto.keys` / `crypto.encryption` when set, else the
  * app's `encryption` service. Values AuthKit wrote before the kit (the app's encryption, with no
  * purpose) still open through a legacy reader. `undefined` when no encryption is available at all.
@@ -79,19 +110,7 @@ export async function authkitKeyring(
   crypto: AuthkitCryptoConfig | undefined,
   appEncryption?: EncrypterLike,
 ): Promise<Keyring | undefined> {
-  const app = appEncryption ?? (await loadEncryptionService().catch(() => undefined));
-  const source = crypto?.keys?.length
-    ? { keys: crypto.keys }
-    : (crypto?.encryption ?? app)
-      ? { encryption: (crypto?.encryption ?? app) as EncrypterLike }
-      : undefined;
-  if (!source) return undefined;
-  return createKeyring({
-    purpose,
-    ...source,
-    ...(crypto?.kms ? { kms: crypto.kms } : {}),
-    legacy: app ? [(value) => app.decrypt<string>(value) ?? undefined] : [],
-  });
+  return (await resolveAuthkitKeyring(purpose, crypto, appEncryption)).keyring;
 }
 
 /**
@@ -104,9 +123,13 @@ export async function keystoreCodec(
   options: { required?: boolean } = {},
 ): Promise<KeystoreCodec> {
   if (!encrypt) return new KeystoreCodec({ encrypt: false });
-  const keyring = await authkitKeyring(KEYSTORE_PURPOSE, crypto);
+  const { keyring, loadError } = await resolveAuthkitKeyring(KEYSTORE_PURPOSE, crypto);
   if (!keyring && options.required !== false) {
-    throw new Error('AuthKit keystore: serviço de encryption (APP_KEY) indisponível.');
+    // A causa (o erro do container, do import) vai junto: sem ela a mensagem não diz o que falhou.
+    const reason = loadError instanceof Error ? `: ${loadError.message}` : '.';
+    throw new Error(`AuthKit keystore: serviço de encryption (APP_KEY) indisponível${reason}`, {
+      cause: loadError,
+    });
   }
   return new KeystoreCodec({ encrypt, keyring });
 }

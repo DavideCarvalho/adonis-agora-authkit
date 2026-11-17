@@ -8,6 +8,7 @@ import {
   emptyColumnReport,
 } from '../crypto/authkit_crypto.js';
 import { type Keyring, open, SEALED_PREFIX, seal, sealedStatus } from '../crypto-kit/index.js';
+import { loadEncryptionService } from '../keys/keystore_crypto.js';
 import { type PasswordConfigInput, PasswordManager } from '../password/password_manager.js';
 import type { FetchLike, PwnedLogger } from '../password/pwned.js';
 import {
@@ -91,13 +92,10 @@ export function resolveEmailTokens(input?: EmailTokensConfigInput): ResolvedEmai
 }
 
 /**
- * Serviço de encryption do app (`config/encryption.ts`), carregado LAZY via import dinâmico.
- *
- * Não importamos `@adonisjs/core/services/encryption` no topo do módulo de
- * propósito: esse módulo faz `await app.booted()` na carga, o que quebra em
- * contextos sem app (harness de teste). O import dinâmico é disparado na
- * construção do encrypter (boot) e resolve antes da primeira request; até lá (e
- * em testes sem app, onde o import rejeita) o encrypter degrada p/ plaintext.
+ * Serviço de encryption do app (`config/encryption.ts`), carregado LAZY por
+ * `loadEncryptionService` (o container do app bootado que o provider capturou; sem provider, o
+ * `services/encryption` do core). Disparado na construção do encrypter (boot) e resolve antes da
+ * primeira request; até lá (e em testes sem app) o encrypter degrada p/ plaintext.
  */
 interface EncryptionService {
   encrypt(value: unknown, options?: { purpose?: string }): string;
@@ -111,13 +109,15 @@ let encGeneration = 0;
 function loadEncryption(): Promise<void> {
   if (encSvc) return Promise.resolve();
   if (encLoading) return encLoading;
-  encLoading = import('@adonisjs/core/services/encryption')
-    .then((m) => {
-      encSvc = (m as { default: EncryptionService }).default;
-      if (encSvc) encGeneration++;
+  encLoading = loadEncryptionService()
+    .then((svc) => {
+      encSvc = svc as unknown as EncryptionService;
+      encGeneration++;
     })
     .catch(() => {
-      /* sem app booted (ex.: testes) → encSvc fica undefined → plaintext */
+      /* sem app (ex.: testes) → encSvc fica undefined → plaintext. Sem guardar a falha: a próxima
+         chamada tenta de novo, em vez de deixar o processo inteiro em plaintext. */
+      encLoading = undefined;
     });
   return encLoading;
 }
