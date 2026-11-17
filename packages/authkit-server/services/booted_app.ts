@@ -19,6 +19,11 @@ export function setBootedApp(app: ApplicationService): void {
   bootedApp = app;
 }
 
+/** O app bootado, ou `undefined` quando o provider não registrou (scripts, testes sem app). */
+export function tryGetBootedApp(): ApplicationService | undefined {
+  return bootedApp;
+}
+
 /**
  * O app bootado capturado pelo provider. Lança se lido antes do provider registrar — um sinal claro
  * de que `@adonis-agora/authkit-server/authkit_server_provider` está ausente dos providers do app.
