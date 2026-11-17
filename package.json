@@ -26,7 +26,7 @@
     "@adonisjs/assembler": "8.6.0",
     "@adonisjs/tsconfig": "2.0.0",
     "@arethetypeswrong/cli": "0.18.5",
-    "@biomejs/biome": "2.6.6",
+    "@biomejs/biome": "2.6.7",
     "@changesets/changelog-github": "1.0.1",
     "@changesets/cli": "3.0.3",
     "publint": "0.3.25",
