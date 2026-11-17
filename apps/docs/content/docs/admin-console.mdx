@@ -455,7 +455,7 @@ under `{prefix}/api/*`. All endpoints are protected by the `adminGuard`.
 | `DELETE {prefix}/api/users/:id` | Delete user (cascade + anonymize) |
 | `GET {prefix}/api/users/:id/sessions` | List a single user's active sessions |
 | `POST {prefix}/api/users/:id/revoke-sessions` | Disconnect a user from all devices (revoke all their sessions + grants) |
-| `GET {prefix}/api/sessions` | Page of active sessions — `?filter[accountId]&search&sort&page&size`; `search` matches email or IP, `sort` is `-loginTs` (default) or `email`. With `first`/`after` instead of `page`, the global listing pages by cursor: most recent activity first, with no total (see [Sessions & revocation](#sessions--revocation)) |
+| `GET {prefix}/api/sessions` | Page of active sessions — `?filter[accountId]&search&sort&page&size`; `search` matches email or IP, `sort` is `-loginTs` (default) or `email`. With `first`/`after` instead of `page`, the global listing pages by cursor: most recent activity first, with no total; `last`/`before`, or cursor params mixed with `page` or `filter[accountId]`, answer 400 (see [Sessions & revocation](#sessions--revocation)) |
 | `POST {prefix}/api/sessions/revoke-all` | Revoke all sessions for an account |
 | `GET {prefix}/api/clients` | Page of adapter-stored OIDC clients — `?search&sort&page&size` |
 | `POST {prefix}/api/clients` | Create a dynamic client |
@@ -671,6 +671,10 @@ with the optional `listRecent({ limit, after })` method: a seek on `(expires_at,
 counted. The page keeps the walked cursors in the URL, so back and forward work. Without
 `listRecent` (the Redis adapter), or with a search, the page walks the bounded listing instead:
 up to 500 sessions, the most recent logins first.
+
+The cursor pages forward only (`first` and `after`). The API answers **400** to `last` or
+`before`, and to `first`/`after` mixed with `page` or with `filter[accountId]`: one account's
+sessions come back in a single page, so page those with `page`/`size`.
 
 On an existing install, add the index the database adapter reads through. It is an opt-in
 migration that `configure` publishes for new apps, and on Postgres it builds

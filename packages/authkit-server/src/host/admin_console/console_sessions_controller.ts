@@ -94,7 +94,19 @@ export default class ConsoleSessionsController {
       }
 
       const accountId = filter.first('accountId');
-      if (!accountId && wantsCursor(qs)) {
+      if (wantsCursor(qs)) {
+        // Mixed paging is refused rather than half-honoured: a client must not page the wrong
+        // thing while thinking it paged.
+        if (accountId) {
+          throw new InvalidColumnFilterError(
+            "One account's sessions come in a single page: drop first/after with filter[accountId].",
+          );
+        }
+        if (present(qs.page)) {
+          throw new InvalidColumnFilterError(
+            'Page either by cursor (first, after) or by number (page, size), not both.',
+          );
+        }
         return this.#cursorPage(adminSvc, qs, readSearch(qs), sort[0]);
       }
       let sessions: AdminSession[];
@@ -137,10 +149,11 @@ export default class ConsoleSessionsController {
     search: string,
     sort: { field: string; direction: 'asc' | 'desc' } | undefined,
   ) {
-    const { after, before, size } = readCursor(qs);
-    if (before !== undefined) {
+    // `readCursor` folds `last` into the size, so the raw params decide what was asked for.
+    if (present(qs.before) || present(qs.last)) {
       throw new InvalidColumnFilterError('Sessions page forward only: use after and first.');
     }
+    const { after, size } = readCursor(qs);
     let cursor: unknown[] | undefined;
     if (after !== undefined) {
       const decoded = decodeCursor(after);
@@ -287,8 +300,10 @@ export default class ConsoleSessionsController {
 }
 
 /** Does the request page by cursor (`first`, `after`, `last`, `before`) rather than `page`? */
+function present(value: unknown): boolean {
+  return value !== undefined && value !== '';
+}
+
 function wantsCursor(qs: Record<string, unknown>): boolean {
-  return ['first', 'after', 'last', 'before'].some(
-    (name) => qs[name] !== undefined && qs[name] !== '',
-  );
+  return ['first', 'after', 'last', 'before'].some((name) => present(qs[name]));
 }

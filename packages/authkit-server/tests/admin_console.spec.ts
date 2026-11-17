@@ -783,10 +783,20 @@ test.group('Console JSON API — controller unit tests', (group) => {
     assert.deepEqual(seen.slice(0, 3), ['cur-2', 'cur-1', 'cur-0']);
     assert.equal(new Set(seen).size, seen.length);
 
-    for (const qs of [{ after: 'forged' }, { before: 'x', last: '2' }]) {
+    for (const qs of [
+      { after: 'forged' },
+      { before: 'x', last: '2' },
+      // `last` alone is backward paging too, not a forward page size.
+      { last: '2' },
+      // Mixed paging is refused, not half-honoured.
+      { page: '2', first: '20' },
+      { filter: { accountId: 'cur-acc-0' }, first: '2' },
+      { filter: { accountId: 'cur-acc-0' }, after: 'x' },
+    ]) {
       const { ctx, captured } = fakeCtx({ service, qs });
       await ctrl.index(ctx);
       assert.equal(captured.status(), 400, JSON.stringify(qs));
+      assert.equal(captured.body().error.code, 'invalid_list_query');
     }
     // A search walks the bounded listing by position instead.
     const { ctx } = fakeCtx({ service, qs: { first: '1', search: 'nobody-matches' } });
