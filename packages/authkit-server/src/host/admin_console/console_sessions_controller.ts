@@ -102,7 +102,7 @@ export default class ConsoleSessionsController {
             "One account's sessions come in a single page: drop first/after with filter[accountId].",
           );
         }
-        if (present(qs.page)) {
+        if (present(qs.page) || present(qs.size)) {
           throw new InvalidColumnFilterError(
             'Page either by cursor (first, after) or by number (page, size), not both.',
           );

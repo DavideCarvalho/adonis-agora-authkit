@@ -790,6 +790,7 @@ test.group('Console JSON API — controller unit tests', (group) => {
       { last: '2' },
       // Mixed paging is refused, not half-honoured.
       { page: '2', first: '20' },
+      { size: '50', first: '5' },
       { filter: { accountId: 'cur-acc-0' }, first: '2' },
       { filter: { accountId: 'cur-acc-0' }, after: 'x' },
     ]) {
