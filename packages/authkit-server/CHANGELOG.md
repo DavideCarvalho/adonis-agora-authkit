@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.36
+
+### Patch Changes
+
+- [#510](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/510) [`3e66f10`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/3e66f1008d59c6aaa23a8d4fe888b6bdcbadbfae) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The keystore and the TOTP encrypter now get the app's `encryption` service from the booted app the provider captured, instead of importing `@adonisjs/core/services/encryption`. When it can't be loaded, the keystore error now carries the real cause (`AuthKit keystore: serviço de encryption (APP_KEY) indisponível: <cause>`, with `error.cause`) instead of only "indisponível", and a failed load is no longer kept for the life of the process.
+
 ## 1.0.0-rc.35
 
 ### Minor Changes
