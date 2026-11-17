@@ -49,3 +49,51 @@ test.group('DatabaseAdapter', (group) => {
     assert.isUndefined(await a.find('e'));
   });
 });
+
+test.group('DatabaseAdapter.listRecent', (group) => {
+  let db: any;
+  let realNow: () => number;
+  group.each.setup(async () => {
+    db = createTestDatabase();
+    await migrate(db);
+    realNow = Date.now;
+    return async () => {
+      Date.now = realNow;
+      await db.manager.closeAll();
+    };
+  });
+
+  test('walks the live sessions once, latest expiry first, across ties', async ({ assert }) => {
+    const a = new DatabaseAdapter('Session', db);
+    const t0 = realNow();
+    // Nine sessions written at three instants (same TTL), so most tie on expires_at.
+    for (let n = 0; n < 9; n++) {
+      Date.now = () => t0 + Math.floor(n / 3) * 1000;
+      await a.upsert(`s${n}`, { accountId: `u${n}` }, 3600);
+    }
+    Date.now = realNow;
+    await a.upsert('gone', { accountId: 'x' }, -1); // expired: never listed
+
+    const seen: string[] = [];
+    let after: { expiresAt: number; id: string } | undefined;
+    for (let guard = 0; guard < 10; guard++) {
+      const rows = await a.listRecent({ limit: 2, ...(after ? { after } : {}) });
+      seen.push(...rows.map((r) => r.id));
+      if (rows.length < 2) break;
+      const last = rows.at(-1)!;
+      after = { expiresAt: last.expiresAt, id: last.id };
+    }
+    assert.deepEqual(seen, ['s8', 's7', 's6', 's5', 's4', 's3', 's2', 's1', 's0']);
+  });
+
+  test('reads only the page it was asked for', async ({ assert }) => {
+    const a = new DatabaseAdapter('Session', db);
+    for (let n = 0; n < 5; n++) await a.upsert(`s${n}`, { accountId: 'u' }, 3600 + n);
+    const rows = await a.listRecent({ limit: 3 });
+    assert.deepEqual(
+      rows.map((r) => r.id),
+      ['s4', 's3', 's2'],
+    );
+    assert.deepEqual(rows[0]!.payload, { accountId: 'u' });
+  });
+});

@@ -69,6 +69,9 @@ function makeAudit() {
     async count(params: any) {
       return memoryAuditList(events, { ...params, size: 1e9 }).data.length;
     },
+    async countUpTo(params: any, limit: number) {
+      return Math.min(limit, memoryAuditList(events, { ...params, size: 1e9 }).data.length);
+    },
   };
 }
 
@@ -209,6 +212,7 @@ test.group('authkit dev tools — reads', () => {
     assert.equal(out.activeSessions, 1);
     assert.equal(out.clientsCount, 1);
     assert.equal(out.auditTotal, 1);
+    assert.isFalse(out.auditTotalCapped);
     assert.equal(out.recentEvents[0].type, 'login.success');
   });
 

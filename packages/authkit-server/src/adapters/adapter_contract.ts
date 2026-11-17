@@ -19,6 +19,12 @@ export interface EnumeratedArtifact {
   payload: Record<string, unknown>;
 }
 
+/** Posição em {@link OidcAdapter.listRecent}: o `expires_at` (epoch ms) e o id da última linha lida. */
+export interface RecentPosition {
+  expiresAt: number;
+  id: string;
+}
+
 /** Contrato que o oidc-provider espera de um adapter (um por model). */
 export interface OidcAdapter {
   upsert(id: string, payload: OidcPayload, expiresIn: number): Promise<void>;
@@ -51,6 +57,17 @@ export interface OidcAdapter {
    * mesmo resultado de `list()` filtrado pelos grants. OPCIONAL, como `listByAccount`.
    */
   listByGrantIds?(grantIds: string[]): Promise<EnumeratedArtifact[]>;
+  /**
+   * Artefatos vivos deste model, os de expiração mais distante primeiro — `(expires_at, id)`
+   * decrescente, que para uma sessão é a atividade mais recente (cada gravação renova o TTL) —,
+   * no máximo `limit`, estritamente depois de `after`. Uma página por vez, sem carregar o model
+   * inteiro: o que o console lista. OPCIONAL: sem ele o console carrega `list()` (limitado).
+   * Artefatos sem expiração ficam de fora.
+   */
+  listRecent?(query: {
+    limit: number;
+    after?: RecentPosition;
+  }): Promise<Array<EnumeratedArtifact & { expiresAt: number }>>;
   /**
    * Apaga (ou só conta, com `dryRun`) os artefatos EXPIRADOS deste model. OPCIONAL: um adapter
    * cujo backend já expira sozinho (Redis, com TTL) omite — não há o que apagar.

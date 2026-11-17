@@ -1,6 +1,10 @@
 import { getBootedApp } from '../../services/booted_app.js';
 import type { AccountStore } from '../accounts/account_store.js';
-import type { EnumeratedArtifact, OidcAdapter } from '../adapters/adapter_contract.js';
+import type {
+  EnumeratedArtifact,
+  OidcAdapter,
+  RecentPosition,
+} from '../adapters/adapter_contract.js';
 import { pickModelAdapterClass } from '../adapters/factory.js';
 import { buildPersonalAgentsRuntime } from '../agents/runtime.js';
 import type { OidcService } from '../provider/oidc_service.js';
@@ -263,8 +267,45 @@ export class AdminSessionsService {
   async listAllSessions(): Promise<{ sessions: AdminSession[]; truncated: boolean }> {
     const rows = await this.#listModel('Session');
     const truncated = rows.length > GLOBAL_SESSION_LIMIT;
-    const slice = truncated ? rows.slice(0, GLOBAL_SESSION_LIMIT) : rows;
+    // O corte fica com as MAIS RECENTES (login mais novo primeiro), não com as primeiras por id.
+    const byRecency = [...rows].sort(
+      (a, b) => ((b.payload.loginTs as number) ?? 0) - ((a.payload.loginTs as number) ?? 0),
+    );
+    const slice = truncated ? byRecency.slice(0, GLOBAL_SESSION_LIMIT) : byRecency;
+    return { sessions: await this.#withEmails(slice), truncated };
+  }
 
+  /** O adapter de sessões pagina por recência ({@link OidcAdapter.listRecent})? */
+  get canListRecent(): boolean {
+    return typeof this.#adapter('Session').listRecent === 'function';
+  }
+
+  /**
+   * Uma página das sessões ativas de TODAS as contas, as de atividade mais recente primeiro
+   * (`expires_at` decrescente — cada gravação da sessão renova o TTL), lida do adapter sem
+   * carregar as outras: `limit` linhas depois de `after`. `next` é a posição da última, quando
+   * há mais. Só com {@link canListRecent}.
+   */
+  async listRecentSessions(query: {
+    limit: number;
+    after?: RecentPosition;
+  }): Promise<{ sessions: AdminSession[]; next: RecentPosition | null }> {
+    const adapter = this.#adapter('Session');
+    if (!adapter.listRecent) return { sessions: [], next: null };
+    const rows = await adapter.listRecent({
+      limit: query.limit + 1,
+      ...(query.after ? { after: query.after } : {}),
+    });
+    const page = rows.slice(0, query.limit);
+    const last = page.at(-1);
+    return {
+      sessions: await this.#withEmails(page),
+      next: rows.length > query.limit && last ? { expiresAt: last.expiresAt, id: last.id } : null,
+    };
+  }
+
+  /** Sessões do adapter → {@link AdminSession}, com o email de cada conta (uma leitura por conta). */
+  async #withEmails(slice: EnumeratedArtifact[]): Promise<AdminSession[]> {
     // Cache accountId → email para evitar N+1
     const emailCache = new Map<string, string | null>();
     const resolveEmail = async (accountId: string): Promise<string | null> => {
@@ -289,7 +330,7 @@ export class AdminSessionsService {
       }),
     );
 
-    return { sessions, truncated };
+    return sessions;
   }
 
   /**

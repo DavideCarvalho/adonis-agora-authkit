@@ -1,5 +1,6 @@
 import '../augmentations.js';
 import type { HttpContext } from '@adonisjs/core/http';
+import { auditTotalOf } from '../../audit/audit_sink.js';
 import { AdminClientsService } from '../admin_clients_service.js';
 import { AdminSessionsService } from '../admin_sessions_service.js';
 import { computeAdminStats } from '../admin_stats_service.js';
@@ -10,7 +11,8 @@ import { computeAdminStats } from '../admin_stats_service.js';
  * Métricas-resumo do IdP para o dashboard do console React. Reutiliza
  * `computeAdminStats` (mesma fonte do console Edge) e adiciona:
  * - `clientsCount`   — número de clients no adapter (0 quando o adapter não enumera)
- * - `auditTotal`     — total de eventos de auditoria (`null` quando o sink não conta)
+ * - `auditTotal`     — eventos de auditoria, contados até 1000 (`auditTotalCapped`: há mais);
+ *                      `null` quando o sink não tem `countUpTo`
  * - `recentEvents`   — últimos 5 eventos de auditoria ([] quando não suporta)
  */
 export default class ConsoleOverviewController {
@@ -25,7 +27,7 @@ export default class ConsoleOverviewController {
 
     const recentResult =
       typeof cfg.audit?.list === 'function' ? await cfg.audit.list({ size: 5 }) : null;
-    const auditTotal = typeof cfg.audit?.count === 'function' ? await cfg.audit.count({}) : null;
+    const { total: auditTotal, capped: auditTotalCapped } = await auditTotalOf(cfg.audit);
 
     return {
       usersTotal: stats.totalUsers,
@@ -39,6 +41,7 @@ export default class ConsoleOverviewController {
       auditSupported: stats.auditSupported,
       clientsCount,
       auditTotal,
+      auditTotalCapped,
       recentEvents: (recentResult?.data ?? []).map((e: any) => ({
         id: e.id,
         type: e.type,

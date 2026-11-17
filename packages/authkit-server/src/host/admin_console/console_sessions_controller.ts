@@ -1,4 +1,5 @@
 import '../augmentations.js';
+import { decodeCursor, encodeCursor, InvalidColumnFilterError } from '@adonis-agora/filter';
 import type { HttpContext } from '@adonisjs/core/http';
 import { ACCOUNT_SESSION_KEY } from '../account_session_key.js';
 import { apiError, grantDto, sessionDto } from '../admin_api/dto.js';
@@ -6,6 +7,7 @@ import { type AdminSession, AdminSessionsService } from '../admin_sessions_servi
 import { sessionAccountValidator } from '../admin_validators.js';
 import {
   pageRows,
+  readCursor,
   readListFilter,
   readSearch,
   readSort,
@@ -92,6 +94,9 @@ export default class ConsoleSessionsController {
       }
 
       const accountId = filter.first('accountId');
+      if (!accountId && wantsCursor(qs)) {
+        return this.#cursorPage(adminSvc, qs, readSearch(qs), sort[0]);
+      }
       let sessions: AdminSession[];
       let grants: ReturnType<typeof grantDto>[] = [];
       let truncated = false;
@@ -118,6 +123,85 @@ export default class ConsoleSessionsController {
       const page = pageRows(sorted, qs);
       return { ...page, data: page.data.map(sessionDto), supported: true, truncated, grants };
     });
+  }
+
+  /**
+   * The global listing by cursor (`first`, `after`): `{ data, meta: { nextCursor, … }, supported,
+   * truncated: false, grants: [] }`. Most recent activity first, read one page at a time from a
+   * database adapter (`listRecent`), with no total. A search, an email sort or an adapter that
+   * cannot page (Redis) walks the bounded in-memory listing instead, by position.
+   */
+  async #cursorPage(
+    adminSvc: AdminSessionsService,
+    qs: Record<string, unknown>,
+    search: string,
+    sort: { field: string; direction: 'asc' | 'desc' } | undefined,
+  ) {
+    const { after, before, size } = readCursor(qs);
+    if (before !== undefined) {
+      throw new InvalidColumnFilterError('Sessions page forward only: use after and first.');
+    }
+    let cursor: unknown[] | undefined;
+    if (after !== undefined) {
+      const decoded = decodeCursor(after);
+      if (decoded === null) throw new InvalidColumnFilterError('Invalid cursor.');
+      cursor = decoded;
+    }
+    const byRecency =
+      !search && (sort === undefined || (sort.field === 'loginTs' && sort.direction === 'desc'));
+    if (byRecency && adminSvc.canListRecent) {
+      const position =
+        cursor === undefined
+          ? undefined
+          : cursor[0] === 'r' && typeof cursor[1] === 'number' && typeof cursor[2] === 'string'
+            ? { expiresAt: cursor[1], id: cursor[2] }
+            : null;
+      if (position === null) throw new InvalidColumnFilterError('Invalid cursor.');
+      const page = await adminSvc.listRecentSessions({
+        limit: size,
+        ...(position ? { after: position } : {}),
+      });
+      return {
+        data: page.sessions.map(sessionDto),
+        meta: {
+          nextCursor: page.next ? encodeCursor(['r', page.next.expiresAt, page.next.id]) : null,
+          prevCursor: null,
+          hasNext: page.next !== null,
+          hasPrev: position !== undefined,
+        },
+        supported: true,
+        truncated: false,
+        grants: [],
+      };
+    }
+    // The bounded fallback: the capped listing, searched and sorted in memory, walked by position.
+    const offset =
+      cursor === undefined
+        ? 0
+        : cursor[0] === 'o' && Number.isSafeInteger(cursor[1]) && (cursor[1] as number) >= 0
+          ? (cursor[1] as number)
+          : null;
+    if (offset === null) throw new InvalidColumnFilterError('Invalid cursor.');
+    const all = await adminSvc.listAllSessions();
+    const found = searchRows(all.sessions, search, [(s) => s.email, (s) => s.ip]);
+    const sorted = sortRows(found, sort ? [sort] : [], {
+      loginTs: (s) => s.loginTs ?? null,
+      email: (s) => s.email ?? null,
+    });
+    const end = offset + size;
+    const hasNext = sorted.length > end;
+    return {
+      data: sorted.slice(offset, end).map(sessionDto),
+      meta: {
+        nextCursor: hasNext ? encodeCursor(['o', end]) : null,
+        prevCursor: null,
+        hasNext,
+        hasPrev: offset > 0,
+      },
+      supported: true,
+      truncated: all.truncated,
+      grants: [],
+    };
   }
 
   /** GET {prefix}/api/users/:id/sessions */
@@ -200,4 +284,11 @@ export default class ConsoleSessionsController {
 
     return { ok: true, ...result };
   }
+}
+
+/** Does the request page by cursor (`first`, `after`, `last`, `before`) rather than `page`? */
+function wantsCursor(qs: Record<string, unknown>): boolean {
+  return ['first', 'after', 'last', 'before'].some(
+    (name) => qs[name] !== undefined && qs[name] !== '',
+  );
 }

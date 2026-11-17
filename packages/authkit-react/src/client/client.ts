@@ -47,6 +47,8 @@ import type {
   AdminOrgListResult,
   // Admin
   AdminOverview,
+  AdminRecentSessionsParams,
+  AdminRecentSessionsResult,
   AdminSessionListParams,
   AdminSessionListResult,
   AdminUser,
@@ -334,6 +336,20 @@ class AuthkitClient {
       /** GET {base}/sessions?filter[accountId]=&search=&sort=&page=&size= */
       list: ({ accountId, ...params }: AdminSessionListParams = {}) =>
         this.get<AdminSessionListResult>(this.b(`/sessions${listQuery(params, { accountId })}`)),
+      /**
+       * GET {base}/sessions?first=&after= — every account's sessions, most recent activity first,
+       * one page at a time and with no total (a database adapter reads only that page).
+       */
+      listRecent: (params: AdminRecentSessionsParams = {}) =>
+        this.get<AdminRecentSessionsResult>(
+          this.b(
+            `/sessions${listQuery({
+              first: params.first ?? 20,
+              ...(params.after ? { after: params.after } : {}),
+              ...(params.search ? { search: params.search } : {}),
+            })}`,
+          ),
+        ),
       /** POST {base}/sessions/revoke-all */
       revokeAll: (accountId?: string) =>
         this.post<RevokeSessionsResult>(

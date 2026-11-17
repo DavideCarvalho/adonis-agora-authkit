@@ -128,6 +128,26 @@ export interface AdminSessionListResult extends OffsetPage<AdminSessionEntry> {
   grants: AdminGrantEntry[];
 }
 
+/** {@link AuthkitClient.admin.sessions.listRecent}: a page size and, past the first page, `after`. */
+export interface AdminRecentSessionsParams {
+  /** `meta.nextCursor` of the previous page. */
+  after?: string;
+  /** Page size. Default 20, at most 200. */
+  first?: number;
+  /** Free-text search (email, IP): walks the bounded listing instead of the database. */
+  search?: string;
+}
+
+/**
+ * A page of the global session listing by cursor, most recent activity first: no total. `truncated`
+ * is set only when a search walked the capped listing.
+ */
+export interface AdminRecentSessionsResult extends CursorPageResponse<AdminSessionEntry> {
+  supported: boolean;
+  truncated: boolean;
+  grants: AdminGrantEntry[];
+}
+
 export interface RevokeSessionsResult {
   revoked?: number;
   [key: string]: unknown;
@@ -429,7 +449,10 @@ export interface AdminOverview {
   auditSupported: boolean;
   clientsCount: number;
   /** `null` when the audit sink cannot count. */
+  /** Audit events, counted up to 1000; `null` when the sink cannot count that way. */
   auditTotal: number | null;
+  /** `true` when there are more than {@link auditTotal} events (show it as "1,000+"). */
+  auditTotalCapped?: boolean;
   recentEvents: AuditEventEntry[];
 }
 

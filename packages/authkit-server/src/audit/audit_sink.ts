@@ -222,8 +222,13 @@ export interface AuditSink {
   record(event: AuditEvent): Promise<void>;
   /** One page of events, newest first (optional: only sinks that can be queried). */
   list?(params: ListAuditParams): Promise<AuditPage>;
-  /** How many events match (optional; the admin overview shows it when present). */
+  /** How many events match (optional). Reads every matching row: keep it off hot paths. */
   count?(params: CountAuditParams): Promise<number>;
+  /**
+   * How many events match, counting at most `limit` of them (optional). Bounded however large the
+   * trail grows: the admin overview shows `limit` as "N+" instead of counting the whole table.
+   */
+  countUpTo?(params: CountAuditParams, limit: number): Promise<number>;
   /**
    * Anonimiza (LGPD/GDPR) os eventos de uma conta SEM apagar o histórico: remove
    * os identificadores pessoais (`email`, `ip`) e re-escreve o `accountId` para um
@@ -233,4 +238,23 @@ export interface AuditSink {
    * Retorna a quantidade de linhas afetadas.
    */
   anonymizeAccount?(accountId: string): Promise<number>;
+}
+
+/** The cap {@link auditTotalOf} counts up to. */
+export const AUDIT_TOTAL_CAP = 1000;
+
+/**
+ * The audit total the admin overview shows, bounded: the sink's `countUpTo` reads at most
+ * {@link AUDIT_TOTAL_CAP} rows, and `capped` says the real number is at least that (shown as
+ * "1,000+"). A sink without `countUpTo` answers `null`: an exact `count` reads the whole trail, which
+ * is not worth it on every overview load.
+ */
+export async function auditTotalOf(
+  sink: AuditSink | undefined | null,
+): Promise<{ total: number | null; capped: boolean }> {
+  if (typeof sink?.countUpTo !== 'function') return { total: null, capped: false };
+  const total = await sink.countUpTo({}, AUDIT_TOTAL_CAP + 1);
+  return total > AUDIT_TOTAL_CAP
+    ? { total: AUDIT_TOTAL_CAP, capped: true }
+    : { total, capped: false };
 }

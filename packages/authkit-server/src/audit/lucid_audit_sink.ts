@@ -147,6 +147,12 @@ export function lucidAuditSink(Model: any): AuditSink {
       return Number(result[0]?.$extras?.total ?? 0);
     },
 
+    async countUpTo(params: CountAuditParams, limit: number): Promise<number> {
+      // Reads at most `limit` ids (the primary key), never the whole table.
+      const rows = await filtered(Model.query(), params).select('id').limit(Math.max(0, limit));
+      return rows.length;
+    },
+
     /**
      * Anonimiza (LGPD/GDPR) as linhas de audit cujo subject (`accountId`) OU ator
      * (`actorId`) é a conta dada: substitui o id pelo pseudônimo estável e zera os

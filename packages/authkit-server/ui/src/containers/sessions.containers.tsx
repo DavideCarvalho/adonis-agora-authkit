@@ -1,8 +1,8 @@
-import { useSessionsQueryOptions } from '@adonis-agora/authkit-react';
+import { useRecentSessionsQueryOptions } from '@adonis-agora/authkit-react';
 import { useQuery } from '@tanstack/react-query';
 import { EmptyState } from '../agora-kit/blocks/empty-state';
 import { Badge } from '../agora-kit/ui/badge';
-import { Pagination } from '../components/Pagination';
+import { CursorPagination } from '../components/Pagination';
 import { AdminTable, Cell, Code, Row, Surface } from '../components/primitives';
 import { QueryBoundary } from '../components/QueryBoundary';
 import { SkeletonTable } from '../components/Skeleton';
@@ -10,8 +10,11 @@ import { SkeletonTable } from '../components/Skeleton';
 const PAGE_SIZE = 20;
 
 interface SessionsTableContainerProps {
-  page: number;
-  onPage: (p: number) => void;
+  /** The `after` cursor of the page shown (absent on the first one). */
+  after?: string;
+  /** Older page: push `nextCursor`. Newer page: pop back to the previous cursor. */
+  onNext: (nextCursor: string) => void;
+  onPrevious: () => void;
 }
 
 function SessionsIcon() {
@@ -23,12 +26,16 @@ function SessionsIcon() {
   );
 }
 
-export function SessionsTableContainer({ page, onPage }: SessionsTableContainerProps) {
+/**
+ * Every account's active sessions, most recent activity first, one page at a time by cursor: a
+ * database adapter reads only that page, and nothing counts the whole table.
+ */
+export function SessionsTableContainer({ after, onNext, onPrevious }: SessionsTableContainerProps) {
   const { data, isLoading, error, refetch } = useQuery(
-    useSessionsQueryOptions({ page, size: PAGE_SIZE }),
+    useRecentSessionsQueryOptions({ first: PAGE_SIZE, ...(after ? { after } : {}) }),
   );
   const sessions = data?.data ?? [];
-  const total = data?.meta.total ?? 0;
+  const meta = data?.meta;
 
   return (
     <Surface>
@@ -90,16 +97,15 @@ export function SessionsTableContainer({ page, onPage }: SessionsTableContainerP
                 </Row>
               ))}
             </AdminTable>
-            <Pagination page={page} total={total} size={PAGE_SIZE} onPage={onPage} />
+            <CursorPagination
+              hasPrev={after !== undefined}
+              hasNext={!!meta?.hasNext}
+              onPrev={onPrevious}
+              onNext={() => meta?.nextCursor && onNext(meta.nextCursor)}
+            />
           </>
         )}
       </QueryBoundary>
     </Surface>
   );
-}
-
-// Re-export total for the page header
-export function useSessionsTotal() {
-  const { data } = useQuery(useSessionsQueryOptions({ page: 1, size: PAGE_SIZE }));
-  return data?.meta.total ?? 0;
 }

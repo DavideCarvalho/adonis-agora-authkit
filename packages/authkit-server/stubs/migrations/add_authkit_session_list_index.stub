@@ -1,0 +1,26 @@
+{{{
+  exports({ to: app.migrationsPath((new Date().getTime() + 1) + '_add_authkit_session_list_index.ts') })
+}}}
+import { BaseSchema } from '@adonisjs/lucid/schema'
+import { createAuthkitSessionListIndex, dropAuthkitSessionListIndex } from '@adonis-agora/authkit-server'
+
+/**
+ * The admin console's session list index: the global Sessions page reads its next page of
+ * sessions, most recent activity first, from '(model_name, expires_at, id)' on
+ * 'authkit_oidc_payloads' instead of loading every session. Run it once on an existing install.
+ *
+ * On Postgres the index is built CONCURRENTLY, so logins go on while it builds. That cannot run
+ * inside a transaction, hence 'disableTransactions'. With 'schema.name' / 'schema.connection'
+ * in config/authkit.ts, pass the same values: 'createAuthkitSessionListIndex(this.db, { schema })'.
+ */
+export default class extends BaseSchema {
+  static disableTransactions = true
+
+  async up() {
+    await createAuthkitSessionListIndex(this.db)
+  }
+
+  async down() {
+    await dropAuthkitSessionListIndex(this.db)
+  }
+}
