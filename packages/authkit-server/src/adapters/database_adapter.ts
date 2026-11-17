@@ -1,5 +1,10 @@
 import type { Database } from '@adonisjs/lucid/database';
-import type { EnumeratedArtifact, OidcAdapter, OidcPayload } from './adapter_contract.js';
+import type {
+  EnumeratedArtifact,
+  OidcAdapter,
+  OidcPayload,
+  RecentPosition,
+} from './adapter_contract.js';
 
 /** Nome da tabela (sem schema). O adapter recebe o nome já qualificado pelo factory. */
 export const OIDC_PAYLOADS_TABLE = 'authkit_oidc_payloads';
@@ -249,6 +254,38 @@ export class DatabaseAdapter implements OidcAdapter {
    */
   async list(): Promise<EnumeratedArtifact[]> {
     return this.#toArtifacts(await this.#liveQuery().orderBy('id', 'asc'));
+  }
+
+  /**
+   * Os artefatos vivos de expiração mais distante primeiro, uma página por vez: seek em
+   * `(expires_at, id)` decrescente, sem OFFSET. O índice opcional
+   * `authkit_oidc_payloads_model_expires_idx` `(model_name, expires_at, id)` serve a leitura.
+   */
+  async listRecent(query: {
+    limit: number;
+    after?: RecentPosition;
+  }): Promise<Array<EnumeratedArtifact & { expiresAt: number }>> {
+    const q = this.#query()
+      .whereNotNull('expires_at')
+      .where('expires_at', '>', this.#timestamp(Date.now()));
+    const after = query.after;
+    if (after !== undefined) {
+      const at = this.#timestamp(after.expiresAt);
+      q.where((seek: any) =>
+        seek
+          .where('expires_at', '<=', at)
+          .where((tie: any) => tie.where('expires_at', '<', at).orWhere('id', '<', after.id)),
+      );
+    }
+    const rows = await q
+      .orderBy('expires_at', 'desc')
+      .orderBy('id', 'desc')
+      .limit(Math.max(0, query.limit));
+    return rows.map((row: any) => ({
+      id: row.id,
+      payload: JSON.parse(row.payload) as Record<string, unknown>,
+      expiresAt: new Date(row.expires_at).getTime(),
+    }));
   }
 
   /**

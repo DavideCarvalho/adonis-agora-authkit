@@ -455,7 +455,7 @@ under `{prefix}/api/*`. All endpoints are protected by the `adminGuard`.
 | `DELETE {prefix}/api/users/:id` | Delete user (cascade + anonymize) |
 | `GET {prefix}/api/users/:id/sessions` | List a single user's active sessions |
 | `POST {prefix}/api/users/:id/revoke-sessions` | Disconnect a user from all devices (revoke all their sessions + grants) |
-| `GET {prefix}/api/sessions` | Page of active sessions — `?filter[accountId]&search&sort&page&size`; `search` matches email or IP, `sort` is `-loginTs` (default) or `email` |
+| `GET {prefix}/api/sessions` | Page of active sessions — `?filter[accountId]&search&sort&page&size`; `search` matches email or IP, `sort` is `-loginTs` (default) or `email`. With `first`/`after` instead of `page`, the global listing pages by cursor: most recent activity first, with no total; `last`/`before`, or cursor params mixed with `page` or `filter[accountId]`, answer 400 (see [Sessions & revocation](#sessions--revocation)) |
 | `POST {prefix}/api/sessions/revoke-all` | Revoke all sessions for an account |
 | `GET {prefix}/api/clients` | Page of adapter-stored OIDC clients — `?search&sort&page&size` |
 | `POST {prefix}/api/clients` | Create a dynamic client |
@@ -601,7 +601,10 @@ and the audit sink into one payload:
 Everything after the user count depends on optional capabilities, and the response says so
 rather than guessing: when the audit sink cannot be queried (`list` is not implemented) the
 payload reports `auditSupported: false`, MAU and the per-day series come back zeroed, and
-the recent-activity list is empty. The audit total is `null` when the sink has no `count`. The static counts still render.
+the recent-activity list is empty. The audit total counts up to 1,000 events. Past that it
+reads `1000` with `auditTotalCapped: true`, and the console shows "1,000+", so the overview
+never counts the whole trail. It is `null` when the sink has no `countUpTo` (the Lucid sink has
+one; add it to a custom sink). The static counts still render.
 Active sessions behave the same way: the adapter's enumeration is optional, and the count
 is `null` rather than a fabricated zero when it is unavailable.
 
@@ -660,6 +663,42 @@ counts in `metadata`.
 Like the client list, enumeration relies on the adapter's **optional** `list?()` capability
 (the database and Redis adapters both implement it). When the adapter can't enumerate, the
 page **degrades gracefully** with a notice instead of erroring.
+
+The Sessions page lists every account's sessions, most recent activity first, a page at a time
+(`GET {prefix}/api/sessions?first=20&after=…`). On the database adapter each page is read
+with the optional `listRecent({ limit, after })` method: a seek on `(expires_at, id)`, where
+`expires_at` moves forward every time a session is saved. Nothing else is loaded and nothing is
+counted. The page keeps the walked cursors in the URL, so back and forward work. Without
+`listRecent` (the Redis adapter), or with a search, the page walks the bounded listing instead:
+up to 500 sessions, the most recent logins first.
+
+The cursor pages forward only (`first` and `after`). The API answers **400** to `last` or
+`before`, and to `first`/`after` mixed with `page` or with `filter[accountId]`: one account's
+sessions come back in a single page, so page those with `page`/`size`.
+
+On an existing install, add the index the database adapter reads through. It is an opt-in
+migration that `configure` publishes for new apps, and on Postgres it builds
+`CONCURRENTLY`, so logins go on during the build:
+
+```ts title="database/migrations/xxxx_add_authkit_session_list_index.ts"
+import { BaseSchema } from '@adonisjs/lucid/schema'
+import { createAuthkitSessionListIndex, dropAuthkitSessionListIndex } from '@adonis-agora/authkit-server'
+
+export default class extends BaseSchema {
+  static disableTransactions = true
+
+  async up() {
+    await createAuthkitSessionListIndex(this.db)
+  }
+
+  async down() {
+    await dropAuthkitSessionListIndex(this.db)
+  }
+}
+```
+
+With `schema.name` or `schema.connection` set, pass the same values:
+`createAuthkitSessionListIndex(this.db, { schema: 'auth' })`.
 
 Per-account work (the account's sessions page, single-session login, "sign out everywhere")
 uses two further **optional** adapter methods when the adapter has them:

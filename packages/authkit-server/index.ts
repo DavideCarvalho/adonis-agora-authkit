@@ -739,7 +739,13 @@ export {
 } from './src/provider/registration_policy.js';
 export { registerOidcRoutes } from './src/register_routes.js';
 export type { EnsureSchemaOptions, EnsureSchemaReport } from './src/schema/ensure.js';
-export { ensureAuthkitSchema, ensureAuthkitTables } from './src/schema/ensure.js';
+export {
+  AUTHKIT_SESSION_LIST_INDEX,
+  createAuthkitSessionListIndex,
+  dropAuthkitSessionListIndex,
+  ensureAuthkitSchema,
+  ensureAuthkitTables,
+} from './src/schema/ensure.js';
 export { AuthkitSchemaError } from './src/schema/tables_location.js';
 export type { ServiceTenantInfo } from './src/service_tenants/client_metadata.js';
 export type {

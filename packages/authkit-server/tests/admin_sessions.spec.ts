@@ -251,6 +251,58 @@ test.group('AdminSessionsService (sessões/grants + revogação adapter-backed)'
     assert.equal(sessions.length, 500);
   });
 
+  test('listAllSessions keeps the most recent logins when it truncates', async ({
+    assert,
+    cleanup,
+  }) => {
+    const port = 9856;
+    const { service, server } = await startService(port, db);
+    cleanup(() => new Promise<void>((r) => server.close(() => r())));
+
+    const session = new DatabaseAdapter('Session', db);
+    for (let i = 0; i < 501; i++) {
+      // `a-…` ids sort first but logged in first: a cut by id would keep them.
+      await session.upsert(
+        `${i === 0 ? 'z' : 'a'}-sess-${i}`,
+        { accountId: `r-${i}`, loginTs: 1700000000 + i } as any,
+        3600,
+      );
+    }
+    const admin = new AdminSessionsService(service);
+    const { sessions } = await admin.listAllSessions();
+    assert.equal(sessions[0]!.accountId, 'r-500');
+    assert.notInclude(
+      sessions.map((s) => s.accountId),
+      'r-0',
+    );
+  });
+
+  test('listRecentSessions pages the sessions by recency, with emails, no total', async ({
+    assert,
+    cleanup,
+  }) => {
+    const port = 9857;
+    const { service, server } = await startService(port, db);
+    cleanup(() => new Promise<void>((r) => server.close(() => r())));
+
+    const session = new DatabaseAdapter('Session', db);
+    for (let i = 0; i < 5; i++) {
+      await session.upsert(`sess-${i}`, { accountId: `acc-${i}`, loginTs: 1 } as any, 3600 + i);
+    }
+    const admin = new AdminSessionsService(service);
+    assert.isTrue(admin.canListRecent);
+    const seen: string[] = [];
+    let after: { expiresAt: number; id: string } | undefined;
+    for (let guard = 0; guard < 10; guard++) {
+      const page = await admin.listRecentSessions({ limit: 2, ...(after ? { after } : {}) });
+      seen.push(...page.sessions.map((s) => s.id));
+      for (const s of page.sessions) assert.isString(s.email);
+      if (!page.next) break;
+      after = page.next;
+    }
+    assert.deepEqual(seen, ['sess-4', 'sess-3', 'sess-2', 'sess-1', 'sess-0']);
+  });
+
   test('canList=false e listas vazias quando o adapter não enumera', async ({ assert }) => {
     // Adapter sem `list`: o serviço degrada graciosamente.
     class NoListAdapter {

@@ -31,6 +31,7 @@ import {
   authkitTable,
   authkitTablesClient,
   createDbSchema,
+  dialectOf,
   validateSchemaName,
 } from './tables_location.js';
 
@@ -706,4 +707,63 @@ export async function ensureAuthkitSchema(
   }
 
   return report;
+}
+
+/** O índice de {@link createAuthkitSessionListIndex}: a listagem de sessões por atividade recente. */
+export const AUTHKIT_SESSION_LIST_INDEX = 'authkit_oidc_payloads_model_expires_idx';
+
+/**
+ * Cria (se faltar) o índice `(model_name, expires_at, id)` em `authkit_oidc_payloads`, que serve a
+ * listagem global de sessões do console, uma página por vez, pela atividade mais recente. NÃO faz
+ * parte de {@link ensureAuthkitSchema} (boot): numa tabela grande a construção demora, então vem
+ * na migration opcional `add_authkit_session_list_index`, rodada uma vez. No Postgres é
+ * `CREATE INDEX CONCURRENTLY IF NOT EXISTS` — as escritas seguem durante a construção (rode fora
+ * de transação).
+ */
+export async function createAuthkitSessionListIndex(
+  db: any,
+  options: { connection?: string; schema?: string } = {},
+): Promise<void> {
+  const loc = resolveLocation(options);
+  const conn = authkitTablesClient(db, loc);
+  assertSchemaSupported(conn, loc.schema);
+  const table = authkitTable(loc, 'authkit_oidc_payloads');
+  if (dialectOf(conn) === 'postgres') {
+    await conn.rawQuery(
+      'CREATE INDEX CONCURRENTLY IF NOT EXISTS ?? ON ?? (model_name, expires_at, id)',
+      [AUTHKIT_SESSION_LIST_INDEX, table],
+    );
+    return;
+  }
+  try {
+    await conn.schema.alterTable(table, (t: any) => {
+      t.index(['model_name', 'expires_at', 'id'], AUTHKIT_SESSION_LIST_INDEX);
+    });
+  } catch (error) {
+    // SQLite/MySQL: o índice já existe.
+    if (!/already exists|duplicate key name/i.test((error as Error).message)) throw error;
+  }
+}
+
+/** Remove o índice de {@link createAuthkitSessionListIndex} (o `down` da migration). */
+export async function dropAuthkitSessionListIndex(
+  db: any,
+  options: { connection?: string; schema?: string } = {},
+): Promise<void> {
+  const loc = resolveLocation(options);
+  const conn = authkitTablesClient(db, loc);
+  const table = authkitTable(loc, 'authkit_oidc_payloads');
+  if (dialectOf(conn) === 'postgres') {
+    await conn.rawQuery('DROP INDEX CONCURRENTLY IF EXISTS ??', [
+      authkitTable(loc, AUTHKIT_SESSION_LIST_INDEX),
+    ]);
+    return;
+  }
+  try {
+    await conn.schema.alterTable(table, (t: any) => {
+      t.dropIndex(['model_name', 'expires_at', 'id'], AUTHKIT_SESSION_LIST_INDEX);
+    });
+  } catch (error) {
+    if (!/no such index|check that|can't drop/i.test((error as Error).message)) throw error;
+  }
 }

@@ -17,6 +17,7 @@ import { BaseModel, beforeCreate, column } from '@adonisjs/lucid/orm';
  */
 import { test } from '@japa/runner';
 import type { AccountStore, AuthAccount } from '../src/accounts/account_store.js';
+import { DatabaseAdapter } from '../src/adapters/database_adapter.js';
 import type { AuditSink, StoredAuditEvent } from '../src/audit/audit_sink.js';
 import type { AuthServerConfigInput } from '../src/define_config.js';
 import { adapters, defineConfig, resolveAdmin } from '../src/define_config.js';
@@ -159,6 +160,8 @@ function memoryAuditSink(): AuditSink & { events: StoredAuditEvent[] } {
     },
     list: async (params) => memoryAuditList(events, params),
     count: async (params) => memoryAuditList(events, { ...params, size: 1e9 }).data.length,
+    countUpTo: async (params, limit) =>
+      Math.min(limit, memoryAuditList(events, { ...params, size: 1e9 }).data.length),
   };
 }
 
@@ -439,7 +442,18 @@ test.group('Console JSON API — controller unit tests', (group) => {
     assert.isBoolean(result.auditSupported);
     assert.isNumber(result.clientsCount);
     assert.isNumber(result.auditTotal);
+    assert.isFalse(result.auditTotalCapped);
     assert.isArray(result.recentEvents);
+  });
+
+  test('GET /api/overview — the audit total stops counting at 1000 (shown as 1000+)', async ({
+    assert,
+  }) => {
+    const sink = service.config.audit;
+    for (let i = 0; i < 1005; i++) await sink.record({ type: 'login.success', accountId: 'u' });
+    const result: any = await new ConsoleOverviewController().handle(fakeCtx({ service }).ctx);
+    assert.equal(result.auditTotal, 1000);
+    assert.isTrue(result.auditTotalCapped);
   });
 
   test('GET /api/overview — clientsCount reflete clients da config', async ({ assert }) => {
@@ -743,6 +757,53 @@ test.group('Console JSON API — controller unit tests', (group) => {
     assert.isNumber(result.meta.total);
     assert.isArray(result.grants);
     assert.isBoolean(result.truncated);
+  });
+
+  test('GET /api/sessions?first= — sessions by recency, one page at a time, no total', async ({
+    assert,
+  }) => {
+    const session = new DatabaseAdapter('Session', db);
+    for (let i = 0; i < 3; i++) {
+      await session.upsert(`cur-${i}`, { accountId: `cur-acc-${i}`, loginTs: 1 } as any, 7200 + i);
+    }
+    const ctrl = new ConsoleSessionsController();
+    const seen: string[] = [];
+    let after: string | null = null;
+    for (let guard = 0; guard < 10; guard++) {
+      const { ctx } = fakeCtx({ service, qs: { first: '2', ...(after ? { after } : {}) } });
+      const result: any = await ctrl.index(ctx);
+      assert.isTrue(result.supported);
+      assert.isUndefined(result.meta.total);
+      assert.equal(result.meta.hasPrev, after !== null);
+      seen.push(...result.data.map((s: any) => s.id));
+      if (!result.meta.hasNext) break;
+      after = result.meta.nextCursor;
+    }
+    // The three just written expire last, so they lead; nothing repeats.
+    assert.deepEqual(seen.slice(0, 3), ['cur-2', 'cur-1', 'cur-0']);
+    assert.equal(new Set(seen).size, seen.length);
+
+    for (const qs of [
+      { after: 'forged' },
+      { before: 'x', last: '2' },
+      // `last` alone is backward paging too, not a forward page size.
+      { last: '2' },
+      // Mixed paging is refused, not half-honoured.
+      { page: '2', first: '20' },
+      { size: '50', first: '5' },
+      { filter: { accountId: 'cur-acc-0' }, first: '2' },
+      { filter: { accountId: 'cur-acc-0' }, after: 'x' },
+    ]) {
+      const { ctx, captured } = fakeCtx({ service, qs });
+      await ctrl.index(ctx);
+      assert.equal(captured.status(), 400, JSON.stringify(qs));
+      assert.equal(captured.body().error.code, 'invalid_list_query');
+    }
+    // A search walks the bounded listing by position instead.
+    const { ctx } = fakeCtx({ service, qs: { first: '1', search: 'nobody-matches' } });
+    const searched: any = await ctrl.index(ctx);
+    assert.deepEqual(searched.data, []);
+    assert.isFalse(searched.meta.hasNext);
   });
 
   test('GET /api/sessions com accountId inexistente → 404', async ({ assert }) => {

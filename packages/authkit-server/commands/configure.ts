@@ -49,6 +49,8 @@ export async function configure(command: Configure) {
     },
   });
   await codemods.makeUsingStub(stubsRoot, 'models/auth_user.stub', {});
+  // Opt-in on an existing install (CONCURRENTLY on Postgres): the console's session list index.
+  await codemods.makeUsingStub(stubsRoot, 'migrations/add_authkit_session_list_index.stub', {});
   // As páginas React vão byte a byte: o `page.stub` só define o destino e o
   // conteúdo vem do `.tsx` via `contentsFromFile`, sem passar pelo template
   // engine (que quebraria nas crases das template literals — bug #194).

@@ -1,4 +1,9 @@
-import type { AdminListParams, AdminSessionListParams, AuditListParams } from '../client/types.js';
+import type {
+  AdminListParams,
+  AdminRecentSessionsParams,
+  AdminSessionListParams,
+  AuditListParams,
+} from '../client/types.js';
 
 /**
  * Query keys estruturadas para todas as queries do AuthKit.
@@ -24,6 +29,8 @@ export const authkitKeys = {
 
     sessions: (params?: AdminSessionListParams) =>
       ['authkit', 'admin', 'sessions', params ?? {}] as const,
+    recentSessions: (params?: AdminRecentSessionsParams) =>
+      ['authkit', 'admin', 'sessions', 'recent', params ?? {}] as const,
 
     /** Without `params`: every clients query (lists and details). */
     clients: (params?: AdminListParams) =>

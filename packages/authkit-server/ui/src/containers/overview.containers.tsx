@@ -182,7 +182,9 @@ export function RecentEventsContainer() {
         <Panel
           title="Recent Events"
           description={
-            data.auditTotal !== null ? `${data.auditTotal.toLocaleString()} total` : undefined
+            data.auditTotal !== null
+              ? `${data.auditTotal.toLocaleString()}${data.auditTotalCapped ? '+' : ''} total`
+              : undefined
           }
           flush
         >

@@ -4,6 +4,7 @@ import {
   supportsMfa,
   supportsProviderIdentity,
 } from '../accounts/account_store.js';
+import { auditTotalOf } from '../audit/audit_sink.js';
 import { AdminOrgsService } from '../host/admin_api/admin_orgs_service.js';
 import { AdminUsersService } from '../host/admin_api/admin_users_service.js';
 import {
@@ -147,8 +148,7 @@ export function authkitDevTools(deps: AuthkitDevToolsDeps = {}): DevTool[] {
         const clientsCount = clientSvc.canList ? (await clientSvc.list()).length : 0;
         const recent =
           typeof cfg.audit?.list === 'function' ? await cfg.audit.list({ size: 5 }) : null;
-        const auditTotal =
-          typeof cfg.audit?.count === 'function' ? await cfg.audit.count({}) : null;
+        const { total: auditTotal, capped: auditTotalCapped } = await auditTotalOf(cfg.audit);
         return {
           usersTotal: stats.totalUsers,
           activeSessions: stats.activeSessions,
@@ -161,6 +161,7 @@ export function authkitDevTools(deps: AuthkitDevToolsDeps = {}): DevTool[] {
           auditSupported: stats.auditSupported,
           clientsCount,
           auditTotal,
+          auditTotalCapped,
           recentEvents: (recent?.data ?? []).map(auditDto),
         };
       },

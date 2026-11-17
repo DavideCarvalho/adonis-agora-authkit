@@ -23,6 +23,8 @@ import type {
   AdminOrgInvitation,
   AdminOrgListResult,
   AdminOverview,
+  AdminRecentSessionsParams,
+  AdminRecentSessionsResult,
   AdminSessionListParams,
   AdminSessionListResult,
   AdminUser,
@@ -178,6 +180,15 @@ export function useSessionsQueryOptions(params?: AdminSessionListParams) {
     queryKey: authkitKeys.admin.sessions(params),
     queryFn: () => client.admin.sessions.list(params),
   } satisfies UseQueryOptions<AdminSessionListResult, AuthkitClientError>;
+}
+
+/** The global session listing by cursor (most recent activity first, no total). */
+export function useRecentSessionsQueryOptions(params?: AdminRecentSessionsParams) {
+  const client = useAuthkitClient();
+  return {
+    queryKey: authkitKeys.admin.recentSessions(params),
+    queryFn: () => client.admin.sessions.listRecent(params),
+  } satisfies UseQueryOptions<AdminRecentSessionsResult, AuthkitClientError>;
 }
 
 export function useRevokeAllSessionsMutationOptions(accountId?: string) {

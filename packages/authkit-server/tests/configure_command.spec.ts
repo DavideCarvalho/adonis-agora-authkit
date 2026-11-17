@@ -83,12 +83,22 @@ test.group('node ace configure (app descartável)', () => {
       if (preset === 'react') assert.include(config, 'inertiaRenderer');
 
       assert.include(await read(root, 'app/models/auth_user.ts'), 'class AuthUser');
-      const migrations = await readdir(join(root, 'database/migrations'));
-      assert.lengthOf(migrations, 1);
-      assert.match(migrations[0], /^\d+_create_auth_users_table\.ts$/);
+      const migrations = (await readdir(join(root, 'database/migrations'))).sort();
+      assert.lengthOf(migrations, 2);
+      const usersMigration = migrations.find((m) => /^\d+_create_auth_users_table\.ts$/.test(m));
+      assert.isDefined(usersMigration);
       assert.include(
-        await read(root, join('database/migrations', migrations[0])),
+        await read(root, join('database/migrations', usersMigration!)),
         "tableName = 'auth_users'",
+      );
+      // The opt-in session list index, published next to it (run once on an existing install).
+      const indexMigration = migrations.find((m) =>
+        /^\d+_add_authkit_session_list_index\.ts$/.test(m),
+      );
+      assert.isDefined(indexMigration);
+      assert.include(
+        await read(root, join('database/migrations', indexMigration!)),
+        'createAuthkitSessionListIndex(this.db)',
       );
 
       assert.include(

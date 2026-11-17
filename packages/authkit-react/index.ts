@@ -84,6 +84,8 @@ export type {
   AdminOrgListResult,
   AdminOrgMember,
   AdminOverview,
+  AdminRecentSessionsParams,
+  AdminRecentSessionsResult,
   AdminSessionEntry,
   AdminSessionListParams,
   AdminSessionListResult,
@@ -405,6 +407,8 @@ export {
   // Personal agents
   usePersonalAgentConnectionsQueryOptions,
   usePersonalAgentsQueryOptions,
+  // Sessions
+  useRecentSessionsQueryOptions,
   useRegenerateClientSecretMutationOptions,
   useRemoveOrgMemberMutationOptions,
   useRemovePersonalAgentEntryMutationOptions,
@@ -418,7 +422,6 @@ export {
   // Roles
   useRolesQueryOptions,
   useRotateKeysMutationOptions,
-  // Sessions
   useSessionsQueryOptions,
   useSetClientDisabledMutationOptions,
   useSetPersonalAgentStatusMutationOptions,
