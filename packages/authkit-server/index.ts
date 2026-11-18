@@ -747,6 +747,12 @@ export {
   ensureAuthkitTables,
 } from './src/schema/ensure.js';
 export { AuthkitSchemaError } from './src/schema/tables_location.js';
+export type {
+  AppGraphApp,
+  AppGraphSnapshot,
+  AuthkitAppGraphReader,
+} from './src/service_tenants/app_graph.js';
+export { AUTHKIT_APP_GRAPH_SLOT } from './src/service_tenants/app_graph.js';
 export type { ServiceTenantInfo } from './src/service_tenants/client_metadata.js';
 export type {
   ResolvedServiceTenantResource,

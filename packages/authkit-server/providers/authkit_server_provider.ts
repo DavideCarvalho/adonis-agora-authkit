@@ -35,6 +35,11 @@ import { KeystoreReloadPoller } from '../src/provider/keystore_reload.js';
 import { OidcService } from '../src/provider/oidc_service.js';
 import { makeSingleFlightLock } from '../src/provider/single_flight_lock.js';
 import { AuthkitSchemaError } from '../src/schema/tables_location.js';
+import {
+  buildAppGraph,
+  cachedAppGraphReader,
+  publishAppGraph,
+} from '../src/service_tenants/app_graph.js';
 
 export default class AuthkitServerProvider {
   constructor(protected app: ApplicationService) {}
@@ -57,6 +62,23 @@ export default class AuthkitServerProvider {
     // com a mensagem certa — em vez de um 500 misterioso depois.
     if (this.app.config.get('authkit')) {
       resolveAppKey(this.app);
+    }
+
+    // The apps and what links them (who may call whom, what each accepts), for the other Agora
+    // libs (telescope's Architecture page), on a global slot. Built lazily, on first read.
+    if (this.app.config.get('authkit')) {
+      publishAppGraph(
+        cachedAppGraphReader(async () => {
+          const service = (await this.app.container.make('authkit.server')) as any;
+          const { AdminClientsService } = await import('../src/host/admin_clients_service.js');
+          const { appCatalogStoreOf } = await import('../src/service_tenants/app_catalog.js');
+          const clients = new AdminClientsService(service);
+          return buildAppGraph(
+            clients.canList ? await clients.list() : [],
+            await appCatalogStoreOf(service, () => this.app.container.make('lucid.db' as any)),
+          );
+        }),
+      );
     }
 
     // Config locks + stash dos bits de routing + auto-montagem: tudo sai do config RESOLVIDO.

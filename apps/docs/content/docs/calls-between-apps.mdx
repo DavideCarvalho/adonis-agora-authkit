@@ -176,3 +176,9 @@ GET /api/authkit/v1/apps/catalog
 → { "apps": [{ "app": "billing", "capabilities": ["invoices:read"], "updatedAt": "…" }] }
 ```
 
+Other Agora libs see the same picture without importing AuthKit. authkit-server publishes a
+reader on the global slot `AUTHKIT_APP_GRAPH_SLOT`. It lists each app once, merging its
+service-tenant clients: their ids (`clientIds`), whether every one is disabled, their
+environments, and the apps it may call with which capabilities. It also lists the catalogs the
+apps published. Telescope's Architecture page draws it.
+
