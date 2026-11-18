@@ -42,6 +42,11 @@ interface ComboCommon {
   /** Label of the typed-text item; receives the text. */
   createLabel?: ((text: string) => string) | undefined;
   /** Called with the typed text, for server-side search. */
+  /**
+   * `options` are already the server's matches for the typed text: show them all instead of
+   * filtering them again here (a server may match on fields the label doesn't show).
+   */
+  serverFiltered?: boolean | undefined;
   onQueryChange?: ((query: string) => void) | undefined;
   id?: string | undefined;
   name?: string | undefined;
@@ -61,6 +66,9 @@ export interface ComboMultiSelectProps extends ComboCommon {
   value: readonly string[];
   onValueChange: (value: string[]) => void;
 }
+
+/** Closing reasons that mean the user left the field (not Escape, not a pick). */
+const LEAVE_REASONS = new Set(['outside-press', 'focus-out']);
 
 const defaultCreateLabel = (text: string) => `Use “${text}”`;
 
@@ -94,11 +102,19 @@ export function comboItems(
   {
     creatable = false,
     selected = [],
-  }: { creatable?: boolean | undefined; selected?: readonly string[] | undefined } = {},
+    serverFiltered = false,
+  }: {
+    creatable?: boolean | undefined;
+    selected?: readonly string[] | undefined;
+    /** `list` already holds the server's matches for `query`: show them all, unfiltered. */
+    serverFiltered?: boolean | undefined;
+  } = {},
 ): string[] {
   const known = new Set(list.map((o) => o.value));
   const extra = selected.filter((v) => !known.has(v)).map((value) => ({ value }));
-  const items = [...list, ...extra].filter((o) => comboMatches(o, query)).map((o) => o.value);
+  const items = [...list, ...extra]
+    .filter((o) => (serverFiltered && known.has(o.value)) || comboMatches(o, query))
+    .map((o) => o.value);
   const typed = query.trim();
   if (creatable && typed !== '' && !known.has(typed) && !items.includes(typed)) items.push(typed);
   return items;
@@ -121,18 +137,38 @@ function useAllItems(list: readonly ComboOption[], selected: readonly string[]):
  * The typed text, controlled here rather than by Base UI: it rewrites the input to the selected
  * label (reason `none`) whenever `items` changes, which would wipe the query each time
  * server-side results arrive. Every other reason (typing, clearing, picking) is kept.
+ *
+ * `dirty` is true only between the user typing and the next programmatic write (a pick, Escape,
+ * a value from outside). It lives in a ref, written synchronously, so "commit the typed text on
+ * leave" never depends on render timing: Escape then blur, or blur then close, commit at most once.
  */
 function useComboQuery(onQueryChange?: (q: string) => void) {
-  const [query, setQuery] = React.useState('');
+  const [query, setQueryState] = React.useState('');
+  const queryRef = React.useRef('');
+  const dirtyRef = React.useRef(false);
+  const setQuery = React.useCallback((text: string) => {
+    queryRef.current = text;
+    dirtyRef.current = false;
+    setQueryState(text);
+  }, []);
   const onInputValueChange = React.useCallback(
     (text: string, details: { reason: string }) => {
       if (details.reason === 'none') return;
-      setQuery(text);
+      queryRef.current = text;
+      dirtyRef.current = details.reason === 'input-change';
+      setQueryState(text);
       onQueryChange?.(text);
     },
     [onQueryChange],
   );
-  return { query, setQuery, onInputValueChange };
+  /** The typed text if the user typed since the last programmatic write; marks it consumed. */
+  const takeTyped = React.useCallback((): string | undefined => {
+    if (!dirtyRef.current) return undefined;
+    dirtyRef.current = false;
+    return queryRef.current;
+  }, []);
+  const isTyping = React.useCallback(() => dirtyRef.current, []);
+  return { query, setQuery, onInputValueChange, takeTyped, isTyping };
 }
 
 function ComboItemBody({
@@ -161,12 +197,17 @@ function ComboItemBody({
 
 function ComboListBody({
   byValue,
+  creatable,
+  selected,
   query,
   loading,
   emptyText,
   createLabel,
 }: {
   byValue: Map<string, ComboOption>;
+  creatable: boolean;
+  /** Selected values: never rendered as the typed-text item. */
+  selected: ReadonlySet<string>;
   query: string;
   loading?: boolean | undefined;
   emptyText: string;
@@ -178,7 +219,10 @@ function ComboListBody({
       <ComboboxList>
         {(value: string) => {
           const option = byValue.get(value);
-          const created = option === undefined && value === query.trim();
+          // Only the typed-text item reads "Use …"; a selected value missing from `options`
+          // shows as itself.
+          const created =
+            creatable && option === undefined && value === query.trim() && !selected.has(value);
           return (
             <ComboboxItem key={value} value={value} disabled={option?.disabled}>
               <ComboItemBody
@@ -207,6 +251,7 @@ export function ComboSelect({
   creatable,
   createLabel = defaultCreateLabel,
   onQueryChange,
+  serverFiltered,
   clearable = true,
   id,
   name,
@@ -215,19 +260,53 @@ export function ComboSelect({
   'aria-invalid': ariaInvalid,
 }: ComboSelectProps) {
   const { list, byValue } = useOptionIndex(options);
-  const { query, setQuery, onInputValueChange } = useComboQuery(onQueryChange);
+  const { query, setQuery, onInputValueChange, takeTyped, isTyping } = useComboQuery(onQueryChange);
   const labelOf = React.useCallback((v: string) => byValue.get(v)?.label ?? v, [byValue]);
   // The input shows the selected label: on mount, when the value changes from outside (a URL,
   // a reset), when its label arrives with late options, and when the popup closes unpicked.
   const selectedLabel = value === null ? '' : labelOf(value);
+  // A label that only changed (late options) never overwrites what the user is typing; a new
+  // value always wins.
+  const lastValue = React.useRef(value);
   React.useEffect(() => {
+    const valueChanged = lastValue.current !== value;
+    lastValue.current = value;
+    if (!valueChanged && isTyping()) return;
     setQuery(selectedLabel);
-  }, [selectedLabel, setQuery]);
+  }, [value, selectedLabel, setQuery, isTyping]);
+  // With `creatable`, leaving the field keeps what was typed, like the text input it replaces:
+  // the text becomes the value (empty text clears it when `clearable`).
+  const commitTyped = () => {
+    if (!creatable) return false;
+    const pending = takeTyped();
+    if (pending === undefined) return false;
+    const typed = pending.trim();
+    if (typed === selectedLabel.trim()) return false;
+    if (typed === '') {
+      if (!clearable) return false;
+      onValueChange(null);
+      return true;
+    }
+    // Same matching as the filter (accents, case, spacing), so "e-mails" picks the "E-mails"
+    // option instead of creating a near-duplicate value.
+    const norm = normalizeSearchText(typed);
+    const known =
+      list.find((o) => o.value === typed) ??
+      list.find(
+        (o) => normalizeSearchText(o.value) === norm || normalizeSearchText(o.label ?? '') === norm,
+      );
+    onValueChange(known ? known.value : typed);
+    return true;
+  };
   // Base UI fills the input with the selected label; filtering by that text would hide every
   // other option on reopen, so a query equal to the current label counts as "no query".
   const effective = value !== null && query === labelOf(value) ? '' : query;
   const selectedList = value === null ? [] : [value];
-  const items = comboItems(list, effective, { creatable, selected: selectedList });
+  const items = comboItems(list, effective, {
+    creatable,
+    selected: selectedList,
+    serverFiltered,
+  });
   const all = useAllItems(list, selectedList);
 
   return (
@@ -242,14 +321,19 @@ export function ComboSelect({
       inputValue={query}
       onInputValueChange={onInputValueChange}
       itemToStringLabel={labelOf}
-      onOpenChange={(open) => {
-        if (!open) setQuery(selectedLabel);
+      onOpenChange={(open, details) => {
+        if (open) return;
+        if (LEAVE_REASONS.has(details.reason) && commitTyped()) return;
+        setQuery(selectedLabel);
       }}
       disabled={disabled}
       name={name}
       autoHighlight
     >
       <ComboboxInput
+        onBlur={() => {
+          commitTyped();
+        }}
         id={id}
         className={className}
         placeholder={placeholder}
@@ -262,6 +346,8 @@ export function ComboSelect({
       <ComboboxContent>
         <ComboListBody
           byValue={byValue}
+          creatable={creatable === true}
+          selected={new Set(selectedList)}
           query={effective}
           loading={loading}
           emptyText={emptyText}
@@ -284,6 +370,7 @@ export function ComboMultiSelect({
   creatable,
   createLabel = defaultCreateLabel,
   onQueryChange,
+  serverFiltered,
   id,
   name,
   className,
@@ -294,9 +381,16 @@ export function ComboMultiSelect({
   const { list, byValue } = useOptionIndex(options);
   const { query, setQuery, onInputValueChange } = useComboQuery(onQueryChange);
   const labelOf = React.useCallback((v: string) => byValue.get(v)?.label ?? v, [byValue]);
-  const items = comboItems(list, query, { creatable, selected: value });
+  const items = comboItems(list, query, {
+    creatable,
+    selected: value,
+    serverFiltered,
+  });
   const all = useAllItems(list, value);
-  const selected = React.useMemo(() => [...value], [value]);
+  // Keyed by content: a caller passing a fresh array each render must not change identity.
+  const selectedKey = value.join('\u0000');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `selectedKey` captures `value`
+  const selected = React.useMemo(() => [...value], [selectedKey]);
 
   return (
     <Combobox<string, true>
@@ -336,6 +430,8 @@ export function ComboMultiSelect({
       <ComboboxContent anchor={anchor}>
         <ComboListBody
           byValue={byValue}
+          creatable={creatable === true}
+          selected={new Set(value)}
           query={query}
           loading={loading}
           emptyText={emptyText}
