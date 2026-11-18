@@ -9,6 +9,7 @@ import {
   clientPartialInput,
 } from '../admin_validators.js';
 import { ClientMetadataError } from '../client_metadata.js';
+import { revokeClient } from '../client_revocation.js';
 import { listClientsPage, withListQuery } from '../list_api.js';
 import { apiError, clientDto, createdClientDto } from './dto.js';
 
@@ -192,6 +193,20 @@ export default class ApiClientsController {
       },
     });
     return clientDto(client!);
+  }
+
+  /**
+   * POST /clients/:id/revoke — disables the client and cuts its grants and tokens in every
+   * account (the console's and the CLI's `revoke`). Works for a Client ID Metadata Document
+   * client too (no stored record: `stored: false`). Audited by `revokeClient`.
+   */
+  async revoke(ctx: HttpContext) {
+    const service = await ctx.containerResolver.make('authkit.server');
+    return revokeClient(service, ctx.request.param('id') as string, {
+      actorId: null,
+      source: 'admin-api',
+      ip: ctx.request.ip?.() ?? null,
+    });
   }
 
   async destroy(ctx: HttpContext) {

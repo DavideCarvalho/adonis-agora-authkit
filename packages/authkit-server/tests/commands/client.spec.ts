@@ -404,6 +404,46 @@ test.group('authkit:client', (group) => {
     assert.isNull((await svc.find('spa'))?.serviceTenant ?? null, 'still a login client');
   });
 
+  test('disable / enable: the client stops and comes back, grants untouched, audited', async ({
+    assert,
+  }) => {
+    await h.run(AuthkitClient, ['create', '--client-id=app', '--redirect-uri=https://a/cb']);
+    const svc = new AdminClientsService(h.service);
+    assert.equal((await h.run(AuthkitClient, ['disable', 'app'])).exitCode, 0);
+    assert.isTrue((await svc.find('app'))?.disabled);
+    assert.equal((await h.run(AuthkitClient, ['enable', 'app'])).exitCode, 0);
+    assert.isFalse((await svc.find('app'))?.disabled);
+    assert.deepEqual(
+      h.audit
+        .filter((e) => e.type === 'client.disabled' || e.type === 'client.enabled')
+        .map((e) => e.type),
+      ['client.disabled', 'client.enabled'],
+    );
+    assert.equal((await h.run(AuthkitClient, ['disable', 'nope'])).exitCode, 1);
+  });
+
+  test('update --logo-uri and --backchannel-logout-session-required', async ({ assert }) => {
+    await h.run(AuthkitClient, [
+      'create',
+      '--client-id=app',
+      '--redirect-uri=https://a/cb',
+      '--logo-uri=https://a/logo.png',
+    ]);
+    const svc = new AdminClientsService(h.service);
+    assert.equal((await svc.find('app'))?.logoUri, 'https://a/logo.png');
+    await h.run(AuthkitClient, [
+      'update',
+      'app',
+      '--backchannel-logout-uri=https://a/bc',
+      '--backchannel-logout-session-required',
+    ]);
+    assert.isTrue((await svc.find('app'))?.backchannelLogoutSessionRequired);
+    await h.run(AuthkitClient, ['update', 'app', '--no-backchannel-logout-session-required']);
+    assert.isFalse(!!(await svc.find('app'))?.backchannelLogoutSessionRequired);
+    await h.run(AuthkitClient, ['update', 'app', '--logo-uri=']);
+    assert.isNotOk((await svc.find('app'))?.logoUri);
+  });
+
   test('rotate-secret: refuses without --force (non-interactive), prints the new one once', async ({
     assert,
   }) => {

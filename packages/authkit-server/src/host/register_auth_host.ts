@@ -1711,6 +1711,7 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
         withApiThrottle(router.delete('/clients/:id', [C.apiClients, 'destroy']));
         withApiThrottle(router.post('/clients/:id/disable', [C.apiClients, 'disable']));
         withApiThrottle(router.post('/clients/:id/enable', [C.apiClients, 'enable']));
+        withApiThrottle(router.post('/clients/:id/revoke', [C.apiClients, 'revoke']));
         withApiThrottle(router.put('/clients/:id/apps/:app', [C.apiClients, 'grantApp']));
         withApiThrottle(router.delete('/clients/:id/apps/:app', [C.apiClients, 'revokeApp']));
         // Organizações.

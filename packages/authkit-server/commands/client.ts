@@ -9,6 +9,8 @@ const ACTIONS = [
   'update',
   'rotate-secret',
   'revoke',
+  'disable',
+  'enable',
   'delete',
   'grant-app',
   'revoke-app',
@@ -31,7 +33,7 @@ export function cliActor(): string {
 export default class AuthkitClient extends BaseCommand {
   static commandName = 'authkit:client';
   static description =
-    'Manage OAuth clients: list, create, show, update, rotate-secret, revoke, delete, grant-app, revoke-app.';
+    'Manage OAuth clients: list, create, show, update, rotate-secret, revoke, disable, enable, delete, grant-app, revoke-app.';
 
   static help = [
     'Actions:',
@@ -41,6 +43,8 @@ export default class AuthkitClient extends BaseCommand {
     '  update <id>          change its metadata (only the flags you pass)',
     '  rotate-secret <id>   a new secret, printed ONCE (the old one stops working)',
     '  revoke <id>          disable it and cut its grants/tokens in every account',
+    '  disable <id>         stop it (invalid_client from the next request); grants are kept',
+    '  enable <id>          turn a disabled or revoked client back on',
     '  delete <id>          delete it',
     '  grant-app <id>       let a service tenant call another app (--app, --capability)',
     '  revoke-app <id>      take that away (--app)',
@@ -70,7 +74,7 @@ export default class AuthkitClient extends BaseCommand {
   declare action: string;
 
   @args.string({
-    description: 'Client id (show, update, rotate-secret, revoke, delete)',
+    description: 'Client id (show, update, rotate-secret, revoke, disable, enable, delete)',
     required: false,
   })
   declare id?: string;
@@ -119,6 +123,18 @@ export default class AuthkitClient extends BaseCommand {
     description: 'create/update: OIDC back-channel logout endpoint.',
   })
   declare backchannelLogoutUri?: string;
+
+  @flags.boolean({
+    description:
+      'create/update: back-channel logout needs the session id (`sid`). `--no-backchannel-logout-session-required` turns it off.',
+  })
+  declare backchannelLogoutSessionRequired?: boolean;
+
+  @flags.string({
+    allowEmptyValue: true,
+    description: 'create/update: logo URL shown on the consent screen (`--logo-uri=` removes it).',
+  })
+  declare logoUri?: string;
 
   @flags.string({
     description: 'create: use this client_secret instead of a random one.',
@@ -217,6 +233,9 @@ export default class AuthkitClient extends BaseCommand {
         return this.#rotateSecret(service, svc, this.id!);
       case 'revoke':
         return this.#revoke(service, this.id!);
+      case 'disable':
+      case 'enable':
+        return this.#setDisabled(service, svc, this.id!, action === 'disable');
       case 'delete':
         return this.#delete(service, svc, this.id!);
       case 'grant-app':
@@ -299,6 +318,10 @@ export default class AuthkitClient extends BaseCommand {
       ...(this.backchannelLogoutUri !== undefined
         ? { backchannelLogoutUri: this.backchannelLogoutUri || null }
         : {}),
+      ...(this.backchannelLogoutSessionRequired !== undefined
+        ? { backchannelLogoutSessionRequired: this.backchannelLogoutSessionRequired }
+        : {}),
+      ...(this.logoUri !== undefined ? { logoUri: this.logoUri.trim() || null } : {}),
     };
   }
 
@@ -601,6 +624,24 @@ export default class AuthkitClient extends BaseCommand {
       ...(environment ? { environment } : {}),
       ...(current.apps ? { apps: current.apps } : {}),
     };
+  }
+
+  /** `disable` / `enable`: the client gets `invalid_client` while disabled; nothing else changes. */
+  async #setDisabled(service: any, svc: any, id: string, disabled: boolean) {
+    if (!(await svc.setDisabled(id, disabled))) return this.#fail(`Client ${id} not found.`);
+    const client = await svc.find(id);
+    await service.config.audit?.record({
+      type: disabled ? 'client.disabled' : 'client.enabled',
+      clientId: id,
+      actorId: cliActor(),
+      ip: null,
+      metadata: {
+        actor: 'cli',
+        ...(client?.serviceTenant ? { partition: client.serviceTenant.partition } : {}),
+      },
+    });
+    if (this.json) return this.#print(this.#dto(client));
+    this.logger.success(disabled ? `Client disabled: ${id}` : `Client enabled: ${id}`);
   }
 
   async #rotateSecret(service: any, svc: any, id: string) {

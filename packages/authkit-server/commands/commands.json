@@ -40,7 +40,7 @@
     },
     {
       "commandName": "authkit:client",
-      "description": "Manage OAuth clients: list, create, show, update, rotate-secret, revoke, delete, grant-app, revoke-app.",
+      "description": "Manage OAuth clients: list, create, show, update, rotate-secret, revoke, disable, enable, delete, grant-app, revoke-app.",
       "help": [
         "Actions:",
         "  list                 every client (--mcp: only MCP clients, registered or by metadata document)",
@@ -49,6 +49,8 @@
         "  update <id>          change its metadata (only the flags you pass)",
         "  rotate-secret <id>   a new secret, printed ONCE (the old one stops working)",
         "  revoke <id>          disable it and cut its grants/tokens in every account",
+        "  disable <id>         stop it (invalid_client from the next request); grants are kept",
+        "  enable <id>          turn a disabled or revoked client back on",
         "  delete <id>          delete it",
         "  grant-app <id>       let a service tenant call another app (--app, --capability)",
         "  revoke-app <id>      take that away (--app)",
@@ -145,6 +147,21 @@
           "description": "create/update: OIDC back-channel logout endpoint."
         },
         {
+          "name": "backchannelLogoutSessionRequired",
+          "flagName": "backchannel-logout-session-required",
+          "required": false,
+          "type": "boolean",
+          "description": "create/update: back-channel logout needs the session id (`sid`). `--no-backchannel-logout-session-required` turns it off."
+        },
+        {
+          "name": "logoUri",
+          "flagName": "logo-uri",
+          "required": false,
+          "type": "string",
+          "allowEmptyValue": true,
+          "description": "create/update: logo URL shown on the consent screen (`--logo-uri=` removes it)."
+        },
+        {
           "name": "clientSecret",
           "flagName": "client-secret",
           "required": false,
@@ -222,14 +239,14 @@
           "name": "action",
           "argumentName": "action",
           "required": true,
-          "description": "Action: list, create, show, update, rotate-secret, revoke, delete, grant-app, revoke-app",
+          "description": "Action: list, create, show, update, rotate-secret, revoke, disable, enable, delete, grant-app, revoke-app",
           "type": "string"
         },
         {
           "name": "id",
           "argumentName": "id",
           "required": false,
-          "description": "Client id (show, update, rotate-secret, revoke, delete)",
+          "description": "Client id (show, update, rotate-secret, revoke, disable, enable, delete)",
           "type": "string"
         }
       ],

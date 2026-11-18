@@ -1,5 +1,5 @@
 import type { OidcAdapter } from '../adapters/adapter_contract.js';
-import { APP_NAME_PATTERN } from './config.js';
+import { APP_NAME_PATTERN, CAPABILITY_PATTERN } from './config.js';
 
 /**
  * authkit-owned keys in a persisted `Client` payload. oidc-provider strips unknown
@@ -32,7 +32,7 @@ export const MAX_APPS = 64;
 /** Letters, digits, `.`, `_`, `:` and `-`; starts with a letter or digit; up to 128 chars. */
 export const PARTITION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 /** Like {@link PARTITION_PATTERN}, plus `*` and `/`. */
-export const CAPABILITY_PATTERN = /^[A-Za-z0-9*][A-Za-z0-9._:*/-]{0,127}$/;
+export { CAPABILITY_PATTERN };
 export const MAX_CAPABILITIES = 64;
 /** Letters, digits, `.`, `_` and `-`; starts with a letter or digit; up to 64 chars. */
 export const ENVIRONMENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;

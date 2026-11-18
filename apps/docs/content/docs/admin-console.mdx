@@ -827,8 +827,11 @@ fully manageable via `AdminClientsService`:
   (`tokenEndpointAuthMethod !== 'none'`) it generates a `client_secret` and shows it **once**
   (it isn't recoverable afterwards). Public clients get no secret.
 - **Edit** — updates the editable metadata (redirect URIs, post-logout redirect URIs,
-  grants, token-endpoint auth method, backchannel logout URI, `session_required`) while
-  **preserving** the existing secret.
+  grants, allowed scopes, token-endpoint auth method, backchannel logout URI,
+  `session_required`) while **preserving** the existing secret. For a
+  [service tenant](/docs/service-tenants) it edits the partition, the capabilities (a picker
+  over the ones each resource declares, plus anything you type), the environment and the apps
+  it can call, one row per app with that app's capabilities.
 - **Regenerate secret** — issues a fresh `client_secret` for a confidential client (shown
   once); rejected for public clients.
 - **Delete** — removes the client from the adapter.
