@@ -1,5 +1,16 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.43
+
+### Minor Changes
+
+- [#519](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/519) [`7c06b48`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/7c06b48c00ab8a9d4ca4a216eb084c1d4e698089) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - App permission catalog. Each app publishes what it accepts from the other apps when its web server starts. authkit-client's `service.catalog` controls the source:
+  - `authz.permissionCatalog()` by default, when `@adonis-agora/authz` is in the app;
+  - a function of your own;
+  - `false`, to publish nothing.
+  
+  The app sends it to `PUT /api/apps/catalog` with its service tenant's id and secret. The server stores it in `auth_app_catalog`, and the CSRF helper exempts that path. The console's "Apps it can call" offers the apps and their capabilities. The catalogs are also listed by `node ace authkit:apps` and by the Admin API at `GET /apps/catalog`.
+
 ## 1.0.0-rc.42
 
 ### Patch Changes
