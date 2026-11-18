@@ -1,5 +1,17 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.39
+
+### Patch Changes
+
+- [#513](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/513) [`edb6ba5`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/edb6ba51ec9865fc92091b6fb0d2b47d7b9ce011) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Clients, the same on every surface:
+  
+  - `serviceTenants.resources[x].capabilities` declares the capabilities a control plane checks. The console's capabilities field becomes a picker over them (any other value can still be typed), and "Apps it can call" becomes one row per app with that app's capabilities.
+  - Allowed scopes: the console and the Admin API now set them (`scopes`, `null` lifts the restriction); the client shows them as `scope`.
+  - The console no longer offers the `implicit` grant (the server refuses it) and offers token-exchange.
+  - Admin API: `POST /clients/:id/revoke` (disable + cut grants and tokens), like the console and the CLI.
+  - CLI: `authkit:client disable` / `enable`, `--logo-uri` and `--backchannel-logout-session-required`.
+
 ## 1.0.0-rc.38
 
 ### Patch Changes
