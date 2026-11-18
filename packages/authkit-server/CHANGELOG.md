@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.42
+
+### Patch Changes
+
+- [#518](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/518) [`b976fb1`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/b976fb1a0574079230e3cf5d02e7af8d27733e6a) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Console: creatable comboboxes keep the typed text when you leave the field, and server-side suggestions no longer wipe what you are typing.
+
 ## 1.0.0-rc.41
 
 ### Patch Changes
