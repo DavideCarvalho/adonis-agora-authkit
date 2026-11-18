@@ -42,6 +42,11 @@ interface ComboCommon {
   /** Label of the typed-text item; receives the text. */
   createLabel?: ((text: string) => string) | undefined;
   /** Called with the typed text, for server-side search. */
+  /**
+   * `options` are already the server's matches for the typed text: show them all instead of
+   * filtering them again here (a server may match on fields the label doesn't show).
+   */
+  serverFiltered?: boolean | undefined;
   onQueryChange?: ((query: string) => void) | undefined;
   id?: string | undefined;
   name?: string | undefined;
@@ -97,11 +102,19 @@ export function comboItems(
   {
     creatable = false,
     selected = [],
-  }: { creatable?: boolean | undefined; selected?: readonly string[] | undefined } = {},
+    serverFiltered = false,
+  }: {
+    creatable?: boolean | undefined;
+    selected?: readonly string[] | undefined;
+    /** `list` already holds the server's matches for `query`: show them all, unfiltered. */
+    serverFiltered?: boolean | undefined;
+  } = {},
 ): string[] {
   const known = new Set(list.map((o) => o.value));
   const extra = selected.filter((v) => !known.has(v)).map((value) => ({ value }));
-  const items = [...list, ...extra].filter((o) => comboMatches(o, query)).map((o) => o.value);
+  const items = [...list, ...extra]
+    .filter((o) => (serverFiltered && known.has(o.value)) || comboMatches(o, query))
+    .map((o) => o.value);
   const typed = query.trim();
   if (creatable && typed !== '' && !known.has(typed) && !items.includes(typed)) items.push(typed);
   return items;
@@ -154,7 +167,8 @@ function useComboQuery(onQueryChange?: (q: string) => void) {
     dirtyRef.current = false;
     return queryRef.current;
   }, []);
-  return { query, setQuery, onInputValueChange, takeTyped };
+  const isTyping = React.useCallback(() => dirtyRef.current, []);
+  return { query, setQuery, onInputValueChange, takeTyped, isTyping };
 }
 
 function ComboItemBody({
@@ -183,12 +197,17 @@ function ComboItemBody({
 
 function ComboListBody({
   byValue,
+  creatable,
+  selected,
   query,
   loading,
   emptyText,
   createLabel,
 }: {
   byValue: Map<string, ComboOption>;
+  creatable: boolean;
+  /** Selected values: never rendered as the typed-text item. */
+  selected: ReadonlySet<string>;
   query: string;
   loading?: boolean | undefined;
   emptyText: string;
@@ -200,7 +219,10 @@ function ComboListBody({
       <ComboboxList>
         {(value: string) => {
           const option = byValue.get(value);
-          const created = option === undefined && value === query.trim();
+          // Only the typed-text item reads "Use …"; a selected value missing from `options`
+          // shows as itself.
+          const created =
+            creatable && option === undefined && value === query.trim() && !selected.has(value);
           return (
             <ComboboxItem key={value} value={value} disabled={option?.disabled}>
               <ComboItemBody
@@ -229,6 +251,7 @@ export function ComboSelect({
   creatable,
   createLabel = defaultCreateLabel,
   onQueryChange,
+  serverFiltered,
   clearable = true,
   id,
   name,
@@ -237,14 +260,20 @@ export function ComboSelect({
   'aria-invalid': ariaInvalid,
 }: ComboSelectProps) {
   const { list, byValue } = useOptionIndex(options);
-  const { query, setQuery, onInputValueChange, takeTyped } = useComboQuery(onQueryChange);
+  const { query, setQuery, onInputValueChange, takeTyped, isTyping } = useComboQuery(onQueryChange);
   const labelOf = React.useCallback((v: string) => byValue.get(v)?.label ?? v, [byValue]);
   // The input shows the selected label: on mount, when the value changes from outside (a URL,
   // a reset), when its label arrives with late options, and when the popup closes unpicked.
   const selectedLabel = value === null ? '' : labelOf(value);
+  // A label that only changed (late options) never overwrites what the user is typing; a new
+  // value always wins.
+  const lastValue = React.useRef(value);
   React.useEffect(() => {
+    const valueChanged = lastValue.current !== value;
+    lastValue.current = value;
+    if (!valueChanged && isTyping()) return;
     setQuery(selectedLabel);
-  }, [selectedLabel, setQuery]);
+  }, [value, selectedLabel, setQuery, isTyping]);
   // With `creatable`, leaving the field keeps what was typed, like the text input it replaces:
   // the text becomes the value (empty text clears it when `clearable`).
   const commitTyped = () => {
@@ -273,7 +302,11 @@ export function ComboSelect({
   // other option on reopen, so a query equal to the current label counts as "no query".
   const effective = value !== null && query === labelOf(value) ? '' : query;
   const selectedList = value === null ? [] : [value];
-  const items = comboItems(list, effective, { creatable, selected: selectedList });
+  const items = comboItems(list, effective, {
+    creatable,
+    selected: selectedList,
+    serverFiltered,
+  });
   const all = useAllItems(list, selectedList);
 
   return (
@@ -313,6 +346,8 @@ export function ComboSelect({
       <ComboboxContent>
         <ComboListBody
           byValue={byValue}
+          creatable={creatable === true}
+          selected={new Set(selectedList)}
           query={effective}
           loading={loading}
           emptyText={emptyText}
@@ -335,6 +370,7 @@ export function ComboMultiSelect({
   creatable,
   createLabel = defaultCreateLabel,
   onQueryChange,
+  serverFiltered,
   id,
   name,
   className,
@@ -345,7 +381,11 @@ export function ComboMultiSelect({
   const { list, byValue } = useOptionIndex(options);
   const { query, setQuery, onInputValueChange } = useComboQuery(onQueryChange);
   const labelOf = React.useCallback((v: string) => byValue.get(v)?.label ?? v, [byValue]);
-  const items = comboItems(list, query, { creatable, selected: value });
+  const items = comboItems(list, query, {
+    creatable,
+    selected: value,
+    serverFiltered,
+  });
   const all = useAllItems(list, value);
   // Keyed by content: a caller passing a fresh array each render must not change identity.
   const selectedKey = value.join('\u0000');
@@ -390,6 +430,8 @@ export function ComboMultiSelect({
       <ComboboxContent anchor={anchor}>
         <ComboListBody
           byValue={byValue}
+          creatable={creatable === true}
+          selected={new Set(value)}
           query={query}
           loading={loading}
           emptyText={emptyText}
