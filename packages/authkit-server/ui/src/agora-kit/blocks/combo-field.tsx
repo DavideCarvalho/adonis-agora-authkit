@@ -62,6 +62,9 @@ export interface ComboMultiSelectProps extends ComboCommon {
   onValueChange: (value: string[]) => void;
 }
 
+/** Closing reasons that mean the user left the field (not Escape, not a pick). */
+const LEAVE_REASONS = new Set(['outside-press', 'focus-out', 'input-blur']);
+
 const defaultCreateLabel = (text: string) => `Use “${text}”`;
 
 /** Normalizes `options` and indexes them by value. */
@@ -223,6 +226,23 @@ export function ComboSelect({
   React.useEffect(() => {
     setQuery(selectedLabel);
   }, [selectedLabel, setQuery]);
+  // With `creatable`, leaving the field keeps what was typed, like the text input it replaces:
+  // the text becomes the value (empty text clears it when `clearable`).
+  const queryRef = React.useRef(query);
+  queryRef.current = query;
+  const commitTyped = () => {
+    if (!creatable) return false;
+    const typed = queryRef.current.trim();
+    if (typed === selectedLabel.trim()) return false;
+    if (typed === '') {
+      if (!clearable) return false;
+      onValueChange(null);
+      return true;
+    }
+    const known = list.find((o) => o.value === typed || (o.label ?? o.value) === typed);
+    onValueChange(known ? known.value : typed);
+    return true;
+  };
   // Base UI fills the input with the selected label; filtering by that text would hide every
   // other option on reopen, so a query equal to the current label counts as "no query".
   const effective = value !== null && query === labelOf(value) ? '' : query;
@@ -242,14 +262,19 @@ export function ComboSelect({
       inputValue={query}
       onInputValueChange={onInputValueChange}
       itemToStringLabel={labelOf}
-      onOpenChange={(open) => {
-        if (!open) setQuery(selectedLabel);
+      onOpenChange={(open, details) => {
+        if (open) return;
+        if (LEAVE_REASONS.has(details.reason) && commitTyped()) return;
+        setQuery(selectedLabel);
       }}
       disabled={disabled}
       name={name}
       autoHighlight
     >
       <ComboboxInput
+        onBlur={() => {
+          commitTyped();
+        }}
         id={id}
         className={className}
         placeholder={placeholder}
@@ -296,7 +321,10 @@ export function ComboMultiSelect({
   const labelOf = React.useCallback((v: string) => byValue.get(v)?.label ?? v, [byValue]);
   const items = comboItems(list, query, { creatable, selected: value });
   const all = useAllItems(list, value);
-  const selected = React.useMemo(() => [...value], [value]);
+  // Keyed by content: a caller passing a fresh array each render must not change identity.
+  const selectedKey = value.join('\u0000');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `selectedKey` captures `value`
+  const selected = React.useMemo(() => [...value], [selectedKey]);
 
   return (
     <Combobox<string, true>
