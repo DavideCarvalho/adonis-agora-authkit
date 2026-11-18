@@ -117,10 +117,16 @@ function useAllItems(list: readonly ComboOption[], selected: readonly string[]):
   return React.useMemo(() => known, [key]);
 }
 
+/**
+ * The typed text, controlled here rather than by Base UI: it rewrites the input to the selected
+ * label (reason `none`) whenever `items` changes, which would wipe the query each time
+ * server-side results arrive. Every other reason (typing, clearing, picking) is kept.
+ */
 function useComboQuery(onQueryChange?: (q: string) => void) {
   const [query, setQuery] = React.useState('');
   const onInputValueChange = React.useCallback(
-    (text: string) => {
+    (text: string, details: { reason: string }) => {
+      if (details.reason === 'none') return;
       setQuery(text);
       onQueryChange?.(text);
     },
@@ -211,6 +217,12 @@ export function ComboSelect({
   const { list, byValue } = useOptionIndex(options);
   const { query, setQuery, onInputValueChange } = useComboQuery(onQueryChange);
   const labelOf = React.useCallback((v: string) => byValue.get(v)?.label ?? v, [byValue]);
+  // The input shows the selected label: on mount, when the value changes from outside (a URL,
+  // a reset), when its label arrives with late options, and when the popup closes unpicked.
+  const selectedLabel = value === null ? '' : labelOf(value);
+  React.useEffect(() => {
+    setQuery(selectedLabel);
+  }, [selectedLabel, setQuery]);
   // Base UI fills the input with the selected label; filtering by that text would hide every
   // other option on reopen, so a query equal to the current label counts as "no query".
   const effective = value !== null && query === labelOf(value) ? '' : query;
@@ -227,8 +239,12 @@ export function ComboSelect({
         onValueChange(next ?? null);
         setQuery(next ? labelOf(next) : '');
       }}
+      inputValue={query}
       onInputValueChange={onInputValueChange}
       itemToStringLabel={labelOf}
+      onOpenChange={(open) => {
+        if (!open) setQuery(selectedLabel);
+      }}
       disabled={disabled}
       name={name}
       autoHighlight
@@ -292,6 +308,7 @@ export function ComboMultiSelect({
         onValueChange([...next]);
         setQuery('');
       }}
+      inputValue={query}
       onInputValueChange={onInputValueChange}
       itemToStringLabel={labelOf}
       disabled={disabled}
