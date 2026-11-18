@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.38
+
+### Patch Changes
+
+- [#512](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/512) [`16afcc0`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/16afcc0fe9d945e58dedbb43d32c153d5d9929de) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `authkit:client update` now edits a service tenant, like the console and the Admin API: `--add-capability` / `--remove-capability` change one capability and keep the rest, `--capability` replaces the list, `--environment` sets it (`--environment=` clears it) and `--partition` changes it. The secret is kept, so the apps that already use it keep working.
+
 ## 1.0.0-rc.37
 
 ### Minor Changes
