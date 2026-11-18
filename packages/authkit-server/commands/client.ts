@@ -349,10 +349,10 @@ export default class AuthkitClient extends BaseCommand {
         this.postLogoutUri?.length && '--post-logout-uri',
         this.public && '--public',
         this.native && '--native',
-        this.backchannelLogoutUri && '--backchannel-logout-uri',
+        this.backchannelLogoutUri !== undefined && '--backchannel-logout-uri',
         this.backchannelLogoutSessionRequired !== undefined &&
           '--backchannel-logout-session-required',
-        this.logoUri && '--logo-uri',
+        this.logoUri !== undefined && '--logo-uri',
         this.grant?.some((g) => g !== 'client_credentials') && '--grant',
       ].filter(Boolean);
       if (conflicting.length) {

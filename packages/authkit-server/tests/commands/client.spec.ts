@@ -433,7 +433,12 @@ test.group('authkit:client', (group) => {
     ]);
     assert.equal(created.exitCode, 0);
     assert.equal((await new AdminClientsService(h.service).find('worker'))?.scope, 'openid');
-    for (const flag of ['--logo-uri=https://a/logo.png', '--backchannel-logout-session-required']) {
+    for (const flag of [
+      '--logo-uri=https://a/logo.png',
+      '--logo-uri=',
+      '--backchannel-logout-uri=',
+      '--backchannel-logout-session-required',
+    ]) {
       const refused = await h.run(AuthkitClient, ['create', '--partition=acme', flag]);
       assert.equal(refused.exitCode, 1, flag);
     }
