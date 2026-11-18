@@ -18,6 +18,8 @@ export {
 } from './src/account_extensions.js';
 export type { AgoraConsoleSignOut, ConsolesAppLike } from './src/agora_consoles.js';
 export { AGORA_CONSOLES_BINDING, announceAgoraSignOut } from './src/agora_consoles.js';
+export type { AppCatalogSource, PublishAppCatalogOptions } from './src/app_calls/catalog.js';
+export { APP_CATALOG_PATH, publishAppCatalog, readAppCatalog } from './src/app_calls/catalog.js';
 export type { ServiceInput } from './src/app_calls/config.js';
 export type { AgoraDiscovery } from './src/app_calls/discovery.js';
 export type {

@@ -13,6 +13,7 @@ import {
   ClientAccountExtensionRegistry,
   serveAccountExtensions,
 } from '../src/account_extensions.js';
+import { publishAppCatalogInBackground } from '../src/app_calls/catalog.js';
 import { AppCallsConfigError } from '../src/app_calls/config.js';
 import {
   AppCallerVerifier,
@@ -697,6 +698,25 @@ export class AuthkitClientManager {
    * `service.nodeHttp`, `node:http`) requests to an app in `apps` carry its service token.
    * `null` when there is nothing to install.
    */
+  /**
+   * Publishes this app's permission catalog (`service.catalog`) to the authkit server in the
+   * background, retrying a few times. Returns the stop function, or `null` when there is no
+   * `service` with credentials.
+   */
+  publishAppCatalog(): (() => void) | null {
+    const calls = this.config.appCalls;
+    if (!calls?.clientId || !calls.clientSecret || calls.catalog === false) return null;
+    return publishAppCatalogInBackground({
+      issuer: this.config.issuer,
+      clientId: calls.clientId,
+      clientSecret: calls.clientSecret,
+      source: calls.catalog,
+      ...(calls.catalogEndpoint ? { endpoint: calls.catalogEndpoint } : {}),
+      ...(this.deps.fetchImpl ? { fetch: this.deps.fetchImpl } : {}),
+      logger: this.#logger,
+    });
+  }
+
   /** The resolved calls-between-apps config, or `undefined` without `service`. */
   appCallsConfig() {
     return this.config.appCalls;
@@ -752,6 +772,7 @@ export default class AuthkitClientProvider {
   constructor(protected app: ApplicationService) {}
 
   #appCalls: InstalledAppCalls | undefined;
+  #stopCatalog: (() => void) | undefined;
 
   register() {
     // `ctx.agora` (the request context shared by the Agora libs) is always an object.
@@ -837,6 +858,8 @@ export default class AuthkitClientProvider {
   }
 
   async shutdown() {
+    this.#stopCatalog?.();
+    this.#stopCatalog = undefined;
     this.#appCalls?.uninstall();
     this.#appCalls = undefined;
   }
@@ -848,6 +871,16 @@ export default class AuthkitClientProvider {
    */
   async ready() {
     await this.#checkAppCalls();
+    // The web server publishes what this app accepts from the other apps (commands, jobs and
+    // tests do not).
+    if (this.app.getEnvironment() === 'web') {
+      try {
+        const manager = await this.app.container.make(AuthkitClientManager);
+        this.#stopCatalog = manager.publishAppCatalog() ?? undefined;
+      } catch {
+        // no usable config: nothing to publish
+      }
+    }
     if (this.app.container.hasBinding('authkit.server' as never)) return;
     try {
       const manager = await this.app.container.make(AuthkitClientManager);

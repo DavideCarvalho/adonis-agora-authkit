@@ -32,6 +32,11 @@ import {
   setAdminPrefix,
 } from './admin_prefix.js';
 import {
+  APP_CATALOG_PATH,
+  listAppCatalogsHandler,
+  publishAppCatalogHandler,
+} from './app_catalog.js';
+import {
   getAuthHostConfig,
   markAuthHostAutoMounted,
   wasAuthHostAutoMounted,
@@ -549,6 +554,13 @@ export interface AuthHostOptions {
    */
   orgLabels?: boolean | { path?: string };
   /**
+   * `PUT /api/apps/catalog`: an app publishes the capabilities it accepts from the other apps
+   * (authkit-client does it at boot, with its service tenant's id and secret); the console's
+   * "Apps it can call" offers them. Default: mounted at `/api/apps/catalog`. `false` skips it;
+   * `{ path }` moves it.
+   */
+  appCatalog?: boolean | { path?: string };
+  /**
    * Métodos de sudo cujas rotas devem ser montadas. Necessário aqui (e não só
    * no config) porque a decisão de MONTAR rotas acontece em tempo de registro,
    * antes de o config lazy resolver — mesma razão de `social`/`admin`/`rateLimit`.
@@ -711,6 +723,8 @@ export interface AuthHostRouteMap {
   adminApi: { prefix: string } | null;
   /** Org labels endpoint path, or `null` when it was not mounted. */
   orgLabels: { path: string } | null;
+  /** App catalog publish endpoint path, or `null` when it was not mounted. */
+  appCatalog: { path: string } | null;
   /** Nomes das rotas nomeadas (as demais herdam o auto-naming do AdonisJS). */
   names: Record<string, string>;
   /**
@@ -1606,6 +1620,8 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
           C.consoleClients,
           'regenerateSecret',
         ]);
+        // What each app accepts from the others (published by the apps): the "Apps it can call" picker.
+        router.get(`${ap}/api/apps/catalog`, listAppCatalogsHandler);
         // Roles.
         router.get(`${ap}/api/roles`, [C.consoleRoles, 'index']);
         router.post(`${ap}/api/roles`, [C.consoleRoles, 'store']);
@@ -1714,6 +1730,7 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
         withApiThrottle(router.post('/clients/:id/revoke', [C.apiClients, 'revoke']));
         withApiThrottle(router.put('/clients/:id/apps/:app', [C.apiClients, 'grantApp']));
         withApiThrottle(router.delete('/clients/:id/apps/:app', [C.apiClients, 'revokeApp']));
+        withApiThrottle(router.get('/apps/catalog', listAppCatalogsHandler));
         // Organizações.
         withApiThrottle(router.get('/organizations', [C.apiOrgs, 'index']));
         withApiThrottle(router.post('/organizations', [C.apiOrgs, 'store']));
@@ -1769,6 +1786,19 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
     if (throttles && typeof route?.use === 'function') route.use([throttles.introspection]);
   }
 
+  // App permission catalog, published by each app with its service tenant's id and secret.
+  let appCatalogPath: string | null = null;
+  if (opts.appCatalog !== false) {
+    const raw =
+      typeof opts.appCatalog === 'object' && opts.appCatalog.path
+        ? opts.appCatalog.path
+        : APP_CATALOG_PATH;
+    appCatalogPath = `/${raw.replace(/^\/+|\/+$/g, '')}`;
+    const route = router.put(appCatalogPath, publishAppCatalogHandler);
+    route?.as?.('authkit.app_catalog');
+    if (throttles && typeof route?.use === 'function') route.use([throttles.introspection]);
+  }
+
   // ─── Mapa resolvido (R4) ───────────────────────────────────────────────────
   // Lido DEPOIS de todo o registro: `accountPath()`/`accountPrefix()` já
   // refletem o `accountRoutes` aplicado no topo, e os prefixos de console já
@@ -1799,6 +1829,7 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
     admin: resolvedAdminPrefix ? { prefix: resolvedAdminPrefix } : null,
     adminApi: resolvedAdminApiPrefix ? { prefix: resolvedAdminApiPrefix } : null,
     orgLabels: orgLabelsPath ? { path: orgLabelsPath } : null,
+    appCatalog: appCatalogPath ? { path: appCatalogPath } : null,
     names: {
       webauthnAsset: 'authkit.assets.webauthn',
       oidcWildcard: 'authkit.oidc.wildcard',

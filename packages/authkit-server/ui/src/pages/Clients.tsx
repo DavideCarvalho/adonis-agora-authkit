@@ -8,10 +8,11 @@ import {
   useSetClientDisabledMutationOptions,
   useUpdateClientMutationOptions,
 } from '@adonis-agora/authkit-react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { parseAsStringLiteral, useQueryState } from 'nuqs';
 import type React from 'react';
 import { useState } from 'react';
+import { ComboSelect } from '../agora-kit/blocks/combo-field';
 import { PageHeader } from '../agora-kit/blocks/page-header';
 import { XIcon } from '../agora-kit/icons';
 import { PageBody } from '../agora-kit/shell/app-shell';
@@ -737,6 +738,26 @@ export function Clients() {
   );
 }
 
+/** One app's published catalog: what it accepts from the other apps. */
+interface AppCatalog {
+  app: string;
+  capabilities: string[];
+  updatedAt: string;
+}
+
+/** The catalogs the apps published (`GET {api}/apps/catalog`); `[]` until they load or on error. */
+function useAppCatalogs(): { catalogs: AppCatalog[]; loading: boolean } {
+  const client = useAuthkitClient();
+  const query = useQuery({
+    queryKey: ['authkit', 'admin', 'apps', 'catalog'],
+    queryFn: () =>
+      client.request<{ apps: AppCatalog[] }>('GET', `${getConfig().endpoints.api}/apps/catalog`),
+    staleTime: 60_000,
+    retry: false,
+  });
+  return { catalogs: query.data?.apps ?? [], loading: query.isLoading };
+}
+
 /** "Apps it can call": one row per app, each with the capabilities its tokens for that app carry. */
 function AppGrantsEditor({
   rows,
@@ -746,18 +767,30 @@ function AppGrantsEditor({
   onChange: (rows: AppGrantRow[]) => void;
 }) {
   const set = (i: number, row: AppGrantRow) => onChange(rows.map((r, j) => (j === i ? row : r)));
+  const { catalogs, loading } = useAppCatalogs();
+  const appOptions = catalogs.map((c) => ({ value: c.app }));
+  const groupsFor = (app: string): CapabilityGroup[] => {
+    const catalog = catalogs.find((c) => c.app === app);
+    return catalog && catalog.capabilities.length > 0
+      ? [{ label: `What ${app} accepts`, capabilities: catalog.capabilities }]
+      : [];
+  };
   return (
     <Field label="Apps it can call (optional)">
       <div className="flex flex-col gap-2">
         {rows.map((row, i) => (
           <div key={i} className="flex flex-col gap-1.5 rounded-lg border border-line p-2">
             <div className="flex items-center gap-2">
-              <TextInput
+              <ComboSelect
                 aria-label="App name"
-                mono
-                value={row.name}
-                onChange={(e) => set(i, { ...row, name: e.target.value })}
+                options={appOptions}
+                value={row.name || null}
+                onValueChange={(name) => set(i, { ...row, name: name ?? '' })}
+                creatable
+                loading={loading}
                 placeholder="billing"
+                emptyText="No app has published a catalog"
+                className="flex-1 font-mono"
               />
               <Button
                 type="button"
@@ -772,7 +805,7 @@ function AppGrantsEditor({
             <CapabilityPicker
               value={row.capabilities}
               onChange={(capabilities) => set(i, { ...row, capabilities })}
-              groups={[]}
+              groups={groupsFor(row.name)}
               placeholder="Capabilities on this app (optional)…"
             />
           </div>
@@ -788,7 +821,8 @@ function AppGrantsEditor({
         </Button>
         <div className="text-[11px] text-faint">
           It gets tokens for urn:agora:app:&lt;name&gt; to call that app; the capabilities go in
-          those tokens. Without any, the token only says who is calling.
+          those tokens. Without any, the token only says who is calling. The apps and their
+          capabilities listed here are the ones each app published; any other can be typed.
         </div>
       </div>
     </Field>

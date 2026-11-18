@@ -64,6 +64,7 @@ test.group('ensureAuthkitSchema', (group) => {
       'auth_agent_grants',
       'auth_agent_refresh_tokens',
       'auth_agent_registry',
+      'auth_app_catalog',
     ]);
     assert.deepEqual(report.altered, {});
 

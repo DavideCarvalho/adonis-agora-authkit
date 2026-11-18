@@ -737,6 +737,34 @@
         "startApp": true
       },
       "filePath": "crypto_reseal.js"
+    },
+    {
+      "commandName": "authkit:apps",
+      "description": "List the apps and the capabilities each one accepts from the other apps.",
+      "namespace": "authkit",
+      "aliases": [],
+      "flags": [
+        {
+          "name": "json",
+          "flagName": "json",
+          "required": false,
+          "type": "boolean",
+          "description": "Machine-readable JSON output."
+        }
+      ],
+      "args": [
+        {
+          "name": "only",
+          "argumentName": "app",
+          "required": false,
+          "description": "Only this app",
+          "type": "string"
+        }
+      ],
+      "options": {
+        "startApp": true
+      },
+      "filePath": "apps.js"
     }
   ]
 }

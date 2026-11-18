@@ -8,6 +8,8 @@
  *   and the credentials of its service-tenant client (only needed to call other apps).
  */
 
+import type { AppCatalogSource } from './catalog.js';
+
 /** Resource indicator prefix of an app: `urn:agora:app:<name>`. */
 export const APP_RESOURCE_PREFIX = 'urn:agora:app:';
 
@@ -58,6 +60,17 @@ export interface ServiceInput {
    * without a token and the start goes on. Default: 5000 ms.
    */
   prewarmTimeoutMs?: number;
+  /**
+   * What this app accepts from the other apps, published to the authkit server at start so
+   * the console's "Apps it can call" offers it (needs `clientId`/`clientSecret`):
+   * - omitted: `authz.permissionCatalog()` when `@adonis-agora/authz` is in the app, else nothing;
+   * - `'authz'`: the same, and a warning when authz is not there;
+   * - a function returning the list (your own RBAC tables, a constant…);
+   * - `false`: publish nothing (calls still work: the token says who is calling).
+   */
+  catalog?: AppCatalogSource;
+  /** The publish endpoint. Default: `/api/apps/catalog` on the issuer's origin. */
+  catalogEndpoint?: string;
 }
 
 /** Resolved `service` + `apps`. */
@@ -71,6 +84,10 @@ export interface ResolvedAppCalls {
   prewarmTimeoutMs: number;
   /** Static origin (`https://billing.example.com`) → app name; overrides discovery. */
   origins: Map<string, string>;
+  /** See {@link ServiceInput.catalog}. */
+  catalog?: AppCatalogSource;
+  /** See {@link ServiceInput.catalogEndpoint}. */
+  catalogEndpoint?: string;
 }
 
 /**
@@ -101,6 +118,22 @@ export function resolveAppCalls(
   ) {
     throw new AppCallsConfigError(
       'authkit_client: service.prewarmTimeoutMs must be a number of ms >= 0.',
+    );
+  }
+  const catalog = service.catalog;
+  if (
+    catalog !== undefined &&
+    catalog !== false &&
+    catalog !== 'authz' &&
+    typeof catalog !== 'function'
+  ) {
+    throw new AppCallsConfigError(
+      'authkit_client: service.catalog must be "authz", false or a function returning the list.',
+    );
+  }
+  if (service.catalogEndpoint !== undefined && !URL.canParse(service.catalogEndpoint)) {
+    throw new AppCallsConfigError(
+      'authkit_client: service.catalogEndpoint must be an absolute URL.',
     );
   }
   const origins = new Map<string, string>();
@@ -140,5 +173,7 @@ export function resolveAppCalls(
     nodeHttp: service.nodeHttp === true,
     prewarmTimeoutMs: service.prewarmTimeoutMs ?? 5_000,
     origins,
+    ...(catalog !== undefined ? { catalog } : {}),
+    ...(service.catalogEndpoint ? { catalogEndpoint: service.catalogEndpoint } : {}),
   };
 }
