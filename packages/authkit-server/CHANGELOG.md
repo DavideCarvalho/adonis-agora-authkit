@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.40
+
+### Patch Changes
+
+- [#514](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/514) [`a4db39f`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/a4db39fc94f91daf693ca20cf431aa740199110e) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Console ⌘K: arrow keys now visibly move the selection. The highlighted item was styled with a bare `data-selected:` (cmdk marks every item `true` or `false`) and with the dialog's own surface color, so moving looked like nothing happened.
+
 ## 1.0.0-rc.39
 
 ### Patch Changes
