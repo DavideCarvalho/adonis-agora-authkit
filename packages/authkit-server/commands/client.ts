@@ -56,6 +56,8 @@ export default class AuthkitClient extends BaseCommand {
     '  node ace authkit:client grant-app orders --app=billing --capability=invoices:read',
     '  node ace authkit:client revoke-app orders --app=billing',
     '  node ace authkit:client update my-spa --redirect-uri=https://app/cb --redirect-uri=https://app/cb2',
+    '  node ace authkit:client update worker-acme --add-capability=payments:* (keeps the secret)',
+    '  node ace authkit:client update worker-acme --capability=reports --environment=staging',
     '  node ace authkit:client rotate-secret my-api --force',
     '  node ace authkit:client revoke https://claude.ai/oauth/claude-code-client-metadata --force',
     '',
@@ -82,7 +84,9 @@ export default class AuthkitClient extends BaseCommand {
   @flags.array({ description: 'create/update: redirect_uri (repeatable).' })
   declare redirectUri?: string[];
 
-  @flags.array({ description: 'create/update: post_logout_redirect_uri (repeatable).' })
+  @flags.array({
+    description: 'create/update: post_logout_redirect_uri (repeatable).',
+  })
   declare postLogoutUri?: string[];
 
   @flags.array({
@@ -96,10 +100,14 @@ export default class AuthkitClient extends BaseCommand {
   })
   declare scope?: string[];
 
-  @flags.boolean({ description: 'create/update: public client (no secret, PKCE).' })
+  @flags.boolean({
+    description: 'create/update: public client (no secret, PKCE).',
+  })
   declare public?: boolean;
 
-  @flags.boolean({ description: 'create/update: confidential client (with a secret).' })
+  @flags.boolean({
+    description: 'create/update: confidential client (with a secret).',
+  })
   declare confidential?: boolean;
 
   @flags.boolean({
@@ -107,22 +115,43 @@ export default class AuthkitClient extends BaseCommand {
   })
   declare native?: boolean;
 
-  @flags.string({ description: 'create/update: OIDC back-channel logout endpoint.' })
+  @flags.string({
+    description: 'create/update: OIDC back-channel logout endpoint.',
+  })
   declare backchannelLogoutUri?: string;
 
-  @flags.string({ description: 'create: use this client_secret instead of a random one.' })
+  @flags.string({
+    description: 'create: use this client_secret instead of a random one.',
+  })
   declare clientSecret?: string;
 
-  @flags.string({ description: 'create: service tenant partition (client_credentials only).' })
+  @flags.string({
+    description: 'create/update: service tenant partition (client_credentials only).',
+  })
   declare partition?: string;
 
   @flags.array({
-    description: 'create: service tenant capability (repeatable). Needs --partition.',
+    allowEmptyValue: true,
+    description:
+      'create/update: service tenant capability (repeatable). On update it REPLACES the list ' +
+      '(`--capability=` empties it). Needs --partition on create.',
   })
   declare capability?: string[];
 
+  @flags.array({
+    description: 'update: add a capability to a service tenant, keeping the others (repeatable).',
+  })
+  declare addCapability?: string[];
+
+  @flags.array({
+    description: 'update: remove a capability from a service tenant (repeatable).',
+  })
+  declare removeCapability?: string[];
+
   @flags.string({
-    description: 'create: service tenant environment (`environment` claim). Needs --partition.',
+    allowEmptyValue: true,
+    description:
+      'create/update: service tenant environment (`environment` claim). `--environment=` clears it on update. Needs --partition on create.',
   })
   declare environment?: string;
 
@@ -329,7 +358,9 @@ export default class AuthkitClient extends BaseCommand {
             applicationType: 'web',
             postLogoutRedirectUris: [],
             grantTypes: ['authorization_code', 'refresh_token'],
-            ...this.#clientInput({ tokenEndpointAuthMethod: 'client_secret_basic' }),
+            ...this.#clientInput({
+              tokenEndpointAuthMethod: 'client_secret_basic',
+            }),
           };
     } catch (error) {
       return this.#fail((error as Error).message);
@@ -358,7 +389,10 @@ export default class AuthkitClient extends BaseCommand {
       },
     });
     if (this.json) {
-      return this.#print({ ...this.#dto(client), clientSecret: created.clientSecret ?? null });
+      return this.#print({
+        ...this.#dto(client),
+        clientSecret: created.clientSecret ?? null,
+      });
     }
     this.logger.success(
       tenant
@@ -480,8 +514,13 @@ export default class AuthkitClient extends BaseCommand {
     } catch (error) {
       return this.#fail((error as Error).message);
     }
+    const tenant = this.#serviceTenantUpdate(existing.serviceTenant ?? null);
+    if (typeof tenant === 'string') return this.#fail(tenant);
+    if (tenant) input.serviceTenant = tenant;
     if (Object.keys(input).length === 0) {
-      return this.#fail('Nothing to update: pass at least one flag (--name, --redirect-uri, …).');
+      return this.#fail(
+        'Nothing to update: pass at least one flag (--name, --redirect-uri, --add-capability, …).',
+      );
     }
     try {
       await svc.update(id, input);
@@ -494,12 +533,74 @@ export default class AuthkitClient extends BaseCommand {
       clientId: id,
       actorId: cliActor(),
       ip: null,
-      metadata: { actor: 'cli' },
+      metadata: {
+        actor: 'cli',
+        ...(tenant
+          ? {
+              partition: tenant.partition,
+              capabilities: tenant.capabilities,
+              previousCapabilities: existing.serviceTenant.capabilities,
+            }
+          : {}),
+      },
     });
     const updated = await svc.find(id);
     if (this.json) return this.#print(this.#dto(updated));
     this.logger.success(`Client updated: ${id}`);
     this.#describe(updated);
+  }
+
+  /**
+   * `update`: the service-tenant flags applied over the client's current grant (the same
+   * `serviceTenant` the console and the Admin API write). `null` = no tenant flag passed;
+   * a string = the refusal. The secret is never touched.
+   */
+  #serviceTenantUpdate(
+    current: {
+      partition: string;
+      capabilities: string[];
+      environment?: string;
+      apps?: Record<string, string[]>;
+    } | null,
+  ):
+    | {
+        partition: string;
+        capabilities: string[];
+        environment?: string;
+        apps?: Record<string, string[]>;
+      }
+    | string
+    | null {
+    const add = (this.addCapability ?? []).map((c) => c.trim()).filter(Boolean);
+    const remove = new Set((this.removeCapability ?? []).map((c) => c.trim()).filter(Boolean));
+    const touched =
+      this.partition !== undefined ||
+      this.capability !== undefined ||
+      this.environment !== undefined ||
+      add.length > 0 ||
+      remove.size > 0;
+    if (this.targetApp?.length) {
+      return 'update does not take --app: use grant-app / revoke-app.';
+    }
+    if (!touched) return null;
+    if (!current) {
+      return 'Not a service tenant: --partition, --capability, --add-capability, --remove-capability and --environment only change a service tenant (create one with `create --partition`).';
+    }
+    if (this.capability !== undefined && (add.length > 0 || remove.size > 0)) {
+      return '--capability replaces the whole list: do not mix it with --add-capability / --remove-capability.';
+    }
+    const base = this.capability
+      ? this.capability.map((c) => c.trim()).filter(Boolean)
+      : current.capabilities;
+    const capabilities = [...new Set([...base, ...add])].filter((c) => !remove.has(c));
+    const environment =
+      this.environment === undefined ? current.environment : this.environment.trim() || undefined;
+    return {
+      partition: this.partition?.trim() || current.partition,
+      capabilities,
+      ...(environment ? { environment } : {}),
+      ...(current.apps ? { apps: current.apps } : {}),
+    };
   }
 
   async #rotateSecret(service: any, svc: any, id: string) {
@@ -533,7 +634,10 @@ export default class AuthkitClient extends BaseCommand {
       return;
     }
     const { revokeClient } = await import('../src/host/client_revocation.js');
-    const result = await revokeClient(service, id, { actorId: cliActor(), source: 'cli' });
+    const result = await revokeClient(service, id, {
+      actorId: cliActor(),
+      source: 'cli',
+    });
     if (this.json) return this.#print(result);
     this.logger.success(
       `Revoked ${id}: ${result.grants} grant(s), ${result.accessTokens} access token(s), ${result.refreshTokens} refresh token(s).`,

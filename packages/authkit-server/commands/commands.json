@@ -40,7 +40,7 @@
     },
     {
       "commandName": "authkit:client",
-      "description": "Manage OAuth clients: list, create, show, update, rotate-secret, revoke, delete.",
+      "description": "Manage OAuth clients: list, create, show, update, rotate-secret, revoke, delete, grant-app, revoke-app.",
       "help": [
         "Actions:",
         "  list                 every client (--mcp: only MCP clients, registered or by metadata document)",
@@ -50,6 +50,8 @@
         "  rotate-secret <id>   a new secret, printed ONCE (the old one stops working)",
         "  revoke <id>          disable it and cut its grants/tokens in every account",
         "  delete <id>          delete it",
+        "  grant-app <id>       let a service tenant call another app (--app, --capability)",
+        "  revoke-app <id>      take that away (--app)",
         "",
         "Examples:",
         "  node ace authkit:client list --json",
@@ -58,7 +60,12 @@
         "  node ace authkit:client create --client-id=my-api --redirect-uri=https://api/cb --scope=openid --scope=email",
         "  node ace authkit:client create --client-id=my-mobile --native --redirect-uri=com.example.app:/oauth",
         "  node ace authkit:client create --client-id=worker-acme --partition=acme --capability=reports",
+        "  node ace authkit:client create --client-id=orders --partition=orders --app=billing=invoices:read",
+        "  node ace authkit:client grant-app orders --app=billing --capability=invoices:read",
+        "  node ace authkit:client revoke-app orders --app=billing",
         "  node ace authkit:client update my-spa --redirect-uri=https://app/cb --redirect-uri=https://app/cb2",
+        "  node ace authkit:client update worker-acme --add-capability=payments:* (keeps the secret)",
+        "  node ace authkit:client update worker-acme --capability=reports --environment=staging",
         "  node ace authkit:client rotate-secret my-api --force",
         "  node ace authkit:client revoke https://claude.ai/oauth/claude-code-client-metadata --force",
         "",
@@ -149,14 +156,44 @@
           "flagName": "partition",
           "required": false,
           "type": "string",
-          "description": "create: service tenant partition (client_credentials only)."
+          "description": "create/update: service tenant partition (client_credentials only)."
         },
         {
           "name": "capability",
           "flagName": "capability",
           "required": false,
           "type": "array",
-          "description": "create: service tenant capability (repeatable). Needs --partition."
+          "allowEmptyValue": true,
+          "description": "create/update: service tenant capability (repeatable). On update it REPLACES the list (`--capability=` empties it). Needs --partition on create."
+        },
+        {
+          "name": "addCapability",
+          "flagName": "add-capability",
+          "required": false,
+          "type": "array",
+          "description": "update: add a capability to a service tenant, keeping the others (repeatable)."
+        },
+        {
+          "name": "removeCapability",
+          "flagName": "remove-capability",
+          "required": false,
+          "type": "array",
+          "description": "update: remove a capability from a service tenant (repeatable)."
+        },
+        {
+          "name": "environment",
+          "flagName": "environment",
+          "required": false,
+          "type": "string",
+          "allowEmptyValue": true,
+          "description": "create/update: service tenant environment (`environment` claim). `--environment=` clears it on update. Needs --partition on create."
+        },
+        {
+          "name": "targetApp",
+          "flagName": "app",
+          "required": false,
+          "type": "array",
+          "description": "create: an app the service tenant may call, `name` or `name=cap1,cap2` (repeatable). grant-app/revoke-app: the app."
         },
         {
           "name": "mcp",
@@ -185,7 +222,7 @@
           "name": "action",
           "argumentName": "action",
           "required": true,
-          "description": "Action: list, create, show, update, rotate-secret, revoke, delete",
+          "description": "Action: list, create, show, update, rotate-secret, revoke, delete, grant-app, revoke-app",
           "type": "string"
         },
         {

@@ -344,7 +344,24 @@ deploy the new secret, and the next refresh uses it.
 
 ## Change the partition or capabilities
 
-Edit the client in the console, or `PATCH /api/authkit/v1/clients/:id` with
+From the command line, `authkit:client update` changes only what you pass and keeps the secret:
+
+```sh
+# add one capability, keep the others
+node ace authkit:client update worker-acme --add-capability=billing
+
+# take one away
+node ace authkit:client update worker-acme --remove-capability=reports
+
+# replace the whole list, set or clear (--environment=) the environment
+node ace authkit:client update worker-acme --capability=reports --capability=billing --environment=production
+```
+
+`--capability` replaces the list, so it can't be mixed with `--add-capability` or
+`--remove-capability`. The apps a tenant may call stay as they are; change them with
+`grant-app` / `revoke-app`.
+
+Or edit the client in the console, or `PATCH /api/authkit/v1/clients/:id` with
 `{ "serviceTenant": { "partition": "acme", "capabilities": ["reports", "billing"], "environment": "production" } }`. The
 next token carries the new values; a token already issued keeps the old ones until it expires.
 
