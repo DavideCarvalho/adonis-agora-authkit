@@ -52,6 +52,8 @@ node ace authkit:client create --client-id=worker-acme --partition=acme --capabi
 | `--public` / `--confidential` | Public = no secret. Default: confidential. |
 | `--native` | Native app; implies `--public`. |
 | `--backchannel-logout-uri` | OIDC back-channel logout endpoint. |
+| `--backchannel-logout-session-required` | The back-channel logout needs the session id (`sid`); `--no-…` turns it off. |
+| `--logo-uri` | Logo shown on the consent screen; `--logo-uri=` removes it. |
 | `--client-secret` | Use this secret instead of a random one. |
 | `--partition`, `--capability`, `--environment`, `--app` | Service tenant ([Service tenants](/docs/service-tenants)). |
 
@@ -62,6 +64,8 @@ node ace authkit:client update acme-web --redirect-uri=https://web.acme.com/cb -
 node ace authkit:client update worker-acme --add-capability=billing   # keeps the secret
 node ace authkit:client rotate-secret acme-web --force   # prints the new secret once
 node ace authkit:client revoke acme-web --force          # disable + cut its grants and tokens
+node ace authkit:client disable acme-web                 # stop it; grants are kept
+node ace authkit:client enable acme-web                  # back on (also after revoke)
 node ace authkit:client delete acme-web --force
 ```
 

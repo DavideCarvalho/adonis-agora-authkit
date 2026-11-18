@@ -404,6 +404,101 @@ test.group('authkit:client', (group) => {
     assert.isNull((await svc.find('spa'))?.serviceTenant ?? null, 'still a login client');
   });
 
+  test('disable / enable: the client stops and comes back, grants untouched, audited', async ({
+    assert,
+  }) => {
+    await h.run(AuthkitClient, ['create', '--client-id=app', '--redirect-uri=https://a/cb']);
+    const svc = new AdminClientsService(h.service);
+    assert.equal((await h.run(AuthkitClient, ['disable', 'app'])).exitCode, 0);
+    assert.isTrue((await svc.find('app'))?.disabled);
+    assert.equal((await h.run(AuthkitClient, ['enable', 'app'])).exitCode, 0);
+    assert.isFalse((await svc.find('app'))?.disabled);
+    assert.deepEqual(
+      h.audit
+        .filter((e) => e.type === 'client.disabled' || e.type === 'client.enabled')
+        .map((e) => e.type),
+      ['client.disabled', 'client.enabled'],
+    );
+    assert.equal((await h.run(AuthkitClient, ['disable', 'nope'])).exitCode, 1);
+  });
+
+  test('service tenant: --scope is kept; --logo-uri and the sid flag are refused', async ({
+    assert,
+  }) => {
+    const created = await h.run(AuthkitClient, [
+      'create',
+      '--client-id=worker',
+      '--partition=acme',
+      '--scope=openid',
+    ]);
+    assert.equal(created.exitCode, 0);
+    assert.equal((await new AdminClientsService(h.service).find('worker'))?.scope, 'openid');
+    for (const flag of [
+      '--logo-uri=https://a/logo.png',
+      '--logo-uri=',
+      '--backchannel-logout-uri=',
+      '--backchannel-logout-session-required',
+    ]) {
+      const refused = await h.run(AuthkitClient, ['create', '--partition=acme', flag]);
+      assert.equal(refused.exitCode, 1, flag);
+    }
+    // The service refuses it too (console and Admin API go through it).
+    const update = await h.run(AuthkitClient, ['update', 'worker', '--logo-uri=https://a/l.png']);
+    assert.equal(update.exitCode, 1);
+  });
+
+  test('--backchannel-logout-session-required needs a back-channel logout URI', async ({
+    assert,
+  }) => {
+    const noUri = await h.run(AuthkitClient, [
+      'create',
+      '--client-id=app',
+      '--redirect-uri=https://a/cb',
+      '--backchannel-logout-session-required',
+    ]);
+    assert.equal(noUri.exitCode, 1);
+    await h.run(AuthkitClient, ['create', '--client-id=app', '--redirect-uri=https://a/cb']);
+    assert.equal(
+      (await h.run(AuthkitClient, ['update', 'app', '--backchannel-logout-session-required']))
+        .exitCode,
+      1,
+    );
+    assert.equal(
+      (
+        await h.run(AuthkitClient, [
+          'update',
+          'app',
+          '--backchannel-logout-uri=',
+          '--backchannel-logout-session-required',
+        ])
+      ).exitCode,
+      1,
+      'clearing the URI in the same call',
+    );
+  });
+
+  test('update --logo-uri and --backchannel-logout-session-required', async ({ assert }) => {
+    await h.run(AuthkitClient, [
+      'create',
+      '--client-id=app',
+      '--redirect-uri=https://a/cb',
+      '--logo-uri=https://a/logo.png',
+    ]);
+    const svc = new AdminClientsService(h.service);
+    assert.equal((await svc.find('app'))?.logoUri, 'https://a/logo.png');
+    await h.run(AuthkitClient, [
+      'update',
+      'app',
+      '--backchannel-logout-uri=https://a/bc',
+      '--backchannel-logout-session-required',
+    ]);
+    assert.isTrue((await svc.find('app'))?.backchannelLogoutSessionRequired);
+    await h.run(AuthkitClient, ['update', 'app', '--no-backchannel-logout-session-required']);
+    assert.isFalse(!!(await svc.find('app'))?.backchannelLogoutSessionRequired);
+    await h.run(AuthkitClient, ['update', 'app', '--logo-uri=']);
+    assert.isNotOk((await svc.find('app'))?.logoUri);
+  });
+
   test('rotate-secret: refuses without --force (non-interactive), prints the new one once', async ({
     assert,
   }) => {

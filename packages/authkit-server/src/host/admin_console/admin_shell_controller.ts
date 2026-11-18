@@ -151,6 +151,36 @@ const MIME: Record<string, string> = {
  * Se o dist não existir (ambiente de dev sem build prévia), serve o placeholder HTML
  * legado de `src/host/ui/admin.html` com uma mensagem de instrução.
  */
+/**
+ * The console's `serviceTenants` block: each service-tenant resource with the capabilities it
+ * declares (`serviceTenants.resources[x].capabilities`), and whether calls between apps are on.
+ * Absent when service tenants are off.
+ */
+export function serviceTenantsShellConfig(cfg: {
+  serviceTenants?: {
+    enabled: boolean;
+    resources: Record<string, { capabilities?: string[] }>;
+    apps?: unknown;
+  };
+}): {
+  serviceTenants?: {
+    resources: { indicator: string; capabilities: string[] }[];
+    apps: boolean;
+  };
+} {
+  const st = cfg.serviceTenants;
+  if (!st?.enabled) return {};
+  return {
+    serviceTenants: {
+      resources: Object.entries(st.resources).map(([indicator, r]) => ({
+        indicator,
+        capabilities: [...(r.capabilities ?? [])],
+      })),
+      apps: !!st.apps,
+    },
+  };
+}
+
 export default class AdminShellController {
   /**
    * GET {prefix}   — serve o shell HTML da SPA.
@@ -206,6 +236,9 @@ export default class AdminShellController {
         // Papéis vindos de fora (resolveTokenRoles): a tela só mostra, não edita.
         rolesManagedExternally: rolesManagedExternally(cfg),
       },
+      // Service tenants: the resources and the capabilities each one declares, offered by the
+      // client form's capability picker.
+      ...serviceTenantsShellConfig(cfg),
     };
 
     const { html: rawHtml } = await loadShell();

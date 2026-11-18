@@ -18,6 +18,12 @@ export interface ServiceTenantResourceInput {
    * an env var each. Absolute `https` URL; `http` only for localhost. Default: not published.
    */
   url?: string;
+  /**
+   * The capabilities this resource checks, e.g. `['payments:charge', 'payments:*']`. Optional:
+   * the admin console offers them when you pick a service tenant's capabilities (any other value
+   * can still be typed). Tokens are not limited to this list.
+   */
+  capabilities?: string[];
 }
 
 export interface ServiceTenantsConfigInput {
@@ -40,6 +46,9 @@ export const APP_RESOURCE_PREFIX = 'urn:agora:app:';
 /** Default lifetime of an app-to-app token: 5 minutes. */
 export const DEFAULT_APP_TOKEN_TTL = 300;
 
+/** A capability: letters, digits, `.`, `_`, `:`, `*`, `/` and `-`; up to 128 chars. */
+export const CAPABILITY_PATTERN = /^[A-Za-z0-9*][A-Za-z0-9._:*/-]{0,127}$/;
+
 /** Letters, digits, `.`, `_` and `-`; starts with a letter or digit; up to 64 chars. */
 export const APP_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
@@ -56,6 +65,8 @@ export interface ResolvedServiceTenantResource {
   scopes: string[];
   /** Where the control plane lives (published as `agora_control_planes`). */
   url?: string;
+  /** The capabilities this resource checks (offered by the admin console). */
+  capabilities: string[];
 }
 
 export interface ResolvedServiceTenantsConfig {
@@ -113,11 +124,19 @@ export function resolveServiceTenants(
       );
     }
     if (rc?.url !== undefined) assertControlPlaneUrl(indicator, rc.url);
+    const capabilities = [...new Set((rc?.capabilities ?? []).map((c) => String(c).trim()))];
+    const invalid = capabilities.find((c) => !CAPABILITY_PATTERN.test(c));
+    if (invalid !== undefined) {
+      throw new Error(
+        `authkit: serviceTenants.resources["${indicator}"].capabilities has an invalid capability "${invalid}" (letters, digits, ".", "_", ":", "*", "/" and "-").`,
+      );
+    }
     resources[indicator] = {
       audience: rc?.audience ?? indicator,
       expiresIn,
       scopes: [...(rc?.scopes ?? [])],
       ...(rc?.url !== undefined ? { url: rc.url } : {}),
+      capabilities,
     };
   }
   let apps: { expiresIn: number } | undefined;

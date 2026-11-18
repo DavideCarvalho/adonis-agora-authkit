@@ -27,6 +27,7 @@ import { AdminUsersService } from '../src/host/admin_api/admin_users_service.js'
 import {
   prepareShell,
   serializeConfigBlock,
+  serviceTenantsShellConfig,
 } from '../src/host/admin_console/admin_shell_controller.js';
 import ConsoleAuditController from '../src/host/admin_console/console_audit_controller.js';
 import ConsoleClientsController from '../src/host/admin_console/console_clients_controller.js';
@@ -395,6 +396,32 @@ test.group('AdminShellController — config data block', () => {
     const raw = await readFile(dist, 'utf8').catch(() => null);
     if (!raw) return assert.isTrue(true, 'build the package to check the real shell');
     assert.deepEqual(executableInlineScripts(prepareShell(raw, config)), []);
+  });
+
+  test('announces the service-tenant resources and the capabilities they declare', ({ assert }) => {
+    const out = serviceTenantsShellConfig({
+      serviceTenants: {
+        enabled: true,
+        resources: {
+          'urn:agora:payments': { capabilities: ['payments:charge', 'payments:*'] },
+          'urn:agora:durable': {},
+        },
+        apps: { expiresIn: 300 },
+      },
+    });
+    assert.deepEqual(out, {
+      serviceTenants: {
+        resources: [
+          { indicator: 'urn:agora:payments', capabilities: ['payments:charge', 'payments:*'] },
+          { indicator: 'urn:agora:durable', capabilities: [] },
+        ],
+        apps: true,
+      },
+    });
+    assert.deepEqual(
+      serviceTenantsShellConfig({ serviceTenants: { enabled: false, resources: {} } }),
+      {},
+    );
   });
 
   test('a value cannot close the data block', ({ assert }) => {

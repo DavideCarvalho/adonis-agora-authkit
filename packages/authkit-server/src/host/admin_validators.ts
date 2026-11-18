@@ -87,6 +87,8 @@ const ALLOWED_GRANT_TYPES = [
   'urn:ietf:params:oauth:grant-type:token-exchange',
 ] as const;
 const grantTypeArray = vine.array(vine.enum(ALLOWED_GRANT_TYPES));
+/** One OAuth scope token (RFC 6749 §3.3: printable ASCII except space, `"` and `\\`). */
+const SCOPE_TOKEN = /^[\x21\x23-\x5B\x5D-\x7E]{1,128}$/;
 // NOTA: `response_types` NÃO é input de client nesta lib — é derivado por
 // `AdminClientsService.create` (`['code']` quando há authorization_code, senão
 // `[]`). Logo já está restrito a `code` sem precisar de validator (M10 ✓).
@@ -111,6 +113,14 @@ export const clientInputValidator = vine.compile(
     // grant_types restrito à allowlist; `implicit` e desconhecidos viram 422 (M10).
     grantTypes: grantTypeArray.optional(),
     tokenEndpointAuthMethod: authMethod.optional(),
+    // The scopes the client may ask for. Absent = any scope of the IdP; `null` (update) lifts
+    // the restriction. An empty list is refused: it would read as "none" but store "any".
+    scopes: vine
+      .array(vine.string().trim().regex(SCOPE_TOKEN))
+      .minLength(1)
+      .maxLength(64)
+      .nullable()
+      .optional(),
     // backchannel_logout_uri também precisa ser URI absoluta (L10).
     // `null` (update) remove a URI.
     backchannelLogoutUri: vine.string().trim().url(URL_OPTS).nullable().optional(),
@@ -153,6 +163,7 @@ export type ClientInputFields = {
   backchannelLogoutSessionRequired?: boolean;
   clientName?: string | null;
   logoUri?: string | null;
+  scopes?: string[] | null;
   serviceTenant?: {
     partition: string;
     capabilities?: string[];
@@ -180,6 +191,7 @@ export function clientCreateInput(v: ClientInputFields): ClientInput {
       backchannelLogoutUri: v.backchannelLogoutUri || undefined,
       clientName: v.clientName || undefined,
       logoUri: v.logoUri || undefined,
+      ...(v.scopes?.length ? { scopes: v.scopes } : {}),
       serviceTenant: v.serviceTenant,
     };
   }
@@ -195,6 +207,7 @@ export function clientCreateInput(v: ClientInputFields): ClientInput {
     backchannelLogoutSessionRequired: v.backchannelLogoutSessionRequired,
     clientName: v.clientName || undefined,
     logoUri: v.logoUri || undefined,
+    ...(v.scopes?.length ? { scopes: v.scopes } : {}),
   };
 }
 
@@ -217,6 +230,7 @@ export function clientPartialInput(v: ClientInputFields): Partial<ClientInput> {
   if (v.clientName !== undefined) out.clientName = v.clientName?.trim() || null;
   if (v.logoUri !== undefined) out.logoUri = v.logoUri?.trim() || null;
   if (v.serviceTenant !== undefined) out.serviceTenant = v.serviceTenant;
+  if (v.scopes !== undefined) out.scopes = v.scopes;
   return out;
 }
 

@@ -125,7 +125,12 @@ test.group('service tenants: config', () => {
       resources: { [RESOURCE]: {}, 'https://cp/': { expiresIn: 60 } },
     });
     assert.isTrue(r.enabled);
-    assert.deepEqual(r.resources[RESOURCE], { audience: RESOURCE, expiresIn: 600, scopes: [] });
+    assert.deepEqual(r.resources[RESOURCE], {
+      audience: RESOURCE,
+      expiresIn: 600,
+      scopes: [],
+      capabilities: [],
+    });
     assert.equal(r.resources['https://cp/'].expiresIn, 60);
     assert.isFalse(resolveServiceTenants(undefined).enabled);
   });
@@ -141,6 +146,21 @@ test.group('service tenants: config', () => {
     assert.throws(
       () => resolveServiceTenants({ resources: { [RESOURCE]: { expiresIn: 0 } } }),
       /positive integer/,
+    );
+  });
+
+  test('keeps the capabilities a resource declares (deduped), refuses an invalid one', ({
+    assert,
+  }) => {
+    const r = resolveServiceTenants({
+      resources: {
+        [RESOURCE]: { capabilities: ['payments:charge', 'payments:*', ' payments:charge '] },
+      },
+    });
+    assert.deepEqual(r.resources[RESOURCE].capabilities, ['payments:charge', 'payments:*']);
+    assert.throws(
+      () => resolveServiceTenants({ resources: { [RESOURCE]: { capabilities: ['has space'] } } }),
+      /invalid capability "has space"/,
     );
   });
 

@@ -6,6 +6,12 @@ export interface AuthKitConfig {
   currentUser: { id: string; email: string; roles: string[] } | null;
   endpoints: { api: string; confirm?: string };
   features?: { personalAgents?: boolean; rolesManagedExternally?: boolean };
+  /** Present when service tenants are on: each resource and the capabilities it declares. */
+  serviceTenants?: {
+    resources: { indicator: string; capabilities: string[] }[];
+    /** Calls between apps (`urn:agora:app:<name>`) are on. */
+    apps: boolean;
+  };
   /** Present only when other `@adonis-agora` consoles are registered. */
   switcher?: { endpoint: string; others: number };
   /** Global search across the consoles this viewer may open. */

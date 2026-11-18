@@ -16,6 +16,7 @@ import { PageHeader } from '../agora-kit/blocks/page-header';
 import { XIcon } from '../agora-kit/icons';
 import { PageBody } from '../agora-kit/shell/app-shell';
 import { Button } from '../agora-kit/ui/button';
+import { type CapabilityGroup, CapabilityPicker } from '../components/CapabilityPicker';
 import { Modal } from '../components/Modal';
 import {
   CheckboxRow,
@@ -24,26 +25,34 @@ import {
   Notice,
   SecretBox,
   SelectInput,
-  TextArea,
   TextInput,
 } from '../components/primitives';
 import { ClientsListContainer, useClientsCount } from '../containers/clients.containers';
 import { getConfig } from '../lib/config';
 import { useToast } from '../lib/toast';
 
-const GRANT_TYPES = ['authorization_code', 'refresh_token', 'client_credentials', 'implicit'];
+/** The grants the server accepts (`implicit` is refused). Label shown, value sent. */
+const GRANT_TYPES: Array<{ value: string; label: string }> = [
+  { value: 'authorization_code', label: 'authorization_code' },
+  { value: 'refresh_token', label: 'refresh_token' },
+  { value: 'client_credentials', label: 'client_credentials' },
+  { value: 'urn:ietf:params:oauth:grant-type:token-exchange', label: 'token-exchange' },
+];
+/** The scopes the IdP issues; any other one can still be typed. */
+const KNOWN_SCOPES = ['openid', 'profile', 'email', 'offline_access', 'roles'];
+/** One OAuth scope token (RFC 6749 §3.3), same rule as the server. */
+const SCOPE_TOKEN = /^[\x21\x23-\x5B\x5D-\x7E]{1,128}$/;
 const AUTH_METHODS = ['client_secret_basic', 'client_secret_post', 'none'];
 
 interface FormState {
   /** `app`: a regular OAuth client. `serviceTenant`: client_credentials + partition claim. */
   kind: 'app' | 'serviceTenant';
   partition: string;
-  /** Comma- or space-separated. */
-  capabilities: string;
+  capabilities: string[];
   /** The `environment` claim; empty for none. */
   environment: string;
-  /** Apps it may call, one per line: `billing` or `billing: invoices:read, invoices:write`. */
-  apps: string;
+  /** Apps it may call, each with the capabilities its tokens for that app carry. */
+  apps: AppGrantRow[];
   clientIdOverride: string;
   redirectUris: string[];
   postLogoutRedirectUris: string[];
@@ -54,40 +63,47 @@ interface FormState {
   backchannelLogoutSessionRequired: boolean;
   clientName: string;
   logoUri: string;
+  /** The scopes it may ask for; empty = any. */
+  scopes: string[];
 }
 
-function parseCapabilities(raw: string): string[] {
-  return raw
-    .split(/[\s,]+/)
-    .map((c) => c.trim())
-    .filter(Boolean);
+interface AppGrantRow {
+  name: string;
+  capabilities: string[];
 }
 
-/** One app per line: `billing` or `billing: invoices:read, invoices:write`. */
-function parseApps(raw: string): Record<string, string[]> {
+/** Rows → the `apps` map the API takes (blank names dropped, a repeated name merged). */
+function appsOf(rows: AppGrantRow[]): Record<string, string[]> {
   const apps: Record<string, string[]> = {};
-  for (const line of raw.split('\n')) {
-    const at = line.indexOf(':');
-    const name = (at === -1 ? line : line.slice(0, at)).trim();
+  for (const row of rows) {
+    const name = row.name.trim();
     if (!name) continue;
-    apps[name] = at === -1 ? [] : parseCapabilities(line.slice(at + 1));
+    apps[name] = [...new Set([...(apps[name] ?? []), ...row.capabilities])];
   }
   return apps;
 }
 
-function formatApps(apps: Record<string, string[]> | undefined): string {
-  return Object.entries(apps ?? {})
-    .map(([name, caps]) => (caps.length ? `${name}: ${caps.join(', ')}` : name))
-    .join('\n');
+function rowsOf(apps: Record<string, string[]> | undefined): AppGrantRow[] {
+  return Object.entries(apps ?? {}).map(([name, capabilities]) => ({
+    name,
+    capabilities: [...capabilities],
+  }));
+}
+
+/** The capabilities each service-tenant resource declares (`serviceTenants.resources`). */
+function declaredCapabilityGroups(): CapabilityGroup[] {
+  return (getConfig().serviceTenants?.resources ?? [])
+    .filter((r) => r.capabilities.length > 0)
+    .map((r) => ({ label: r.indicator, capabilities: r.capabilities }));
 }
 
 function defaultForm(): FormState {
   return {
     kind: 'app',
     partition: '',
-    capabilities: '',
+    capabilities: [],
     environment: '',
-    apps: '',
+    apps: [],
     clientIdOverride: '',
     redirectUris: [],
     postLogoutRedirectUris: [],
@@ -98,6 +114,7 @@ function defaultForm(): FormState {
     backchannelLogoutSessionRequired: false,
     clientName: '',
     logoUri: '',
+    scopes: [],
   };
 }
 
@@ -134,9 +151,9 @@ export function Clients() {
     setFormData({
       kind: c.serviceTenant ? 'serviceTenant' : 'app',
       partition: c.serviceTenant?.partition ?? '',
-      capabilities: (c.serviceTenant?.capabilities ?? []).join(', '),
+      capabilities: [...(c.serviceTenant?.capabilities ?? [])],
       environment: c.serviceTenant?.environment ?? '',
-      apps: formatApps(c.serviceTenant?.apps),
+      apps: rowsOf(c.serviceTenant?.apps),
       clientIdOverride: '',
       redirectUris: [...c.redirectUris],
       postLogoutRedirectUris: [...c.postLogoutRedirectUris],
@@ -147,6 +164,7 @@ export function Clients() {
       backchannelLogoutSessionRequired: c.backchannelLogoutSessionRequired,
       clientName: c.clientName ?? '',
       logoUri: c.logoUri ?? '',
+      scopes: c.scope ? c.scope.split(' ').filter(Boolean) : [],
     });
     setRedirectInput('');
     setLogoutInput('');
@@ -195,13 +213,14 @@ export function Clients() {
               grantTypes: ['client_credentials'],
               tokenEndpointAuthMethod: 'client_secret_basic',
               clientName: formData.clientName.trim() || undefined,
+              ...(formData.scopes.length ? { scopes: formData.scopes } : {}),
               serviceTenant: {
                 partition: formData.partition.trim(),
-                capabilities: parseCapabilities(formData.capabilities),
+                capabilities: formData.capabilities,
                 ...(formData.environment.trim()
                   ? { environment: formData.environment.trim() }
                   : {}),
-                apps: parseApps(formData.apps),
+                apps: appsOf(formData.apps),
               },
             }
           : {
@@ -215,6 +234,7 @@ export function Clients() {
               backchannelLogoutSessionRequired: formData.backchannelLogoutSessionRequired,
               clientName: formData.clientName.trim() || undefined,
               logoUri: formData.logoUri.trim() || undefined,
+              ...(formData.scopes.length ? { scopes: formData.scopes } : {}),
             };
       const r = await createMutation.mutateAsync(input);
       queryClient.invalidateQueries({ queryKey: authkitKeys.admin.clients() });
@@ -236,11 +256,12 @@ export function Clients() {
       if (formData.kind === 'serviceTenant') {
         await updateMutation.mutateAsync({
           clientName: formData.clientName.trim() || null,
+          scopes: formData.scopes.length ? formData.scopes : null,
           serviceTenant: {
             partition: formData.partition.trim(),
-            capabilities: parseCapabilities(formData.capabilities),
+            capabilities: formData.capabilities,
             environment: formData.environment.trim() || null,
-            apps: parseApps(formData.apps),
+            apps: appsOf(formData.apps),
           },
         });
         queryClient.invalidateQueries({ queryKey: authkitKeys.admin.clients() });
@@ -259,6 +280,8 @@ export function Clients() {
         backchannelLogoutSessionRequired: formData.backchannelLogoutSessionRequired,
         clientName: formData.clientName.trim() || null,
         logoUri: formData.logoUri.trim() || null,
+        // Empty = lift the restriction (any scope).
+        scopes: formData.scopes.length ? formData.scopes : null,
       });
       queryClient.invalidateQueries({ queryKey: authkitKeys.admin.clients() });
       toast.success('Client updated');
@@ -407,7 +430,7 @@ export function Clients() {
         </Field>
       )}
 
-      {!editClient && (
+      {!editClient && getConfig().serviceTenants && (
         <Field label="Kind" htmlFor="client-kind">
           <SelectInput
             id="client-kind"
@@ -437,13 +460,12 @@ export function Clients() {
               required
             />
           </Field>
-          <Field label="Capabilities (optional, comma-separated)" htmlFor="client-capabilities">
-            <TextInput
+          <Field label="Capabilities (optional)" htmlFor="client-capabilities">
+            <CapabilityPicker
               id="client-capabilities"
-              mono
               value={formData.capabilities}
-              onChange={(e) => setFormData((f) => ({ ...f, capabilities: e.target.value }))}
-              placeholder="reports, billing"
+              onChange={(capabilities) => setFormData((f) => ({ ...f, capabilities }))}
+              groups={declaredCapabilityGroups()}
             />
           </Field>
           <Field label="Environment (optional)" htmlFor="client-environment">
@@ -455,16 +477,13 @@ export function Clients() {
               placeholder="production"
             />
           </Field>
-          <Field label="Apps it can call (optional, one per line)" htmlFor="client-apps">
-            <TextArea
-              id="client-apps"
-              mono
-              rows={3}
-              value={formData.apps}
-              onChange={(e) => setFormData((f) => ({ ...f, apps: e.target.value }))}
-              placeholder={'billing: invoices:read, invoices:write\nreports'}
+          {getConfig().serviceTenants?.apps === true && (
+            <AppGrantsEditor
+              rows={formData.apps}
+              onChange={(apps) => setFormData((f) => ({ ...f, apps }))}
             />
-          </Field>
+          )}
+          <ScopesField formData={formData} setFormData={setFormData} />
           <Field label="Name" htmlFor="client-name">
             <TextInput
               id="client-name"
@@ -475,8 +494,8 @@ export function Clients() {
           </Field>
           <div className="text-xs text-faint">
             Confidential client with only the client_credentials grant. Its tokens carry the
-            partition, capabilities and environment as claims. Each app it can call gets tokens for
-            urn:agora:app:&lt;name&gt; with the capabilities listed on that line.
+            partition, capabilities and environment as claims. For each app it can call it gets
+            tokens for urn:agora:app:&lt;name&gt; carrying that app's capabilities.
           </div>
         </>
       ) : (
@@ -485,15 +504,17 @@ export function Clients() {
             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1.5">
               {GRANT_TYPES.map((g) => (
                 <CheckboxRow
-                  key={g}
+                  key={g.value}
                   className="py-1"
-                  checked={formData.grantTypes.includes(g)}
-                  onChange={() => toggleGrant(g)}
-                  label={<span className="mono">{g}</span>}
+                  checked={formData.grantTypes.includes(g.value)}
+                  onChange={() => toggleGrant(g.value)}
+                  label={<span className="mono">{g.label}</span>}
                 />
               ))}
             </div>
           </Field>
+
+          <ScopesField formData={formData} setFormData={setFormData} />
 
           <Field label="Application Type" htmlFor="client-app-type">
             <SelectInput
@@ -713,5 +734,86 @@ export function Clients() {
         </Button>
       </Modal>
     </PageBody>
+  );
+}
+
+/** "Apps it can call": one row per app, each with the capabilities its tokens for that app carry. */
+function AppGrantsEditor({
+  rows,
+  onChange,
+}: {
+  rows: AppGrantRow[];
+  onChange: (rows: AppGrantRow[]) => void;
+}) {
+  const set = (i: number, row: AppGrantRow) => onChange(rows.map((r, j) => (j === i ? row : r)));
+  return (
+    <Field label="Apps it can call (optional)">
+      <div className="flex flex-col gap-2">
+        {rows.map((row, i) => (
+          <div key={i} className="flex flex-col gap-1.5 rounded-lg border border-line p-2">
+            <div className="flex items-center gap-2">
+              <TextInput
+                aria-label="App name"
+                mono
+                value={row.name}
+                onChange={(e) => set(i, { ...row, name: e.target.value })}
+                placeholder="billing"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-label={`Remove ${row.name || 'app'}`}
+                onClick={() => onChange(rows.filter((_, j) => j !== i))}
+              >
+                <XIcon />
+              </Button>
+            </div>
+            <CapabilityPicker
+              value={row.capabilities}
+              onChange={(capabilities) => set(i, { ...row, capabilities })}
+              groups={[]}
+              placeholder="Capabilities on this app (optional)…"
+            />
+          </div>
+        ))}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="self-start"
+          onClick={() => onChange([...rows, { name: '', capabilities: [] }])}
+        >
+          + Add app
+        </Button>
+        <div className="text-[11px] text-faint">
+          It gets tokens for urn:agora:app:&lt;name&gt; to call that app; the capabilities go in
+          those tokens. Without any, the token only says who is calling.
+        </div>
+      </div>
+    </Field>
+  );
+}
+
+/** "Allowed scopes": empty = any scope of the IdP. */
+function ScopesField({
+  formData,
+  setFormData,
+}: {
+  formData: FormState;
+  setFormData: React.Dispatch<React.SetStateAction<FormState>>;
+}) {
+  return (
+    <Field label="Allowed scopes (empty = any)" htmlFor="client-scopes">
+      <CapabilityPicker
+        id="client-scopes"
+        value={formData.scopes}
+        onChange={(scopes) => setFormData((f) => ({ ...f, scopes }))}
+        groups={[{ label: 'Scopes', capabilities: KNOWN_SCOPES }]}
+        placeholder="Search or type a scope…"
+        pattern={SCOPE_TOKEN}
+        patternHint="No spaces, quotes or backslashes."
+      />
+    </Field>
   );
 }

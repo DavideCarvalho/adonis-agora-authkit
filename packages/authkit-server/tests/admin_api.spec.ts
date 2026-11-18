@@ -772,6 +772,58 @@ test.group('Admin REST API (controllers)', (group) => {
     }
   });
 
+  test('clients: allowed scopes on create, PATCH keeps / replaces / lifts them; bad scope → 422', async ({
+    assert,
+  }) => {
+    const clients = new ApiClientsController();
+    const created: any = await clients.store(
+      fakeCtx({
+        service,
+        inputs: {
+          redirectUris: ['http://localhost/cb'],
+          grantTypes: ['authorization_code'],
+          scopes: ['openid', 'email'],
+        },
+      }).ctx,
+    );
+    const id = created.clientId;
+    const scopeOf = async () =>
+      ((await clients.show(fakeCtx({ service, params: { id } }).ctx)) as any).scope;
+    assert.equal(await scopeOf(), 'openid email');
+
+    await clients.update(fakeCtx({ service, params: { id }, inputs: { clientName: 'x' } }).ctx);
+    assert.equal(await scopeOf(), 'openid email', 'absent keeps them');
+
+    await clients.update(fakeCtx({ service, params: { id }, inputs: { scopes: ['openid'] } }).ctx);
+    assert.equal(await scopeOf(), 'openid');
+
+    await clients.update(fakeCtx({ service, params: { id }, inputs: { scopes: null } }).ctx);
+    assert.isNull(await scopeOf(), 'null = any scope');
+
+    const bad = fakeCtx({ service, params: { id }, inputs: { scopes: ['has space'] } });
+    await assert.rejects(() => clients.update(bad.ctx));
+    // `[]` would read as "no scope" but store "any": refused, use `null`.
+    const empty = fakeCtx({ service, params: { id }, inputs: { scopes: [] } });
+    await assert.rejects(() => clients.update(empty.ctx));
+    assert.isNull(await scopeOf());
+  });
+
+  test('clients: revoke disables it and cuts its grants, like the console', async ({ assert }) => {
+    const clients = new ApiClientsController();
+    const created: any = await clients.store(
+      fakeCtx({
+        service,
+        inputs: { redirectUris: ['http://localhost/cb'], grantTypes: ['authorization_code'] },
+      }).ctx,
+    );
+    const id = created.clientId;
+    const result: any = await clients.revoke(fakeCtx({ service, params: { id } }).ctx);
+    assert.equal(result.clientId, id);
+    assert.isTrue(result.stored);
+    const got: any = await clients.show(fakeCtx({ service, params: { id } }).ctx);
+    assert.isTrue(got.disabled);
+  });
+
   test('clients list: search, sort and offset envelope', async ({ assert }) => {
     const clients = new ApiClientsController();
     for (const clientId of ['zeta-app', 'alpha-app', 'mid-app']) {

@@ -54,11 +54,24 @@ defineConfig({
 
 | Field | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `resources` | `Record<string, { expiresIn?, audience?, scopes? }>` | | One entry per control plane. |
+| `resources` | `Record<string, { expiresIn?, audience?, scopes?, url?, capabilities? }>` | | One entry per control plane. |
 | `resources[*].expiresIn` | `number` (seconds) | `600` | Token lifetime. Tokens are not revocable, so keep it short. |
 | `resources[*].audience` | `string` | the key | The `aud` of the token. |
 | `resources[*].scopes` | `string[]` | `[]` | Scopes a service tenant may request for it. |
 | `resources[*].url` | `string` | | Where the control plane lives. See [Find the control planes](#find-the-control-planes). |
+| `resources[*].capabilities` | `string[]` | `[]` | The capabilities this control plane checks. The console offers them when you pick a client's capabilities; tokens are not limited to this list. |
+
+Declaring the capabilities turns the console's capabilities field into a picker:
+
+```ts title="config/authkit.ts"
+serviceTenants: {
+  resources: {
+    'urn:agora:payments': {
+      capabilities: ['payments:*', 'payments:charge', 'payments:refund', 'payments:read'],
+    },
+  },
+},
+```
 
 A resource listed here cannot also be in `accessTokens.resources`: a resource is for users or
 for service tenants, never both.
@@ -68,7 +81,10 @@ for service tenants, never both.
 ### From the console
 
 **Clients → New Client**, then pick **Service tenant** as the kind. Enter the partition and,
-optionally, the capabilities (comma-separated) and the environment. The secret is shown once.
+optionally, the capabilities and the environment. The capabilities field lists the ones each
+resource declares; type any other one (a pattern such as `crypto:decrypt:subject_*`) and press
+Enter. Under **Apps it can call**, add one row per app, with the capabilities its tokens for that
+app carry. The secret is shown once.
 
 ### From the CLI
 

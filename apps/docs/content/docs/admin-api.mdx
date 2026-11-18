@@ -220,13 +220,16 @@ otherwise.
 
 | Method | Path | Body | Notes |
 | --- | --- | --- | --- |
-| `GET` | `/clients` | `?search&sort&page&size` | Page of persisted clients (plus `canList`). `search` matches the client id or name; `sort` is `clientId` (default) or `clientName`. Each client: `clientId`, `confidential`, `grantTypes`, `redirectUris`, `postLogoutRedirectUris`, `tokenEndpointAuthMethod`, `applicationType`, `backchannelLogoutUri`, `backchannelLogoutSessionRequired`, `clientName`, `logoUri`, `disabled`, `serviceTenant`. |
-| `POST` | `/clients` | `{ clientId?, applicationType?, redirectUris, postLogoutRedirectUris?, grantTypes, tokenEndpointAuthMethod, backchannelLogoutUri?, backchannelLogoutSessionRequired?, clientName?, logoUri?, serviceTenant? }` | Create; returns `clientSecret` (once) for confidential clients. `applicationType: 'native'` = [native app](/docs/native-apps) (public, RFC 8252 redirects); metadata that doesn't fit the type → `422 invalid_client_metadata`. `serviceTenant: { partition, capabilities? }` = [service tenant](/docs/service-tenants). |
+| `GET` | `/clients` | `?search&sort&page&size` | Page of persisted clients (plus `canList`). `search` matches the client id or name; `sort` is `clientId` (default) or `clientName`. Each client: `clientId`, `confidential`, `grantTypes`, `redirectUris`, `postLogoutRedirectUris`, `tokenEndpointAuthMethod`, `applicationType`, `backchannelLogoutUri`, `backchannelLogoutSessionRequired`, `clientName`, `logoUri`, `disabled`, `serviceTenant`, `scope` (the allowed scopes, space-separated; `null` = any). |
+| `POST` | `/clients` | `{ clientId?, applicationType?, redirectUris, postLogoutRedirectUris?, grantTypes, tokenEndpointAuthMethod, backchannelLogoutUri?, backchannelLogoutSessionRequired?, clientName?, logoUri?, scopes?, serviceTenant? }` | Create; returns `clientSecret` (once) for confidential clients. `applicationType: 'native'` = [native app](/docs/native-apps) (public, RFC 8252 redirects); metadata that doesn't fit the type → `422 invalid_client_metadata`. `scopes` limits the scopes it may ask for (absent = any). `serviceTenant: { partition, capabilities?, environment?, apps? }` = [service tenant](/docs/service-tenants). |
 | `GET` | `/clients/:id` | — | Single client (no secret). `404` if unknown. |
-| `PATCH` | `/clients/:id` | same as create body | Update metadata; fields left out keep their value, `null` removes `backchannelLogoutUri`, `clientName` or `logoUri`. Preserves the secret. |
+| `PATCH` | `/clients/:id` | same as create body | Update metadata; fields left out keep their value, `null` removes `backchannelLogoutUri`, `clientName`, `logoUri` or the `scopes` restriction, and `serviceTenant: null` turns a service tenant back into a regular client. Preserves the secret. |
 | `POST` | `/clients/:id/regenerate-secret` | — | New secret (once). `409` for public clients. |
 | `POST` | `/clients/:id/disable` | — | No new tokens (`invalid_client`) until enabled. Returns the client. |
 | `POST` | `/clients/:id/enable` | — | Issues tokens again. Returns the client. |
+| `POST` | `/clients/:id/revoke` | — | Disables it **and** cuts its grants and tokens in every account. Returns `{ clientId, stored, grants, accessTokens, refreshTokens }`; `stored: false` for a Client ID Metadata Document client (no stored record). |
+| `PUT` | `/clients/:id/apps/:app` | `{ capabilities? }` | Service tenant: may call `app` (tokens for `urn:agora:app:<app>` carrying those capabilities). Returns the client. |
+| `DELETE` | `/clients/:id/apps/:app` | — | Takes that away. Returns the client. |
 | `DELETE` | `/clients/:id` | — | Delete and evict the cache. |
 
 ```bash

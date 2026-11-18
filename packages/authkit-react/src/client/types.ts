@@ -242,6 +242,8 @@ export interface CreateClientInput {
   backchannelLogoutSessionRequired?: boolean;
   clientName?: string;
   logoUri?: string;
+  /** The scopes it may ask for. Absent = any scope of the IdP. */
+  scopes?: string[];
   /** Makes it a service tenant (confidential, `client_credentials` only, no redirect URIs). */
   serviceTenant?: {
     partition: string;
@@ -252,13 +254,15 @@ export interface CreateClientInput {
 }
 
 /**
- * Like {@link CreateClientInput}; `null` removes `backchannelLogoutUri`, `clientName` or
- * `logoUri`, and turns a service tenant back into a regular client.
+ * Like {@link CreateClientInput}; `null` removes `backchannelLogoutUri`, `clientName`,
+ * `logoUri` or the `scopes` restriction, and turns a service tenant back into a regular client.
  */
 export type UpdateClientInput = Omit<
   CreateClientInput,
-  'backchannelLogoutUri' | 'clientName' | 'logoUri' | 'serviceTenant'
+  'backchannelLogoutUri' | 'clientName' | 'logoUri' | 'serviceTenant' | 'scopes'
 > & {
+  /** `null` lifts the restriction (any scope). */
+  scopes?: string[] | null;
   backchannelLogoutUri?: string | null;
   clientName?: string | null;
   logoUri?: string | null;
