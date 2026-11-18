@@ -144,7 +144,13 @@ async function seedGrant(db: any, grantId: string, clientId: string) {
   );
   await new DatabaseAdapter('AccessToken', db).upsert(
     `at-${grantId}`,
-    { jti: `at-${grantId}`, kind: 'AccessToken', grantId, clientId, accountId: 'u1' },
+    {
+      jti: `at-${grantId}`,
+      kind: 'AccessToken',
+      grantId,
+      clientId,
+      accountId: 'u1',
+    },
     3600,
   );
 }
@@ -326,6 +332,76 @@ test.group('authkit:client', (group) => {
     const client = await new AdminClientsService(h.service).find('dcr-1');
     assert.isTrue(client?.dynamicallyRegistered);
     assert.equal(client?.clientName, 'Renamed');
+  });
+
+  test('update changes a service tenant grant and keeps its secret', async ({ assert }) => {
+    await h.run(AuthkitClient, [
+      'create',
+      '--client-id=worker-acme',
+      '--partition=acme',
+      '--capability=reports',
+      '--app=billing=invoices:read',
+      '--client-secret=the-secret-the-app-already-uses',
+    ]);
+    const adapter = new DatabaseAdapter('Client', h.db);
+    const secretBefore = (await adapter.find('worker-acme'))?.client_secret;
+    assert.equal(secretBefore, 'the-secret-the-app-already-uses');
+    const svc = new AdminClientsService(h.service);
+
+    const added = await h.run(AuthkitClient, [
+      'update',
+      'worker-acme',
+      '--add-capability=payments:*',
+      '--add-capability=reports',
+    ]);
+    assert.equal(added.exitCode, 0);
+    let tenant = (await svc.find('worker-acme'))?.serviceTenant;
+    assert.deepEqual(tenant?.capabilities, ['reports', 'payments:*'], 'appends, no duplicates');
+    assert.deepEqual(tenant?.apps, { billing: ['invoices:read'] }, 'apps are kept');
+    assert.equal(tenant?.partition, 'acme');
+    assert.equal((await adapter.find('worker-acme'))?.client_secret, secretBefore);
+    assert.isTrue(
+      h.audit.some(
+        (e) =>
+          e.type === 'client.updated' &&
+          (e.metadata?.capabilities as string[] | undefined)?.includes('payments:*'),
+      ),
+    );
+
+    await h.run(AuthkitClient, [
+      'update',
+      'worker-acme',
+      '--remove-capability=reports',
+      '--environment=staging',
+    ]);
+    tenant = (await svc.find('worker-acme'))?.serviceTenant;
+    assert.deepEqual(tenant?.capabilities, ['payments:*']);
+    assert.equal(tenant?.environment, 'staging');
+
+    await h.run(AuthkitClient, ['update', 'worker-acme', '--capability=a', '--capability=b']);
+    tenant = (await svc.find('worker-acme'))?.serviceTenant;
+    assert.deepEqual(tenant?.capabilities, ['a', 'b'], '--capability replaces the list');
+    assert.equal(tenant?.environment, 'staging', 'environment kept when not passed');
+
+    await h.run(AuthkitClient, ['update', 'worker-acme', '--environment=']);
+    assert.isUndefined((await svc.find('worker-acme'))?.serviceTenant?.environment);
+    assert.equal((await adapter.find('worker-acme'))?.client_secret, secretBefore);
+
+    // Refusals: mixing replace with add, --app on update, tenant flags on a login client.
+    const mixed = await h.run(AuthkitClient, [
+      'update',
+      'worker-acme',
+      '--capability=x',
+      '--add-capability=y',
+    ]);
+    assert.equal(mixed.exitCode, 1);
+    assert.equal(
+      (await h.run(AuthkitClient, ['update', 'worker-acme', '--app=billing'])).exitCode,
+      1,
+    );
+    await h.run(AuthkitClient, ['create', '--client-id=spa', '--redirect-uri=https://a/cb']);
+    assert.equal((await h.run(AuthkitClient, ['update', 'spa', '--add-capability=x'])).exitCode, 1);
+    assert.isNull((await svc.find('spa'))?.serviceTenant ?? null, 'still a login client');
   });
 
   test('rotate-secret: refuses without --force (non-interactive), prints the new one once', async ({
