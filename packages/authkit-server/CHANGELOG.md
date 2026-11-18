@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.44
+
+### Minor Changes
+
+- [#520](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/520) [`38a25b1`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/38a25b1f29f37f44c2241f3a11a10b2152fff1b3) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - App graph for other Agora libs. authkit-server publishes a reader on a global slot (`AUTHKIT_APP_GRAPH_SLOT`). The reader lists each service-tenant app once, merging its clients: their ids (`clientIds`), whether every client is disabled, their environments, and the apps it may call with which capabilities. It also returns the catalogs the apps published. Each snapshot is cached for 30 s. Telescope's Architecture page reads it without importing authkit.
+
 ## 1.0.0-rc.43
 
 ### Minor Changes
