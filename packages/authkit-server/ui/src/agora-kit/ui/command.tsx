@@ -1,5 +1,8 @@
 // Vendored from shadcn/ui, registry style "base-vega" (Base UI flavour), item "command".
 // Fetched 2026-11-13 from https://ui.shadcn.com/r/styles/base-vega/command.json. Local edits are marked "agora:".
+// agora: cmdk writes `data-selected="true"|"false"` on EVERY item, so the selected styles use
+// `data-[selected=true]:` (a bare `data-selected:` matched them all), and `panel-3` (the kit's
+// `muted` is the dialog's own surface, so the highlight was invisible).
 'use client';
 
 import { Command as CommandPrimitive } from 'cmdk';
@@ -139,7 +142,7 @@ function CommandItem({
     <CommandPrimitive.Item
       data-slot="command-item"
       className={cn(
-        "group/command-item relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none in-data-[slot=dialog-content]:rounded-lg! data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-selected:bg-muted data-selected:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-selected:**:[svg]:text-foreground",
+        "group/command-item relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none in-data-[slot=dialog-content]:rounded-lg! data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-[selected=true]:bg-panel-3 data-[selected=true]:text-fg [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-[selected=true]:**:[svg]:text-fg",
         className,
       )}
       {...props}
@@ -155,7 +158,7 @@ function CommandShortcut({ className, ...props }: React.ComponentProps<'span'>) 
     <span
       data-slot="command-shortcut"
       className={cn(
-        'ml-auto text-xs tracking-widest text-muted-foreground group-data-selected/command-item:text-foreground',
+        'ml-auto text-xs tracking-widest text-muted-foreground group-data-[selected=true]/command-item:text-fg',
         className,
       )}
       {...props}
