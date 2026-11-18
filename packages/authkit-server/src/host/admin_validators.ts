@@ -114,8 +114,13 @@ export const clientInputValidator = vine.compile(
     grantTypes: grantTypeArray.optional(),
     tokenEndpointAuthMethod: authMethod.optional(),
     // The scopes the client may ask for. Absent = any scope of the IdP; `null` (update) lifts
-    // the restriction.
-    scopes: vine.array(vine.string().trim().regex(SCOPE_TOKEN)).maxLength(64).nullable().optional(),
+    // the restriction. An empty list is refused: it would read as "none" but store "any".
+    scopes: vine
+      .array(vine.string().trim().regex(SCOPE_TOKEN))
+      .minLength(1)
+      .maxLength(64)
+      .nullable()
+      .optional(),
     // backchannel_logout_uri também precisa ser URI absoluta (L10).
     // `null` (update) remove a URI.
     backchannelLogoutUri: vine.string().trim().url(URL_OPTS).nullable().optional(),

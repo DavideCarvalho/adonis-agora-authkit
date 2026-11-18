@@ -144,7 +144,8 @@
           "flagName": "backchannel-logout-uri",
           "required": false,
           "type": "string",
-          "description": "create/update: OIDC back-channel logout endpoint."
+          "allowEmptyValue": true,
+          "description": "create/update: OIDC back-channel logout endpoint (`--backchannel-logout-uri=` removes it)."
         },
         {
           "name": "backchannelLogoutSessionRequired",

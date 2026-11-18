@@ -802,6 +802,9 @@ test.group('Admin REST API (controllers)', (group) => {
 
     const bad = fakeCtx({ service, params: { id }, inputs: { scopes: ['has space'] } });
     await assert.rejects(() => clients.update(bad.ctx));
+    // `[]` would read as "no scope" but store "any": refused, use `null`.
+    const empty = fakeCtx({ service, params: { id }, inputs: { scopes: [] } });
+    await assert.rejects(() => clients.update(empty.ctx));
     assert.isNull(await scopeOf());
   });
 

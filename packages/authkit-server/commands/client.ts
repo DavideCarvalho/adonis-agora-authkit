@@ -120,7 +120,9 @@ export default class AuthkitClient extends BaseCommand {
   declare native?: boolean;
 
   @flags.string({
-    description: 'create/update: OIDC back-channel logout endpoint.',
+    allowEmptyValue: true,
+    description:
+      'create/update: OIDC back-channel logout endpoint (`--backchannel-logout-uri=` removes it).',
   })
   declare backchannelLogoutUri?: string;
 
@@ -348,6 +350,9 @@ export default class AuthkitClient extends BaseCommand {
         this.public && '--public',
         this.native && '--native',
         this.backchannelLogoutUri && '--backchannel-logout-uri',
+        this.backchannelLogoutSessionRequired !== undefined &&
+          '--backchannel-logout-session-required',
+        this.logoUri && '--logo-uri',
         this.grant?.some((g) => g !== 'client_credentials') && '--grant',
       ].filter(Boolean);
       if (conflicting.length) {
@@ -357,6 +362,9 @@ export default class AuthkitClient extends BaseCommand {
       }
     } else if (!this.redirectUri?.length) {
       return this.#fail('--redirect-uri is required (at least one callback URI).');
+    } else {
+      const sidRefusal = this.#sessionRequiredRefusal(null);
+      if (sidRefusal) return this.#fail(sidRefusal);
     }
     let input: any;
     try {
@@ -369,6 +377,7 @@ export default class AuthkitClient extends BaseCommand {
             postLogoutRedirectUris: [],
             grantTypes: ['client_credentials'],
             tokenEndpointAuthMethod: 'client_secret_basic',
+            ...(this.scope?.length ? { scopes: this.scope } : {}),
             serviceTenant: {
               partition: this.partition,
               capabilities: this.capability ?? [],
@@ -537,6 +546,8 @@ export default class AuthkitClient extends BaseCommand {
     } catch (error) {
       return this.#fail((error as Error).message);
     }
+    const sidRefusal = this.#sessionRequiredRefusal(existing.backchannelLogoutUri ?? null);
+    if (sidRefusal) return this.#fail(sidRefusal);
     const tenant = this.#serviceTenantUpdate(existing.serviceTenant ?? null);
     if (typeof tenant === 'string') return this.#fail(tenant);
     if (tenant) input.serviceTenant = tenant;
@@ -624,6 +635,19 @@ export default class AuthkitClient extends BaseCommand {
       ...(environment ? { environment } : {}),
       ...(current.apps ? { apps: current.apps } : {}),
     };
+  }
+
+  /**
+   * `--backchannel-logout-session-required` only means something with a back-channel logout URI
+   * (the server stores it with the URI): refused when the client would end up without one.
+   */
+  #sessionRequiredRefusal(currentUri: string | null): string | null {
+    if (!this.backchannelLogoutSessionRequired) return null;
+    const uri =
+      this.backchannelLogoutUri === undefined ? currentUri : this.backchannelLogoutUri.trim();
+    return uri
+      ? null
+      : '--backchannel-logout-session-required needs a back-channel logout URI (--backchannel-logout-uri).';
   }
 
   /** `disable` / `enable`: the client gets `invalid_client` while disabled; nothing else changes. */

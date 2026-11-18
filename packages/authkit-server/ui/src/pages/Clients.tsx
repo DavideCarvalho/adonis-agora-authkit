@@ -40,6 +40,8 @@ const GRANT_TYPES: Array<{ value: string; label: string }> = [
 ];
 /** The scopes the IdP issues; any other one can still be typed. */
 const KNOWN_SCOPES = ['openid', 'profile', 'email', 'offline_access', 'roles'];
+/** One OAuth scope token (RFC 6749 §3.3), same rule as the server. */
+const SCOPE_TOKEN = /^[\x21\x23-\x5B\x5D-\x7E]{1,128}$/;
 const AUTH_METHODS = ['client_secret_basic', 'client_secret_post', 'none'];
 
 interface FormState {
@@ -211,6 +213,7 @@ export function Clients() {
               grantTypes: ['client_credentials'],
               tokenEndpointAuthMethod: 'client_secret_basic',
               clientName: formData.clientName.trim() || undefined,
+              ...(formData.scopes.length ? { scopes: formData.scopes } : {}),
               serviceTenant: {
                 partition: formData.partition.trim(),
                 capabilities: formData.capabilities,
@@ -253,6 +256,7 @@ export function Clients() {
       if (formData.kind === 'serviceTenant') {
         await updateMutation.mutateAsync({
           clientName: formData.clientName.trim() || null,
+          scopes: formData.scopes.length ? formData.scopes : null,
           serviceTenant: {
             partition: formData.partition.trim(),
             capabilities: formData.capabilities,
@@ -426,7 +430,7 @@ export function Clients() {
         </Field>
       )}
 
-      {!editClient && (
+      {!editClient && getConfig().serviceTenants && (
         <Field label="Kind" htmlFor="client-kind">
           <SelectInput
             id="client-kind"
@@ -473,12 +477,13 @@ export function Clients() {
               placeholder="production"
             />
           </Field>
-          {getConfig().serviceTenants?.apps !== false && (
+          {getConfig().serviceTenants?.apps === true && (
             <AppGrantsEditor
               rows={formData.apps}
               onChange={(apps) => setFormData((f) => ({ ...f, apps }))}
             />
           )}
+          <ScopesField formData={formData} setFormData={setFormData} />
           <Field label="Name" htmlFor="client-name">
             <TextInput
               id="client-name"
@@ -509,17 +514,7 @@ export function Clients() {
             </div>
           </Field>
 
-          <Field label="Allowed scopes (empty = any)" htmlFor="client-scopes">
-            <CapabilityPicker
-              id="client-scopes"
-              value={formData.scopes}
-              onChange={(scopes) => setFormData((f) => ({ ...f, scopes }))}
-              groups={[{ label: 'Scopes', capabilities: KNOWN_SCOPES }]}
-              placeholder="Search or type a scope…"
-              pattern={/^[\x21\x23-\x5B\x5D-\x7E]{1,128}$/}
-              patternHint="No spaces, quotes or backslashes."
-            />
-          </Field>
+          <ScopesField formData={formData} setFormData={setFormData} />
 
           <Field label="Application Type" htmlFor="client-app-type">
             <SelectInput
@@ -796,6 +791,29 @@ function AppGrantsEditor({
           those tokens. Without any, the token only says who is calling.
         </div>
       </div>
+    </Field>
+  );
+}
+
+/** "Allowed scopes": empty = any scope of the IdP. */
+function ScopesField({
+  formData,
+  setFormData,
+}: {
+  formData: FormState;
+  setFormData: React.Dispatch<React.SetStateAction<FormState>>;
+}) {
+  return (
+    <Field label="Allowed scopes (empty = any)" htmlFor="client-scopes">
+      <CapabilityPicker
+        id="client-scopes"
+        value={formData.scopes}
+        onChange={(scopes) => setFormData((f) => ({ ...f, scopes }))}
+        groups={[{ label: 'Scopes', capabilities: KNOWN_SCOPES }]}
+        placeholder="Search or type a scope…"
+        pattern={SCOPE_TOKEN}
+        patternHint="No spaces, quotes or backslashes."
+      />
     </Field>
   );
 }

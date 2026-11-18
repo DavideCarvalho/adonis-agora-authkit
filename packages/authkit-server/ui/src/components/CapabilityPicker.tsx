@@ -70,7 +70,8 @@ export function CapabilityPicker({
     <div
       className="flex flex-col gap-1.5"
       onKeyDown={(e) => {
-        if (e.key !== 'Enter') return;
+        // Only the text input: Enter on a chip's remove button must still press it.
+        if (e.key !== 'Enter' || !(e.target instanceof HTMLInputElement)) return;
         const handled = e.defaultPrevented;
         e.preventDefault();
         if (!handled && typed !== '' && typedValid) add(typed);

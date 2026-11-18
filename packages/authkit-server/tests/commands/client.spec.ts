@@ -422,6 +422,56 @@ test.group('authkit:client', (group) => {
     assert.equal((await h.run(AuthkitClient, ['disable', 'nope'])).exitCode, 1);
   });
 
+  test('service tenant: --scope is kept; --logo-uri and the sid flag are refused', async ({
+    assert,
+  }) => {
+    const created = await h.run(AuthkitClient, [
+      'create',
+      '--client-id=worker',
+      '--partition=acme',
+      '--scope=openid',
+    ]);
+    assert.equal(created.exitCode, 0);
+    assert.equal((await new AdminClientsService(h.service).find('worker'))?.scope, 'openid');
+    for (const flag of ['--logo-uri=https://a/logo.png', '--backchannel-logout-session-required']) {
+      const refused = await h.run(AuthkitClient, ['create', '--partition=acme', flag]);
+      assert.equal(refused.exitCode, 1, flag);
+    }
+    // The service refuses it too (console and Admin API go through it).
+    const update = await h.run(AuthkitClient, ['update', 'worker', '--logo-uri=https://a/l.png']);
+    assert.equal(update.exitCode, 1);
+  });
+
+  test('--backchannel-logout-session-required needs a back-channel logout URI', async ({
+    assert,
+  }) => {
+    const noUri = await h.run(AuthkitClient, [
+      'create',
+      '--client-id=app',
+      '--redirect-uri=https://a/cb',
+      '--backchannel-logout-session-required',
+    ]);
+    assert.equal(noUri.exitCode, 1);
+    await h.run(AuthkitClient, ['create', '--client-id=app', '--redirect-uri=https://a/cb']);
+    assert.equal(
+      (await h.run(AuthkitClient, ['update', 'app', '--backchannel-logout-session-required']))
+        .exitCode,
+      1,
+    );
+    assert.equal(
+      (
+        await h.run(AuthkitClient, [
+          'update',
+          'app',
+          '--backchannel-logout-uri=',
+          '--backchannel-logout-session-required',
+        ])
+      ).exitCode,
+      1,
+      'clearing the URI in the same call',
+    );
+  });
+
   test('update --logo-uri and --backchannel-logout-session-required', async ({ assert }) => {
     await h.run(AuthkitClient, [
       'create',

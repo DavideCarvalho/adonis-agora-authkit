@@ -360,8 +360,13 @@ export class AdminClientsService {
     if (input.redirectUris.length || input.postLogoutRedirectUris.length) {
       throw new ClientMetadataError('a service tenant has no redirect URIs');
     }
-    if (input.backchannelLogoutUri) {
-      throw new ClientMetadataError('a service tenant has no back-channel logout URI');
+    if (input.backchannelLogoutUri || input.backchannelLogoutSessionRequired) {
+      throw new ClientMetadataError('a service tenant has no back-channel logout');
+    }
+    if (input.logoUri) {
+      throw new ClientMetadataError(
+        'a service tenant has no logo (it never shows a consent screen)',
+      );
     }
   }
 
