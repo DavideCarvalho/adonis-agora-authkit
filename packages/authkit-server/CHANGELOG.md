@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.41
+
+### Patch Changes
+
+- [#517](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/517) [`131f5c7`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/131f5c796bffaa1887589b9de1c8ff1ce537bee1) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Console: fields with autocomplete (kit `ComboSelect`/`ComboMultiSelect`). Org member and invitation roles offer the org's roles (`organizations_policy.roles`, org then global, else the defaults) and still accept a typed role; editing a member's role is no longer a free text box. Settings `list` fields are chips with autocomplete (the social 2FA "required roles" list suggests the roles catalog), and a `select` with more than six options gets autocomplete. The Audit page filters by several event types at once (`?type=a,b`), listing every type the server emits.
+
 ## 1.0.0-rc.40
 
 ### Patch Changes
