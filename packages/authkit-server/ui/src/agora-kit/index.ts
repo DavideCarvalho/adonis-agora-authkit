@@ -7,6 +7,15 @@
  */
 
 export { ActionDialog } from './blocks/action-dialog';
+export {
+  ComboMultiSelect,
+  type ComboMultiSelectProps,
+  type ComboOption,
+  ComboSelect,
+  type ComboSelectProps,
+  comboItems,
+  comboMatches,
+} from './blocks/combo-field';
 export { type Column, DataTable } from './blocks/data-table';
 export { EmptyState } from './blocks/empty-state';
 export { ErrorBoundary, type ErrorBoundaryProps, RegionError } from './blocks/error-boundary';
@@ -63,3 +72,11 @@ export {
   type Viewer,
 } from './shell-config';
 export { applyTheme, type Theme, ThemeProvider, useTheme } from './theme';
+export {
+  joinHash,
+  readHashSearch,
+  splitHash,
+  subscribeHashUrl,
+  writeHashSearch,
+} from './url-state/hash-url';
+export { NuqsHashAdapter } from './url-state/nuqs-hash-adapter';

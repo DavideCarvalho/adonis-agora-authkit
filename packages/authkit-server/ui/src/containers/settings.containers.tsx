@@ -1,11 +1,13 @@
 import {
   authkitKeys,
   useRemoveSettingMutationOptions,
+  useRolesQueryOptions,
   useSetSettingMutationOptions,
   useSettingsQueryOptions,
 } from '@adonis-agora/authkit-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type ReactNode, useEffect, useState } from 'react';
+import { ComboMultiSelect, ComboSelect } from '../agora-kit/blocks/combo-field';
 import { cn } from '../agora-kit/lib/utils';
 import { Button } from '../agora-kit/ui/button';
 import { Toggle } from '../components/forms';
@@ -29,6 +31,8 @@ export interface SettingFieldMeta {
   type: 'boolean' | 'number' | 'string' | 'select' | 'list';
   /** Opções do `select` (valor gravado + rótulo mostrado). */
   options?: Array<{ value: string; label: string }>;
+  /** `list`: sugere os papéis do catálogo (`/roles`); outros valores continuam aceitos. */
+  suggest?: 'roles';
   defaultValue?: unknown;
 }
 
@@ -112,6 +116,48 @@ function ConfigLockBadge() {
       </svg>
       definido via config
     </SectionBadge>
+  );
+}
+
+// ── List / select fields ─────────────────────────────────────────────────────
+
+/** A `select` with more options than this gets autocomplete. */
+const SELECT_COMBO_THRESHOLD = 6;
+
+/** `list` field: chips with autocomplete; typed values are accepted (`creatable`). */
+function SettingListInput({
+  field,
+  value,
+  disabled,
+  onChange,
+}: {
+  field: SettingFieldMeta;
+  value: string[];
+  disabled: boolean;
+  onChange: (value: string[]) => void;
+}) {
+  const roles = useQuery({
+    ...useRolesQueryOptions(),
+    enabled: field.suggest === 'roles',
+    retry: false,
+  });
+  const options =
+    field.suggest === 'roles'
+      ? (roles.data?.data ?? []).map((r) => ({ value: r.name, hint: r.description }))
+      : [];
+  return (
+    <ComboMultiSelect
+      aria-label={field.label}
+      className="w-full sm:w-[260px]"
+      options={options}
+      value={value}
+      creatable
+      loading={field.suggest === 'roles' && roles.isLoading}
+      placeholder={field.suggest === 'roles' ? 'ADMIN, COORDINATOR' : 'Type and press Enter'}
+      emptyText={field.suggest === 'roles' ? 'No matching role' : 'Type a value'}
+      disabled={disabled}
+      onValueChange={onChange}
+    />
   );
 }
 
@@ -298,6 +344,18 @@ export function SettingsSectionContainer({
                     disabled={locked}
                     onChange={(v) => setField(f, v)}
                   />
+                ) : f.type === 'select' && (f.options ?? []).length > SELECT_COMBO_THRESHOLD ? (
+                  <ComboSelect
+                    aria-label={f.label}
+                    className="w-full sm:w-[220px]"
+                    options={f.options ?? []}
+                    value={String(val ?? f.defaultValue ?? '') || null}
+                    clearable={false}
+                    disabled={locked}
+                    onValueChange={(v) => {
+                      if (v !== null) setField(f, v);
+                    }}
+                  />
                 ) : f.type === 'select' ? (
                   <SelectInput
                     aria-label={f.label}
@@ -313,22 +371,11 @@ export function SettingsSectionContainer({
                     ))}
                   </SelectInput>
                 ) : f.type === 'list' ? (
-                  <TextInput
-                    mono
-                    aria-label={f.label}
-                    className="w-full sm:w-[220px]"
-                    placeholder="ADMIN, COORDINATOR"
-                    value={(Array.isArray(val) ? val : []).join(', ')}
+                  <SettingListInput
+                    field={f}
+                    value={Array.isArray(val) ? val.map(String) : []}
                     disabled={locked}
-                    onChange={(e) =>
-                      setField(
-                        f,
-                        e.target.value
-                          .split(',')
-                          .map((item) => item.trim())
-                          .filter(Boolean),
-                      )
-                    }
+                    onChange={(v) => setField(f, v)}
                   />
                 ) : f.type === 'number' ? (
                   <TextInput

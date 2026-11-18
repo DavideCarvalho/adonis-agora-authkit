@@ -79,6 +79,19 @@ function normalizeRolesCatalog(value: unknown): RolesCatalogValue {
   };
 }
 
+/**
+ * Roles de organização efetivos de uma org: `organizations_policy.roles` da org →
+ * global → `DEFAULT_ORG_ROLES`. Reusa as queries de settings (mesmas query keys).
+ */
+export function useOrgRoles(orgId: string): { roles: string[]; loading: boolean } {
+  const org = useQuery({ ...useSettingsQueryOptions(orgId), retry: false });
+  const global = useQuery({ ...useSettingsQueryOptions(null), retry: false });
+  const policyOf = (entries: { key: string; value: unknown }[] | undefined) =>
+    entries?.find((e) => e.key === 'organizations_policy')?.value;
+  const value = policyOf(org.data?.data) ?? policyOf(global.data?.data) ?? null;
+  return { roles: normalizeOrgPolicy(value).roles, loading: org.isLoading || global.isLoading };
+}
+
 // ── OrgSettingsSection ────────────────────────────────────────────────────────
 
 export function OrgSettingsSection({ orgId }: { orgId: string }) {
