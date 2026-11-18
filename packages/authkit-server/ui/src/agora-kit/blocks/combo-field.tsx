@@ -239,7 +239,14 @@ export function ComboSelect({
       onValueChange(null);
       return true;
     }
-    const known = list.find((o) => o.value === typed || (o.label ?? o.value) === typed);
+    // Same matching as the filter (accents, case, spacing), so "e-mails" picks the "E-mails"
+    // option instead of creating a near-duplicate value.
+    const norm = normalizeSearchText(typed);
+    const known =
+      list.find((o) => o.value === typed) ??
+      list.find(
+        (o) => normalizeSearchText(o.value) === norm || normalizeSearchText(o.label ?? '') === norm,
+      );
     onValueChange(known ? known.value : typed);
     return true;
   };
