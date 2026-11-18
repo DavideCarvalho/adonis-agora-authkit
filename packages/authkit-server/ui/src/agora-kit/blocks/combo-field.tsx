@@ -63,7 +63,7 @@ export interface ComboMultiSelectProps extends ComboCommon {
 }
 
 /** Closing reasons that mean the user left the field (not Escape, not a pick). */
-const LEAVE_REASONS = new Set(['outside-press', 'focus-out', 'input-blur']);
+const LEAVE_REASONS = new Set(['outside-press', 'focus-out']);
 
 const defaultCreateLabel = (text: string) => `Use “${text}”`;
 
@@ -124,18 +124,37 @@ function useAllItems(list: readonly ComboOption[], selected: readonly string[]):
  * The typed text, controlled here rather than by Base UI: it rewrites the input to the selected
  * label (reason `none`) whenever `items` changes, which would wipe the query each time
  * server-side results arrive. Every other reason (typing, clearing, picking) is kept.
+ *
+ * `dirty` is true only between the user typing and the next programmatic write (a pick, Escape,
+ * a value from outside). It lives in a ref, written synchronously, so "commit the typed text on
+ * leave" never depends on render timing: Escape then blur, or blur then close, commit at most once.
  */
 function useComboQuery(onQueryChange?: (q: string) => void) {
-  const [query, setQuery] = React.useState('');
+  const [query, setQueryState] = React.useState('');
+  const queryRef = React.useRef('');
+  const dirtyRef = React.useRef(false);
+  const setQuery = React.useCallback((text: string) => {
+    queryRef.current = text;
+    dirtyRef.current = false;
+    setQueryState(text);
+  }, []);
   const onInputValueChange = React.useCallback(
     (text: string, details: { reason: string }) => {
       if (details.reason === 'none') return;
-      setQuery(text);
+      queryRef.current = text;
+      dirtyRef.current = details.reason === 'input-change';
+      setQueryState(text);
       onQueryChange?.(text);
     },
     [onQueryChange],
   );
-  return { query, setQuery, onInputValueChange };
+  /** The typed text if the user typed since the last programmatic write; marks it consumed. */
+  const takeTyped = React.useCallback((): string | undefined => {
+    if (!dirtyRef.current) return undefined;
+    dirtyRef.current = false;
+    return queryRef.current;
+  }, []);
+  return { query, setQuery, onInputValueChange, takeTyped };
 }
 
 function ComboItemBody({
@@ -218,7 +237,7 @@ export function ComboSelect({
   'aria-invalid': ariaInvalid,
 }: ComboSelectProps) {
   const { list, byValue } = useOptionIndex(options);
-  const { query, setQuery, onInputValueChange } = useComboQuery(onQueryChange);
+  const { query, setQuery, onInputValueChange, takeTyped } = useComboQuery(onQueryChange);
   const labelOf = React.useCallback((v: string) => byValue.get(v)?.label ?? v, [byValue]);
   // The input shows the selected label: on mount, when the value changes from outside (a URL,
   // a reset), when its label arrives with late options, and when the popup closes unpicked.
@@ -228,11 +247,11 @@ export function ComboSelect({
   }, [selectedLabel, setQuery]);
   // With `creatable`, leaving the field keeps what was typed, like the text input it replaces:
   // the text becomes the value (empty text clears it when `clearable`).
-  const queryRef = React.useRef(query);
-  queryRef.current = query;
   const commitTyped = () => {
     if (!creatable) return false;
-    const typed = queryRef.current.trim();
+    const pending = takeTyped();
+    if (pending === undefined) return false;
+    const typed = pending.trim();
     if (typed === selectedLabel.trim()) return false;
     if (typed === '') {
       if (!clearable) return false;
