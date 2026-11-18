@@ -172,8 +172,9 @@ const SETTING_SECTIONS: SettingSection[] = [
         field: 'requiredRoles',
         label: 'Papéis que sempre exigem',
         description:
-          'Separados por vírgula. Conta sem fator cadastrado com esses papéis precisa cadastrar antes de entrar pelo Google.',
+          'Conta sem fator cadastrado com esses papéis precisa cadastrar antes de entrar pelo Google.',
         type: 'list',
+        suggest: 'roles',
         defaultValue: [],
       },
     ],

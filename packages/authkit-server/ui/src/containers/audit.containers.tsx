@@ -30,8 +30,8 @@ function eventTone(type: string): 'good' | 'destructive' | 'brand' | 'warn' | 'n
 
 const PAGE_SIZE = 30;
 
-function auditParams(typeFilter: string, cursor: AuditCursor) {
-  const type = typeFilter || undefined;
+function auditParams(typeFilter: readonly string[], cursor: AuditCursor) {
+  const type = typeFilter.length ? [...typeFilter] : undefined;
   if (cursor.before) return { type, before: cursor.before, last: PAGE_SIZE };
   if (cursor.after) return { type, after: cursor.after, first: PAGE_SIZE };
   return { type, first: PAGE_SIZE };
@@ -46,7 +46,7 @@ export interface AuditCursor {
 }
 
 interface AuditTableContainerProps {
-  typeFilter: string;
+  typeFilter: readonly string[];
   cursor: AuditCursor;
   onCursor: (c: AuditCursor) => void;
   selected: AuditEventEntry | null;
@@ -106,7 +106,7 @@ export function AuditTableContainer({
           <EmptyState
             title="No events found"
             description={
-              typeFilter ? 'No events match this filter' : 'No audit events recorded yet'
+              typeFilter.length ? 'No events match this filter' : 'No audit events recorded yet'
             }
             icon={
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">

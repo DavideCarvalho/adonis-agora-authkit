@@ -9,33 +9,43 @@ import {
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type React from 'react';
 import { useState } from 'react';
+import { ComboSelect } from '../agora-kit/blocks/combo-field';
 import { XIcon } from '../agora-kit/icons';
 import { Badge } from '../agora-kit/ui/badge';
 import { Button } from '../agora-kit/ui/button';
-import { Field, InitialsAvatar, SelectInput, TextInput } from '../components/primitives';
+import { Field, InitialsAvatar, TextInput } from '../components/primitives';
 import { type PickedUser, PickedUserChip, UserPicker } from '../components/UserPicker';
 import { useToast } from '../lib/toast';
-import { DEFAULT_ORG_ROLES } from './org_settings.containers';
+import { useOrgRoles } from './org_settings.containers';
 
 // ── OrgRoleSelect ─────────────────────────────────────────────────────────────
 
-function OrgRoleSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const roles = DEFAULT_ORG_ROLES.includes(value)
-    ? DEFAULT_ORG_ROLES
-    : [...DEFAULT_ORG_ROLES, value];
+function OrgRoleSelect({
+  orgId,
+  value,
+  onChange,
+  className = 'w-[140px]',
+}: {
+  orgId: string;
+  value: string;
+  onChange: (v: string) => void;
+  className?: string;
+}) {
+  const { roles, loading } = useOrgRoles(orgId);
   return (
-    <SelectInput
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-[110px]"
+    <ComboSelect
+      options={roles}
+      value={value || null}
+      onValueChange={(v) => {
+        if (v !== null) onChange(v);
+      }}
+      creatable
+      clearable={false}
+      loading={loading}
+      placeholder="role"
+      className={className}
       aria-label="Role"
-    >
-      {roles.map((r) => (
-        <option key={r} value={r}>
-          {r}
-        </option>
-      ))}
-    </SelectInput>
+    />
   );
 }
 
@@ -73,7 +83,7 @@ export function AddMemberSection({ orgId, onDone }: AddMemberSectionProps) {
       {picked ? (
         <div className="flex flex-wrap items-center gap-2">
           <PickedUserChip user={picked} onClear={() => setPicked(null)} />
-          <OrgRoleSelect value={role} onChange={setRole} />
+          <OrgRoleSelect orgId={orgId} value={role} onChange={setRole} />
           <Button type="submit" size="sm" disabled={addMutation.isPending}>
             {addMutation.isPending ? 'Adding…' : 'Add member'}
           </Button>
@@ -136,7 +146,7 @@ export function InviteSection({ orgId, onDone }: InviteSectionProps) {
         />
       </Field>
       <Field label="Role" className="mb-0">
-        <OrgRoleSelect value={role} onChange={setRole} />
+        <OrgRoleSelect orgId={orgId} value={role} onChange={setRole} />
       </Field>
       <Button type="submit" size="sm" className="h-[34px]" disabled={inviteMutation.isPending}>
         {inviteMutation.isPending ? 'Sending…' : 'Invite'}
@@ -196,11 +206,11 @@ export function MemberRow({
       </div>
       {editingRole ? (
         <form onSubmit={handleRoleSubmit} className="flex gap-1">
-          <TextInput
+          <OrgRoleSelect
+            orgId={orgId}
             value={newRole}
-            onChange={(e) => setNewRole(e.target.value)}
-            aria-label="Role"
-            className="h-[26px] w-20 px-1.5 text-[11px] md:text-[11px]"
+            onChange={setNewRole}
+            className="w-32 text-[11px]"
           />
           <Button type="submit" size="sm" disabled={roleMutation.isPending} aria-label="Save role">
             ✓
