@@ -350,6 +350,22 @@ const TABLES: TableDef[] = [
       updated_at: (t) => t.dateTime('updated_at', { useTz: true, precision: 3 }).nullable(),
     },
   },
+  {
+    name: 'auth_app_catalog',
+    /**
+     * What each Agora app accepts from the other apps (one row per app), published by the app
+     * itself; the console's "Apps it can call" offers it. Grants stay on the clients.
+     */
+    create: (t) => {
+      t.string('app', 64).primary();
+      t.text('capabilities').notNullable();
+      t.dateTime('updated_at', { useTz: true, precision: 3 }).notNullable();
+    },
+    columns: {
+      capabilities: (t) => t.text('capabilities'),
+      updated_at: (t) => t.dateTime('updated_at', { useTz: true, precision: 3 }).nullable(),
+    },
+  },
 ];
 
 /** Os nomes (sem schema) das tabelas que {@link ensureAuthkitSchema} garante. */

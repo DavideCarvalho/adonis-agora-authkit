@@ -22,8 +22,8 @@ node ace authkit:client grant-app orders --app=shipping --capability=labels:crea
 node ace authkit:client revoke-app orders --app=shipping
 ```
 
-The same grant is in the admin console (client → **Apps it can call**, one per line:
-`billing: invoices:read, invoices:write`) and in the Admin API:
+The same grant is in the admin console (client → **Apps it can call**: pick the app, then
+its capabilities from [what it accepts](#4-what-each-app-accepts)) and in the Admin API:
 
 ```http
 PUT    /clients/orders/apps/billing   { "capabilities": ["invoices:read"] }
@@ -129,3 +129,50 @@ router
 A caller is an app, never a user: `ctx.auth` and `ctx.authkit` stay empty for it, so your
 user routes keep refusing it, and user requests are not touched. Set `service.environment`
 to accept only callers from that environment.
+
+## 4. What each app accepts
+
+Each app publishes the capabilities it accepts from the other apps when its web server
+starts. The console's **Apps it can call** then offers the app and those capabilities, so
+a grant is picked instead of typed. The catalog only lists names: it grants nothing.
+
+It needs `service.clientId` and `service.clientSecret`, and the list comes from
+`service.catalog`:
+
+| `service.catalog` | What is published |
+|---|---|
+| omitted | `authz.permissionCatalog()` when `@adonis-agora/authz` is in the app; nothing otherwise |
+| `'authz'` | the same; a warning when authz is not in the app |
+| a function | what it returns (your own RBAC tables, a constant list…) |
+| `false` | nothing |
+
+```ts title="config/authkit_client.ts"
+service: {
+  name: 'billing',
+  clientId: env.get('AUTHKIT_SERVICE_CLIENT_ID'),
+  clientSecret: env.get('AUTHKIT_SERVICE_CLIENT_SECRET'),
+  // Without authz: your own list.
+  catalog: async () => ['invoices:read', 'invoices:write'],
+},
+```
+
+An app without permissions publishes nothing and is granted with no capabilities: its
+token only says who is calling, which `authkitService({ apps })` checks.
+
+The app sends `PUT /api/apps/catalog` on the issuer's origin with its client id and secret
+(`Authorization: Basic`); the server stores it under the client's partition. A failure is
+retried in the background (10 s, 1 min, 5 min) and never blocks the start. Exempt the path
+from CSRF on the authkit server: `authkitCsrfExceptions` already does.
+
+Read the catalogs:
+
+```bash
+node ace authkit:apps
+node ace authkit:apps billing --json
+```
+
+```http
+GET /api/authkit/v1/apps/catalog
+→ { "apps": [{ "app": "billing", "capabilities": ["invoices:read"], "updatedAt": "…" }] }
+```
+

@@ -230,6 +230,7 @@ otherwise.
 | `POST` | `/clients/:id/revoke` | — | Disables it **and** cuts its grants and tokens in every account. Returns `{ clientId, stored, grants, accessTokens, refreshTokens }`; `stored: false` for a Client ID Metadata Document client (no stored record). |
 | `PUT` | `/clients/:id/apps/:app` | `{ capabilities? }` | Service tenant: may call `app` (tokens for `urn:agora:app:<app>` carrying those capabilities). Returns the client. |
 | `DELETE` | `/clients/:id/apps/:app` | — | Takes that away. Returns the client. |
+| `GET` | `/apps/catalog` | — | What each app accepts from the other apps, as each app published it: `{ apps: [{ app, capabilities, updatedAt }] }`. See [Calls between apps](/docs/calls-between-apps#4-what-each-app-accepts). |
 | `DELETE` | `/clients/:id` | — | Delete and evict the cache. |
 
 ```bash

@@ -16,6 +16,7 @@
  * ```
  */
 import { normalizePersonalAgentsPrefix } from '../agents/config.js';
+import { APP_CATALOG_PATH } from '../service_tenants/app_catalog.js';
 import { getAuthHostConfig } from './auth_host_config.js';
 
 export interface AuthkitCsrfOptions {
@@ -35,6 +36,11 @@ export interface AuthkitCsrfOptions {
    * `false` desliga.
    */
   personalAgentExtensions?: boolean;
+  /**
+   * The app catalog publish endpoint (`registerAuthHost({ appCatalog })`), called by the apps with
+   * their client id and secret. Default `/api/apps/catalog`; `false` leaves it protected.
+   */
+  appCatalogPath?: string | false;
 }
 
 /** `path` é `prefix` ou fica debaixo dele (`prefix/...`) — nunca um substring solto. */
@@ -78,6 +84,10 @@ export function authkitCsrfExceptions(url: string, options: AuthkitCsrfOptions =
         : getAuthHostConfig()?.personalAgents?.prefix;
   const agentsOAuth = agentsPrefix ? `${agentsPrefix}/oauth/` : null;
   const path = pathnameOf(url);
+  const appCatalog =
+    options.appCatalogPath === false
+      ? null
+      : `/${(options.appCatalogPath ?? APP_CATALOG_PATH).replace(/^\/+|\/+$/g, '')}`;
   const extensionExempt =
     options.personalAgentExtensions !== false &&
     (getAuthHostConfig()?.personalAgents?.extensions ?? []).some((e) =>
@@ -88,6 +98,7 @@ export function authkitCsrfExceptions(url: string, options: AuthkitCsrfOptions =
     (mountPath !== '' && underPrefix(path, mountPath)) ||
     underPrefix(path, '/authkit/pat') ||
     (backchannel !== null && path === backchannel) ||
+    (appCatalog !== null && path === appCatalog) ||
     (agentsOAuth !== null && path.startsWith(agentsOAuth)) ||
     extensionExempt
   );
