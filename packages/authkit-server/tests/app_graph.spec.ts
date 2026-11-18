@@ -47,15 +47,16 @@ test.group('app graph', (group) => {
     assert.deepEqual(graph.apps, [
       {
         app: 'agora-hub',
-        clientId: 'hub-svc',
+        clientIds: ['hub-svc'],
         disabled: false,
+        environments: [],
         calls: { 'entre-textos': ['media:objects:read', 'media:objects:write'] },
       },
       {
         app: 'entre-textos',
-        clientId: 'et-svc',
+        clientIds: ['et-svc'],
         disabled: true,
-        environment: 'production',
+        environments: ['production'],
         calls: {},
       },
     ]);
@@ -63,6 +64,42 @@ test.group('app graph', (group) => {
       graph.catalogs.map((c) => [c.app, c.capabilities]),
       [['entre-textos', ['media:objects:read', 'media:objects:write']]],
     );
+  });
+
+  test('clients of one app merge; a disabled one does not add grants', async ({ assert }) => {
+    const graph = await buildAppGraph(
+      [
+        {
+          clientId: 'a1',
+          disabled: false,
+          serviceTenant: { partition: 'a', apps: { b: ['x:read'] } },
+        },
+        {
+          clientId: 'a2',
+          disabled: false,
+          serviceTenant: {
+            partition: 'a',
+            environment: 'staging',
+            apps: { b: ['x:write'], c: [] },
+          },
+        },
+        {
+          clientId: 'a3',
+          disabled: true,
+          serviceTenant: { partition: 'a', apps: { d: ['y:read'] } },
+        },
+      ],
+      null,
+    );
+    assert.deepEqual(graph.apps, [
+      {
+        app: 'a',
+        clientIds: ['a1', 'a2', 'a3'],
+        disabled: false,
+        environments: ['staging'],
+        calls: { b: ['x:read', 'x:write'], c: [] },
+      },
+    ]);
   });
 
   test('without a database there are no catalogs', async ({ assert }) => {

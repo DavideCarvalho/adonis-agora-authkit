@@ -9,14 +9,20 @@ import type { AppCatalogEntry, AppCatalogStore } from './app_catalog.js';
 /** The symbol slot authkit-server writes its app-graph reader into. */
 export const AUTHKIT_APP_GRAPH_SLOT = Symbol.for('@adonis-agora/authkit:app-graph');
 
-/** One app with a service-tenant client. */
+/** One app with one or more service-tenant clients (merged by `partition`). */
 export interface AppGraphApp {
-  /** The app's name (the client's `partition`). */
+  /** The app's name (the clients' `partition`). */
   app: string;
-  clientId: string;
+  /** Its service-tenant clients. */
+  clientIds: string[];
+  /** Every one of its clients is disabled: it gets no token. */
   disabled: boolean;
-  environment?: string;
-  /** The apps it may call, each with the capabilities its tokens for that app carry. */
+  /** The environments its clients are bound to, when any. */
+  environments: string[];
+  /**
+   * The apps it may call, each with the capabilities its tokens for that app carry (the union
+   * over its enabled clients; over all of them when every one is disabled).
+   */
   calls: Record<string, string[]>;
 }
 
@@ -28,6 +34,11 @@ export interface AppGraphSnapshot {
 
 /** What the slot holds. */
 export interface AuthkitAppGraphReader {
+  /**
+   * The graph. Rejects when the clients cannot be read (the reader then knows nothing about
+   * grants, which is not the same as "no grant"); a failed read is not cached. Catalogs that
+   * cannot be read come back empty.
+   */
   snapshot(): Promise<AppGraphSnapshot>;
 }
 
@@ -47,23 +58,40 @@ export async function buildAppGraph(
   clients: readonly AppGraphClient[],
   catalogs: AppCatalogStore | null,
 ): Promise<AppGraphSnapshot> {
-  const apps: AppGraphApp[] = [];
+  const byApp = new Map<string, AppGraphClient[]>();
   for (const client of clients) {
     const tenant = client.serviceTenant;
     if (!tenant) continue;
-    const calls: Record<string, string[]> = {};
-    for (const [target, caps] of Object.entries(tenant.apps ?? {})) {
-      calls[target] = [...caps].sort();
+    const list = byApp.get(tenant.partition) ?? [];
+    list.push(client);
+    byApp.set(tenant.partition, list);
+  }
+  const apps: AppGraphApp[] = [];
+  for (const [app, list] of byApp) {
+    const disabled = list.every((c) => c.disabled);
+    // A disabled client gets no token: its grants count only when every client is disabled.
+    const counted = disabled ? list : list.filter((c) => !c.disabled);
+    const calls: Record<string, Set<string>> = {};
+    for (const client of counted) {
+      for (const [target, caps] of Object.entries(client.serviceTenant?.apps ?? {})) {
+        const set = calls[target] ?? new Set<string>();
+        for (const cap of caps) set.add(cap);
+        calls[target] = set;
+      }
     }
     apps.push({
-      app: tenant.partition,
-      clientId: client.clientId,
-      disabled: client.disabled,
-      ...(tenant.environment ? { environment: tenant.environment } : {}),
-      calls,
+      app,
+      clientIds: list.map((c) => c.clientId).sort(),
+      disabled,
+      environments: [
+        ...new Set(list.map((c) => c.serviceTenant?.environment).filter((e): e is string => !!e)),
+      ].sort(),
+      calls: Object.fromEntries(
+        Object.entries(calls).map(([target, set]) => [target, [...set].sort()]),
+      ),
     });
   }
-  apps.sort((a, b) => a.app.localeCompare(b.app) || a.clientId.localeCompare(b.clientId));
+  apps.sort((a, b) => a.app.localeCompare(b.app));
   const entries: AppCatalogEntry[] = catalogs ? await catalogs.list().catch(() => []) : [];
   return {
     apps,
