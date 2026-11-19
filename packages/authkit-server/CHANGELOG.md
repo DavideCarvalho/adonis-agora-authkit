@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.46
+
+### Patch Changes
+
+- [#524](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/524) [`63eb330`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/63eb33026ffd18440835b717d1409b8b29131b41) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Admin console: going to another console (switcher, ⌘K, search results, sidebar links) keeps this page's `?app=` and `?tenant=`, so the picked app and organization follow you. The console kit copy is updated from the canonical kit (shared `ScopeMenu` / `ScopeChip` header picker, `app-mode` block, `globalThis.fetch` in console data).
+
 ## 1.0.0-rc.45
 
 ### Patch Changes
