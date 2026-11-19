@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.47
+
+### Patch Changes
+
+- [#525](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/525) [`d3ed248`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/d3ed248c154f8ea04e18443ca1bc09c1b8c93817) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Console UI: the app/scope picker button now announces "noun: label" instead of the two spans run together, its search also matches the option hint, the highlight stays on a real option when the list shrinks, and focus returns to the button after a pick (console kit sync).
+
 ## 1.0.0-rc.46
 
 ### Patch Changes
