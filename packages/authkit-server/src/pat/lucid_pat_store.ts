@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon';
+import { describeStackUse, lucidUse } from '../stack.js';
 import type { IssuePatInput, PatRecord, PatStore } from './pat_store.js';
 import { generatePatToken, hashPatToken } from './pat_tokens.js';
 
@@ -10,6 +11,12 @@ const LAST_USED_RESOLUTION_MS = 60_000;
  * `withPersonalAccessToken()`. A coluna DB `user_id` é mapeada de `accountId`.
  */
 export function lucidPatStore(Model: any): PatStore {
+  return describeStackUse(buildLucidPatStore(Model), () =>
+    lucidUse((Model?.connection as string | undefined) ?? undefined, 'access tokens'),
+  );
+}
+
+function buildLucidPatStore(Model: any): PatStore {
   const toRecord = (row: any): PatRecord => ({
     id: row.id,
     name: row.name,

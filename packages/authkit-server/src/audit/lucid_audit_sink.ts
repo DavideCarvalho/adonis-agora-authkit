@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { decodeCursor, encodeCursor } from '@adonis-agora/filter';
 import { DateTime } from 'luxon';
 import { ADMIN_LIST_HTTP_DEFAULT_SIZE, normalizeListSize } from '../pagination.js';
+import { describeStackUse, lucidUse } from '../stack.js';
 import type {
   AuditEvent,
   AuditPage,
@@ -76,6 +77,12 @@ function anonId(accountId: string): string {
  * a auditoria nunca deve lançar para dentro do caminho da request.
  */
 export function lucidAuditSink(Model: any): AuditSink {
+  return describeStackUse(buildLucidAuditSink(Model), () =>
+    lucidUse((Model?.connection as string | undefined) ?? undefined, 'audit log'),
+  );
+}
+
+function buildLucidAuditSink(Model: any): AuditSink {
   return {
     async record(event: AuditEvent) {
       try {

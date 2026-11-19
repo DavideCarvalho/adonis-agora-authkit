@@ -92,6 +92,24 @@ export interface DatabaseAdapterConfig {
   schema?: string;
 }
 
+/** What an adapter factory stores to (read by `defineConfig` for telescope's Architecture page). */
+export interface AdapterTarget {
+  driver: 'redis' | 'database';
+  connection: string | undefined;
+}
+
+const ADAPTER_TARGETS = new WeakMap<object, AdapterTarget>();
+
+/** The backend an `adapters.*` factory uses; `undefined` for a custom factory. */
+export function adapterTargetOf(factory: AdapterFactory | undefined): AdapterTarget | undefined {
+  return factory ? ADAPTER_TARGETS.get(factory) : undefined;
+}
+
+function track(factory: AdapterFactory, target: AdapterTarget): AdapterFactory {
+  ADAPTER_TARGETS.set(factory, target);
+  return factory;
+}
+
 export const adapters = {
   /**
    * Factory para o adapter Redis. O consumidor precisa ter o @adonisjs/redis
@@ -101,20 +119,7 @@ export const adapters = {
    * `config/redis.ts#connection`).
    */
   redis(config: RedisAdapterConfig = {}): AdapterFactory {
-    return {
-      async resolver(app) {
-        const redisManager = await app.container.make('redis');
-        const client = config.connection
-          ? (redisManager as any).connection(config.connection)
-          : (redisManager as any).connection();
-        const prefix = config.prefix ?? 'authkit';
-        return class extends RedisAdapter {
-          constructor(name: string) {
-            super(name, client, prefix);
-          }
-        };
-      },
-    };
+    return track(redisAdapterFactory(config), { driver: 'redis', connection: config.connection });
   },
 
   /**
@@ -124,23 +129,47 @@ export const adapters = {
    * usamos `db.connection(name)` para obter o cliente daquela conexão.
    */
   database(config: DatabaseAdapterConfig = {}): AdapterFactory {
-    return {
-      async resolver(app, context) {
-        const db = await app.container.make('lucid.db');
-        const connection = config.connection ?? context?.connection;
-        const schema = validateSchemaName(
-          config.schema ?? context?.schema,
-          'adapters.database({ schema })',
-        );
-        const conn = connection ? (db as any).connection(connection) : db;
-        assertSchemaSupported(connection ? conn : (db as any).connection(), schema);
-        const table = authkitTable({ schema }, OIDC_PAYLOADS_TABLE);
-        return class extends DatabaseAdapter {
-          constructor(name: string) {
-            super(name, conn, table);
-          }
-        };
-      },
-    };
+    return track(databaseAdapterFactory(config), {
+      driver: 'database',
+      connection: config.connection,
+    });
   },
 };
+
+function redisAdapterFactory(config: RedisAdapterConfig): AdapterFactory {
+  return {
+    async resolver(app) {
+      const redisManager = await app.container.make('redis');
+      const client = config.connection
+        ? (redisManager as any).connection(config.connection)
+        : (redisManager as any).connection();
+      const prefix = config.prefix ?? 'authkit';
+      return class extends RedisAdapter {
+        constructor(name: string) {
+          super(name, client, prefix);
+        }
+      };
+    },
+  };
+}
+
+function databaseAdapterFactory(config: DatabaseAdapterConfig): AdapterFactory {
+  return {
+    async resolver(app, context) {
+      const db = await app.container.make('lucid.db');
+      const connection = config.connection ?? context?.connection;
+      const schema = validateSchemaName(
+        config.schema ?? context?.schema,
+        'adapters.database({ schema })',
+      );
+      const conn = connection ? (db as any).connection(connection) : db;
+      assertSchemaSupported(connection ? conn : (db as any).connection(), schema);
+      const table = authkitTable({ schema }, OIDC_PAYLOADS_TABLE);
+      return class extends DatabaseAdapter {
+        constructor(name: string) {
+          super(name, conn, table);
+        }
+      };
+    },
+  };
+}
