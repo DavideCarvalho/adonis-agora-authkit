@@ -86,8 +86,18 @@ export function ScopeMenu({
     const q = query.trim().toLowerCase();
     return q === ''
       ? base
-      : base.filter((o) => o.label.toLowerCase().includes(q) || o.id.toLowerCase().includes(q));
+      : base.filter(
+          (o) =>
+            o.label.toLowerCase().includes(q) ||
+            o.id.toLowerCase().includes(q) ||
+            (o.hint?.toLowerCase().includes(q) ?? false),
+        );
   }, [items, all, text.all, query]);
+
+  // The list shrank under the highlight (typing, or new items): keep it on a real option.
+  useEffect(() => {
+    setActive((i) => Math.min(i, Math.max(options.length - 1, 0)));
+  }, [options.length]);
 
   useEffect(() => {
     if (!open) return;
@@ -104,6 +114,8 @@ export function ScopeMenu({
   const choose = (option: ScopeOption | undefined) => {
     if (!option) return;
     setOpen(false);
+    // Back on the trigger, like Escape: the input that had focus is gone.
+    buttonRef.current?.focus();
     const next = option.id === ALL ? undefined : option.id;
     if (next !== current) onChoose(next);
   };
@@ -131,6 +143,8 @@ export function ScopeMenu({
         type="button"
         aria-haspopup="listbox"
         aria-expanded={open}
+        // "App: Hub", not the two spans run together ("AppHub").
+        aria-label={`${text.noun}: ${label}`}
         onClick={() => setOpen((v) => !v)}
         className={buttonVariants({ variant: 'outline', size: 'sm', className: 'max-w-56' })}
       >
