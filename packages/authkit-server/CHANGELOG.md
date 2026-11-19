@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.45
+
+### Patch Changes
+
+- [#523](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/523) [`b4be4d9`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/b4be4d91d98bc5ec2e37419b2d8396cb1958c73b) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The `defineConfig` provider now describes the infrastructure AuthKit uses (`Symbol.for('@adonis-agora/stack')`): the OIDC and session adapters, the keystore, the Lucid account, PAT and audit stores (which describe themselves), AuthKit's tables when they live apart from the accounts, and a self-describing `crypto.kms`. Telescope's Architecture page shows "authkit: accounts → PostgreSQL" without any app code.
+
 ## 1.0.0-rc.44
 
 ### Minor Changes
