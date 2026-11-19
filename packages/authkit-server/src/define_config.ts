@@ -11,7 +11,12 @@ import type { HttpContext } from '@adonisjs/core/http';
 import type { ApplicationService } from '@adonisjs/core/types';
 import type { AccountConsoleConfig } from './account/runtime.js';
 import type { AccountStore, AuthAccount } from './accounts/account_store.js';
-import { type AdapterFactory, adapters, type OidcAdapterClass } from './adapters/factory.js';
+import {
+  type AdapterFactory,
+  adapters,
+  adapterTargetOf,
+  type OidcAdapterClass,
+} from './adapters/factory.js';
 import {
   type PersonalAgentsConfigInput,
   type ResolvedPersonalAgentsConfig,
@@ -94,6 +99,7 @@ import {
   resolveServiceTenants,
   type ServiceTenantsConfigInput,
 } from './service_tenants/config.js';
+import { describeStackUse, hostOf, lucidUse, redisUse, type StackUse, usesOf } from './stack.js';
 
 export type { AuthAccount };
 export { adapters };
@@ -1918,304 +1924,402 @@ export function defineConfig(config: AuthServerConfigInput) {
     connection: config.schema?.connection,
     schema: tablesSchema,
   });
-  return configProvider.create(async (app: ApplicationService): Promise<ResolvedServerConfig> => {
-    const tablesContext = { connection: config.schema?.connection, schema: tablesSchema };
-    if (tablesSchema) {
-      // Schema num dialeto sem schemas (SQLite) falha aqui, na resolução do config — nunca
-      // cai em silêncio para tabelas sem schema.
-      const db: any = await app.container.make('lucid.db' as any).catch(() => null);
-      if (db) assertSchemaSupported(authkitTablesClient(db, tablesContext), tablesSchema);
-    }
-    const AdapterClass = await config.adapter.resolver(app, tablesContext);
-    // `session.adapter` ausente ⇒ mesma classe do default (back-compat: o
-    // dispatcher vira identidade e tudo continua no adapter único de hoje).
-    const SessionAdapterClass = config.session?.adapter
-      ? await config.session.adapter.resolver(app, tablesContext)
-      : AdapterClass;
+  const provider = configProvider.create(
+    async (app: ApplicationService): Promise<ResolvedServerConfig> => {
+      const tablesContext = { connection: config.schema?.connection, schema: tablesSchema };
+      if (tablesSchema) {
+        // Schema num dialeto sem schemas (SQLite) falha aqui, na resolução do config — nunca
+        // cai em silêncio para tabelas sem schema.
+        const db: any = await app.container.make('lucid.db' as any).catch(() => null);
+        if (db) assertSchemaSupported(authkitTablesClient(db, tablesContext), tablesSchema);
+      }
+      const AdapterClass = await config.adapter.resolver(app, tablesContext);
+      // `session.adapter` ausente ⇒ mesma classe do default (back-compat: o
+      // dispatcher vira identidade e tudo continua no adapter único de hoje).
+      const SessionAdapterClass = config.session?.adapter
+        ? await config.session.adapter.resolver(app, tablesContext)
+        : AdapterClass;
 
-    // `jwks: 'auto'` → resolve env-aware: AUTHKIT_JWKS inline, senão managed em arquivo.
-    const jwksInput: JwksConfig =
-      config.jwks === 'auto'
-        ? process.env.AUTHKIT_JWKS
-          ? {
-              source: 'jwks',
-              keys: JSON.parse(process.env.AUTHKIT_JWKS).keys,
-            }
-          : {
-              source: 'managed',
-              algorithm: 'RS256',
-              store: 'tmp/authkit_jwks.json',
-            }
-        : config.jwks;
-    // Keystore no Lucid sem conexão/schema próprios fica onde estão as tabelas do authkit.
-    const jwksStore = (jwksInput as { store?: any }).store;
-    const jwksConfig: JwksConfig =
-      jwksStore?.driver === 'lucid' &&
-      ((!jwksStore.connection && config.schema?.connection) || (!jwksStore.schema && tablesSchema))
-        ? ({
-            ...jwksInput,
-            store: {
-              ...jwksStore,
-              connection: jwksStore.connection ?? config.schema?.connection,
-              schema: jwksStore.schema ?? tablesSchema,
-            },
-          } as JwksConfig)
-        : jwksInput;
+      // `jwks: 'auto'` → resolve env-aware: AUTHKIT_JWKS inline, senão managed em arquivo.
+      const jwksInput: JwksConfig =
+        config.jwks === 'auto'
+          ? process.env.AUTHKIT_JWKS
+            ? {
+                source: 'jwks',
+                keys: JSON.parse(process.env.AUTHKIT_JWKS).keys,
+              }
+            : {
+                source: 'managed',
+                algorithm: 'RS256',
+                store: 'tmp/authkit_jwks.json',
+              }
+          : config.jwks;
+      // Keystore no Lucid sem conexão/schema próprios fica onde estão as tabelas do authkit.
+      const jwksStore = (jwksInput as { store?: any }).store;
+      const jwksConfig: JwksConfig =
+        jwksStore?.driver === 'lucid' &&
+        ((!jwksStore.connection && config.schema?.connection) ||
+          (!jwksStore.schema && tablesSchema))
+          ? ({
+              ...jwksInput,
+              store: {
+                ...jwksStore,
+                connection: jwksStore.connection ?? config.schema?.connection,
+                schema: jwksStore.schema ?? tablesSchema,
+              },
+            } as JwksConfig)
+          : jwksInput;
 
-    if (config.jwks === 'auto' && !process.env.AUTHKIT_JWKS) {
-      const warning = jwksAutoFallbackWarning((jwksConfig as { store?: string }).store ?? null);
-      if (warning) {
+      if (config.jwks === 'auto' && !process.env.AUTHKIT_JWKS) {
+        const warning = jwksAutoFallbackWarning((jwksConfig as { store?: string }).store ?? null);
+        if (warning) {
+          await app.container
+            .make('logger')
+            .then((l: any) => l?.warn(warning))
+            .catch(() => {});
+        }
+      }
+
+      const storeCfg = (jwksConfig as { store?: any }).store;
+      if (
+        jwksConfig.source === 'managed' &&
+        storeCfg &&
+        typeof storeCfg === 'object' &&
+        storeCfg.driver === 'redis'
+      ) {
         await app.container
           .make('logger')
-          .then((l: any) => l?.warn(warning))
+          .then((l: any) =>
+            l?.warn(
+              'AuthKit: keystore no driver "redis" — garanta PERSISTÊNCIA (RDB/AOF). Num Redis cache-only, um flush apaga o keystore e invalida todos os tokens.',
+            ),
+          )
           .catch(() => {});
       }
-    }
 
-    const storeCfg = (jwksConfig as { store?: any }).store;
-    if (
-      jwksConfig.source === 'managed' &&
-      storeCfg &&
-      typeof storeCfg === 'object' &&
-      storeCfg.driver === 'redis'
-    ) {
-      await app.container
-        .make('logger')
-        .then((l: any) =>
-          l?.warn(
-            'AuthKit: keystore no driver "redis" — garanta PERSISTÊNCIA (RDB/AOF). Num Redis cache-only, um flush apaga o keystore e invalida todos os tokens.',
-          ),
-        )
-        .catch(() => {});
-    }
-
-    // Webhooks assinados com Ed25519: chaves de `events.signing`, ou derivada da APP_KEY.
-    const webhookSigningKeys = resolveWebhookSigningKeys(
-      config.events?.signing,
-      (() => {
-        try {
-          return resolveAppKey(app);
-        } catch {
-          return undefined;
-        }
-      })(),
-    );
-
-    // `jwks.readOnly`: só faz sentido lendo um keystore persistido que outra instância escreve.
-    if (jwksConfig.readOnly === true && (jwksConfig.source !== 'managed' || !jwksConfig.store)) {
-      throw new Error(
-        "AuthKit: `jwks.readOnly` needs `source: 'managed'` with a `store` (the keystore another instance writes).",
+      // Webhooks assinados com Ed25519: chaves de `events.signing`, ou derivada da APP_KEY.
+      const webhookSigningKeys = resolveWebhookSigningKeys(
+        config.events?.signing,
+        (() => {
+          try {
+            return resolveAppKey(app);
+          } catch {
+            return undefined;
+          }
+        })(),
       );
-    }
 
-    let jwks: { keys: Record<string, any>[] };
-    if (jwksConfig.source === 'managed') {
-      const alg = jwksConfig.algorithm ?? 'RS256';
-      if (jwksConfig.store) {
-        const vault = resolveKeystoreVault(jwksConfig.store as any, {
-          makePath: (p) => app.makePath(p),
-          container: app.container,
-        });
-        const encrypt = jwksConfig.encrypt ?? defaultEncryptForStore(jwksConfig.store as any);
-        const manager = new KeystoreManager(
-          vault,
-          await keystoreCodec(encrypt, config.crypto),
-          alg,
-          { readOnly: jwksConfig.readOnly === true },
+      // `jwks.readOnly`: só faz sentido lendo um keystore persistido que outra instância escreve.
+      if (jwksConfig.readOnly === true && (jwksConfig.source !== 'managed' || !jwksConfig.store)) {
+        throw new Error(
+          "AuthKit: `jwks.readOnly` needs `source: 'managed'` with a `store` (the keystore another instance writes).",
         );
-        // readOnly: só lê — ausente/ilegível derruba o boot (nunca gera chave nem cria tabela).
-        const store =
-          jwksConfig.readOnly === true ? await manager.readRequired() : await manager.ensure();
-        // Remove o metadado interno `iat` antes de entregar ao oidc-provider.
-        jwks = toProviderJwks(store);
-      } else {
-        jwks = await generateJwks(alg);
       }
-    } else {
-      jwks = { keys: jwksConfig.keys ?? [] };
-    }
 
-    // Personal agents com delegação assinam tokens e recibos com este keystore,
-    // e o PACT só admite ES256/RS256 — falha no boot, não na primeira troca de token.
-    const personalAgents = resolvePersonalAgentsConfig(config.personalAgents, config.issuer);
-    if (personalAgents?.delegation) assertDelegationSigningKey(jwks);
-    // Debaixo do mountPath, a rota curinga do oidc-provider (`${mount}/*`)
-    // engoliria as rotas dos agentes — e o `authkitCsrfExceptions` (que isenta
-    // tudo que contém o mountPath) tiraria o CSRF da tela de consentimento.
-    const oidcMount = (config.mountPath ?? '/oidc').replace(/\/+$/, '');
-    if (
-      personalAgents &&
-      oidcMount &&
-      (personalAgents.prefix === oidcMount || personalAgents.prefix.startsWith(`${oidcMount}/`))
-    ) {
-      throw new Error(
-        `authkit: personalAgents.prefix "${personalAgents.prefix}" não pode ficar debaixo do mountPath do OIDC ("${oidcMount}").`,
-      );
-    }
-    for (const extension of personalAgents?.extensions ?? []) {
-      if (extension.messages) registerExtensionMessages(extension.messages);
+      let jwks: { keys: Record<string, any>[] };
+      if (jwksConfig.source === 'managed') {
+        const alg = jwksConfig.algorithm ?? 'RS256';
+        if (jwksConfig.store) {
+          const vault = resolveKeystoreVault(jwksConfig.store as any, {
+            makePath: (p) => app.makePath(p),
+            container: app.container,
+          });
+          const encrypt = jwksConfig.encrypt ?? defaultEncryptForStore(jwksConfig.store as any);
+          const manager = new KeystoreManager(
+            vault,
+            await keystoreCodec(encrypt, config.crypto),
+            alg,
+            { readOnly: jwksConfig.readOnly === true },
+          );
+          // readOnly: só lê — ausente/ilegível derruba o boot (nunca gera chave nem cria tabela).
+          const store =
+            jwksConfig.readOnly === true ? await manager.readRequired() : await manager.ensure();
+          // Remove o metadado interno `iat` antes de entregar ao oidc-provider.
+          jwks = toProviderJwks(store);
+        } else {
+          jwks = await generateJwks(alg);
+        }
+      } else {
+        jwks = { keys: jwksConfig.keys ?? [] };
+      }
+
+      // Personal agents com delegação assinam tokens e recibos com este keystore,
+      // e o PACT só admite ES256/RS256 — falha no boot, não na primeira troca de token.
+      const personalAgents = resolvePersonalAgentsConfig(config.personalAgents, config.issuer);
+      if (personalAgents?.delegation) assertDelegationSigningKey(jwks);
+      // Debaixo do mountPath, a rota curinga do oidc-provider (`${mount}/*`)
+      // engoliria as rotas dos agentes — e o `authkitCsrfExceptions` (que isenta
+      // tudo que contém o mountPath) tiraria o CSRF da tela de consentimento.
+      const oidcMount = (config.mountPath ?? '/oidc').replace(/\/+$/, '');
       if (
+        personalAgents &&
         oidcMount &&
-        (extension.prefix === oidcMount || extension.prefix.startsWith(`${oidcMount}/`))
+        (personalAgents.prefix === oidcMount || personalAgents.prefix.startsWith(`${oidcMount}/`))
       ) {
         throw new Error(
-          `authkit: o prefixo "${extension.prefix}" de personalAgents.extensions "${extension.id}" não pode ficar debaixo do mountPath do OIDC ("${oidcMount}").`,
+          `authkit: personalAgents.prefix "${personalAgents.prefix}" não pode ficar debaixo do mountPath do OIDC ("${oidcMount}").`,
         );
       }
+      for (const extension of personalAgents?.extensions ?? []) {
+        if (extension.messages) registerExtensionMessages(extension.messages);
+        if (
+          oidcMount &&
+          (extension.prefix === oidcMount || extension.prefix.startsWith(`${oidcMount}/`))
+        ) {
+          throw new Error(
+            `authkit: o prefixo "${extension.prefix}" de personalAgents.extensions "${extension.id}" não pode ficar debaixo do mountPath do OIDC ("${oidcMount}").`,
+          );
+        }
+      }
+
+      // BACKSTOP DE SUDO. Um host cujo `sudo.methods` não tem um único método
+      // satisfazível por conta sem senha fica bricado para TODA operação sob
+      // `requireSudo` — e hoje isso só se descobre quando um usuário não consegue
+      // excluir a própria conta. Aqui é o único ponto do pacote onde `sudo.methods`,
+      // `authMethods` e `passwordless` estão os três resolvidos e juntos, e este
+      // callback roda no boot (`configProvider.resolve` no `boot()` do provider),
+      // antes de qualquer request. Ver `host/sudo/satisfiability.ts` para as quatro
+      // condições e para o porquê de ser WARN e não THROW.
+      //
+      // LIMITE CONHECIDO: só vê a lista que passou pelo CONFIG. Um host que declare
+      // a lista APENAS no argumento `registerAuthHost(router, { sudoMethods })` não
+      // é coberto — o registro de rotas acontece fora daqui e o `authMethods` não
+      // chega lá. É o caso do ator informado (quem escreveu a lista à mão), não o
+      // do host que herdou os defaults, que é quem o aviso existe para pegar.
+      warnUnsatisfiableSudoConfig({
+        methods: config.sudo?.methods,
+        passwordPinnedOff: config.authMethods?.password === false,
+        passwordlessSignup: config.passwordless?.signup === true,
+      });
+
+      // #9: mfaIssuer efetivo — top-level do defineConfig vence; senão o do lucidAccountStore; senão default.
+      const effectiveMfaIssuer =
+        config.mfaIssuer ??
+        ((config.accountStore as any)?.__mfaIssuer as string | undefined) ??
+        'AuthKit';
+
+      return {
+        issuer: config.issuer,
+        AdapterClass,
+        SessionAdapterClass,
+        jwks: jwks as { keys: Record<string, any>[] },
+        jwksConfig,
+        crypto: config.crypto,
+        ttl: {
+          accessToken: toSeconds(config.ttl?.accessToken, 900),
+          refreshToken: toSeconds(config.ttl?.refreshToken, 2592000),
+          idToken: toSeconds(config.ttl?.idToken, 900),
+          session: toSeconds(config.ttl?.session, 604800),
+        },
+        globalRolesClaim: config.globalRolesClaim ?? 'roles',
+        resolveTokenRoles: config.resolveTokenRoles,
+        onAccountCreated: config.onAccountCreated,
+        cookieKeys: config.cookieKeys ?? [],
+        observability: config.observability ?? {},
+        findAccount: (sub: string) => config.accountStore.findById(sub),
+        verifyCredentials: async (email: string, password: string) => {
+          const acc = await config.accountStore.verifyCredentials(email, password);
+          return acc ? { id: acc.id } : null;
+        },
+        accountStore: config.accountStore,
+        customLoginMethods: config.customLoginMethods,
+        mfa: config.mfa,
+        whatsapp: config.whatsapp,
+        patStore: config.patStore,
+        mountPath: config.mountPath ?? '/oidc',
+        accountHome: config.accountHome,
+        // Default de runtime: sem isso, `render` ficava `undefined` e TODA
+        // request a `/account/*`/`/auth/interaction/*` estourava um 500 sem
+        // contexto (os controllers fazem `cfg.render!(...)`). `edgeRenderer()`
+        // só usa `ctx.view` quando de fato invocado por uma request — não
+        // importa `edge.js` eagerly, então é seguro construir mesmo em hosts
+        // sem o peer opcional instalado (só quebraria se a request realmente
+        // chegasse sem Edge configurado, exatamente como hoje).
+        // O renderer do host recebe `(ctx, view, props)`; aqui ele é tipado por view para que
+        // os controllers não possam divergir de `AuthkitScreenProps`.
+        render: (config.render ?? edgeRenderer()) as AuthkitScreenRenderer,
+        // Recuperação de sessão de interaction perdida: default gracioso 'screen'
+        // (tela themeável `session-expired`); 'redirect' opt-in para 302 ao login.
+        interactionRecovery: {
+          mode: config.interactionRecovery?.mode ?? 'screen',
+          redirectTo: config.interactionRecovery?.redirectTo,
+        },
+        branding: resolveBranding(config.branding),
+        // `firstPartyClients` manda; `branding.firstParty` é o fallback de
+        // back-compat. Nenhum dos dois declarado → `undefined` = sem allowlist.
+        firstPartyClients: config.firstPartyClients ?? config.branding?.firstParty,
+        social: config.social,
+        patIntrospectionSecret: config.patIntrospectionSecret,
+        rateLimit: resolveRateLimit(config.rateLimit),
+        lockout: resolveLockout(config.lockout),
+        notifications: resolveNotifications(),
+        mail: config.mail,
+        // Propaga os métodos de sudo para o config resolvido. Sem esta linha o
+        // campo existiria só no config de ENTRADA e `cfg.sudo` seria sempre
+        // undefined em runtime — exatamente o bug que `accountHome` tinha.
+        sudo: config.sudo,
+        audit: (() => {
+          // Sempre compõe o fan-out: além de onEvent/webhook (quando configurados),
+          // o sink composto republica TODO evento de auditoria no barramento de
+          // diagnostics do Agora (best-effort, zero-config, no-op sem o slot).
+          const events = resolveEvents(config.events, webhookSigningKeys[0]);
+          return composeAuditSink(config.audit, events ?? {});
+        })(),
+        webhookSigningKeys,
+        // #9: reusa mfaIssuer/webauthn declarados no lucidAccountStore quando o
+        // top-level não os fornece — consumidor declara UMA vez. Top-level ainda vence.
+        mfaIssuer: effectiveMfaIssuer,
+        webauthn: resolveWebauthn(
+          config.issuer,
+          effectiveMfaIssuer,
+          config.webauthn ?? ((config.accountStore as any)?.__webauthn as typeof config.webauthn),
+        ),
+        dynamicRegistration: resolveDynamicRegistration(
+          config.dynamicRegistration ?? mcpDynamicRegistration(mcpClients),
+        ),
+        deviceFlow: resolveDeviceFlow(config.deviceFlow),
+        personalAgents,
+        uploads: resolveUploads(config.uploads),
+        dpop: resolveDpop(config.dpop),
+        par: resolvePar(config.par),
+        stepUp: resolveStepUp(config.stepUp),
+        trustedDevices: resolveTrustedDevices(config.trustedDevices),
+        botProtection: resolveBotProtection(config.botProtection),
+        passwordless: resolvePasswordless(config.passwordless),
+        authMethods: resolveAuthMethodsConfig(config.authMethods),
+        login: resolveLogin(config.login),
+        headless: config.headless
+          ? {
+              baseUrl: config.headless.baseUrl ?? '/api/authkit',
+              resolveAccountId: config.headless.resolveAccountId,
+            }
+          : undefined,
+        registration: resolveRegistration(config.registration),
+        accessTokens: resolveAccessTokens(config.issuer, config.accessTokens),
+        serviceTenants: resolveServiceTenants(
+          config.serviceTenants,
+          config.accessTokens?.resources,
+        ),
+        mcpClients,
+        admin: resolveAdmin(config.admin),
+        adminApi: resolveAdminApi(config.adminApi),
+        organizations: resolveOrganizations(config.organizations),
+        resolveGeo: config.resolveGeo,
+        messages: resolveMessages(config.i18n),
+        locale: config.i18n?.locale ?? 'pt-BR',
+        schema: {
+          autoManage: config.schema?.autoManage !== false,
+          connection: config.schema?.connection,
+          name: tablesSchema,
+        },
+        // OPT-IN: default false → caminho síncrono de sempre (byte-idêntico).
+        accountLifecycle: {
+          durable: config.accountLifecycle?.durable === true,
+        },
+        // Keys de auth_settings travadas porque foram definidas no defineConfig:
+        // config vence e a UI/Admin API não pode alterá-las (ver host/config_locks.ts).
+        lockedSettingKeys: deriveLockedSettingKeys(config as Record<string, any>),
+        routes: config.routes,
+        // Mesma regra do `lockedSettingKeys`, outro eixo: config × argumento de
+        // `registerAuthHost` (ver host/config_locks.ts).
+        lockedRouteOptions: deriveLockedRouteOptions(config as Record<string, any>),
+        // Opt-in: ausente = authkit nunca toca `ctx.auth` (comportamento de sempre).
+        adonisAuth: config.adonisAuth,
+        accountSession: { acceptIdpSession: config.accountSession?.acceptIdpSession !== false },
+        accountConsole: config.accountConsole,
+      };
+    },
+  );
+  // `config.get('authkit')` holds this provider, not the input: telescope reads the stack here.
+  return describeStackUse(provider, () => authkitStackUses(config));
+}
+
+/**
+ * What AuthKit runs on, for telescope's Architecture page: the OIDC adapters, the keystore, the
+ * account/PAT/audit stores (they describe themselves), AuthKit's own tables when they live apart
+ * from the accounts, and a KMS in `crypto.kms`. Resolved as the provider resolves them: an omitted
+ * connection is `schema.connection`, else the app's default one.
+ */
+export function authkitStackUses(config: AuthServerConfigInput): StackUse[] {
+  const tables = config.schema?.connection;
+  const uses: StackUse[] = [];
+  const adapter = (factory: AdapterFactory | undefined, purpose: string) => {
+    const target = adapterTargetOf(factory);
+    if (target?.driver === 'database') uses.push(lucidUse(target.connection ?? tables, purpose));
+    else if (target?.driver === 'redis') uses.push(redisUse(target.connection, purpose));
+  };
+  adapter(config.adapter, config.session?.adapter ? 'oidc state' : 'oidc state, sessions');
+  adapter(config.session?.adapter, 'sessions');
+
+  const accounts = usesOf(config.accountStore);
+  uses.push(...accounts);
+  const tablesUse = lucidUse(tables, 'auth tables');
+  if (
+    tablesUse.connection !== undefined &&
+    !accounts.some((use) => use.connection === tablesUse.connection)
+  ) {
+    uses.push(tablesUse);
+  }
+  uses.push(...usesOf(config.patStore), ...usesOf(config.audit));
+
+  const keystore = keystoreUse(config.jwks, tables);
+  if (keystore) uses.push(keystore);
+  uses.push(...usesOf(config.crypto?.kms));
+  return uses;
+}
+
+const KEY_STORE = 'key store';
+
+/** Where a managed keystore lives. Never its token, secret id or path to a credential. */
+function keystoreUse(jwks: AuthServerConfigInput['jwks'], tables: string | undefined) {
+  let input: JwksConfig;
+  if (jwks === 'auto') {
+    if (process.env.AUTHKIT_JWKS) return undefined;
+    input = { source: 'managed', store: 'tmp/authkit_jwks.json' } as JwksConfig;
+  } else {
+    input = jwks;
+  }
+  if (input?.source !== 'managed' || !input.store) return undefined;
+  const store = input.store as unknown;
+  if (typeof store === 'string') return { tech: 'fs', label: store, purpose: KEY_STORE };
+  const cfg = store as { driver?: string } & Record<string, unknown>;
+  const str = (value: unknown) => (typeof value === 'string' && value !== '' ? value : undefined);
+  switch (cfg.driver) {
+    case 'file':
+      return { tech: 'fs', label: String(cfg.path), purpose: KEY_STORE };
+    case 'drive':
+      return { tech: 'drive', label: str(cfg.disk) ?? 'default', purpose: KEY_STORE };
+    case 'lucid':
+      return lucidUse(str(cfg.connection) ?? tables, KEY_STORE);
+    case 'redis':
+      return redisUse(str(cfg.connection), KEY_STORE);
+    case 'hashicorp-vault': {
+      const host = hostOf(str(cfg.endpoint));
+      return {
+        tech: 'vault',
+        label: 'hashicorp-vault',
+        ...(host ? { host } : {}),
+        purpose: KEY_STORE,
+      };
     }
-
-    // BACKSTOP DE SUDO. Um host cujo `sudo.methods` não tem um único método
-    // satisfazível por conta sem senha fica bricado para TODA operação sob
-    // `requireSudo` — e hoje isso só se descobre quando um usuário não consegue
-    // excluir a própria conta. Aqui é o único ponto do pacote onde `sudo.methods`,
-    // `authMethods` e `passwordless` estão os três resolvidos e juntos, e este
-    // callback roda no boot (`configProvider.resolve` no `boot()` do provider),
-    // antes de qualquer request. Ver `host/sudo/satisfiability.ts` para as quatro
-    // condições e para o porquê de ser WARN e não THROW.
-    //
-    // LIMITE CONHECIDO: só vê a lista que passou pelo CONFIG. Um host que declare
-    // a lista APENAS no argumento `registerAuthHost(router, { sudoMethods })` não
-    // é coberto — o registro de rotas acontece fora daqui e o `authMethods` não
-    // chega lá. É o caso do ator informado (quem escreveu a lista à mão), não o
-    // do host que herdou os defaults, que é quem o aviso existe para pegar.
-    warnUnsatisfiableSudoConfig({
-      methods: config.sudo?.methods,
-      passwordPinnedOff: config.authMethods?.password === false,
-      passwordlessSignup: config.passwordless?.signup === true,
-    });
-
-    // #9: mfaIssuer efetivo — top-level do defineConfig vence; senão o do lucidAccountStore; senão default.
-    const effectiveMfaIssuer =
-      config.mfaIssuer ??
-      ((config.accountStore as any)?.__mfaIssuer as string | undefined) ??
-      'AuthKit';
-
-    return {
-      issuer: config.issuer,
-      AdapterClass,
-      SessionAdapterClass,
-      jwks: jwks as { keys: Record<string, any>[] },
-      jwksConfig,
-      crypto: config.crypto,
-      ttl: {
-        accessToken: toSeconds(config.ttl?.accessToken, 900),
-        refreshToken: toSeconds(config.ttl?.refreshToken, 2592000),
-        idToken: toSeconds(config.ttl?.idToken, 900),
-        session: toSeconds(config.ttl?.session, 604800),
-      },
-      globalRolesClaim: config.globalRolesClaim ?? 'roles',
-      resolveTokenRoles: config.resolveTokenRoles,
-      onAccountCreated: config.onAccountCreated,
-      cookieKeys: config.cookieKeys ?? [],
-      observability: config.observability ?? {},
-      findAccount: (sub: string) => config.accountStore.findById(sub),
-      verifyCredentials: async (email: string, password: string) => {
-        const acc = await config.accountStore.verifyCredentials(email, password);
-        return acc ? { id: acc.id } : null;
-      },
-      accountStore: config.accountStore,
-      customLoginMethods: config.customLoginMethods,
-      mfa: config.mfa,
-      whatsapp: config.whatsapp,
-      patStore: config.patStore,
-      mountPath: config.mountPath ?? '/oidc',
-      accountHome: config.accountHome,
-      // Default de runtime: sem isso, `render` ficava `undefined` e TODA
-      // request a `/account/*`/`/auth/interaction/*` estourava um 500 sem
-      // contexto (os controllers fazem `cfg.render!(...)`). `edgeRenderer()`
-      // só usa `ctx.view` quando de fato invocado por uma request — não
-      // importa `edge.js` eagerly, então é seguro construir mesmo em hosts
-      // sem o peer opcional instalado (só quebraria se a request realmente
-      // chegasse sem Edge configurado, exatamente como hoje).
-      // O renderer do host recebe `(ctx, view, props)`; aqui ele é tipado por view para que
-      // os controllers não possam divergir de `AuthkitScreenProps`.
-      render: (config.render ?? edgeRenderer()) as AuthkitScreenRenderer,
-      // Recuperação de sessão de interaction perdida: default gracioso 'screen'
-      // (tela themeável `session-expired`); 'redirect' opt-in para 302 ao login.
-      interactionRecovery: {
-        mode: config.interactionRecovery?.mode ?? 'screen',
-        redirectTo: config.interactionRecovery?.redirectTo,
-      },
-      branding: resolveBranding(config.branding),
-      // `firstPartyClients` manda; `branding.firstParty` é o fallback de
-      // back-compat. Nenhum dos dois declarado → `undefined` = sem allowlist.
-      firstPartyClients: config.firstPartyClients ?? config.branding?.firstParty,
-      social: config.social,
-      patIntrospectionSecret: config.patIntrospectionSecret,
-      rateLimit: resolveRateLimit(config.rateLimit),
-      lockout: resolveLockout(config.lockout),
-      notifications: resolveNotifications(),
-      mail: config.mail,
-      // Propaga os métodos de sudo para o config resolvido. Sem esta linha o
-      // campo existiria só no config de ENTRADA e `cfg.sudo` seria sempre
-      // undefined em runtime — exatamente o bug que `accountHome` tinha.
-      sudo: config.sudo,
-      audit: (() => {
-        // Sempre compõe o fan-out: além de onEvent/webhook (quando configurados),
-        // o sink composto republica TODO evento de auditoria no barramento de
-        // diagnostics do Agora (best-effort, zero-config, no-op sem o slot).
-        const events = resolveEvents(config.events, webhookSigningKeys[0]);
-        return composeAuditSink(config.audit, events ?? {});
-      })(),
-      webhookSigningKeys,
-      // #9: reusa mfaIssuer/webauthn declarados no lucidAccountStore quando o
-      // top-level não os fornece — consumidor declara UMA vez. Top-level ainda vence.
-      mfaIssuer: effectiveMfaIssuer,
-      webauthn: resolveWebauthn(
-        config.issuer,
-        effectiveMfaIssuer,
-        config.webauthn ?? ((config.accountStore as any)?.__webauthn as typeof config.webauthn),
-      ),
-      dynamicRegistration: resolveDynamicRegistration(
-        config.dynamicRegistration ?? mcpDynamicRegistration(mcpClients),
-      ),
-      deviceFlow: resolveDeviceFlow(config.deviceFlow),
-      personalAgents,
-      uploads: resolveUploads(config.uploads),
-      dpop: resolveDpop(config.dpop),
-      par: resolvePar(config.par),
-      stepUp: resolveStepUp(config.stepUp),
-      trustedDevices: resolveTrustedDevices(config.trustedDevices),
-      botProtection: resolveBotProtection(config.botProtection),
-      passwordless: resolvePasswordless(config.passwordless),
-      authMethods: resolveAuthMethodsConfig(config.authMethods),
-      login: resolveLogin(config.login),
-      headless: config.headless
-        ? {
-            baseUrl: config.headless.baseUrl ?? '/api/authkit',
-            resolveAccountId: config.headless.resolveAccountId,
-          }
-        : undefined,
-      registration: resolveRegistration(config.registration),
-      accessTokens: resolveAccessTokens(config.issuer, config.accessTokens),
-      serviceTenants: resolveServiceTenants(config.serviceTenants, config.accessTokens?.resources),
-      mcpClients,
-      admin: resolveAdmin(config.admin),
-      adminApi: resolveAdminApi(config.adminApi),
-      organizations: resolveOrganizations(config.organizations),
-      resolveGeo: config.resolveGeo,
-      messages: resolveMessages(config.i18n),
-      locale: config.i18n?.locale ?? 'pt-BR',
-      schema: {
-        autoManage: config.schema?.autoManage !== false,
-        connection: config.schema?.connection,
-        name: tablesSchema,
-      },
-      // OPT-IN: default false → caminho síncrono de sempre (byte-idêntico).
-      accountLifecycle: {
-        durable: config.accountLifecycle?.durable === true,
-      },
-      // Keys de auth_settings travadas porque foram definidas no defineConfig:
-      // config vence e a UI/Admin API não pode alterá-las (ver host/config_locks.ts).
-      lockedSettingKeys: deriveLockedSettingKeys(config as Record<string, any>),
-      routes: config.routes,
-      // Mesma regra do `lockedSettingKeys`, outro eixo: config × argumento de
-      // `registerAuthHost` (ver host/config_locks.ts).
-      lockedRouteOptions: deriveLockedRouteOptions(config as Record<string, any>),
-      // Opt-in: ausente = authkit nunca toca `ctx.auth` (comportamento de sempre).
-      adonisAuth: config.adonisAuth,
-      accountSession: { acceptIdpSession: config.accountSession?.acceptIdpSession !== false },
-      accountConsole: config.accountConsole,
-    };
-  });
+    case 'aws-secrets-manager':
+      return {
+        tech: 'aws-secrets-manager',
+        label: str(cfg.region) ?? 'aws',
+        purpose: KEY_STORE,
+      };
+    case 'gcp-secret-manager':
+      return { tech: 'gcp-secret-manager', label: 'gcp', purpose: KEY_STORE };
+    case 'azure-key-vault': {
+      const host = hostOf(str(cfg.vaultUrl));
+      return {
+        tech: 'azure-key-vault',
+        label: 'azure',
+        ...(host ? { host } : {}),
+        purpose: KEY_STORE,
+      };
+    }
+    default:
+      return undefined;
+  }
 }

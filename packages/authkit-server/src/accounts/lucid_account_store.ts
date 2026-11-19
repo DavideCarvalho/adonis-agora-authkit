@@ -17,6 +17,7 @@ import {
   authkitTablesClient,
   BIND_TABLES_LOCATION,
 } from '../schema/tables_location.js';
+import { describeStackUse, lucidUse } from '../stack.js';
 import type { AccountStore, AuthAccount } from './account_store.js';
 import { buildCore } from './lucid_store/core.js';
 import { buildLoginMethods, supportsLoginMethodsColumn } from './lucid_store/login_methods.js';
@@ -672,5 +673,8 @@ export function lucidAccountStore(
     Object.defineProperty(store, 'accountSecrets', { value: accountSecrets, enumerable: false });
   }
 
-  return store;
+  // Telescope's Architecture page: the account table lives on the model's connection.
+  return describeStackUse(store, () =>
+    lucidUse((Model.connection as string | undefined) ?? undefined, 'accounts'),
+  );
 }
