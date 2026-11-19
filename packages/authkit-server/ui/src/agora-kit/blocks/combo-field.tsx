@@ -41,12 +41,12 @@ interface ComboCommon {
   creatable?: boolean | undefined;
   /** Label of the typed-text item; receives the text. */
   createLabel?: ((text: string) => string) | undefined;
-  /** Called with the typed text, for server-side search. */
   /**
    * `options` are already the server's matches for the typed text: show them all instead of
    * filtering them again here (a server may match on fields the label doesn't show).
    */
   serverFiltered?: boolean | undefined;
+  /** Called with the typed text, for server-side search. */
   onQueryChange?: ((query: string) => void) | undefined;
   id?: string | undefined;
   name?: string | undefined;

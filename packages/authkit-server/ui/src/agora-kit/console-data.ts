@@ -79,7 +79,8 @@ export function sanitizeSearchGroups(body: unknown): SearchGroup[] {
 }
 
 async function getJson(url: string, signal?: AbortSignal): Promise<unknown> {
-  const res = await fetch(url, {
+  // Explicitly global: a shadowed/reassigned `fetch` or a detached call throws "Illegal invocation".
+  const res = await globalThis.fetch(url, {
     headers: { accept: 'application/json' },
     credentials: 'same-origin',
     ...(signal ? { signal } : {}),
