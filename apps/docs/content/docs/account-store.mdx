@@ -566,9 +566,9 @@ const { accountStore, patStore, audit } = lucidStores(
     audit: AuditLog,
     providerIdentity: ProviderIdentity,
     webauthnCredential: WebauthnCredential,
-    // `true` = os models default da lib (as tabelas de org são lib-owned).
-    // Passe `{ OrgModel, MemberModel, InvitationModel }` se as tabelas de auth
-    // vivem numa conexão/schema próprios.
+    // `true` = the lib's default models (the org tables are lib-owned).
+    // Pass `{ OrgModel, MemberModel, InvitationModel }` if your auth tables
+    // live on their own connection/schema.
     organizations: true,
   },
   { mfaIssuer: 'Acme' },

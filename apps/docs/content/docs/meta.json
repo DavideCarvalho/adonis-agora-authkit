@@ -62,7 +62,6 @@
     "observability",
     "health-check",
     "reference",
-    "migrating-to-1-0",
-    "changelog"
+    "migrating-to-1-0"
   ]
 }
