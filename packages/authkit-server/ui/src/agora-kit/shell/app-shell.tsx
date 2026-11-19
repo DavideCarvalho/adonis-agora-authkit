@@ -1,5 +1,6 @@
 import { type CSSProperties, type ReactNode, useCallback, useMemo, useState } from 'react';
 import { ChevronDownIcon } from '../icons';
+import { withPageScope } from '../lib/scope-carry';
 import { cn } from '../lib/utils';
 import type { AgoraShellConfig } from '../shell-config';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible';
@@ -163,7 +164,7 @@ function NavItems({
                 className={navButtonClass}
                 render={
                   <a
-                    href={item.href}
+                    href={withPageScope(item.href)}
                     onClick={(e) => {
                       if (item.onSelect) {
                         e.preventDefault();

@@ -8,6 +8,7 @@ import {
   consoleAccent,
   SearchIcon,
 } from '../icons';
+import { withPageScope } from '../lib/scope-carry';
 import { cn } from '../lib/utils';
 import type { SwitcherConfig } from '../shell-config';
 import {
@@ -89,7 +90,7 @@ export function ConsoleSwitcher({
               <CheckIcon aria-label="Current console" className="ml-auto text-brand" />
             </DropdownMenuItem>
             {consoles.map((c) => (
-              <DropdownMenuItem key={c.id} render={<a href={c.href} />}>
+              <DropdownMenuItem key={c.id} render={<a href={withPageScope(c.href)} />}>
                 <ConsoleTile icon={c.icon} accent={consoleAccent(c.id, c.icon)} />
                 <ConsoleLabel title={c.title} pkg={c.package} />
               </DropdownMenuItem>

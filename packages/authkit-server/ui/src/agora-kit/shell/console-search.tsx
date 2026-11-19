@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { fetchSearchGroups, type SearchGroup } from '../console-data';
 import { ConsoleTile, consoleAccent, SearchIcon } from '../icons';
+import { withPageScope } from '../lib/scope-carry';
 import { cn } from '../lib/utils';
 import type { SearchConfig } from '../shell-config';
 import {
@@ -300,7 +301,7 @@ export function ConsoleSearch({
   const label = config ? 'Search all consoles' : 'Search';
   const go = (href: string) => {
     onOpenChange(false);
-    window.location.assign(href);
+    window.location.assign(withPageScope(href));
   };
 
   return (
@@ -394,7 +395,7 @@ export function ConsoleSearch({
                   onSelect={() => go(hit.href)}
                 >
                   <a
-                    href={hit.href}
+                    href={withPageScope(hit.href)}
                     tabIndex={-1}
                     className="flex min-w-0 flex-col"
                     onClick={(e) => {
