@@ -184,7 +184,7 @@
     "reflect-metadata": "0.2.2",
     "tailwind-merge": "catalog:frontend",
     "tailwindcss": "catalog:frontend",
-    "tempura": "0.4.1",
+    "tempura": "1.0.1",
     "testcontainers": "12.2.1",
     "tw-animate-css": "catalog:frontend",
     "typescript": "catalog:frontend",
