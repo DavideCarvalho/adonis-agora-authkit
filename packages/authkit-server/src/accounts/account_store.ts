@@ -9,6 +9,10 @@ export interface AuthAccount {
   globalRoles?: string[];
   name?: string;
   avatarUrl?: string;
+  /** When the account was created, if the store keeps it (the Lucid store reads `created_at`). */
+  createdAt?: Date;
+  /** When the account row last changed, if the store keeps it (the Lucid store reads `updated_at`). */
+  updatedAt?: Date;
 }
 
 export interface CreateAccountInput {
@@ -581,6 +585,8 @@ export interface OrgSummary {
   logoUrl?: string | null;
   metadata?: Record<string, unknown> | null;
   createdAt: string;
+  /** When the organization last changed (ISO 8601), when the store keeps it. */
+  updatedAt?: string | null;
 }
 
 /** Membro de uma organização. */
@@ -601,6 +607,8 @@ export interface OrgInvitation {
   expiresAt: string;
   acceptedAt?: string | null;
   createdAt: string;
+  /** When the invitation last changed (ISO 8601), when the store keeps it. */
+  updatedAt?: string | null;
 }
 
 /** Informações da org ativa de uma conta (para emissão de claims). */

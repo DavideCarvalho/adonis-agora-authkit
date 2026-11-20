@@ -118,6 +118,15 @@ test.group('app catalog', (group) => {
       ],
     );
     assert.instanceOf(all[0]?.updatedAt, Date);
+    const et = all.find((e) => e.app === 'entre-textos')!;
+    assert.instanceOf(et.createdAt, Date);
+    // Republishing replaces the capabilities but keeps when the app first published.
+    const firstPublished = (await store.find('entre-textos'))!.createdAt!.getTime();
+    await new Promise((r) => setTimeout(r, 5));
+    const republished = await store.put('entre-textos', ['media:objects:read']);
+    assert.equal(republished.createdAt?.getTime(), firstPublished);
+    assert.equal((await store.find('entre-textos'))!.createdAt?.getTime(), firstPublished);
+    assert.isAbove(republished.updatedAt.getTime(), firstPublished);
     assert.isTrue(await store.delete('agora-hub'));
     assert.isNull(await store.find('agora-hub'));
   });

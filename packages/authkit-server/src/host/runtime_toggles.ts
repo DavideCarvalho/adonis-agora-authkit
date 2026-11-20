@@ -1375,6 +1375,10 @@ export interface RoleCatalogEntry {
   name: string;
   /** Descrição legível (opcional). */
   description?: string;
+  /** When the role was added to the catalog (ISO 8601); absent for roles older than the field. */
+  createdAt?: string;
+  /** When the role last changed (ISO 8601); absent for roles older than the field. */
+  updatedAt?: string;
 }
 
 /**
@@ -1442,6 +1446,8 @@ export async function resolveEffectiveRolesCatalog(
         ...(typeof r.description === 'string' && r.description.trim().length > 0
           ? { description: r.description.trim() }
           : {}),
+        ...(typeof r.createdAt === 'string' && r.createdAt ? { createdAt: r.createdAt } : {}),
+        ...(typeof r.updatedAt === 'string' && r.updatedAt ? { updatedAt: r.updatedAt } : {}),
       }));
 
     // Merge defensivo: ADMIN sempre presente.

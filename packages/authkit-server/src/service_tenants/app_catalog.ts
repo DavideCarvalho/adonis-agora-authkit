@@ -21,6 +21,8 @@ export const MAX_CATALOG_CAPABILITIES = 1000;
 export interface AppCatalogEntry {
   app: string;
   capabilities: string[];
+  /** When the app first published its catalog, or `null` for a row older than the column. */
+  createdAt: Date | null;
   updatedAt: Date;
 }
 
@@ -80,6 +82,7 @@ export class AppCatalogStore {
     return rows.map((row: any) => ({
       app: row.app,
       capabilities: parseCapabilities(row.capabilities),
+      createdAt: row.created_at ? toDate(row.created_at) : null,
       updatedAt: toDate(row.updated_at),
     }));
   }
@@ -91,6 +94,7 @@ export class AppCatalogStore {
       ? {
           app: row.app,
           capabilities: parseCapabilities(row.capabilities),
+          createdAt: row.created_at ? toDate(row.created_at) : null,
           updatedAt: toDate(row.updated_at),
         }
       : null;
@@ -101,12 +105,15 @@ export class AppCatalogStore {
     const now = new Date(this.#now());
     const values = { capabilities: JSON.stringify(capabilities), updated_at: now };
     const existing = await this.#conn().from(this.#table).where('app', app).first();
-    if (existing) await this.#conn().from(this.#table).where('app', app).update(values);
-    else
-      await this.#conn()
-        .table(this.#table)
-        .insert({ app, ...values });
-    return { app, capabilities, updatedAt: now };
+    if (existing) {
+      await this.#conn().from(this.#table).where('app', app).update(values);
+      const createdAt = existing.created_at ? toDate(existing.created_at) : null;
+      return { app, capabilities, createdAt, updatedAt: now };
+    }
+    await this.#conn()
+      .table(this.#table)
+      .insert({ app, ...values, created_at: now });
+    return { app, capabilities, createdAt: now, updatedAt: now };
   }
 
   /** Forgets the app's catalog. `true` when there was one. */
@@ -164,6 +171,7 @@ export function presentCatalog(entry: AppCatalogEntry) {
   return {
     app: entry.app,
     capabilities: entry.capabilities,
+    createdAt: entry.createdAt ? entry.createdAt.toISOString() : null,
     updatedAt: entry.updatedAt.toISOString(),
   };
 }

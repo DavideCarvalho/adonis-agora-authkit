@@ -2,7 +2,9 @@ import { randomBytes } from 'node:crypto';
 import type { EnumeratedClient, OidcAdapter } from '../adapters/adapter_contract.js';
 import type { OidcService } from '../provider/oidc_service.js';
 import {
+  CLIENT_CREATED_AT_KEY,
   CLIENT_DISABLED_KEY,
+  CLIENT_UPDATED_AT_KEY,
   isClientDisabled,
   normalizeServiceTenant,
   SERVICE_TENANT_KEY,
@@ -95,6 +97,10 @@ export interface AdminClient {
   dynamicallyRegistered: boolean;
   /** Quando foi registrado pelo `/reg` (`client_id_issued_at`), ou `null`. */
   registeredAt: Date | null;
+  /** When the client was created (authkit write or `/reg`), or `null` for clients older than the field. */
+  createdAt: Date | null;
+  /** When authkit last changed the client, or `null` when it never did since the field exists. */
+  updatedAt: Date | null;
   /** `scope` registrado (escopos que o client pode pedir), ou `null` = qualquer um. */
   scope: string | null;
 }
@@ -161,7 +167,7 @@ export class AdminClientsService {
     assertNotReservedClientId(clientId);
     const confidential = !PUBLIC_AUTH_METHODS.has(input.tokenEndpointAuthMethod);
     const clientSecret = confidential ? randomId() : undefined;
-    const payload = this.#buildPayload(clientId, input, clientSecret);
+    const payload = stampClient(this.#buildPayload(clientId, input, clientSecret), null);
     // expiresIn 0 => sem TTL (clients são permanentes, como no registro dinâmico).
     await this.#adapter.upsert(clientId, payload, 0);
     await this.oidc.evictDynamicClientCache();
@@ -183,7 +189,7 @@ export class AdminClientsService {
     assertNotReservedClientId(clientId);
     const confidential = !PUBLIC_AUTH_METHODS.has(input.tokenEndpointAuthMethod);
     const clientSecret = confidential ? (providedSecret ?? randomId()) : undefined;
-    const payload = this.#buildPayload(clientId, input, clientSecret);
+    const payload = stampClient(this.#buildPayload(clientId, input, clientSecret), null);
     await this.#adapter.upsert(clientId, payload, 0);
     await this.oidc.evictDynamicClientCache();
     return { clientId, clientSecret };
@@ -250,6 +256,7 @@ export class AdminClientsService {
     if (existing.client_id_issued_at !== undefined) {
       payload.client_id_issued_at = existing.client_id_issued_at;
     }
+    stampClient(payload, existing as Record<string, unknown>);
     await this.#adapter.upsert(clientId, payload, 0);
     await this.oidc.evictDynamicClientCache();
   }
@@ -296,6 +303,7 @@ export class AdminClientsService {
     const payload: Record<string, any> = { ...existing };
     if (disabled) payload[CLIENT_DISABLED_KEY] = true;
     else delete payload[CLIENT_DISABLED_KEY];
+    stampClient(payload, existing as Record<string, unknown>);
     await this.#adapter.upsert(clientId, payload, 0);
     await this.oidc.evictDynamicClientCache();
     return true;
@@ -314,7 +322,10 @@ export class AdminClientsService {
       throw new Error(`client ${clientId} é public — não possui secret`);
     }
     const clientSecret = randomId();
-    const payload = { ...existing, client_secret: clientSecret };
+    const payload = stampClient(
+      { ...existing, client_secret: clientSecret },
+      existing as Record<string, unknown>,
+    );
     await this.#adapter.upsert(clientId, payload, 0);
     await this.oidc.evictDynamicClientCache();
     return clientSecret;
@@ -435,6 +446,8 @@ export class AdminClientsService {
       dynamicallyRegistered: typeof p.client_id_issued_at === 'number',
       registeredAt:
         typeof p.client_id_issued_at === 'number' ? new Date(p.client_id_issued_at * 1000) : null,
+      createdAt: clientCreatedAt(p),
+      updatedAt: isoDate(p[CLIENT_UPDATED_AT_KEY]),
       scope: typeof p.scope === 'string' && p.scope ? p.scope : null,
     };
     if (p.backchannel_logout_uri) {
@@ -451,4 +464,37 @@ function assertNotReservedClientId(clientId: string): void {
   if (clientId === CONSOLE_SSO_CLIENT_ID) {
     throw new ClientMetadataError(`client_id "${clientId}" é reservado pelo authkit`);
   }
+}
+
+/**
+ * Stamps `authkit_created_at` / `authkit_updated_at` on a payload about to be written. `existing`
+ * is the stored payload (`null` on create): its creation time is kept, falling back to the `/reg`
+ * `client_id_issued_at` for a client that predates the field.
+ */
+function stampClient(
+  payload: Record<string, any>,
+  existing: Record<string, unknown> | null,
+): Record<string, any> {
+  const now = new Date().toISOString();
+  const created = existing ? clientCreatedAt(existing) : null;
+  if (created) payload[CLIENT_CREATED_AT_KEY] = created.toISOString();
+  else if (!existing) payload[CLIENT_CREATED_AT_KEY] = now;
+  else delete payload[CLIENT_CREATED_AT_KEY];
+  payload[CLIENT_UPDATED_AT_KEY] = now;
+  return payload;
+}
+
+function clientCreatedAt(payload: Record<string, unknown>): Date | null {
+  return (
+    isoDate(payload[CLIENT_CREATED_AT_KEY]) ??
+    (typeof payload.client_id_issued_at === 'number'
+      ? new Date(payload.client_id_issued_at * 1000)
+      : null)
+  );
+}
+
+function isoDate(value: unknown): Date | null {
+  if (typeof value !== 'string' || !value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }

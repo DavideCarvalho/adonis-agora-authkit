@@ -180,9 +180,15 @@ curl -X POST https://idp.example.com/api/authkit/v1/users \
   "avatarUrl": null,
   "globalRoles": [],
   "disabled": false,
+  "createdAt": "2026-11-20T12:00:00.000Z",
+  "updatedAt": "2026-11-20T12:00:00.000Z",
   "invited": true
 }
 ```
+
+Users, clients, organizations and invitations carry `createdAt` and `updatedAt` (ISO 8601). Either
+is `null` when the record predates the field or your account table has no `created_at` /
+`updated_at` column.
 
 ### Update roles
 
@@ -298,6 +304,7 @@ An org DTO looks like this:
   "logoUrl": null,
   "metadata": null,
   "createdAt": "2026-06-05T12:00:00.000Z",
+  "updatedAt": "2026-06-07T09:30:00.000Z",
   "memberCount": 4
 }
 ```
@@ -325,7 +332,8 @@ curl -X POST https://idp.example.com/api/authkit/v1/organizations/org-1/invitati
   "invitedBy": "admin",
   "expiresAt": "2026-06-12T12:00:00.000Z",
   "acceptedAt": null,
-  "createdAt": "2026-06-05T12:00:00.000Z"
+  "createdAt": "2026-06-05T12:00:00.000Z",
+  "updatedAt": "2026-06-05T12:00:00.000Z"
 }
 ```
 

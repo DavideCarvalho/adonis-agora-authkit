@@ -9,6 +9,10 @@ import { APP_NAME_PATTERN, CAPABILITY_PATTERN } from './config.js';
  */
 export const SERVICE_TENANT_KEY = 'authkit_service_tenant';
 export const CLIENT_DISABLED_KEY = 'authkit_disabled';
+/** When authkit created the client (ISO 8601). A `/reg` client has `client_id_issued_at` instead. */
+export const CLIENT_CREATED_AT_KEY = 'authkit_created_at';
+/** When authkit last changed the client (ISO 8601). */
+export const CLIENT_UPDATED_AT_KEY = 'authkit_updated_at';
 
 /** The service-tenant part of a client. */
 export interface ServiceTenantInfo {

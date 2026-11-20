@@ -34,6 +34,7 @@ import {
 import { QueryBoundary } from '../components/QueryBoundary';
 import { Skeleton, SkeletonTable } from '../components/Skeleton';
 import { getConfig } from '../lib/config';
+import { DateText, Timestamps } from '../lib/dates';
 import { useToast } from '../lib/toast';
 
 /** Page size sent as `?size=` to `GET {prefix}/api/users`. */
@@ -74,7 +75,7 @@ export function UsersTableContainer({
           isLoading={isLoading}
           error={error}
           onRetry={refetch}
-          skeleton={<SkeletonTable rows={6} cols={3} />}
+          skeleton={<SkeletonTable rows={6} cols={4} />}
         >
           {users.length === 0 ? (
             <EmptyState
@@ -95,7 +96,7 @@ export function UsersTableContainer({
             />
           ) : (
             <>
-              <AdminTable head={['User', 'Roles', 'Status']} label="Users">
+              <AdminTable head={['User', 'Roles', 'Status', 'Created']} label="Users">
                 {users.map((u) => (
                   <Row key={u.id} onClick={() => onSelectUser(u.id)}>
                     <Cell>
@@ -126,6 +127,9 @@ export function UsersTableContainer({
                       <Badge variant={u.disabled ? 'destructive' : 'good'}>
                         {u.disabled ? 'disabled' : 'active'}
                       </Badge>
+                    </Cell>
+                    <Cell className="text-faint">
+                      <DateText value={u.createdAt} />
                     </Cell>
                   </Row>
                 ))}
@@ -289,6 +293,9 @@ export function UserInfoContainer({ userId, onMutated, onClose }: UserInfoContai
             </div>
           </div>
           <Code className="block px-2.5 py-1.5 text-[11px]">ID: {user.id}</Code>
+          <div className="mt-2">
+            <Timestamps createdAt={user.createdAt} updatedAt={user.updatedAt} />
+          </div>
 
           {/* Actions */}
           <div className="mt-4">

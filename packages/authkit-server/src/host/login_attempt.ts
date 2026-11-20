@@ -55,14 +55,8 @@ export async function isEmailUnverifiedBlock(
       // Busca a conta para checar created_at (se o store suportar).
       const account = await cfg.accountStore.findById(accountId);
       if (account) {
-        // Tenta ler `created_at` via duck-typing (não é parte do contrato AccountStore).
-        const raw = account as any;
-        const createdAt: Date | null =
-          raw.createdAt instanceof Date
-            ? raw.createdAt
-            : typeof raw.createdAt === 'string'
-              ? new Date(raw.createdAt)
-              : null;
+        // `createdAt` é opcional no contrato: um store que não guarda a data não tem carência.
+        const createdAt = account.createdAt ?? null;
         if (createdAt) {
           const graceCutoff = new Date(createdAt.getTime() + full.graceDays * 24 * 60 * 60 * 1000);
           if (new Date() <= graceCutoff) {
