@@ -116,9 +116,10 @@ test.group('app catalog', (group) => {
     const first = await store.put('lumen', ['media:objects:read']);
     assert.isNull(first.createdAt);
     assert.equal(first.updatedAt?.getTime(), clock);
-    // Remembered for a minute: the next insert does not try the column again.
+    // Remembered for a minute, also by a fresh store (the handler builds one per request).
     clock += 1_000;
-    assert.isNull((await store.put('other', [])).createdAt);
+    const fresh = new AppCatalogStore(() => db.connection(), { now: () => clock });
+    assert.isNull((await fresh.put('other', [])).createdAt);
     // Once the column exists, a later insert (after the recheck window) fills it.
     await db
       .connection()

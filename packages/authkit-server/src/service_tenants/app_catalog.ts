@@ -69,15 +69,33 @@ export function validateCatalog(raw: unknown): string[] | { error: string } {
   return [...out].sort();
 }
 
-/** Rows of `auth_app_catalog`: one per app. */
 /** How long an insert keeps skipping a missing `created_at` before trying it again. */
 const CREATED_AT_RECHECK_MS = 60_000;
 
+/**
+ * Per table, until when inserts skip `created_at` (the column was missing). Module-level because
+ * the publish handler builds a store per request.
+ */
+const noCreatedAtUntil = new Map<string, number>();
+
+/** The driver said the column does not exist: Postgres 42703, MySQL 1054, SQLite "no column". */
+function isMissingCreatedAt(error: unknown): boolean {
+  const e = error as { code?: unknown; errno?: unknown; message?: unknown };
+  const message = typeof e?.message === 'string' ? e.message : String(error);
+  if (!/created_at/i.test(message)) return false;
+  return (
+    e?.code === '42703' ||
+    e?.code === 'ER_BAD_FIELD_ERROR' ||
+    e?.errno === 1054 ||
+    /no column named|no such column|unknown column|does not exist/i.test(message)
+  );
+}
+
+/** Rows of `auth_app_catalog`: one per app. */
 export class AppCatalogStore {
   #conn: () => any;
   #table: string;
   #now: () => number;
-  #noCreatedAtUntil = 0;
 
   constructor(
     conn: () => any,
@@ -131,9 +149,8 @@ export class AppCatalogStore {
       } catch (error) {
         // A table that predates `created_at` and whose schema nobody manages here
         // (`schema.autoManage: false`, e.g. a second server sharing the identity tables).
-        if (!/created_at/i.test(error instanceof Error ? error.message : String(error)))
-          throw error;
-        this.#noCreatedAtUntil = this.#now() + CREATED_AT_RECHECK_MS;
+        if (!isMissingCreatedAt(error)) throw error;
+        noCreatedAtUntil.set(this.#table, this.#now() + CREATED_AT_RECHECK_MS);
       }
     }
     await this.#conn()
@@ -144,7 +161,7 @@ export class AppCatalogStore {
 
   /** `false` for a while after an insert found no `created_at` column; tried again after that. */
   #createdAtColumn(): boolean {
-    return this.#now() >= this.#noCreatedAtUntil;
+    return this.#now() >= (noCreatedAtUntil.get(this.#table) ?? 0);
   }
 
   /** Forgets the app's catalog. `true` when there was one. */
