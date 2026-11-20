@@ -9,6 +9,7 @@ import { Button } from '../agora-kit/ui/button';
 import { AdminTable, Cell, dangerButtonClass, Row, Surface } from '../components/primitives';
 import { QueryBoundary } from '../components/QueryBoundary';
 import { SkeletonTable } from '../components/Skeleton';
+import { DateText } from '../lib/dates';
 
 const PROTECTED = 'ADMIN';
 
@@ -62,7 +63,7 @@ export function RolesTableContainer({ onEdit, onDelete, onUnavailable }: RolesTa
             : undefined
         }
         onRetry={refetch}
-        skeleton={<SkeletonTable rows={4} cols={4} />}
+        skeleton={<SkeletonTable rows={4} cols={5} />}
       >
         {roles.length === 0 ? (
           <EmptyState
@@ -76,7 +77,7 @@ export function RolesTableContainer({ onEdit, onDelete, onUnavailable }: RolesTa
             }
           />
         ) : (
-          <AdminTable head={['Name', 'Description', 'Type', '']} label="Roles">
+          <AdminTable head={['Name', 'Description', 'Type', 'Updated', '']} label="Roles">
             {roles.map((r) => (
               <Row key={r.name}>
                 <Cell>
@@ -94,6 +95,9 @@ export function RolesTableContainer({ onEdit, onDelete, onUnavailable }: RolesTa
                   <Badge variant={builtin(r) ? 'brand' : 'neutral'}>
                     {builtin(r) ? 'built-in' : 'custom'}
                   </Badge>
+                </Cell>
+                <Cell className="text-faint">
+                  <DateText value={r.updatedAt ?? r.createdAt} />
                 </Cell>
                 <Cell className="w-20 text-right">
                   <div className="flex justify-end gap-1.5">

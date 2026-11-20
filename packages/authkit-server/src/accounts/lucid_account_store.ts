@@ -502,6 +502,7 @@ export function lucidAccountStore(
       globalRoles: row.globalRoles ?? [],
       name: row.fullName ?? undefined,
       avatarUrl: row.avatarUrl ?? undefined,
+      ...accountTimestamps(row),
     }),
     // nativeVerifyHash: usa o verifyPassword do model para verificar hashes históricos.
     nativeVerifyHash: async (hash: string, plain: string) => {
@@ -677,4 +678,30 @@ export function lucidAccountStore(
   return describeStackUse(store, () =>
     lucidUse((Model.connection as string | undefined) ?? undefined, 'accounts'),
   );
+}
+
+/**
+ * `created_at` / `updated_at` as `Date`s, whatever the model hands back: a Luxon `DateTime` (the
+ * usual `@column.dateTime`), a `Date`, or a string. A table without a column yields nothing for it.
+ */
+function accountTimestamps(row: { createdAt?: unknown; updatedAt?: unknown }): {
+  createdAt?: Date;
+  updatedAt?: Date;
+} {
+  const createdAt = toDate(row.createdAt);
+  const updatedAt = toDate(row.updatedAt);
+  return { ...(createdAt ? { createdAt } : {}), ...(updatedAt ? { updatedAt } : {}) };
+}
+
+function toDate(value: unknown): Date | null {
+  if (value === null || value === undefined) return null;
+  const date =
+    value instanceof Date
+      ? value
+      : typeof (value as { toJSDate?: unknown }).toJSDate === 'function'
+        ? (value as { toJSDate(): Date }).toJSDate()
+        : typeof value === 'string' || typeof value === 'number'
+          ? new Date(value)
+          : null;
+  return date && !Number.isNaN(date.getTime()) ? date : null;
 }

@@ -6,6 +6,7 @@ import {
   AppCatalogStore,
   authenticateCatalogPublisher,
   MAX_CATALOG_CAPABILITIES,
+  presentCatalog,
   validateCatalog,
 } from '../src/service_tenants/app_catalog.js';
 import { createTestDatabase } from './bootstrap.js';
@@ -118,6 +119,31 @@ test.group('app catalog', (group) => {
       ],
     );
     assert.instanceOf(all[0]?.updatedAt, Date);
+    const et = all.find((e) => e.app === 'entre-textos')!;
+    assert.instanceOf(et.createdAt, Date);
+    // Republishing replaces the capabilities but keeps when the app first published.
+    const firstPublished = (await store.find('entre-textos'))!.createdAt!.getTime();
+    await new Promise((r) => setTimeout(r, 5));
+    const republished = await store.put('entre-textos', ['media:objects:read']);
+    assert.equal(republished.createdAt?.getTime(), firstPublished);
+    assert.equal((await store.find('entre-textos'))!.createdAt?.getTime(), firstPublished);
+    assert.isAbove(republished.updatedAt!.getTime(), firstPublished);
+
+    // A legacy or corrupt row reads as `null` instead of failing the whole list.
+    await db.connection().table('auth_app_catalog').insert({
+      app: 'legacy-app',
+      capabilities: '[]',
+      updated_at: 'not-a-date',
+    });
+    const legacy = (await store.list()).find((e) => e.app === 'legacy-app')!;
+    assert.isNull(legacy.updatedAt);
+    assert.isNull(legacy.createdAt);
+    assert.deepEqual(presentCatalog(legacy), {
+      app: 'legacy-app',
+      capabilities: [],
+      createdAt: null,
+      updatedAt: null,
+    });
     assert.isTrue(await store.delete('agora-hub'));
     assert.isNull(await store.find('agora-hub'));
   });

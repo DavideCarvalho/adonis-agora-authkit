@@ -45,6 +45,7 @@ function toOrgSummary(row: any): OrgSummary {
     logoUrl: row.logoUrl ?? null,
     metadata: row.metadata ?? null,
     createdAt: toDateStr(row.createdAt),
+    updatedAt: toDateStrOrNull(row.updatedAt),
   };
 }
 
@@ -73,6 +74,7 @@ function toOrgInvitation(row: any): OrgInvitation {
     expiresAt: toDateStr(row.expiresAt),
     acceptedAt: toDateStrOrNull(row.acceptedAt),
     createdAt: toDateStr(row.createdAt),
+    updatedAt: toDateStrOrNull(row.updatedAt),
   };
 }
 

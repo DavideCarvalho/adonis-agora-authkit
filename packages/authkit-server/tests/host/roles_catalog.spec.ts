@@ -159,6 +159,29 @@ test.group('resolveEffectiveRolesCatalog', () => {
 
   // ---- setting present ----
 
+  test('keeps each role createdAt / updatedAt, and drops non-string ones', async ({ assert }) => {
+    const s = settings(
+      fakeDb({
+        roles_catalog: {
+          roles: [
+            {
+              name: 'EDITOR',
+              createdAt: '2026-11-01T00:00:00.000Z',
+              updatedAt: '2026-11-20T00:00:00.000Z',
+            },
+            { name: 'VIEWER', createdAt: 42 },
+          ],
+        },
+      }),
+    );
+    const { roles } = await resolveEffectiveRolesCatalog(s);
+    const editor = roles.find((r) => r.name === 'EDITOR')!;
+    assert.equal(editor.createdAt, '2026-11-01T00:00:00.000Z');
+    assert.equal(editor.updatedAt, '2026-11-20T00:00:00.000Z');
+    const viewer = roles.find((r) => r.name === 'VIEWER')!;
+    assert.notProperty(viewer, 'createdAt');
+  });
+
   test('setting with ADMIN + EDITOR → both roles sorted', async ({ assert }) => {
     const s = settings(
       fakeDb({

@@ -29,6 +29,7 @@ import {
 import { QueryBoundary } from '../components/QueryBoundary';
 import { SkeletonDrawerSection, SkeletonPanelTable } from '../components/Skeleton';
 import { type PickedUser, PickedUserChip, UserPicker } from '../components/UserPicker';
+import { DateText, Timestamps } from '../lib/dates';
 import { useToast } from '../lib/toast';
 import {
   AddMemberSection,
@@ -221,7 +222,7 @@ export function OrgsTableContainer({
                   </Cell>
                   <Cell className="mono text-[11px]">{o.memberCount ?? '—'}</Cell>
                   <Cell className="mono text-[11px] text-faint">
-                    {o.createdAt ? new Date(o.createdAt).toLocaleDateString() : '—'}
+                    <DateText value={o.createdAt} />
                   </Cell>
                 </Row>
               ))}
@@ -361,6 +362,9 @@ function OrgDetailContent({ orgId, onDeleted }: OrgDetailContentProps) {
                 <Code className="block">{detail.id}</Code>
                 <div className="mt-1.5 text-xs">
                   <Badge variant="neutral">{detail.slug}</Badge>
+                </div>
+                <div className="mt-2">
+                  <Timestamps createdAt={detail.createdAt} updatedAt={detail.updatedAt} />
                 </div>
               </>
             )}

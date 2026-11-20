@@ -40,6 +40,10 @@ export interface AdminUser {
    */
   roles?: string[];
   disabled: boolean;
+  /** When the account was created (ISO 8601), or `null` when the account store does not keep it. */
+  createdAt?: string | null;
+  /** When the account last changed (ISO 8601), or `null` when the account store does not keep it. */
+  updatedAt?: string | null;
   /** Apenas em create: indica se o usuário foi convidado via e-mail. */
   invited?: boolean;
 }
@@ -190,6 +194,10 @@ export interface AdminClient {
   dynamicallyRegistered?: boolean;
   /** When it registered through `/reg` (ISO), or `null`. */
   registeredAt?: string | null;
+  /** When the client was created (ISO 8601), or `null` for clients older than the field. */
+  createdAt?: string | null;
+  /** When the client last changed (ISO 8601), or `null`. */
+  updatedAt?: string | null;
   /** Registered `scope`, or `null` = any scope. */
   scope?: string | null;
 }
@@ -281,6 +289,10 @@ export type UpdateClientInput = Omit<
 export interface RoleCatalogEntry {
   name: string;
   description?: string;
+  /** When the role was added (ISO 8601); absent for roles older than the field. */
+  createdAt?: string;
+  /** When the role last changed (ISO 8601); absent for roles older than the field. */
+  updatedAt?: string;
 }
 
 export interface RoleListResult {
@@ -307,6 +319,8 @@ export interface AdminOrgEntry {
   logoUrl: string | null;
   metadata: unknown | null;
   createdAt: string;
+  /** When the organization last changed (ISO 8601), or `null`. */
+  updatedAt?: string | null;
   memberCount?: number;
 }
 
@@ -326,6 +340,8 @@ export interface AdminOrgInvitation {
   expiresAt: string;
   acceptedAt: string | null;
   createdAt: string;
+  /** When the invitation last changed (ISO 8601), or `null`. */
+  updatedAt?: string | null;
 }
 
 export interface AdminOrgDetail extends AdminOrgEntry {

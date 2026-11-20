@@ -19,6 +19,8 @@ export function userDto(account: AuthAccount, disabled = false) {
     avatarUrl: account.avatarUrl ?? null,
     globalRoles: account.globalRoles ?? [],
     disabled,
+    createdAt: account.createdAt ? account.createdAt.toISOString() : null,
+    updatedAt: account.updatedAt ? account.updatedAt.toISOString() : null,
   };
 }
 
@@ -53,6 +55,8 @@ export function clientDto(client: AdminClient) {
     serviceTenant: client.serviceTenant,
     dynamicallyRegistered: client.dynamicallyRegistered,
     registeredAt: client.registeredAt ? client.registeredAt.toISOString() : null,
+    createdAt: client.createdAt ? client.createdAt.toISOString() : null,
+    updatedAt: client.updatedAt ? client.updatedAt.toISOString() : null,
     scope: client.scope,
   };
 }
@@ -112,6 +116,7 @@ export function orgDto(org: OrgSummary & { memberCount?: number }) {
     logoUrl: org.logoUrl ?? null,
     metadata: org.metadata ?? null,
     createdAt: org.createdAt,
+    updatedAt: org.updatedAt ?? null,
     ...(org.memberCount !== undefined ? { memberCount: org.memberCount } : {}),
   };
 }
@@ -135,6 +140,7 @@ export function orgInvitationDto(inv: OrgInvitation) {
     expiresAt: inv.expiresAt,
     acceptedAt: inv.acceptedAt ?? null,
     createdAt: inv.createdAt,
+    updatedAt: inv.updatedAt ?? null,
   };
 }
 

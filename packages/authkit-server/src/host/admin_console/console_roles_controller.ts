@@ -73,7 +73,8 @@ export default class ConsoleRolesController {
       );
     }
 
-    const newEntry: RoleCatalogEntry = { name };
+    const now = new Date().toISOString();
+    const newEntry: RoleCatalogEntry = { name, createdAt: now, updatedAt: now };
     if (description) newEntry.description = description;
     const updated = [...current.roles, newEntry].sort((a, b) => a.name.localeCompare(b.name));
 
@@ -85,7 +86,7 @@ export default class ConsoleRolesController {
       metadata: { action: 'create', role: name },
     });
 
-    return { name, description: description || undefined };
+    return newEntry;
   }
 
   /** PATCH {prefix}/api/roles/:name — { description? } */
@@ -110,8 +111,16 @@ export default class ConsoleRolesController {
       return ctx.response.notFound(apiError('not_found', 'Role não encontrada.'));
     }
 
+    const updatedAt = new Date().toISOString();
     const updatedRoles = current.roles.map((r) =>
-      r.name === roleName ? { name: r.name, ...(description ? { description } : {}) } : r,
+      r.name === roleName
+        ? {
+            name: r.name,
+            ...(description ? { description } : {}),
+            ...(r.createdAt ? { createdAt: r.createdAt } : {}),
+            updatedAt,
+          }
+        : r,
     );
     await rs.setSetting(SETTING_KEYS.ROLES_CATALOG, { roles: updatedRoles }, actorId);
     await cfg.audit?.record({

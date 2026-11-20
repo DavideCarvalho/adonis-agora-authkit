@@ -7,6 +7,7 @@ import { Button } from '../agora-kit/ui/button';
 import { Code, dangerButtonClass, Notice } from '../components/primitives';
 import { QueryBoundary } from '../components/QueryBoundary';
 import { Skeleton } from '../components/Skeleton';
+import { Timestamps } from '../lib/dates';
 
 const ALL_CLIENTS = { page: 1, size: 200 } as const;
 
@@ -161,6 +162,9 @@ export function ClientsListContainer({
                       ))}
                     </div>
                   )}
+                  <div className="mt-2">
+                    <Timestamps createdAt={c.createdAt} updatedAt={c.updatedAt} />
+                  </div>
                 </div>
                 <div className="flex shrink-0 gap-1.5">
                   <Button variant="outline" size="sm" onClick={() => onEdit(c)}>

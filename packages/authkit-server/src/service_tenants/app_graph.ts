@@ -29,7 +29,7 @@ export interface AppGraphApp {
 export interface AppGraphSnapshot {
   apps: AppGraphApp[];
   /** What each app accepts from the others, as it published it. */
-  catalogs: Array<{ app: string; capabilities: string[]; updatedAt: string }>;
+  catalogs: Array<{ app: string; capabilities: string[]; updatedAt: string | null }>;
 }
 
 /** What the slot holds. */
@@ -98,7 +98,7 @@ export async function buildAppGraph(
     catalogs: entries.map((e) => ({
       app: e.app,
       capabilities: e.capabilities,
-      updatedAt: e.updatedAt.toISOString(),
+      updatedAt: e.updatedAt ? e.updatedAt.toISOString() : null,
     })),
   };
 }

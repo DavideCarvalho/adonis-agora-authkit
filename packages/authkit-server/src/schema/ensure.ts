@@ -359,10 +359,12 @@ const TABLES: TableDef[] = [
     create: (t) => {
       t.string('app', 64).primary();
       t.text('capabilities').notNullable();
+      t.dateTime('created_at', { useTz: true, precision: 3 }).nullable();
       t.dateTime('updated_at', { useTz: true, precision: 3 }).notNullable();
     },
     columns: {
       capabilities: (t) => t.text('capabilities'),
+      created_at: (t) => t.dateTime('created_at', { useTz: true, precision: 3 }).nullable(),
       updated_at: (t) => t.dateTime('updated_at', { useTz: true, precision: 3 }).nullable(),
     },
   },

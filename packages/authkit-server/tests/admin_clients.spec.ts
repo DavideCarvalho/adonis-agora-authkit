@@ -121,6 +121,38 @@ test.group('AdminClientsService (CRUD de clients OIDC adapter-backed)', (group) 
     assert.deepEqual(found.metadata().redirect_uris, [`${issuer}/app/cb`]);
   });
 
+  test('create stamps createdAt/updatedAt; a later write keeps createdAt and moves updatedAt', async ({
+    assert,
+    cleanup,
+  }) => {
+    const port = 9886;
+    const { issuer, service, server } = await startService(port, db);
+    cleanup(() => new Promise<void>((r) => server.close(() => r())));
+
+    const admin = new AdminClientsService(service);
+    const created = await admin.create({
+      redirectUris: [`${issuer}/ts/cb`],
+      postLogoutRedirectUris: [],
+      grantTypes: ['authorization_code'],
+      tokenEndpointAuthMethod: 'client_secret_basic',
+    });
+    const first = (await admin.find(created.clientId))!;
+    assert.instanceOf(first.createdAt, Date);
+    assert.equal(first.updatedAt?.getTime(), first.createdAt?.getTime());
+
+    await new Promise((r) => setTimeout(r, 5));
+    await admin.setDisabled(created.clientId, true);
+    const disabled = (await admin.find(created.clientId))!;
+    assert.equal(disabled.createdAt?.getTime(), first.createdAt?.getTime());
+    assert.isAbove(disabled.updatedAt!.getTime(), first.updatedAt!.getTime());
+
+    await new Promise((r) => setTimeout(r, 5));
+    await admin.update(created.clientId, { redirectUris: [`${issuer}/ts/cb2`] });
+    const updated = (await admin.find(created.clientId))!;
+    assert.equal(updated.createdAt?.getTime(), first.createdAt?.getTime());
+    assert.isAbove(updated.updatedAt!.getTime(), disabled.updatedAt!.getTime());
+  });
+
   test('o client_id do console (`authkit-console`) é reservado', async ({ assert, cleanup }) => {
     const port = 9934;
     const { issuer, service, server } = await startService(port, db);

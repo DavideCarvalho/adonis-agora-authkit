@@ -742,7 +742,8 @@ export function Clients() {
 interface AppCatalog {
   app: string;
   capabilities: string[];
-  updatedAt: string;
+  createdAt?: string | null;
+  updatedAt: string | null;
 }
 
 /** The catalogs the apps published (`GET {api}/apps/catalog`); `[]` until they load or on error. */
