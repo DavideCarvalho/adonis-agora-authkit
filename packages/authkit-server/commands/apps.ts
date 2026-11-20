@@ -1,6 +1,6 @@
 import { args, BaseCommand, flags } from '@adonisjs/core/ace';
 import type { CommandOptions } from '@adonisjs/core/types/ace';
-import { appCatalogStoreOf } from '../src/service_tenants/app_catalog.js';
+import { appCatalogStoreOf, presentCatalog } from '../src/service_tenants/app_catalog.js';
 
 /**
  * What each Agora app accepts from the other apps: the catalogs the apps publish at boot
@@ -44,7 +44,7 @@ export default class AuthkitApps extends BaseCommand {
     if (this.json) {
       this.logger.log(
         JSON.stringify(
-          entries.map((e) => ({ ...e, updatedAt: e.updatedAt.toISOString() })),
+          entries.map((e) => presentCatalog(e)),
           null,
           2,
         ),
@@ -61,7 +61,7 @@ export default class AuthkitApps extends BaseCommand {
     }
     for (const entry of entries) {
       this.logger.log(
-        `${this.colors.bold(entry.app)}  ${this.colors.dim(`(${entry.updatedAt.toISOString()})`)}`,
+        `${this.colors.bold(entry.app)}  ${this.colors.dim(`(${entry.updatedAt?.toISOString() ?? 'unknown'})`)}`,
       );
       for (const cap of entry.capabilities) this.logger.log(`  ${cap}`);
       if (entry.capabilities.length === 0) this.logger.log(this.colors.dim('  (none)'));

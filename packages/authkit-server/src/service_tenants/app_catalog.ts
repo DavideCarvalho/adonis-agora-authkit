@@ -23,14 +23,22 @@ export interface AppCatalogEntry {
   capabilities: string[];
   /** When the app first published its catalog, or `null` for a row older than the column. */
   createdAt: Date | null;
-  updatedAt: Date;
+  /** When the catalog was last published, or `null` for an unreadable legacy value. */
+  updatedAt: Date | null;
 }
 
-function toDate(value: unknown): Date {
-  if (value instanceof Date) return value;
-  if (typeof value === 'number') return new Date(value);
-  if (typeof value === 'string' && /^\d+$/.test(value)) return new Date(Number(value));
-  return new Date(String(value));
+/** A stored timestamp as a `Date`, or `null` when it is missing or unreadable (a legacy row). */
+function toDate(value: unknown): Date | null {
+  if (value === null || value === undefined || value === '') return null;
+  const date =
+    value instanceof Date
+      ? value
+      : typeof value === 'number'
+        ? new Date(value)
+        : typeof value === 'string' && /^\d+$/.test(value)
+          ? new Date(Number(value))
+          : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function parseCapabilities(raw: unknown): string[] {
@@ -82,7 +90,7 @@ export class AppCatalogStore {
     return rows.map((row: any) => ({
       app: row.app,
       capabilities: parseCapabilities(row.capabilities),
-      createdAt: row.created_at ? toDate(row.created_at) : null,
+      createdAt: toDate(row.created_at),
       updatedAt: toDate(row.updated_at),
     }));
   }
@@ -94,7 +102,7 @@ export class AppCatalogStore {
       ? {
           app: row.app,
           capabilities: parseCapabilities(row.capabilities),
-          createdAt: row.created_at ? toDate(row.created_at) : null,
+          createdAt: toDate(row.created_at),
           updatedAt: toDate(row.updated_at),
         }
       : null;
@@ -107,7 +115,7 @@ export class AppCatalogStore {
     const existing = await this.#conn().from(this.#table).where('app', app).first();
     if (existing) {
       await this.#conn().from(this.#table).where('app', app).update(values);
-      const createdAt = existing.created_at ? toDate(existing.created_at) : null;
+      const createdAt = toDate(existing.created_at);
       return { app, capabilities, createdAt, updatedAt: now };
     }
     await this.#conn()
@@ -172,6 +180,6 @@ export function presentCatalog(entry: AppCatalogEntry) {
     app: entry.app,
     capabilities: entry.capabilities,
     createdAt: entry.createdAt ? entry.createdAt.toISOString() : null,
-    updatedAt: entry.updatedAt.toISOString(),
+    updatedAt: entry.updatedAt ? entry.updatedAt.toISOString() : null,
   };
 }
