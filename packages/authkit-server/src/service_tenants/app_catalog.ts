@@ -69,27 +69,15 @@ export function validateCatalog(raw: unknown): string[] | { error: string } {
   return [...out].sort();
 }
 
-/** How long an insert keeps skipping a missing `created_at` before trying it again. */
+/** How long a "no `created_at` column" answer is trusted before checking again. */
 const CREATED_AT_RECHECK_MS = 60_000;
 
 /**
- * Per table, until when inserts skip `created_at` (the column was missing). Module-level because
- * the publish handler builds a store per request.
+ * Per table: whether it has `created_at` and when that was checked. Module-level because the publish
+ * handler builds a store per request. A found column is remembered; a missing one is checked again
+ * after {@link CREATED_AT_RECHECK_MS}, so a migration run under a live process is picked up.
  */
-const noCreatedAtUntil = new Map<string, number>();
-
-/** The driver said the column does not exist: Postgres 42703, MySQL 1054, SQLite "no column". */
-function isMissingCreatedAt(error: unknown): boolean {
-  const e = error as { code?: unknown; errno?: unknown; message?: unknown };
-  const message = typeof e?.message === 'string' ? e.message : String(error);
-  if (!/created_at/i.test(message)) return false;
-  return (
-    e?.code === '42703' ||
-    e?.code === 'ER_BAD_FIELD_ERROR' ||
-    e?.errno === 1054 ||
-    /no column named|no such column|unknown column|does not exist/i.test(message)
-  );
-}
+const createdAtColumn = new Map<string, { found: boolean; at: number }>();
 
 /** Rows of `auth_app_catalog`: one per app. */
 export class AppCatalogStore {
@@ -140,18 +128,11 @@ export class AppCatalogStore {
       const createdAt = toDate(existing.created_at);
       return { app, capabilities, createdAt, updatedAt: now };
     }
-    if (this.#createdAtColumn()) {
-      try {
-        await this.#conn()
-          .table(this.#table)
-          .insert({ app, ...values, created_at: now });
-        return { app, capabilities, createdAt: now, updatedAt: now };
-      } catch (error) {
-        // A table that predates `created_at` and whose schema nobody manages here
-        // (`schema.autoManage: false`, e.g. a second server sharing the identity tables).
-        if (!isMissingCreatedAt(error)) throw error;
-        noCreatedAtUntil.set(this.#table, this.#now() + CREATED_AT_RECHECK_MS);
-      }
+    if (await this.#hasCreatedAt()) {
+      await this.#conn()
+        .table(this.#table)
+        .insert({ app, ...values, created_at: now });
+      return { app, capabilities, createdAt: now, updatedAt: now };
     }
     await this.#conn()
       .table(this.#table)
@@ -159,9 +140,30 @@ export class AppCatalogStore {
     return { app, capabilities, createdAt: null, updatedAt: now };
   }
 
-  /** `false` for a while after an insert found no `created_at` column; tried again after that. */
-  #createdAtColumn(): boolean {
-    return this.#now() >= (noCreatedAtUntil.get(this.#table) ?? 0);
+  /**
+   * Whether the table has `created_at` — it may not, when its schema is managed elsewhere
+   * (`schema.autoManage: false`, e.g. a second server sharing the identity tables). Read from the
+   * catalog, never by trying the column: a failed statement would abort the caller's transaction.
+   */
+  async #hasCreatedAt(): Promise<boolean> {
+    const known = createdAtColumn.get(this.#table);
+    if (known && (known.found || this.#now() - known.at < CREATED_AT_RECHECK_MS))
+      return known.found;
+    const dot = this.#table.indexOf('.');
+    const schemaName = dot === -1 ? undefined : this.#table.slice(0, dot);
+    const tableName = dot === -1 ? this.#table : this.#table.slice(dot + 1);
+    let found = false;
+    try {
+      const builder = this.#conn().schema;
+      found = await (schemaName ? builder.withSchema(schemaName) : builder).hasColumn(
+        tableName,
+        'created_at',
+      );
+    } catch {
+      found = false;
+    }
+    createdAtColumn.set(this.#table, { found, at: this.#now() });
+    return found;
   }
 
   /** Forgets the app's catalog. `true` when there was one. */
