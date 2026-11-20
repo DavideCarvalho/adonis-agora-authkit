@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.49
+
+### Patch Changes
+
+- [#530](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/530) [`4c2c3b8`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/4c2c3b888e0400dfdffb8137dd9cc862cbd7d08d) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The app catalog keeps taking new apps on a table without the new `created_at` column — a server with `schema.autoManage: false` whose identity tables nobody migrates (e.g. a second server sharing them). The insert checks the catalog (`hasColumn`, never a failing statement that would abort a transaction) and writes without the column when it is missing (that entry's `createdAt` is `null`), checking again a minute later.
+
 ## 1.0.0-rc.48
 
 ### Minor Changes
