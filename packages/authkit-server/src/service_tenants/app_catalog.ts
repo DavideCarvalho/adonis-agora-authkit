@@ -69,6 +69,16 @@ export function validateCatalog(raw: unknown): string[] | { error: string } {
   return [...out].sort();
 }
 
+/** How long a "no `created_at` column" answer is trusted before checking again. */
+const CREATED_AT_RECHECK_MS = 60_000;
+
+/**
+ * Per table: whether it has `created_at` and when that was checked. Module-level because the publish
+ * handler builds a store per request. A found column is remembered; a missing one is checked again
+ * after {@link CREATED_AT_RECHECK_MS}, so a migration run under a live process is picked up.
+ */
+const createdAtColumn = new Map<string, { found: boolean; at: number }>();
+
 /** Rows of `auth_app_catalog`: one per app. */
 export class AppCatalogStore {
   #conn: () => any;
@@ -118,10 +128,42 @@ export class AppCatalogStore {
       const createdAt = toDate(existing.created_at);
       return { app, capabilities, createdAt, updatedAt: now };
     }
+    if (await this.#hasCreatedAt()) {
+      await this.#conn()
+        .table(this.#table)
+        .insert({ app, ...values, created_at: now });
+      return { app, capabilities, createdAt: now, updatedAt: now };
+    }
     await this.#conn()
       .table(this.#table)
-      .insert({ app, ...values, created_at: now });
-    return { app, capabilities, createdAt: now, updatedAt: now };
+      .insert({ app, ...values });
+    return { app, capabilities, createdAt: null, updatedAt: now };
+  }
+
+  /**
+   * Whether the table has `created_at` — it may not, when its schema is managed elsewhere
+   * (`schema.autoManage: false`, e.g. a second server sharing the identity tables). Read from the
+   * catalog, never by trying the column: a failed statement would abort the caller's transaction.
+   */
+  async #hasCreatedAt(): Promise<boolean> {
+    const known = createdAtColumn.get(this.#table);
+    if (known && (known.found || this.#now() - known.at < CREATED_AT_RECHECK_MS))
+      return known.found;
+    const dot = this.#table.indexOf('.');
+    const schemaName = dot === -1 ? undefined : this.#table.slice(0, dot);
+    const tableName = dot === -1 ? this.#table : this.#table.slice(dot + 1);
+    let found = false;
+    try {
+      const builder = this.#conn().schema;
+      found = await (schemaName ? builder.withSchema(schemaName) : builder).hasColumn(
+        tableName,
+        'created_at',
+      );
+    } catch {
+      found = false;
+    }
+    createdAtColumn.set(this.#table, { found, at: this.#now() });
+    return found;
   }
 
   /** Forgets the app's catalog. `true` when there was one. */
