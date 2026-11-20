@@ -105,6 +105,34 @@ test.group('app catalog', (group) => {
     );
   });
 
+  test('a table without created_at (schema not managed here) still takes new apps', async ({
+    assert,
+  }) => {
+    await db
+      .connection()
+      .schema.alterTable('auth_app_catalog', (t: any) => t.dropColumn('created_at'));
+    let clock = 1_000_000;
+    const store = new AppCatalogStore(() => db.connection(), { now: () => clock });
+    const first = await store.put('lumen', ['media:objects:read']);
+    assert.isNull(first.createdAt);
+    assert.equal(first.updatedAt?.getTime(), clock);
+    // Remembered for a minute: the next insert does not try the column again.
+    clock += 1_000;
+    assert.isNull((await store.put('other', [])).createdAt);
+    // Once the column exists, a later insert (after the recheck window) fills it.
+    await db
+      .connection()
+      .schema.alterTable('auth_app_catalog', (t: any) =>
+        t.dateTime('created_at', { useTz: true, precision: 3 }).nullable(),
+      );
+    clock += 60_000;
+    assert.equal((await store.put('third', [])).createdAt?.getTime(), clock);
+    assert.deepEqual(
+      (await store.list()).map((e) => e.app),
+      ['lumen', 'other', 'third'],
+    );
+  });
+
   test('stores one row per app and replaces it', async ({ assert }) => {
     const store = new AppCatalogStore(() => db.connection());
     await store.put('entre-textos', ['media:objects:read']);

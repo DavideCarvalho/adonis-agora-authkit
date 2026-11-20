@@ -70,10 +70,14 @@ export function validateCatalog(raw: unknown): string[] | { error: string } {
 }
 
 /** Rows of `auth_app_catalog`: one per app. */
+/** How long an insert keeps skipping a missing `created_at` before trying it again. */
+const CREATED_AT_RECHECK_MS = 60_000;
+
 export class AppCatalogStore {
   #conn: () => any;
   #table: string;
   #now: () => number;
+  #noCreatedAtUntil = 0;
 
   constructor(
     conn: () => any,
@@ -118,10 +122,29 @@ export class AppCatalogStore {
       const createdAt = toDate(existing.created_at);
       return { app, capabilities, createdAt, updatedAt: now };
     }
+    if (this.#createdAtColumn()) {
+      try {
+        await this.#conn()
+          .table(this.#table)
+          .insert({ app, ...values, created_at: now });
+        return { app, capabilities, createdAt: now, updatedAt: now };
+      } catch (error) {
+        // A table that predates `created_at` and whose schema nobody manages here
+        // (`schema.autoManage: false`, e.g. a second server sharing the identity tables).
+        if (!/created_at/i.test(error instanceof Error ? error.message : String(error)))
+          throw error;
+        this.#noCreatedAtUntil = this.#now() + CREATED_AT_RECHECK_MS;
+      }
+    }
     await this.#conn()
       .table(this.#table)
-      .insert({ app, ...values, created_at: now });
-    return { app, capabilities, createdAt: now, updatedAt: now };
+      .insert({ app, ...values });
+    return { app, capabilities, createdAt: null, updatedAt: now };
+  }
+
+  /** `false` for a while after an insert found no `created_at` column; tried again after that. */
+  #createdAtColumn(): boolean {
+    return this.#now() >= this.#noCreatedAtUntil;
   }
 
   /** Forgets the app's catalog. `true` when there was one. */
