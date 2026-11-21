@@ -116,7 +116,7 @@ catalogs:
     "@adonisjs/lock": "2.1.0"
     "@adonisjs/lucid": "22.4.2"
     "@adonisjs/lucid-slugify": "4.0.0"
-    "@adonisjs/mail": "10.4.0"
+    "@adonisjs/mail": "10.4.1"
     "@adonisjs/queue": "0.7.0"
     "@adonisjs/redis": "11.0.0"
     "@adonisjs/session": "8.3.0"
