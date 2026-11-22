@@ -51,7 +51,7 @@
     "@adonisjs/shield": "catalog:adonisPeers"
   },
   "dependencies": {
-    "jose": "6.2.16"
+    "jose": "6.2.18"
   },
   "devDependencies": {
     "@adonis-agora/authkit-server": "workspace:*",
