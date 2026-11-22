@@ -105,7 +105,7 @@ catalogs:
 
   adonis:
     "@adonisjs/ally": "6.3.2"
-    "@adonisjs/auth": "10.1.0"
+    "@adonisjs/auth": "10.1.1"
     "@adonisjs/bouncer": "4.0.1"
     "@adonisjs/core": "7.6.0"
     "@adonisjs/cors": "3.0.0"
