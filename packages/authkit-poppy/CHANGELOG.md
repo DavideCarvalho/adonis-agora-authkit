@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-poppy
 
+## 0.3.1-rc.4
+
+### Patch Changes
+
+- fix(deps): update dependency jose to v6.2.18 ([#535](https://github.com/DavideCarvalho/adonis-agora-authkit/issues/535))
+
 ## 0.3.1-rc.3
 
 ### Patch Changes
