@@ -152,7 +152,7 @@ test.group('poppy — HTTP', () => {
     const ok = makeCtx(env, { url: 'https://shop.example/.well-known/poppy.json' });
     await c.discovery(ok.ctx);
     assert.equal(ok.res.status, 200);
-    assert.equal((ok.res.body as any).protocol_version, '0.3');
+    assert.equal((ok.res.body as any).protocol_version, '1.0');
     assert.equal((ok.res.body as any).organization.domain, 'shop.example');
 
     const www = makeCtx(env, { url: 'https://www.shop.example/.well-known/poppy.json' });
@@ -168,7 +168,7 @@ test.group('poppy — HTTP', () => {
       url: 'https://shop.example.co.uk/.well-known/oauth-protected-resource',
     });
     await c.protectedResource(prm.ctx);
-    assert.deepEqual(prm.res.body, {
+    assert.deepInclude(prm.res.body as any, {
       resource: 'https://shop.example.co.uk',
       authorization_servers: [POPPY_ISSUER],
     });
@@ -275,7 +275,7 @@ test.group('poppy — HTTP', () => {
   }) => {
     const env = await setupPoppy({ web: { redirectTo: '/orders' } });
     const c = new PoppyController();
-    const signed = await env.signIn();
+    const signed = await env.signIn({ scope: 'orders:read orders:write poppy:browser-sign-in' });
     const { page, auth, code, cookie } = await authorizedJoin(env, c, {
       sid: 'join1',
       token: signed.access_token,
@@ -340,6 +340,59 @@ test.group('poppy — HTTP', () => {
     assert.isTrue(called);
     assert.isUndefined(next.session.get(ACCOUNT_SESSION_KEY));
     assert.isNull((next.session.get(POPPY_WEB_SESSION_KEY) as any).accountId);
+    await env.close();
+  });
+
+  test('entrada logada exige poppy:browser-sign-in (403 insufficient_scope); sem token entra', async ({
+    assert,
+  }) => {
+    const env = await setupPoppy();
+    const c = new PoppyController();
+    const signed = await env.signIn({ scope: 'orders:read' });
+    const denied = await authorizedJoin(env, c, { sid: 'join5', token: signed.access_token });
+    assert.equal(denied.auth.res.status, 403);
+    assert.match(
+      denied.auth.res.headers['www-authenticate'],
+      /insufficient_scope.*scope="poppy:browser-sign-in"/,
+    );
+    // O mesmo código, sem access token: entrada deslogada.
+    const req = await env.request({ method: 'POST', url: `${JOIN_URL}/authorize`, sid: 'join5' });
+    const retry = makeCtx(env, { url: req.url, headers: req.headers, body: { code: denied.code } });
+    await c.browserSessionAuthorize(retry.ctx);
+    assert.equal(retry.res.status, 204);
+    await env.close();
+  });
+
+  test('tasks e PAR pelo controller: Cache-Control, 201, versão no corpo', async ({ assert }) => {
+    const env = await setupPoppy({ tasks: { excludedTasks: [{ task: 'Close an account' }] } });
+    const c = new PoppyController();
+    const url = `${POPPY_ISSUER}/tasks`;
+    const req = await env.request({ url });
+    const ok = makeCtx(env, { method: 'GET', url, headers: req.headers });
+    await c.tasks(ok.ctx);
+    assert.equal(ok.res.status, 200);
+    assert.equal(ok.res.headers['cache-control'], 'private, max-age=300');
+    assert.deepEqual(ok.res.body, { excluded_tasks: [{ task: 'Close an account' }] });
+    const noVersion = await env.request({ url, version: null });
+    const bad = makeCtx(env, { method: 'GET', url, headers: noVersion.headers });
+    await c.tasks(bad.ctx);
+    assert.equal(bad.res.status, 400);
+    assert.equal((bad.res.body as any).error, 'version_unsupported');
+
+    const par = makeCtx(env, {
+      url: `${POPPY_ISSUER}/oauth/par`,
+      body: await env.form({
+        response_type: 'code',
+        redirect_uri: 'https://agent.example/oauth/callback',
+        scope: 'orders:read',
+        code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
+        code_challenge_method: 'S256',
+      }),
+    });
+    await c.pushedAuthorization(par.ctx);
+    assert.equal(par.res.status, 201);
+    assert.match((par.res.body as any).request_uri, /^urn:ietf:params:oauth:request_uri:/);
+    assert.equal(par.res.headers['cache-control'], 'no-store');
     await env.close();
   });
 
@@ -547,6 +600,7 @@ test.group('poppy — HTTP', () => {
     for (const p of [
       '/poppy/oauth/token',
       '/poppy/oauth/revoke',
+      '/poppy/oauth/par',
       '/poppy/oauth/device',
       '/poppy/browser-session',
       '/poppy/browser-session/authorize',

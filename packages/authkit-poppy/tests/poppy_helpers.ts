@@ -86,7 +86,6 @@ export function clientMetadata(overrides: Record<string, unknown> = {}) {
     jwks_uri: JWKS_URI,
     redirect_uris: [REDIRECT_URI],
     token_endpoint_auth_method: 'private_key_jwt',
-    extensions: { operations: { version: '2' } },
     ...overrides,
   };
 }
@@ -113,6 +112,10 @@ export interface SessionJwtOptions {
 }
 
 export interface RequestOptions extends SessionJwtOptions {
+  /** `Poppy-Version`. Default: `'1.0'`; `null` não manda. */
+  version?: string | null;
+  /** `Poppy-Extensions`, literal. */
+  extensionsHeader?: string;
   method?: string;
   url?: string;
   token?: string;
@@ -222,7 +225,11 @@ export async function setupPoppy(
               ],
               agent: {
                 protocols: [
-                  { type: 'poppy', endpoint: 'https://shop.example/poppy/conversations' },
+                  {
+                    type: 'poppy',
+                    endpoint: 'https://shop.example/poppy/conversations',
+                    description: 'Anything about your orders',
+                  },
                 ],
               },
               replay: 'memory',
@@ -305,7 +312,7 @@ export async function setupPoppy(
       })
         .setProtectedHeader({
           alg: 'ES256',
-          typ: opts.delegation?.typ ?? 'pap-delegation+jwt',
+          typ: opts.delegation?.typ ?? 'poppy-delegation+jwt',
           kid: 'k1',
         })
         .sign(keys.sign);
@@ -314,7 +321,7 @@ export async function setupPoppy(
           alg: 'ES256',
           typ,
           kid: opts.kid ?? (await calculateJwkThumbprint(delegated, 'sha256')),
-          pap_dlg: delegation,
+          poppy_dlg: delegation,
         })
         .sign(privateKey);
     },
@@ -329,6 +336,10 @@ export async function setupPoppy(
           ...opts,
         }),
       };
+      if (opts.version !== null) headers['poppy-version'] = opts.version ?? '1.0';
+      if (opts.extensionsHeader !== undefined) {
+        headers['poppy-extensions'] = opts.extensionsHeader;
+      }
       if (opts.token) {
         headers.authorization = `${opts.scheme ?? (opts.dkey ? 'DPoP' : 'Bearer')} ${opts.token}`;
         if (opts.dkey) {

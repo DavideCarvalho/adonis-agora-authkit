@@ -1,5 +1,5 @@
 /**
- * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — pode mudar de forma incompatível enquanto a spec for draft.
+ * Poppy (Personal Agent Protocol) 1.0.
  *
  * Mediated Sign-In pronto (extensão `mediated-sign-in`): o agente pede o e-mail da conta, o authkit manda
  * um código de 6 dígitos para ele e o agente devolve o código. Usa as contas

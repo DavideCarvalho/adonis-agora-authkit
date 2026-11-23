@@ -80,7 +80,7 @@ export const POPPY_TABLES: readonly AuthkitTable[] = [
   {
     name: 'auth_poppy_requests',
     /**
-     * Pedidos: `authorize` (Direct — vira código após o consentimento), `device` (RFC 8628),
+     * Pedidos: `authorize` (Direct — vira código após o consentimento), `par` (RFC 9126), `device` (RFC 8628),
      * `mediated` (aguardando o código de uso único) e `browser` (entrada de um navegador, §6).
      * Códigos só como hash. Linhas expiradas são apagadas no próximo pedido.
      */
@@ -122,6 +122,24 @@ export const POPPY_TABLES: readonly AuthkitTable[] = [
       data: (t) => t.text('data').nullable(),
       expires_at: (t) => t.dateTime('expires_at', { useTz: true, precision: 3 }).nullable(),
       created_at: (t) => t.dateTime('created_at', { useTz: true, precision: 3 }).nullable(),
+    },
+  },
+  {
+    name: 'auth_poppy_grant_keys',
+    /**
+     * A chave DPoP (thumbprint) a que o refresh token de um grant ficou preso no sign-in (§4.4): o
+     * refresh precisa de uma prova dela.
+     */
+    create: (t) => {
+      t.string('grant_id').primary();
+      t.string('jkt', 64).notNullable();
+      t.dateTime('created_at', { useTz: true, precision: 3 }).notNullable();
+      t.dateTime('updated_at', { useTz: true, precision: 3 }).notNullable();
+    },
+    columns: {
+      jkt: (t) => t.string('jkt', 64),
+      created_at: (t) => t.dateTime('created_at', { useTz: true, precision: 3 }).nullable(),
+      updated_at: (t) => t.dateTime('updated_at', { useTz: true, precision: 3 }).nullable(),
     },
   },
   {

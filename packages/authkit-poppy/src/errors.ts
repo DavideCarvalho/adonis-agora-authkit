@@ -7,6 +7,8 @@ export type PoppyErrorCode =
   | 'invalid_client'
   | 'invalid_grant'
   | 'invalid_session'
+  /** Interno: a Session terminou (§5.5). */
+  | 'session_ended'
   | 'invalid_dpop_proof'
   | 'use_dpop_nonce'
   /** Interno: HTTP 429 com `Retry-After`, sem corpo (§5.6). */
@@ -16,6 +18,7 @@ export type PoppyErrorCode =
   | 'invalid_target'
   | 'unsupported_grant_type'
   | 'unsupported_token_type'
+  | 'unsupported_response_type'
   | 'unauthorized_client'
   | 'authorization_pending'
   | 'slow_down'

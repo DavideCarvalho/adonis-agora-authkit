@@ -8,8 +8,12 @@
  * ```ts
  * const authenticate = globalThis[Symbol.for('@adonis-agora/poppy:authenticate')]
  * const result = await authenticate({ method, url, headers }, { scopes?, signedIn?, resource? })
- * // { ok: true, principal } | { ok: false, status, error, scope?, wwwAuthenticate, headers }
+ * // { ok: true, principal } | { ok: false, status, error, scope?, wwwAuthenticate, body, headers }
  * ```
+ *
+ * O principal traz a versão negociada (`protocolVersion`, de `Poppy-Version`) e as extensões
+ * declaradas (`extensions`, de `Poppy-Extensions`): quem verifica a Session confere a versão
+ * (`version_unsupported`), e o endpoint de conversas só manda o que essa versão define (§3.4).
  */
 import type { HttpContext } from '@adonisjs/core/http';
 import type { PoppyPrincipalBase } from './config.js';
@@ -26,18 +30,12 @@ export const POPPY_AUTHENTICATE_SLOT = Symbol.for('@adonis-agora/poppy:authentic
 
 /**
  * O principal de uma request verificada.
- *
- * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — acompanha a spec em desenvolvimento e PODE MUDAR
- *   de forma incompatível fora de majors enquanto ela for draft.
  */
 export interface PoppyPrincipal extends PoppyPrincipalBase {
   /** O que `poppy({ toActor })` devolveu, quando configurado. */
   actor?: unknown;
 }
 
-/**
- * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — pode mudar de forma incompatível enquanto a spec for draft.
- */
 export type PoppyAuthResult =
   | { ok: true; principal: PoppyPrincipal }
   | {
@@ -47,8 +45,13 @@ export type PoppyAuthResult =
       error: PoppyAuthError | null;
       /** Scopes exigidos (challenge e `insufficient_scope`). */
       scope?: string;
-      /** Valor pronto do header `WWW-Authenticate`; `null` em `invalid_session` e no 429. */
+      /** Valor pronto do header `WWW-Authenticate`; `null` nos erros com corpo e no 429. */
       wwwAuthenticate: string | null;
+      /**
+       * Corpo JSON a responder (`invalid_session`, `session_ended`, `version_unsupported`,
+       * `extension_required`); `null` nos erros do access token e no 429.
+       */
+      body: Record<string, string> | null;
       /** Texto para logs/corpo — nunca contém o token. */
       description: string;
       /** Headers extras a devolver (`DPoP-Nonce`, `Retry-After`). */
@@ -91,6 +94,7 @@ const NOT_ENABLED: PoppyAuthResult = {
   error: 'invalid_session',
   description: 'Poppy is not enabled',
   wwwAuthenticate: null,
+  body: { error: 'invalid_session', error_description: 'Poppy is not enabled' },
   headers: {},
 };
 
@@ -112,9 +116,6 @@ async function verifyWith(
 /**
  * Verifica o header `Poppy-Session` de uma request e, se houver, o access token. Aceita o
  * `HttpContext` ou `{ method, url, headers }`.
- *
- * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — acompanha a spec em desenvolvimento e PODE MUDAR
- *   de forma incompatível fora de majors enquanto ela for draft.
  */
 export async function verifyPoppyRequest(
   input: HttpContext | PoppySlotRequest,
@@ -139,11 +140,10 @@ export function writePoppyAuthError(
   if (result.wwwAuthenticate) ctx.response.header('WWW-Authenticate', result.wwwAuthenticate);
   for (const [k, v] of Object.entries(result.headers)) ctx.response.header(k, v);
   ctx.response.header('Cache-Control', 'no-store');
-  // Erros do access token vão no header, como no OAuth; `invalid_session` vai no corpo (§7).
-  if (result.error !== 'invalid_session') return ctx.response.status(result.status).send('');
-  return ctx.response
-    .status(result.status)
-    .json({ error: result.error, error_description: result.description });
+  // Erros do access token vão no header, como no OAuth; os da Session, da versão e das extensões
+  // vão num corpo JSON (§3.3, §3.4, §7).
+  if (!result.body) return ctx.response.status(result.status).send('');
+  return ctx.response.status(result.status).json(result.body);
 }
 
 /** Guardado fora do `HttpContext` (sem augmentation — ver `augmentation_isolation.spec.ts`). */
@@ -151,9 +151,6 @@ const principals = new WeakMap<HttpContext, PoppyPrincipal>();
 
 /**
  * O principal Poppy da request — preenchido por {@link poppyAuth}.
- *
- * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — acompanha a spec em desenvolvimento e PODE MUDAR
- *   de forma incompatível fora de majors enquanto ela for draft.
  */
 export function poppyOf(ctx: HttpContext): PoppyPrincipal | null {
   return principals.get(ctx) ?? null;
@@ -168,9 +165,6 @@ export function poppyOf(ctx: HttpContext): PoppyPrincipal | null {
  * ```
  *
  * Isente essas rotas do CSRF (são chamadas por agentes, sem navegador).
- *
- * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — acompanha a spec em desenvolvimento e PODE MUDAR
- *   de forma incompatível fora de majors enquanto ela for draft.
  */
 export function poppyAuth(options: PoppyVerifyOptions = {}) {
   return async (ctx: HttpContext, next: () => Promise<void>) => {
@@ -185,9 +179,6 @@ export function poppyAuth(options: PoppyVerifyOptions = {}) {
  * Publica o slot global `Symbol.for('@adonis-agora/poppy:authenticate')` (e
  * `Symbol.for('@adonis-agora/poppy:issuer')`). Chamado no boot do authkit quando a extension
  * `poppy()` está em `personalAgents.extensions`.
- *
- * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — acompanha a spec em desenvolvimento e PODE MUDAR
- *   de forma incompatível fora de majors enquanto ela for draft.
  */
 export function installPoppySlots(issuer: string): void {
   const slot = globalThis as Record<symbol, unknown>;

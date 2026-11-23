@@ -37,9 +37,6 @@ export interface DpopNonceSource {
 /**
  * Nonces sem estado: `base64url(ts).base64url(hmac(ts))`, válidos por
  * `ttlSeconds` (default 300). Qualquer instância com o mesmo segredo valida.
- *
- * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — acompanha a spec em desenvolvimento e PODE MUDAR
- *   de forma incompatível fora de majors enquanto ela for draft.
  */
 export function hmacNonceSource(
   secret: Buffer | string,
@@ -112,9 +109,6 @@ function failure(error: DpopFailure['error'], description: string): DpopFailure 
   return { ok: false, error, description };
 }
 
-/**
- * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — pode mudar de forma incompatível enquanto a spec for draft.
- */
 export async function verifyDpopProof(input: VerifyDpopInput): Promise<DpopResult> {
   const raw = input.proof;
   if (raw === undefined || raw === null || raw === '') {

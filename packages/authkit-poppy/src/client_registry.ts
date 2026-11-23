@@ -22,7 +22,6 @@ export interface PoppyClient {
   logoUri: string | null;
   jwksUri: string;
   redirectUris: string[];
-  extensions: Record<string, unknown>;
   /** Chaves públicas do `jwks_uri`. */
   keys: JWTVerifyGetKey;
 }
@@ -99,17 +98,12 @@ export function validateClientMetadata(
   }
   if (d.jwks !== undefined) throw bad('keys are published at jwks_uri only');
   const name = typeof d.client_name === 'string' && d.client_name.trim() ? d.client_name : host!;
-  const extensions =
-    d.extensions && typeof d.extensions === 'object' && !Array.isArray(d.extensions)
-      ? (d.extensions as Record<string, unknown>)
-      : {};
   return {
     clientId: fetchedFrom,
     name: name.slice(0, 200),
     logoUri: isHttpsUrl(d.logo_uri, allowHttp) ? d.logo_uri : null,
     jwksUri: d.jwks_uri,
     redirectUris: redirects as string[],
-    extensions,
   };
 }
 
@@ -151,8 +145,8 @@ export class PoppyClientRegistry {
     const fetchJson: JsonFetcher =
       options.fetchJson ??
       (cfg.allowInsecureClientIds
-        ? (url) => insecureDevFetchJson(url, { userAgent: 'authkit-poppy/0.3' })
-        : (url) => safeFetchJson(url, { userAgent: 'authkit-poppy/0.3' }));
+        ? (url) => insecureDevFetchJson(url, { userAgent: 'authkit-poppy/1.0' })
+        : (url) => safeFetchJson(url, { userAgent: 'authkit-poppy/1.0' }));
     const common = { fetchJson, now: options.now, ttl: { min: 60, max: 86_400, fallback: 3600 } };
     this.#clients = new MetadataDocumentCache({
       ...common,

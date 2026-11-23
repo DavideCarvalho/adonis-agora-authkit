@@ -11,9 +11,10 @@
 export const SESSION_TABLE = 'auth_poppy_sessions';
 export const TOKEN_TABLE = 'auth_poppy_tokens';
 export const REQUEST_TABLE = 'auth_poppy_requests';
+export const GRANT_KEY_TABLE = 'auth_poppy_grant_keys';
 
 export interface SessionRow {
-  /** Derivado de `client_id` + `sid` (§5.3). */
+  /** Derivado de `client_id` + `sid` + User ID (§5.3). */
   id: string;
   clientId: string;
   userId: string;
@@ -43,7 +44,7 @@ export interface TokenRow {
   createdAt: Date;
 }
 
-export type RequestKind = 'authorize' | 'device' | 'mediated' | 'browser';
+export type RequestKind = 'authorize' | 'par' | 'device' | 'mediated' | 'browser';
 export type RequestStatus = 'pending' | 'approved' | 'denied' | 'consumed' | 'failed';
 
 export interface RequestRow {
@@ -244,6 +245,23 @@ export class PoppyStore {
 
   async deleteTokensExpiredBefore(before: Date): Promise<void> {
     await this.conn().from(this.t(TOKEN_TABLE)).where('expires_at', '<', before).delete();
+  }
+
+  // ─── chave DPoP dos refresh tokens (§4.4) ──────────────────────────────────
+
+  async insertGrantKey(grantId: string, jkt: string, at: Date): Promise<void> {
+    await this.conn().table(this.t(GRANT_KEY_TABLE)).insert({
+      grant_id: grantId,
+      jkt,
+      created_at: at,
+      updated_at: at,
+    });
+  }
+
+  /** Thumbprint da chave DPoP a que o refresh token do grant está preso; `null` = solto. */
+  async findGrantKey(grantId: string): Promise<string | null> {
+    const row = await this.conn().from(this.t(GRANT_KEY_TABLE)).where('grant_id', grantId).first();
+    return row?.jkt ?? null;
   }
 
   // ─── sign-in requests ─────────────────────────────────────────────────────
