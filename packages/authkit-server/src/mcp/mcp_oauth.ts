@@ -99,6 +99,23 @@ function normalizePath(path: string): string {
   return `/${path.replace(/^\/+|\/+$/g, '')}`;
 }
 
+/** O resource MCP que `indicator` nomeia, e como ele existe para este processo. */
+export interface McpResourceMatch {
+  audience: string;
+  scopes: string[];
+  /**
+   * `true` quando o resource está registrado NESTE processo (`registerOAuthResource`, por URL ou
+   * por `path` na origem do issuer) — ou seja, quem serve o endpoint também serve o IdP e consegue
+   * ler o access token opaco no adapter. `false` quando ele só existe em `mcpClients.resources`:
+   * um servidor em OUTRO processo, que nunca enxerga o adapter e por isso precisa do JWT (RFC 9068).
+   *
+   * O registro de runtime vence a lista declarada, de propósito: declarar a própria URL do app que
+   * hospeda o IdP é o caso real de um `mcpClients.resources` que aponta para si mesmo, e ali o JWT
+   * não tem quem o leia (`AccessToken.find` não acha um JWT: ele não é persistido).
+   */
+  inProcess: boolean;
+}
+
 /**
  * O resource MCP que `indicator` nomeia, ou `null`. Casa com `mcpClients.resources`, com uma URL
  * registrada, ou com um `path` registrado na origem do issuer. Barra final tolerada. Com o login
@@ -109,7 +126,7 @@ export function findMcpResource(
   indicator: string,
   issuer: string,
   config: McpResourceLookup,
-): { audience: string; scopes: string[] } | null {
+): McpResourceMatch | null {
   const resources = config.enabled
     ? registeredOAuthResources()
     : registeredOAuthResources().filter((r) => r.metadata);
@@ -121,22 +138,25 @@ export function findMcpResource(
     return null;
   }
   const wanted = trim(url.href);
-  for (const declared of config.enabled ? config.resources : []) {
-    if (trim(declared) === wanted) return { audience: trim(declared), scopes: MCP_RESOURCE_SCOPES };
-  }
+  // Registered here first: the same URL may also be declared in `mcpClients.resources` (an app
+  // naming its own endpoint), and then the registration is what tells us the token stays opaque.
   const issuerOrigin = new URL(issuer).origin;
   for (const resource of resources) {
     const scopes = resource.scopes ?? MCP_RESOURCE_SCOPES;
     if (resource.url && trim(resource.url) === wanted)
-      return { audience: trim(resource.url), scopes };
+      return { audience: trim(resource.url), scopes, inProcess: true };
     if (
       resource.path &&
       url.origin === issuerOrigin &&
       trim(url.pathname) === normalizePath(resource.path) &&
       !url.search
     ) {
-      return { audience: wanted, scopes };
+      return { audience: wanted, scopes, inProcess: true };
     }
+  }
+  for (const declared of config.enabled ? config.resources : []) {
+    if (trim(declared) === wanted)
+      return { audience: trim(declared), scopes: MCP_RESOURCE_SCOPES, inProcess: false };
   }
   return null;
 }

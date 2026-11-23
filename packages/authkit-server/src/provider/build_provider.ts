@@ -169,9 +169,6 @@ export function buildProvider(
     audit: config.audit,
   });
   const signAlg = config.jwks.keys[0]?.alg ?? 'RS256';
-  const trimSlash = (value: string) => value.replace(/\/+$/, '');
-  const isDeclaredMcpResource = (audience: string) =>
-    mcpClients.resources.some((declared) => trimSlash(declared) === trimSlash(audience));
   const resourceIndicatorFeatures =
     at.anyJwt ||
     declaredResources.length > 0 ||
@@ -217,21 +214,24 @@ export function buildProvider(
                       resources: mcpClients.resources,
                     });
               if (mcpResource) {
-                // Os de `mcpClients.resources` são servidores em OUTRO processo: só enxergam o
-                // token, então ele sai JWT (verificável pelo JWKS). Os registrados em runtime
-                // vivem neste app e continuam opacos.
-                if (isDeclaredMcpResource(mcpResource.audience)) {
+                // Registrado NESTE processo (`registerOAuthResource`): o endpoint que serve esse
+                // resource também serve este IdP, lê o token opaco no adapter e vê revogação na
+                // hora — token opaco. Só em `mcpClients.resources` (outro processo, que não enxerga
+                // o adapter): JWT (RFC 9068), verificável pelo JWKS. O registro vence a declaração
+                // porque o caso real de um app declarando a própria URL é opaco não servido por
+                // ninguém: um JWT ali não é encontrado por `AccessToken.find` e vira 401.
+                if (mcpResource.inProcess) {
                   return {
                     scope: mcpResource.scopes.join(' '),
                     audience: mcpResource.audience,
-                    accessTokenFormat: 'jwt',
-                    jwt: { sign: { alg: signAlg } },
+                    accessTokenFormat: 'opaque',
                   };
                 }
                 return {
                   scope: mcpResource.scopes.join(' '),
                   audience: mcpResource.audience,
-                  accessTokenFormat: 'opaque',
+                  accessTokenFormat: 'jwt',
+                  jwt: { sign: { alg: signAlg } },
                 };
               }
               if (!found && !isDefault) {

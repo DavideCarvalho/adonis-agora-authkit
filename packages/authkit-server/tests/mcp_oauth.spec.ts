@@ -146,6 +146,23 @@ test.group('mcp: resources', () => {
   test('registerOAuthResource needs a url or a path', ({ assert }) => {
     assert.throws(() => registerOAuthResource({}), /url.*path/);
   });
+
+  test('a resource registered here wins over the same URL declared in mcpClients.resources', ({
+    assert,
+  }) => {
+    registerOAuthResource({ path: 'mcp/self' });
+    const mcp = { enabled: true, resources: ['https://app.example.com/mcp/self'] };
+
+    const match = findMcpResource('https://app.example.com/mcp/self', ISSUER, mcp);
+    // The app naming its own endpoint must stay in-process (opaque token): a JWT is not persisted,
+    // so `AccessToken.find` would never find it and every MCP call would answer 401.
+    assert.equal(match?.inProcess, true);
+    assert.equal(match?.audience, 'https://app.example.com/mcp/self');
+
+    // A URL that only exists in the declared list is another process: JWT.
+    const other = { enabled: true, resources: ['https://other.example.com/mcp'] };
+    assert.equal(findMcpResource('https://other.example.com/mcp', ISSUER, other)?.inProcess, false);
+  });
 });
 
 test.group('mcp: refresh tokens for MCP clients', () => {
@@ -386,6 +403,7 @@ test.group('RFC 9728 protected resource metadata', (group) => {
     assert.deepEqual(findMcpResource(`${ORIGIN}/api`, ISSUER, off), {
       audience: `${ORIGIN}/api`,
       scopes: ['openid', 'read'],
+      inProcess: true,
     });
     assert.isNull(findMcpResource(`${ORIGIN}/mcp/agora`, ISSUER, off));
   });
