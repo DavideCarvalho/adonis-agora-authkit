@@ -3,11 +3,12 @@ import { test } from '@japa/runner';
 import RedisMock from 'ioredis-mock';
 import instance from 'oidc-provider/lib/helpers/weak_cache.js';
 import { adapters, defineConfig } from '../src/define_config.js';
+import { registerOAuthResource } from '../src/mcp/mcp_oauth.js';
 import { buildProvider } from '../src/provider/build_provider.js';
 import { fakeAccountStore } from './bootstrap.js';
 import { withClients } from './helpers/seed_clients.js';
 
-async function resolved() {
+async function resolved(extra: Record<string, unknown> = {}) {
   const fakeApp = {
     container: { make: async () => ({ connection: () => new RedisMock() }) },
   } as any;
@@ -30,7 +31,8 @@ async function resolved() {
         adapter: adapters.redis({ connection: 'main' }),
         jwks: { source: 'managed', algorithm: 'RS256' },
         accountStore: fakeAccountStore(),
-      }),
+        ...extra,
+      } as any),
     ),
   );
 }
@@ -122,5 +124,32 @@ test.group('buildProvider', () => {
     // O scope `roles` dedicado carrega roles + claims de org.
     const rolesClaims = Object.keys(claims.roles ?? {});
     assert.includeMembers(rolesClaims, [cfg!.globalRolesClaim, 'org_id', 'org_slug', 'org_role']);
+  });
+
+  // Um app que hospeda o IdP e declara a PRÓPRIA URL em `mcpClients.resources`: o registro de
+  // runtime (`registerOAuthResource`, o que o MCP do `@adonis-agora/agent` faz no boot) tem de
+  // vencer a declaração, senão o token sai JWT — auto-contido, nunca persistido — e o endpoint
+  // do próprio app não o acha em `AccessToken.find` (401 em toda chamada do cliente MCP).
+  test('a self-declared MCP resource stays opaque; a foreign one is JWT', async ({ assert }) => {
+    registerOAuthResource({ path: '/mcp/agora' });
+    const cfg = await resolved({
+      mcpClients: {
+        resources: ['https://auth.test/mcp/agora', 'https://other.example.com/mcp'],
+      },
+    });
+    const provider = buildProvider(cfg!, {
+      appKey: 'a'.repeat(32),
+      findAccount: async (_ctx: any, sub: string) => ({
+        accountId: sub,
+        claims: async () => ({ sub }),
+      }),
+    });
+
+    const ri = (instance(provider as any) as any).features.resourceIndicators;
+    const self = await ri.getResourceServerInfo({}, 'https://auth.test/mcp/agora', {});
+    assert.equal(self.accessTokenFormat, 'opaque');
+
+    const foreign = await ri.getResourceServerInfo({}, 'https://other.example.com/mcp', {});
+    assert.equal(foreign.accessTokenFormat, 'jwt');
   });
 });
