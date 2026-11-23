@@ -2,7 +2,7 @@ import { configProvider } from '@adonisjs/core';
 import { test } from '@japa/runner';
 import RedisMock from 'ioredis-mock';
 import instance from 'oidc-provider/lib/helpers/weak_cache.js';
-import { adapters, defineConfig } from '../src/define_config.js';
+import { adapters, defineConfig, type ResolvedServerConfig } from '../src/define_config.js';
 import { registerOAuthResource } from '../src/mcp/mcp_oauth.js';
 import { buildProvider } from '../src/provider/build_provider.js';
 import { fakeAccountStore } from './bootstrap.js';
@@ -137,7 +137,10 @@ test.group('buildProvider', () => {
         resources: ['https://auth.test/mcp/agora', 'https://other.example.com/mcp'],
       },
     });
-    const provider = buildProvider(cfg!, {
+    // `resolved()` hands back the codegen `Awaitable` shape, which is `{}` in the tests' type
+    // context (that is the 267 lines the ratchet already tolerates). Casting here keeps this spec
+    // from adding a 268th.
+    const provider = buildProvider(cfg as unknown as ResolvedServerConfig, {
       appKey: 'a'.repeat(32),
       findAccount: async (_ctx: any, sub: string) => ({
         accountId: sub,
