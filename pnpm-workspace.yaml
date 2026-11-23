@@ -108,7 +108,7 @@ catalogs:
     "@adonisjs/auth": "10.1.1"
     "@adonisjs/bouncer": "4.0.1"
     "@adonisjs/core": "7.6.0"
-    "@adonisjs/cors": "3.0.0"
+    "@adonisjs/cors": "3.0.1"
     "@adonisjs/drive": "4.0.0"
     "@adonisjs/i18n": "3.0.1"
     "@adonisjs/inertia": "5.0.5"
