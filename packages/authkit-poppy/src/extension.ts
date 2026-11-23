@@ -60,8 +60,8 @@ const PoppyController = () => import('./controllers/poppy_controller.js');
 const PoppyConsentController = () => import('./controllers/poppy_consent_controller.js');
 
 /**
- * Discovery, authorization server (token, revogação, device authorization), Mediated Sign-In e
- * sessão de navegador — server-to-server ou POST cross-site do navegador do agente (sem CSRF, ver
+ * Discovery, authorization server (token, PAR, revogação, device authorization), Mediated Sign-In,
+ * `tasks.endpoint` e sessão de navegador — server-to-server ou POST cross-site do navegador do agente (sem CSRF, ver
  * `csrfExemptPaths`). As telas do usuário (authorize/device) exigem a sessão de conta e mantêm o
  * CSRF.
  */
@@ -82,6 +82,10 @@ function registerRoutes(router: any, prefix: string, kit: PersonalAgentRouteKit)
     .as('authkit.poppy.metadata_under_issuer');
   router.post(`${prefix}/oauth/token`, [PoppyController, 'token']).as('authkit.poppy.token');
   router.post(`${prefix}/oauth/revoke`, [PoppyController, 'revoke']).as('authkit.poppy.revoke');
+  router
+    .post(`${prefix}/oauth/par`, [PoppyController, 'pushedAuthorization'])
+    .as('authkit.poppy.par');
+  router.get(`${prefix}/tasks`, [PoppyController, 'tasks']).as('authkit.poppy.tasks');
   router
     .post(`${prefix}/oauth/device`, [PoppyController, 'deviceAuthorization'])
     .as('authkit.poppy.device_authorization');
@@ -187,10 +191,8 @@ function mcpBridge(cfg: ResolvedPoppyConfig, host: PersonalAgentHost): PoppyMcpB
 }
 
 /**
- * O Personal Agent Protocol ("Poppy", Draft 0.3) para `personalAgents.extensions`.
- *
- * @experimental Acompanha uma spec em draft: este pacote fica no 0.x e pode quebrar em qualquer
- *   minor.
+ * O Personal Agent Protocol ("Poppy", versão 1.0) para `personalAgents.extensions`. A versão do
+ * pacote segue a da spec: 1.x implementa Poppy 1.x.
  */
 export function poppy(
   config: PoppyConfigInput,
@@ -203,6 +205,7 @@ export function poppy(
       const csrfExemptPaths = [
         `${resolved.prefix}/oauth/token`,
         `${resolved.prefix}/oauth/revoke`,
+        `${resolved.prefix}/oauth/par`,
         `${resolved.prefix}/oauth/device`,
         `${resolved.prefix}/browser-session`,
         `${resolved.prefix}/browser-session/authorize`,

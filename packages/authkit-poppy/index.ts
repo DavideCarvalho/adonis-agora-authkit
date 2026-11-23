@@ -1,8 +1,8 @@
 /**
- * @adonis-agora/authkit-poppy — the Personal Agent Protocol ("Poppy", Draft 0.3) for AuthKit, as a
+ * @adonis-agora/authkit-poppy — the Personal Agent Protocol ("Poppy", version 1.0) for AuthKit, as a
  * `personalAgents.extensions` entry of `@adonis-agora/authkit-server`.
  *
- * Experimental: this package stays on 0.x and follows the draft spec, so any minor may break.
+ * The package version follows the spec version: 1.x implements Poppy 1.x.
  */
 
 // A busca à prova de SSRF mora no `@adonis-agora/authkit-server` (Client ID Metadata Documents).

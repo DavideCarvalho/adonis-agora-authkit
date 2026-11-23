@@ -38,8 +38,9 @@ function form(ctx: HttpContext): Record<string, unknown> {
 }
 
 /**
- * Endpoints do Poppy (§3, §4, §6): descoberta, protected resource metadata, metadata RFC 8414,
- * token, revogação, device authorization e a entrada do navegador na Session. Os POSTs são isentos
+ * Endpoints do Poppy (§3, §4, §6, §9): descoberta, protected resource metadata, metadata RFC 8414,
+ * token, PAR, revogação, device authorization, a entrada do navegador na Session e o
+ * `tasks.endpoint`. Os POSTs são isentos
  * de CSRF — `csrfExemptPaths` da extension, que o `authkitCsrfExceptions` do authkit lê.
  */
 export default class PoppyController {
@@ -93,6 +94,40 @@ export default class PoppyController {
       if (error instanceof PoppyError) return oauthError(ctx, error);
       throw error;
     }
+  }
+
+  /** `POST pushed_authorization_request_endpoint` (RFC 9126, §4.2): 201 com o `request_uri`. */
+  async pushedAuthorization(ctx: HttpContext) {
+    const poppy = await poppyOr404(ctx);
+    if (!poppy) return;
+    withNonce(ctx, poppy);
+    try {
+      const body = await poppy.pushAuthorization(form(ctx), ctx.request.header('dpop'));
+      noStore(ctx);
+      return ctx.response.status(201).json(body);
+    } catch (error) {
+      if (error instanceof PoppyError) return oauthError(ctx, error);
+      throw error;
+    }
+  }
+
+  /**
+   * `GET tasks.endpoint` (§9): com o header da Session, sem access token. Resposta por Session
+   * (`tasks.resolve`) sai `no-store`; a mesma para todos, `private`.
+   */
+  async tasks(ctx: HttpContext) {
+    const poppy = await poppyOr404(ctx);
+    if (!poppy) return;
+    if (!poppy.cfg.tasks || poppy.cfg.tasks.endpoint !== null) return ctx.response.notFound();
+    const result = await poppy.tasksResponse({
+      method: ctx.request.method(),
+      url: publicRequestUrl(ctx, poppy),
+      headers: ctx.request.headers() as Record<string, string | string[] | undefined>,
+    });
+    if (!result.ok)
+      return writePoppyAuthError(ctx, result as Extract<PoppyAuthResult, { ok: false }>);
+    ctx.response.header('Cache-Control', result.perSession ? 'no-store' : 'private, max-age=300');
+    return ctx.response.status(200).json(result.body);
   }
 
   async deviceAuthorization(ctx: HttpContext) {

@@ -81,9 +81,6 @@ const states = new WeakMap<HttpContext, PoppySessionState>();
 
 /**
  * Estado da Session Poppy deste navegador (preenchido por {@link poppyWebSession}).
- *
- * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — acompanha a spec em desenvolvimento e PODE MUDAR
- *   de forma incompatível fora de majors enquanto ela for draft.
  */
 export function poppyWebSessionOf(ctx: HttpContext): PoppySessionState | null {
   return states.get(ctx) ?? null;
@@ -93,9 +90,6 @@ export function poppyWebSessionOf(ctx: HttpContext): PoppySessionState | null {
  * Middleware do site: o cookie age pela conta e pelos scopes autorizados na entrada e deixa de agir
  * quando o sign-in termina (sign-out, agente desconectado); não sobrevive à Session (§6). Um login
  * antigo não volta. Coloque-o depois do middleware de sessão.
- *
- * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — acompanha a spec em desenvolvimento e PODE MUDAR
- *   de forma incompatível fora de majors enquanto ela for draft.
  */
 export function poppyWebSession() {
   return async (httpCtx: HttpContext, next: () => Promise<void>) => {

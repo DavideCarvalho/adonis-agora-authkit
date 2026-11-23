@@ -1,7 +1,8 @@
 /**
- * Lado da empresa no Poppy (Draft 0.3): o authorization server OAuth (§4 — Direct, Device, refresh,
- * revogação, extensão Mediated Sign-In), a verificação do header `Poppy-Session` e das Sessions
- * (§5), os access tokens nos resource servers (§4.5, §7) e a entrada do navegador na Session (§6).
+ * Lado da empresa no Poppy 1.0: o authorization server OAuth (§4 — Direct com PAR, Device, refresh,
+ * revogação, extensão Mediated Sign-In), a verificação do header `Poppy-Session`, de
+ * `Poppy-Version` e das Sessions (§3.4, §5), os access tokens nos resource servers (§4.5, §7), a
+ * entrada do navegador na Session (§6) e o `tasks.endpoint` (§9).
  *
  * Sessions e acesso à conta são independentes: o sign-in não conhece a Session. Os refresh tokens
  * são grants de personal agents (`auth_agent_grants`, prefixo `pgrant_`) — a mesma
@@ -23,20 +24,30 @@ import type {
   PoppyPrincipalBase,
   PoppyReplayStore,
   PoppySignInType,
+  PoppyTasksResponse,
   ResolvedPoppyConfig,
 } from './config.js';
-import { AGORA_DEV_SCOPE, AGORA_DEV_SCOPE_DESCRIPTION, AGORA_DEV_SCOPE_MESSAGE } from './config.js';
+import {
+  AGORA_DEV_SCOPE,
+  AGORA_DEV_SCOPE_DESCRIPTION,
+  AGORA_DEV_SCOPE_MESSAGE,
+  BROWSER_SIGN_IN_SCOPE,
+  MEDIATED_SIGN_IN_EXTENSION,
+} from './config.js';
 import { type DpopNonceSource, normalizeHtu, verifyDpopProof } from './dpop.js';
-import { PoppyError } from './errors.js';
+import { PoppyError, type PoppyErrorCode } from './errors.js';
 import { replayKey } from './replay.js';
 import { SessionJwtError, type VerifiedSessionJwt, verifySessionJwt } from './session_jwt.js';
 import type { PoppyStore, RequestRow, SessionRow } from './store.js';
 
 export const DEVICE_CODE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
 export const MEDIATED_SIGN_IN_GRANT = 'https://personalagentprotocol.org/grant/mediated-sign-in';
-export const MEDIATED_SIGN_IN_EXTENSION = 'mediated-sign-in';
+export { MEDIATED_SIGN_IN_EXTENSION };
 export const CLIENT_ASSERTION_TYPE = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer';
-export const POPPY_PROTOCOL_VERSION = '0.3';
+/** A versão do protocolo que este pacote serve (§3.4). */
+export const POPPY_PROTOCOL_VERSION = '1.0';
+/** Prefixo do `request_uri` de um Pushed Authorization Request (RFC 9126 §2.2). */
+export const PAR_REQUEST_URI_PREFIX = 'urn:ietf:params:oauth:request_uri:';
 
 /** Algoritmos das client assertions: `ES256` obrigatório, `PS384` para assinatura cega (§4.1). */
 const ASSERTION_ALGS = ['ES256', 'PS384', 'ES384', 'ES512', 'RS256', 'PS256', 'EdDSA'];
@@ -45,6 +56,8 @@ const CLOCK_SKEW_S = 30;
 const USER_CODE_ALPHABET = 'BCDFGHJKLMNPQRSTVWXZ';
 /** Pedido de autorização (Direct) aguardando o consentimento. */
 const AUTHORIZE_REQUEST_TTL_S = 600;
+/** Vida do `request_uri` de um PAR (RFC 9126 §2.2: curta). */
+const PAR_TTL_S = 60;
 /** Código de entrada do navegador: 128 bits, 60 s (guia `company-browsing`). */
 const BROWSER_CODE_TTL_S = 60;
 /** Só regrava a validade da Session quando o último uso já passou disso. */
@@ -59,10 +72,14 @@ export interface PoppyUrls {
   token: string;
   revocation: string;
   authorization: string;
+  /** RFC 9126: `pushed_authorization_request_endpoint`. */
+  par: string;
   deviceAuthorization: string;
   /** Tela do device flow (`verification_uri`). */
   device: string;
   browserSession: string;
+  /** `tasks.endpoint` que a lib serve (§9). */
+  tasks: string;
   discovery: string;
 }
 
@@ -77,11 +94,23 @@ export function poppyUrls(oidcIssuer: string, prefix: string): PoppyUrls {
     token: `${issuer}/oauth/token`,
     revocation: `${issuer}/oauth/revoke`,
     authorization: `${issuer}/oauth/authorize`,
+    par: `${issuer}/oauth/par`,
     deviceAuthorization: `${issuer}/oauth/device`,
     device: `${issuer}/device`,
     browserSession: `${issuer}/browser-session`,
+    tasks: `${issuer}/tasks`,
     discovery: `${origin}/.well-known/poppy.json`,
   };
+}
+
+/**
+ * Como um pedido de token prende o resultado: `jkt` prende o access token (DPoP), `proofJkt` é a
+ * chave da prova mandada (um token de MCP sai Bearer mesmo com prova) e `resource` (RFC 8707).
+ */
+interface TokenBinding {
+  jkt: string | null;
+  proofJkt: string | null;
+  resource: string | null;
 }
 
 /** Resposta do token endpoint (§4.7, RFC 6749 §5.1). */
@@ -147,10 +176,18 @@ export interface PoppyVerifyOptions {
    * `apis`/`agent.protocols` do config (entradas com `resource`) e os MCP.
    */
   resource?: string | null;
+  /**
+   * Extensão que a request precisa declarar em `Poppy-Extensions` (§3.3). Sem ela:
+   * `extension_required` (403, corpo JSON).
+   */
+  extension?: string;
 }
 
 export type PoppyAuthError =
   | 'invalid_session'
+  | 'session_ended'
+  | 'version_unsupported'
+  | 'extension_required'
   | 'invalid_token'
   | 'insufficient_scope'
   | 'invalid_dpop_proof'
@@ -170,8 +207,14 @@ export type PoppyVerifyResult =
       error: PoppyAuthError | null;
       description: string;
       scope?: string;
-      /** `null` nos erros que vão no corpo (`invalid_session`) e no 429. */
+      /** `null` nos erros que vão no corpo (`invalid_session`…) e no 429. */
       wwwAuthenticate: string | null;
+      /**
+       * O corpo JSON a responder — `invalid_session`, `session_ended`, `version_unsupported` e
+       * `extension_required` (§3.3, §3.4, §5.3). `null` nos erros do access token (vão no
+       * `WWW-Authenticate`) e no 429.
+       */
+      body: Record<string, string> | null;
       /** Headers extras (`DPoP-Nonce`, `Retry-After`). */
       headers: Record<string, string>;
     };
@@ -313,18 +356,22 @@ function resourceMetadataUrl(resource: string): string {
 /** Slot global onde o `@adonis-agora/agent` registra o endpoint de conversas Poppy. */
 export const POPPY_ENDPOINTS_SLOT = Symbol.for('@adonis-agora/poppy:endpoints');
 
+let warnedMissingDescription = false;
+
 /**
  * `agent.protocols` vindo do slot `Symbol.for('@adonis-agora/poppy:endpoints')`
- * (`{ conversations: 'https://…' }`), usado quando o config não declara
- * `agent.protocols` — o mesmo padrão do slot de resources do MCP.
+ * (`{ conversations: 'https://…', description: 'O que o agente ajuda a fazer' }`), usado quando o
+ * config não declara `agent.protocols` — o mesmo padrão do slot de resources do MCP. Sem
+ * `description` (obrigatória desde a 1.0, §3.1) a entrada não é publicada.
  */
 export function registeredConversationProtocols(): {
   type: string;
   endpoint: string;
+  description: string;
   access?: 'session' | 'signed_in';
 }[] {
   const slot = (globalThis as Record<symbol, unknown>)[POPPY_ENDPOINTS_SLOT] as
-    | { conversations?: unknown }
+    | { conversations?: unknown; description?: unknown }
     | undefined;
   const url = slot?.conversations;
   if (typeof url !== 'string') return [];
@@ -334,11 +381,111 @@ export function registeredConversationProtocols(): {
   } catch {
     return [];
   }
-  return [{ type: 'poppy', endpoint: url }];
+  const description = slot?.description;
+  if (typeof description !== 'string' || !description.trim()) {
+    if (!warnedMissingDescription) {
+      warnedMissingDescription = true;
+      process.emitWarning(
+        'authkit-poppy: the conversation endpoint in the Poppy endpoints slot has no description, so poppy.json leaves it out (Poppy 1.0 §3.1). Give it one, or declare agent.protocols with a description.',
+      );
+    }
+    return [];
+  }
+  return [{ type: 'poppy', endpoint: url, description }];
+}
+
+/** `"1.0"` → `[1, 0]`; `null` fora de `major.minor`. */
+function parseVersion(value: unknown): [number, number] | null {
+  if (typeof value !== 'string') return null;
+  const match = /^\s*(\d{1,4})\.(\d{1,4})\s*$/.exec(value);
+  return match ? [Number(match[1]), Number(match[2])] : null;
+}
+
+/** Compatível com a versão servida (§3.4): mesmo major a partir de 1.0; antes, mesmo minor. */
+export function compatibleProtocolVersion(value: unknown): boolean {
+  const requested = parseVersion(value);
+  const served = parseVersion(POPPY_PROTOCOL_VERSION)!;
+  if (!requested || requested[0] !== served[0]) return false;
+  return served[0] >= 1 || requested[1] === served[1];
 }
 
 /**
- * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — pode mudar de forma incompatível enquanto a spec for draft.
+ * `Poppy-Extensions` (§3.4): uma List de Strings da RFC 9651, cada uma com a versão no parâmetro
+ * `v`. Um header que não parseia declara nada (RFC 9651 §4.2). `nome → versão`.
+ */
+export function parsePoppyExtensions(value: string | string[] | undefined): Record<string, string> {
+  const raw = Array.isArray(value) ? value.join(', ') : value;
+  if (raw === undefined || raw.trim() === '') return {};
+  const out: Record<string, string> = {};
+  let i = 0;
+  const n = raw.length;
+  const ws = () => {
+    while (i < n && (raw[i] === ' ' || raw[i] === '\t')) i++;
+  };
+  const sfString = (): string | null => {
+    if (raw[i] !== '"') return null;
+    i++;
+    let text = '';
+    while (i < n) {
+      const c = raw[i++];
+      if (c === '\\') {
+        const next = raw[i++];
+        if (next !== '"' && next !== '\\') return null;
+        text += next;
+      } else if (c === '"') {
+        return text;
+      } else {
+        const code = c.charCodeAt(0);
+        if (code < 0x20 || code > 0x7e) return null;
+        text += c;
+      }
+    }
+    return null;
+  };
+  const bareItem = (): unknown => {
+    if (raw[i] === '"') return sfString();
+    const start = i;
+    while (i < n && /[A-Za-z0-9_\-.:%*/!#$&'+^`|~?]/.test(raw[i])) i++;
+    return i > start ? raw.slice(start, i) : null;
+  };
+  try {
+    ws();
+    while (i < n) {
+      const isString = raw[i] === '"';
+      const item = bareItem();
+      if (item === null) return {};
+      let version: string | null = null;
+      while (raw[i] === ';') {
+        i++;
+        ws();
+        const start = i;
+        while (i < n && /[a-z0-9_\-.*]/.test(raw[i])) i++;
+        const key = raw.slice(start, i);
+        if (!key || !/^[a-z*]/.test(key)) return {};
+        let param: unknown = true;
+        if (raw[i] === '=') {
+          i++;
+          param = bareItem();
+          if (param === null) return {};
+        }
+        if (key === 'v' && typeof param === 'string' && raw[i - 1] === '"') version = param;
+      }
+      if (isString && typeof item === 'string' && version !== null) out[item] = version;
+      ws();
+      if (i >= n) break;
+      if (raw[i] !== ',') return {};
+      i++;
+      ws();
+      if (i >= n) return {};
+    }
+  } catch {
+    return {};
+  }
+  return out;
+}
+
+/**
+ * O authorization server, o verificador de Sessions e os endpoints do Poppy 1.0 de uma empresa.
  */
 export class PoppyService implements PersonalAgentProtocolRuntime {
   readonly cfg: ResolvedPoppyConfig;
@@ -399,7 +546,10 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
 
   // ─── descoberta ───────────────────────────────────────────────────────────
 
-  /** A URL `https://{domain}` de um domínio (no host do issuer, a origem dele — dev com porta). */
+  /**
+   * A URL `https://{domain}` de um domínio (no host do issuer, a origem dele — dev com porta). O
+   * `organization.domain` é o host dela: com a porta quando não é a 443 (§3.1).
+   */
   #domainUrl(domain: string): string {
     const issuer = new URL(this.urls.origin);
     return domain === issuer.hostname.toLowerCase()
@@ -433,12 +583,13 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
     if (!match) return null;
     const { domain, hostWithPort } = match;
     const auth: Record<string, unknown> = { issuer: this.urls.issuer };
+    if (!this.offersSignIn) auth.disabled = true;
     if (Object.keys(this.cfg.scopes).length > 0) auth.scopes = this.cfg.scopes;
     if (Object.keys(this.cfg.scopeHints).length > 0) auth.scope_hints = this.cfg.scopeHints;
 
     const doc: Record<string, unknown> = {
       protocol_version: POPPY_PROTOCOL_VERSION,
-      organization: { name: this.cfg.organization.name, domain },
+      organization: { name: this.cfg.organization.name, domain: this.#organizationDomain(domain) },
       auth,
     };
     const protocols = this.cfg.agent?.protocols ?? registeredConversationProtocols();
@@ -447,17 +598,23 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
         protocols: protocols.map((p) => ({
           type: p.type,
           endpoint: p.endpoint,
+          description: p.description,
           ...(p.access ? { access: p.access } : {}),
         })),
       };
     }
-    if (this.cfg.web) {
-      doc.web = this.cfg.web.browserSession
-        ? { browser_session_endpoint: this.#browserSessionEndpointFor(hostWithPort) }
-        : {};
+    const web = this.cfg.web;
+    if (web) {
+      doc.web = {
+        ...(web.browserSession
+          ? { browser_session_endpoint: this.#browserSessionEndpointFor(hostWithPort) }
+          : {}),
+        ...(web.disabled ? { disabled: true } : {}),
+        ...(web.browserSession && web.unscoped ? { unscoped: true } : {}),
+      };
     }
-    if (this.cfg.feedback) doc.feedback = { endpoint: this.cfg.feedback.endpoint };
-    if (this.cfg.excludedTasks) doc.excluded_tasks = { url: this.cfg.excludedTasks.url };
+    const tasks = this.cfg.tasks;
+    if (tasks) doc.tasks = { endpoint: tasks.endpoint ?? this.urls.tasks };
     if (this.cfg.apis.length > 0) {
       doc.apis = this.cfg.apis.map((a) => ({
         type: a.type,
@@ -468,14 +625,23 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
     const extensions: Record<string, unknown> = { ...this.cfg.extensions };
     const mediated = this.cfg.signIn.mediated;
     if (mediated) {
-      extensions[MEDIATED_SIGN_IN_EXTENSION] = {
-        version: '1',
-        fields: mediated.fields,
-        scopes: mediated.scopes,
-      };
+      extensions[MEDIATED_SIGN_IN_EXTENSION] = [
+        { version: '1', fields: mediated.fields, scopes: mediated.scopes },
+      ];
     }
     if (Object.keys(extensions).length > 0) doc.extensions = extensions;
     return doc;
+  }
+
+  /** A empresa oferece algum tipo de sign-in? Sem nenhum, o poppy.json diz `auth.disabled`. */
+  get offersSignIn(): boolean {
+    const { direct, device, mediated } = this.cfg.signIn;
+    return !!(direct || device || mediated);
+  }
+
+  /** `organization.domain` de um domínio: o host, com a porta quando não é a 443 (§3.1). */
+  #organizationDomain(domain: string): string {
+    return new URL(this.#domainUrl(domain)).host;
   }
 
   /** `/.well-known/oauth-protected-resource` do domínio (§3.2, RFC 9728): aponta o issuer. */
@@ -485,6 +651,7 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
     return {
       resource: this.#domainUrl(match.domain),
       authorization_servers: [this.urls.issuer],
+      scopes_supported: Object.keys(this.cfg.scopes),
     };
   }
 
@@ -500,6 +667,12 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
       token_endpoint: this.urls.token,
       revocation_endpoint: this.urls.revocation,
       ...(signIn.direct ? { authorization_endpoint: this.urls.authorization } : {}),
+      ...(signIn.direct && this.cfg.par
+        ? {
+            pushed_authorization_request_endpoint: this.urls.par,
+            require_pushed_authorization_requests: this.cfg.par.required,
+          }
+        : {}),
       ...(signIn.device ? { device_authorization_endpoint: this.urls.deviceAuthorization } : {}),
       protected_resources: [
         ...this.domains.map((d) => this.#domainUrl(d)),
@@ -514,6 +687,11 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
       token_endpoint_auth_signing_alg_values_supported: ASSERTION_ALGS,
       revocation_endpoint_auth_methods_supported: ['private_key_jwt'],
       revocation_endpoint_auth_signing_alg_values_supported: ASSERTION_ALGS,
+      ...(signIn.direct && this.cfg.par
+        ? {
+            pushed_authorization_request_endpoint_auth_signing_alg_values_supported: ASSERTION_ALGS,
+          }
+        : {}),
       dpop_signing_alg_values_supported: this.cfg.dpop.algorithms,
       authorization_response_iss_parameter_supported: true,
       client_id_metadata_document_supported: true,
@@ -626,26 +804,35 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
   async #tokenBinding(
     form: Record<string, unknown>,
     dpopHeader: string | string[] | undefined,
-  ): Promise<{ jkt: string | null; resource: string | null }> {
+  ): Promise<TokenBinding> {
     const rawResource = form.resource;
     if (Array.isArray(rawResource)) {
       throw new PoppyError('invalid_target', 'Request a token for one resource at a time');
     }
-    const resource = str(rawResource) ?? null;
-    if (resource && this.#isMcp(resource)) return { jkt: null, resource: this.#mcpUrl(resource) };
-    if (resource && !this.#isConfiguredResource(resource)) {
+    let resource = str(rawResource) ?? null;
+    // `https://{organization.domain}` é o token default (§4.5).
+    if (resource && this.domains.some((d) => sameUrl(this.#domainUrl(d), resource!))) {
+      resource = null;
+    }
+    const mcp = resource !== null && this.#isMcp(resource);
+    if (resource && !mcp && !this.#isConfiguredResource(resource)) {
       throw new PoppyError('invalid_target', 'Unknown resource');
     }
-    if (dpopHeader === undefined || dpopHeader === '') {
-      if (this.cfg.dpop.required) {
-        throw new PoppyError('invalid_dpop_proof', 'A DPoP proof is required');
-      }
-      return { jkt: null, resource };
+    const proofJkt = await this.#proofKey(dpopHeader, this.urls.token);
+    if (mcp) return { jkt: null, proofJkt, resource: this.#mcpUrl(resource!) };
+    if (proofJkt === null && this.cfg.dpop.required) {
+      throw new PoppyError('invalid_dpop_proof', 'A DPoP proof is required');
     }
+    return { jkt: proofJkt, proofJkt, resource };
+  }
+
+  /** A chave (thumbprint) de uma prova DPoP numa request ao authorization server; `null` sem prova. */
+  async #proofKey(dpopHeader: string | string[] | undefined, url: string): Promise<string | null> {
+    if (dpopHeader === undefined || dpopHeader === '') return null;
     const result = await verifyDpopProof({
       proof: dpopHeader,
       method: 'POST',
-      url: this.urls.token,
+      url,
       algorithms: this.cfg.dpop.algorithms,
       maxAge: this.cfg.dpop.maxAge,
       replay: this.#replay,
@@ -657,7 +844,7 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
         headers: result.error === 'use_dpop_nonce' ? { 'DPoP-Nonce': this.#nonces.issue() } : {},
       });
     }
-    return { jkt: result.jkt, resource };
+    return result.jkt;
   }
 
   /** `resource`s que exigem tokens próprios (§4.5): os declarados em `apis` e `agent.protocols`. */
@@ -684,7 +871,7 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
   async #refresh(
     client: PoppyClient,
     form: Record<string, unknown>,
-    binding: { jkt: string | null; resource: string | null },
+    binding: TokenBinding,
     requestedScope: string[] | null,
   ): Promise<PoppyTokenResponse> {
     const token = str(form.refresh_token);
@@ -695,6 +882,14 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
     if (!row || row.expiresAt <= now) throw invalid;
     const grant = await this.#grants.findGrant(row.grantId);
     if (!grant || !(await this.#grantUsable(grant, client.clientId, now))) throw invalid;
+    // Refresh com a mesma chave DPoP do sign-in (§4.4), quando o refresh token está preso a ela.
+    const bound = await this.#store.findGrantKey(grant.id);
+    if (bound !== null && binding.proofJkt !== bound) {
+      throw new PoppyError(
+        'invalid_grant',
+        'Refresh with a DPoP proof from the key the refresh token was issued with',
+      );
+    }
     const scopes = this.#narrow(parseScope(grant.scope), requestedScope);
     return this.#issue(grant, scopes, binding);
   }
@@ -702,7 +897,7 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
   async #authorizationCode(
     client: PoppyClient,
     form: Record<string, unknown>,
-    binding: { jkt: string | null; resource: string | null },
+    binding: TokenBinding,
     requestedScope: string[] | null,
   ): Promise<PoppyTokenResponse> {
     const code = str(form.code);
@@ -732,6 +927,14 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
     ) {
       throw new PoppyError('invalid_grant', 'PKCE verification failed');
     }
+    // Código de um PAR com prova DPoP: só sai com a mesma chave (RFC 9449 §10.1).
+    const codeJkt = row.data?.dpopJkt;
+    if (typeof codeJkt === 'string' && binding.proofJkt !== codeJkt) {
+      throw new PoppyError(
+        'invalid_grant',
+        'The DPoP key does not match the authorization request',
+      );
+    }
     if (!(await this.#store.transitionRequest(row.id, 'approved', { status: 'consumed' }))) {
       throw invalid;
     }
@@ -750,7 +953,7 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
   async #deviceCode(
     client: PoppyClient,
     form: Record<string, unknown>,
-    binding: { jkt: string | null; resource: string | null },
+    binding: TokenBinding,
     requestedScope: string[] | null,
   ): Promise<PoppyTokenResponse> {
     const deviceCode = str(form.device_code);
@@ -878,19 +1081,31 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
    * voltam ao agente com `error`, `state` e `iss`.
    */
   async startAuthorization(
-    params: Record<string, unknown>,
+    query: Record<string, unknown>,
     accountId: string,
   ): Promise<PoppyAuthorizeOutcome> {
     const direct = this.cfg.signIn.direct;
     if (!direct) return { kind: 'error', description: 'Direct Sign-In is not offered' };
     let client: PoppyClient;
     try {
-      client = await this.registry.resolve(params.client_id);
+      client = await this.registry.resolve(query.client_id);
     } catch (error) {
       return {
         kind: 'error',
         description: error instanceof PoppyError ? error.description : 'invalid client',
       };
+    }
+    // PAR (RFC 9126 §4): os parâmetros vêm do pedido empurrado, uma vez só.
+    let params: Record<string, unknown> = query;
+    let dpopJkt: string | null = null;
+    const requestUri = str(query.request_uri);
+    if (requestUri !== undefined) {
+      const pushed = await this.#takePushedRequest(requestUri, client.clientId);
+      if (!pushed) {
+        return { kind: 'error', description: 'request_uri is unknown, expired or used' };
+      }
+      params = pushed.params;
+      dpopJkt = pushed.dpopJkt;
     }
     const redirectUri = str(params.redirect_uri);
     if (!redirectUri || !redirectUriAllowed(client.redirectUris, redirectUri)) {
@@ -901,26 +1116,12 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
       kind: 'redirect' as const,
       url: this.#redirect(redirectUri, { error, error_description: description, state }),
     });
-    if (str(params.response_type) !== 'code') {
-      return back('unsupported_response_type', 'response_type must be code');
+    if (requestUri === undefined && this.cfg.par?.required) {
+      return back('invalid_request', 'Pushed Authorization Requests are required');
     }
-    const challenge = str(params.code_challenge);
-    if (
-      str(params.code_challenge_method) !== 'S256' ||
-      !challenge ||
-      !/^[A-Za-z0-9_-]{43}$/.test(challenge)
-    ) {
-      return back('invalid_request', 'PKCE with code_challenge_method=S256 is required');
-    }
-    let scopes: string[];
-    try {
-      scopes = this.#signInScopes(params.scope, 'direct');
-    } catch (error) {
-      return back(
-        'invalid_scope',
-        error instanceof PoppyError ? error.description : 'invalid scope',
-      );
-    }
+    const checked = this.#checkAuthorizationParams(params);
+    if ('error' in checked) return back(checked.error, checked.description);
+    const { challenge, scopes } = checked;
     await this.#housekeeping();
     const now = this.#now();
     const id = randomId('azr_');
@@ -937,7 +1138,10 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
       codeChallenge: challenge,
       status: 'pending',
       intervalSeconds: null,
-      data: state !== undefined ? { state } : {},
+      data: {
+        ...(state !== undefined ? { state } : {}),
+        ...(dpopJkt ? { dpopJkt } : {}),
+      },
       expiresAt: new Date(now.getTime() + AUTHORIZE_REQUEST_TTL_S * 1000),
       createdAt: now,
     });
@@ -951,6 +1155,119 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
         logoUri: client.logoUri,
         scopes: this.describe(scopes),
       },
+    };
+  }
+
+  /** `response_type`, PKCE e `scope` de um pedido Direct (§4.2, §4.7). */
+  #checkAuthorizationParams(
+    params: Record<string, unknown>,
+  ): { challenge: string; scopes: string[] } | { error: string; description: string } {
+    if (str(params.response_type) !== 'code') {
+      return { error: 'unsupported_response_type', description: 'response_type must be code' };
+    }
+    const challenge = str(params.code_challenge);
+    if (
+      str(params.code_challenge_method) !== 'S256' ||
+      !challenge ||
+      !/^[A-Za-z0-9_-]{43}$/.test(challenge)
+    ) {
+      return {
+        error: 'invalid_request',
+        description: 'PKCE with code_challenge_method=S256 is required',
+      };
+    }
+    try {
+      return { challenge, scopes: this.#signInScopes(params.scope, 'direct') };
+    } catch (error) {
+      return {
+        error: 'invalid_scope',
+        description: error instanceof PoppyError ? error.description : 'invalid scope',
+      };
+    }
+  }
+
+  /**
+   * `POST pushed_authorization_request_endpoint` (RFC 9126, §4.2): os parâmetros do pedido Direct
+   * com a client assertion e, se houver, uma prova DPoP que prende o código à chave (RFC 9449
+   * §10.1). Devolve o `request_uri` (201).
+   */
+  async pushAuthorization(
+    form: Record<string, unknown>,
+    dpopHeader: string | string[] | undefined,
+  ): Promise<{ request_uri: string; expires_in: number }> {
+    if (!this.cfg.signIn.direct || !this.cfg.par) {
+      throw new PoppyError('unauthorized_client', 'Direct Sign-In is not offered');
+    }
+    await this.#housekeeping();
+    const client = await this.authenticateClient(form);
+    if (form.request_uri !== undefined) {
+      throw new PoppyError('invalid_request', 'request_uri is not allowed in a pushed request');
+    }
+    const redirectUri = str(form.redirect_uri);
+    if (!redirectUri || !redirectUriAllowed(client.redirectUris, redirectUri)) {
+      throw new PoppyError('invalid_request', 'redirect_uri is not registered for this client');
+    }
+    const checked = this.#checkAuthorizationParams(form);
+    if ('error' in checked)
+      throw new PoppyError(checked.error as PoppyErrorCode, checked.description);
+    const dpopJkt = await this.#proofKey(dpopHeader, this.urls.par);
+    const params: Record<string, string> = {};
+    for (const key of [
+      'response_type',
+      'redirect_uri',
+      'scope',
+      'state',
+      'code_challenge',
+      'code_challenge_method',
+      'prompt',
+    ]) {
+      const value = str(form[key]);
+      if (value !== undefined) params[key] = value;
+    }
+    const now = this.#now();
+    const id = randomId('par_', 24);
+    await this.#store.insertRequest({
+      id,
+      kind: 'par',
+      codeHash: null,
+      userCode: null,
+      clientId: client.clientId,
+      sessionId: null,
+      accountId: null,
+      requestedScope: formatScope(checked.scopes),
+      redirectUri,
+      codeChallenge: checked.challenge,
+      status: 'pending',
+      intervalSeconds: null,
+      data: { params, ...(dpopJkt ? { dpopJkt } : {}) },
+      expiresAt: new Date(now.getTime() + PAR_TTL_S * 1000),
+      createdAt: now,
+    });
+    return { request_uri: `${PAR_REQUEST_URI_PREFIX}${id}`, expires_in: PAR_TTL_S };
+  }
+
+  /** O pedido empurrado de um `request_uri`, consumido (uso único); `null` = inválido. */
+  async #takePushedRequest(
+    requestUri: string,
+    clientId: string,
+  ): Promise<{ params: Record<string, unknown>; dpopJkt: string | null } | null> {
+    if (!requestUri.startsWith(PAR_REQUEST_URI_PREFIX)) return null;
+    const row = await this.#store.findRequest(requestUri.slice(PAR_REQUEST_URI_PREFIX.length));
+    if (
+      row?.kind !== 'par' ||
+      row.clientId !== clientId ||
+      row.status !== 'pending' ||
+      row.expiresAt <= this.#now()
+    ) {
+      return null;
+    }
+    if (!(await this.#store.transitionRequest(row.id, 'pending', { status: 'consumed' }))) {
+      return null;
+    }
+    const data = row.data ?? {};
+    return {
+      params: (data.params as Record<string, unknown>) ?? {},
+      dpopJkt: typeof data.dpopJkt === 'string' ? data.dpopJkt : null,
     };
   }
 
@@ -1071,7 +1388,7 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
   async #mediated(
     client: PoppyClient,
     form: Record<string, unknown>,
-    binding: { jkt: string | null; resource: string | null },
+    binding: TokenBinding,
     ctx: HttpContext | undefined,
   ): Promise<PoppyTokenResponse> {
     if (form.sign_in_id !== undefined) return this.#mediatedCode(client, form, binding);
@@ -1153,7 +1470,7 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
   async #mediatedCode(
     client: PoppyClient,
     form: Record<string, unknown>,
-    binding: { jkt: string | null; resource: string | null },
+    binding: TokenBinding,
   ): Promise<PoppyTokenResponse> {
     const mediated = this.cfg.signIn.mediated!;
     const invalid = new PoppyError('invalid_grant', 'Sign-in did not succeed');
@@ -1251,17 +1568,24 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
         description,
         ...(extra.scope ? { scope: extra.scope } : {}),
         wwwAuthenticate,
+        body: null,
         headers: extra.headers ?? {},
       };
     };
-    const invalidSession = (description: string): PoppyVerifyResult => ({
+    const inBody = (
+      error: 'invalid_session' | 'session_ended' | 'version_unsupported' | 'extension_required',
+      description: string,
+      extra: Record<string, string> = {},
+    ): PoppyVerifyResult => ({
       ok: false,
-      status: 400,
-      error: 'invalid_session',
+      status: error === 'extension_required' ? 403 : 400,
+      error,
       description,
       wwwAuthenticate: null,
+      body: { error, ...extra, error_description: description },
       headers: {},
     });
+    const invalidSession = (description: string) => inBody('invalid_session', description);
 
     const auth = header(input.headers, 'authorization');
     const authValue = Array.isArray(auth) ? undefined : auth;
@@ -1290,6 +1614,18 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
     } catch (error) {
       if (error instanceof SessionJwtError) return invalidSession(error.message);
       throw error;
+    }
+    // Versão (§3.4): quem verifica o header da Session confere `Poppy-Version` e nunca trata a
+    // request como de outra versão. Antes da Session: uma versão recusada não começa nenhuma.
+    const versionHeader = header(input.headers, 'poppy-version');
+    const protocolVersion = Array.isArray(versionHeader) ? undefined : versionHeader?.trim();
+    if (!protocolVersion || !compatibleProtocolVersion(protocolVersion)) {
+      return inBody(
+        'version_unsupported',
+        protocolVersion
+          ? `Poppy-Version ${protocolVersion} is not served`
+          : 'Poppy-Version is required',
+      );
     }
     const replayUntil = new Date((jwt.iat + this.cfg.sessionJwt.maxAge + CLOCK_SKEW_S) * 1000);
     if (!(await this.#replay.claim(replayKey('session', jwt.clientId, jwt.jti), replayUntil))) {
@@ -1382,22 +1718,35 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
           error: null,
           description: error.description,
           wwwAuthenticate: null,
+          body: null,
           headers: error.headers,
         };
+      }
+      if (error instanceof PoppyError && error.code === 'session_ended') {
+        return inBody('session_ended', error.description);
       }
       if (error instanceof PoppyError) return invalidSession(error.description);
       throw error;
     }
     if (signedIn) {
+      // Outra conta na mesma Session: `session_ended` — o agente começa outra Session (§5.4).
       if (session.accountId && session.accountId !== signedIn.accountId) {
-        return invalidSession('The Session used a different account');
+        return inBody('session_ended', 'The Session used a different account');
       }
       if (
         !session.accountId &&
         !(await this.#store.bindSessionAccount(session.id, signedIn.accountId, now))
       ) {
-        return invalidSession('The Session used a different account');
+        return inBody('session_ended', 'The Session used a different account');
       }
+    }
+    const declared = this.#supportedExtensions(
+      parsePoppyExtensions(header(input.headers, 'poppy-extensions')),
+    );
+    if (options.extension && declared[options.extension] === undefined) {
+      return inBody('extension_required', `This request needs the ${options.extension} extension`, {
+        extension: options.extension,
+      });
     }
 
     const principal: PoppyPrincipalBase = {
@@ -1410,6 +1759,8 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
       signedIn: signedIn !== null,
       resource,
       tokenType: signedIn ? (signedIn.jkt ? 'DPoP' : 'Bearer') : null,
+      protocolVersion,
+      extensions: declared,
     };
     const required = options.scopes ?? [];
     if (!signedIn && (options.signedIn || required.length > 0)) {
@@ -1424,6 +1775,17 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
       });
     }
     return { ok: true, principal, grantId: signedIn?.grantId ?? null };
+  }
+
+  /** As extensões declaradas que este app lista, na versão listada (§3.3). */
+  #supportedExtensions(declared: Record<string, string>): Record<string, string> {
+    const listed: Record<string, { version: string }[]> = { ...this.cfg.extensions };
+    if (this.cfg.signIn.mediated) listed[MEDIATED_SIGN_IN_EXTENSION] = [{ version: '1' }];
+    const out: Record<string, string> = {};
+    for (const [name, version] of Object.entries(declared)) {
+      if (listed[name]?.some((e) => e.version === version)) out[name] = version;
+    }
+    return out;
   }
 
   /** Um challenge para cada esquema que o resource aceita (§7). */
@@ -1492,7 +1854,12 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
     input: PoppyRequestInput,
     code: unknown,
   ): Promise<Extract<PoppyVerifyResult, { ok: false }> | { ok: true }> {
-    const auth = await this.verifyAccess(input);
+    // Entrar logado exige `poppy:browser-sign-in` (§6, passo 2); sem token, a entrada é deslogada.
+    const withToken = header(input.headers, 'authorization') !== undefined;
+    const auth = await this.verifyAccess(
+      input,
+      withToken ? { scopes: [BROWSER_SIGN_IN_SCOPE] } : {},
+    );
     if (!auth.ok) return auth;
     const invalid = new PoppyError('invalid_request', 'Unknown, expired or used code');
     if (typeof code !== 'string' || !code) throw invalid;
@@ -1574,6 +1941,27 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
       signedIn,
       scopes: signedIn ? (marker.scopes ?? []) : [],
     };
+  }
+
+  // ─── cobertura de tarefas (§9) ────────────────────────────────────────────
+
+  /**
+   * `GET {tasks.endpoint}` com o header da Session: tarefas excluídas, skills e feedback. Com
+   * `tasks.resolve`, a resposta é da Session (`perSession` → `Cache-Control: no-store`).
+   */
+  async tasksResponse(
+    input: PoppyRequestInput,
+  ): Promise<
+    | Extract<PoppyVerifyResult, { ok: false }>
+    | { ok: true; body: PoppyTasksResponse; perSession: boolean }
+  > {
+    const tasks = this.cfg.tasks;
+    const auth = await this.verifyAccess(input);
+    if (!auth.ok) return auth;
+    const base: PoppyTasksResponse = structuredClone(tasks?.response ?? {});
+    if (!tasks?.resolve) return { ok: true, body: base, perSession: false };
+    const body = await tasks.resolve({ principal: auth.principal, response: base });
+    return { ok: true, body, perSession: true };
   }
 
   // ─── console de conta ─────────────────────────────────────────────────────
@@ -1674,13 +2062,14 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
   }
 
   /**
-   * §5.3, passo 4: busca a Session por `client_id` + `sid`. `sid` novo começa uma Session deslogada;
-   * o conhecido precisa ter o mesmo User ID e Agent ID, e não pode ter terminado (§5.5).
+   * §5.3, passo 4: busca a Session por `client_id` + `sid` + User ID. Uma combinação nova começa
+   * uma Session deslogada (o mesmo `sid` com outro User ID é outra Session); o Agent ID fica o do
+   * começo. Uma Session terminada ou vencida responde `session_ended` (§5.5).
    */
   async #sessionFor(jwt: VerifiedSessionJwt, now: Date): Promise<SessionRow> {
-    // O `sid` é escolhido pelo agente: a chave inclui o `client_id`, para um não esbarrar no outro.
+    // O `sid` é escolhido pelo agente: a chave inclui o `client_id` e o User ID.
     const id = `ses_${createHash('sha256')
-      .update(`${jwt.clientId}\u0000${jwt.sid}`)
+      .update(`${jwt.clientId}\u0000${jwt.sid}\u0000${jwt.userId}`)
       .digest('base64url')}`;
     let session = await this.#store.findSession(id);
     if (!session) {
@@ -1707,10 +2096,7 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
       }
     }
     if (session.endedAt || session.expiresAt <= now) {
-      throw new PoppyError('invalid_session', 'The Session has ended');
-    }
-    if (session.userId !== jwt.userId || session.agentId !== jwt.agentId) {
-      throw new PoppyError('invalid_session', 'The Session has another User ID or Agent ID');
+      throw new PoppyError('session_ended', 'The Session has ended');
     }
     if (now.getTime() - session.updatedAt.getTime() >= SESSION_TOUCH_INTERVAL_MS) {
       await this.#store.touchSession(session.id, this.#sessionExpiry(now), now);
@@ -1737,7 +2123,7 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
     clientId: string,
     accountId: string,
     granted: string[],
-    binding: { jkt: string | null; resource: string | null },
+    binding: TokenBinding,
     requestedScope: string[] | null,
   ): Promise<{ body: PoppyTokenResponse; grantId: string }> {
     if (!(await this.#isAccountActive(accountId))) {
@@ -1760,6 +2146,9 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
       updatedAt: now,
     };
     await this.#grants.insertGrant(grant);
+    if (binding.proofJkt && this.cfg.dpop.bindRefreshTokens) {
+      await this.#store.insertGrantKey(grantId, binding.proofJkt, now);
+    }
     const refreshToken = randomId('poa_', 32);
     await this.#grants.insertRefreshToken({
       tokenHash: sha256(refreshToken),
@@ -1775,7 +2164,7 @@ export class PoppyService implements PersonalAgentProtocolRuntime {
   async #issue(
     grant: PersonalAgentGrant,
     scopes: string[],
-    binding: { jkt: string | null; resource: string | null },
+    binding: TokenBinding,
   ): Promise<PoppyTokenResponse> {
     const now = this.#now();
     const ttl = this.cfg.accessTokenTtl;

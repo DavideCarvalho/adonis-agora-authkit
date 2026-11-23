@@ -1,7 +1,8 @@
 /**
- * O header `Poppy-Session` (Draft 0.3, §5.2–§5.3): um JWT que o personal agent assina para uma
+ * O header `Poppy-Session` (Poppy 1.0, §5.2–§5.3): um JWT que o personal agent assina para uma
  * request, com uma chave delegada. Uma chave do `jwks_uri` assina a delegação
- * (`pap-delegation+jwt`), que vai no header `pap_dlg` do JWT e atesta a chave delegada em `cnf.jwk`.
+ * (`poppy-delegation+jwt`), que vai no header `poppy_dlg` do JWT e atesta a chave delegada em
+ * `cnf.jwk`.
  *
  * Só as checagens do JWT em si: o `client_id` do token, a Session e o replay ficam no `PoppyService`.
  */
@@ -18,7 +19,7 @@ import type { PoppyClient } from './client_registry.js';
 import { accessTokenHash, normalizeHtu } from './dpop.js';
 
 export const SESSION_JWT_TYP = 'poppy-session+jwt';
-export const DELEGATION_TYP = 'pap-delegation+jwt';
+export const DELEGATION_TYP = 'poppy-delegation+jwt';
 
 /** Delegação: `ES256` obrigatório; `PS384` permite a assinatura cega (§5.2, §10.7). */
 const DELEGATION_ALGS = ['ES256', 'PS384'];
@@ -64,7 +65,7 @@ async function verifyDelegation(
   client: PoppyClient,
   now: Date,
 ): Promise<{ jwk: JWK; exp: number }> {
-  if (typeof delegation !== 'string' || !delegation) throw fail('pap_dlg is required');
+  if (typeof delegation !== 'string' || !delegation) throw fail('poppy_dlg is required');
   let payload: JWTPayload;
   try {
     ({ payload } = await jwtVerify(delegation, client.keys, {
@@ -109,7 +110,7 @@ export async function verifySessionJwt(input: VerifySessionJwtInput): Promise<Ve
   } catch {
     throw fail('the client_id was refused');
   }
-  const delegation = await verifyDelegation(header.pap_dlg, client, input.now);
+  const delegation = await verifyDelegation(header.poppy_dlg, client, input.now);
   if (header.kid !== (await calculateJwkThumbprint(delegation.jwk, 'sha256'))) {
     throw fail('kid must be the thumbprint of the delegated key');
   }

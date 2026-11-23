@@ -22,9 +22,9 @@ It is built as an idiomatic wrapper around
   (JWKS, no shared secrets) and user-approved, revocable delegation with scopes you define,
   over a pluggable protocol adapter ([PACT](https://openpactprotocol.org) built in), plus
   protocol extensions from their own packages: `@adonis-agora/authkit-poppy` serves the
-  [Personal Agent Protocol ("Poppy")](https://personalagentprotocol.org/docs/spec) — discovery,
-  signed `Poppy-Session` agent sessions, Direct/Device/Mediated sign-in, MCP and browser sessions.
-  ⚠️ **Experimental** — that package tracks the spec's Draft 0.3 and stays on 0.x.
+  [Personal Agent Protocol ("Poppy") 1.0](https://personalagentprotocol.org/docs/1.0/spec) —
+  discovery, signed `Poppy-Session` agent sessions, Direct/Device/Mediated sign-in, MCP, browser
+  sessions and task coverage.
 - **Native apps** — RFC 8252 native clients (private-use scheme / claimed https / loopback
   redirects, public + PKCE, rotated refresh tokens) and `oidcBearerGuard`, an
   `@adonisjs/auth` guard for APIs called with a bearer access token (in-process, or as a

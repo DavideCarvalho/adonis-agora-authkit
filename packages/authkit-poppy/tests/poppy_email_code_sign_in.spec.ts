@@ -210,7 +210,7 @@ test.group('poppyEmailCodeSignIn — fluxo Mediated completo', () => {
     } as any;
 
     const doc = env.poppy.discoveryDocument('shop.example') as any;
-    assert.deepEqual(doc.extensions['mediated-sign-in'].fields, [
+    assert.deepEqual(doc.extensions['mediated-sign-in'][0].fields, [
       { name: 'email', label: 'Email address', secret: false },
     ]);
 

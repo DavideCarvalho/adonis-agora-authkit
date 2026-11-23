@@ -1,8 +1,6 @@
 /**
- * @experimental Draft 0.3 da spec (https://personalagentprotocol.org/docs/spec) — pode mudar de forma
- *   incompatível fora de majors enquanto a spec for draft.
- *
- * Personal Agent Protocol ("Poppy", Draft 0.3 — https://personalagentprotocol.org) — config.
+ * Personal Agent Protocol ("Poppy", versão 1.0 — https://personalagentprotocol.org/docs/1.0/spec) —
+ * config.
  *
  * Poppy é o segundo protocolo de personal agents ao lado do PACT. O agente se identifica pelo
  * `client_id` (uma URL HTTPS com o documento de metadata dele) e declara a Session em cada request
@@ -73,9 +71,6 @@ export type PoppyMediatedResult =
   | { status: 'failed' }
   | { status: 'denied' };
 
-/**
- * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — pode mudar de forma incompatível enquanto a spec for draft.
- */
 export interface PoppyMediatedConfigInput {
   /** Campos pedidos (extensão Mediated Sign-In). Ex.: `[{ name: 'email', … }, { name: 'password', secret: true, … }]`. */
   fields: PoppyMediatedField[];
@@ -105,6 +100,11 @@ export interface PoppyAgentProtocolEntry {
   type: string;
   /** URL HTTPS do endpoint de conversas. */
   endpoint: string;
+  /**
+   * O que o agente deste endpoint ajuda a fazer (§3.1, §8.1) — o personal agent usa para decidir se
+   * uma conversa serve à tarefa. Pode dizer que ajuda com qualquer coisa. Obrigatório.
+   */
+  description: string;
   /** A interface precisa da conta desde o início (§3.2). Default: `session`. */
   access?: 'session' | 'signed_in';
   /**
@@ -129,6 +129,55 @@ export interface PoppyApiEntry {
   resource?: string;
 }
 
+/** Uma tarefa que a empresa escolheu não oferecer pelo protocolo (§9.1). */
+export interface PoppyExcludedTask {
+  /** A tarefa, numa frase curta: "Send a wire transfer". */
+  task: string;
+  /** Outro jeito de fazer a tarefa (§9.2). */
+  alternative?: PoppyAlternative;
+}
+
+/** Outro jeito de fazer uma tarefa (§9.2): `instructions`, `references` ou os dois. */
+export interface PoppyAlternative {
+  instructions?: string;
+  references?: (
+    | { type: 'openapi'; url: string; operation_id: string }
+    | { type: 'mcp'; url: string; tool: string }
+    | { type: 'web'; url: string }
+  )[];
+}
+
+/** A resposta do `tasks.endpoint` (§9). */
+export interface PoppyTasksResponse {
+  excluded_tasks?: PoppyExcludedTask[];
+  /** Índice do Agent Skills discovery (schema 0.2.0) — §9.4. */
+  skill_index?: Record<string, unknown>;
+  feedback?: { endpoint: string };
+}
+
+/** Cobertura de tarefas (§9): o que sai no `tasks.endpoint`. */
+export interface PoppyTasksConfigInput {
+  /**
+   * Um `tasks.endpoint` que o próprio app serve, publicado como está. Sem ele, a lib serve
+   * `{prefix}/tasks` com os campos abaixo.
+   */
+  endpoint?: string;
+  /** Tarefas não oferecidas (§9.1). */
+  excludedTasks?: PoppyExcludedTask[];
+  /** Índice de skills (§9.4), no formato do Agent Skills discovery 0.2.0. */
+  skillIndex?: Record<string, unknown>;
+  /** Endpoint de feedback que o app implementa (§9.3). */
+  feedback?: { endpoint: string };
+  /**
+   * Resposta por Session (ex.: testar uma skill com parte dos usuários). Recebe a Session já
+   * verificada e a resposta montada dos campos acima; a resposta sai `Cache-Control: no-store`.
+   */
+  resolve?: (input: {
+    principal: PoppyPrincipalBase;
+    response: PoppyTasksResponse;
+  }) => PoppyTasksResponse | Promise<PoppyTasksResponse>;
+}
+
 /** Hook de login do navegador do agente (§6) para apps com sessão de login própria. */
 export type PoppyBrowserLogin = (
   ctx: HttpContext,
@@ -146,9 +195,6 @@ export type PoppyBrowserLogin = (
  * Onde o protocolo guarda os `jti` já vistos (client assertions, Session JWTs,
  * provas DPoP) até expirarem. `claim` devolve `true` na
  * primeira vez que vê a chave e `false` num replay.
- *
- * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — acompanha a spec em desenvolvimento e PODE MUDAR
- *   de forma incompatível fora de majors enquanto ela for draft.
  */
 export interface PoppyReplayStore {
   claim(key: string, expiresAt: Date): Promise<boolean>;
@@ -173,9 +219,6 @@ export interface PoppyClientsConfigInput {
   blocked?: string[] | ((clientId: string) => boolean | Promise<boolean>);
 }
 
-/**
- * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — pode mudar de forma incompatível enquanto a spec for draft.
- */
 export interface PoppyConfigInput {
   /** Nome exibido e domínio (`organization` do poppy.json). */
   organization: {
@@ -208,18 +251,38 @@ export interface PoppyConfigInput {
   agent?: { protocols: PoppyAgentProtocolEntry[] };
   /** APIs do app que aceitam o header da Session (§7). */
   apis?: PoppyApiEntry[];
-  /** Endpoint de feedback que o app implementa (§9.3). */
-  feedback?: { endpoint: string };
-  /** Documento público das tarefas que a empresa não oferece (§9.1). */
-  excludedTasks?: { url: string };
+  /** Cobertura de tarefas (§9): tarefas excluídas, skills e feedback, no `tasks.endpoint`. */
+  tasks?: PoppyTasksConfigInput;
   /**
-   * Site (§6). Default: liga o `browser_session_endpoint`. `false` desliga. `login`
+   * Site (§6). Default: liga o `browser_session_endpoint`. `false` não publica `web`. `login`
    * substitui o login default (sessão de conta do authkit + `adonisAuth.guard`). `redirectTo` é
    * a página do site para onde o navegador vai depois de entrar (path). Default: `/`.
+   *
+   * - `disabled: true` pede aos personal agents que não naveguem o site num navegador
+   *   (`web.disabled`); desliga o `browser_session_endpoint`. Liste `agent` ou `apis`.
+   * - `unscoped` (`web.unscoped`): o site não aplica os scopes do cookie, então
+   *   `poppy:browser-sign-in` dá todo o acesso da conta no site. Default: `true` — o login default
+   *   entra na conta inteira. Passe `false` só com um `login` que aplica os scopes.
    */
-  web?: false | { browserSession?: boolean; login?: PoppyBrowserLogin; redirectTo?: string };
-  /** Extensões suportadas (§3.3), publicadas como estão. */
-  extensions?: Record<string, { version: string } & Record<string, unknown>>;
+  web?:
+    | false
+    | {
+        browserSession?: boolean;
+        disabled?: boolean;
+        unscoped?: boolean;
+        login?: PoppyBrowserLogin;
+        redirectTo?: string;
+      };
+  /**
+   * Extensões suportadas (§3.3), publicadas como estão: uma entrada por versão.
+   * Ex.: `{ 'example.com/gift-wrap': [{ version: '1', endpoint: 'https://…' }] }`.
+   */
+  extensions?: Record<string, ({ version: string } & Record<string, unknown>)[]>;
+  /**
+   * Pushed Authorization Requests (RFC 9126, §4.2) no Direct Sign-In. Default: oferecido.
+   * `{ required: true }` exige (`require_pushed_authorization_requests`). `false` não oferece.
+   */
+  par?: boolean | { required?: boolean };
   /** Registro/allowlist/blocklist de agentes. */
   clients?: PoppyClientsConfigInput;
   /**
@@ -242,7 +305,10 @@ export interface PoppyConfigInput {
   deviceCodeTtl?: number;
   /** Intervalo mínimo de polling do device flow, em segundos. Default: 5. */
   pollInterval?: number;
-  /** Vida máxima das client assertions (`exp - iat`), em segundos. Default: 300. */
+  /**
+   * Vida máxima das client assertions (`exp - iat`), em segundos. Default: 300. Nunca menos que 300:
+   * a spec proíbe recusar uma assertion de até 5 minutos (§4.1).
+   */
   assertionMaxLifetime?: number;
   /** Session JWT (§5.3). */
   sessionJwt?: {
@@ -259,6 +325,11 @@ export interface PoppyConfigInput {
     maxAge?: number;
     /** Algoritmos aceitos na prova. Default: `['ES256']`. */
     algorithms?: string[];
+    /**
+     * Prende o refresh token à chave DPoP do sign-in (§4.4): um refresh sem prova ou com outra
+     * chave leva `invalid_grant`. Só vale para sign-ins feitos com prova. Default: true.
+     */
+    bindRefreshTokens?: boolean;
   };
   /**
    * Onde guardar os `jti` vistos. Default: `'database'` (tabela lib-owned
@@ -289,9 +360,6 @@ export interface PoppyConfigInput {
 
 /**
  * O que uma request verificada autoriza — sem o `actor`.
- *
- * @experimental Poppy (Personal Agent Protocol) Draft 0.3 — acompanha a spec em desenvolvimento e PODE MUDAR
- *   de forma incompatível fora de majors enquanto ela for draft.
  */
 export interface PoppyPrincipalBase {
   /** User ID que o personal agent deu ao usuário NESTE app (opaco, estável). */
@@ -304,8 +372,15 @@ export interface PoppyPrincipalBase {
   clientId: string;
   /** Scopes do access token. Vazio deslogado. */
   scopes: string[];
-  /** A Session, única por `client_id` + `sid`. */
+  /** A Session, única por `client_id` + `sid` + User ID (§5.3). */
   sessionId: string;
+  /** A versão do protocolo que a request declarou em `Poppy-Version` (`'1.0'`, `'1.1'`…). */
+  protocolVersion: string;
+  /**
+   * As extensões que a request declarou em `Poppy-Extensions` e que este app lista, `nome → versão`
+   * (§3.3, §3.4).
+   */
+  extensions: Record<string, string>;
   signedIn: boolean;
   /** `resource` para o qual o token foi emitido (RFC 8707), ou `null`. */
   resource: string | null;
@@ -335,10 +410,23 @@ export interface ResolvedPoppyConfig {
   };
   agent: { protocols: PoppyAgentProtocolEntry[] } | null;
   apis: PoppyApiEntry[];
-  feedback: { endpoint: string } | null;
-  excludedTasks: { url: string } | null;
-  web: { browserSession: boolean; login?: PoppyBrowserLogin; redirectTo: string } | null;
-  extensions: Record<string, { version: string } & Record<string, unknown>>;
+  /** `null` = sem `tasks` no poppy.json. */
+  tasks: {
+    /** Endpoint do próprio app; `null` = a lib serve `{prefix}/tasks`. */
+    endpoint: string | null;
+    response: PoppyTasksResponse;
+    resolve?: PoppyTasksConfigInput['resolve'];
+  } | null;
+  web: {
+    browserSession: boolean;
+    disabled: boolean;
+    unscoped: boolean;
+    login?: PoppyBrowserLogin;
+    redirectTo: string;
+  } | null;
+  extensions: Record<string, ({ version: string } & Record<string, unknown>)[]>;
+  /** `null` = sem PAR. */
+  par: { required: boolean } | null;
   clients: {
     requireRegistration: boolean;
     isRegistered: (clientId: string) => Promise<boolean>;
@@ -357,7 +445,13 @@ export interface ResolvedPoppyConfig {
   pollInterval: number;
   assertionMaxLifetime: number;
   sessionJwt: { maxAge: number };
-  dpop: { required: boolean; requireNonce: boolean; maxAge: number; algorithms: string[] };
+  dpop: {
+    required: boolean;
+    requireNonce: boolean;
+    maxAge: number;
+    algorithms: string[];
+    bindRefreshTokens: boolean;
+  };
   replay: 'database' | 'memory' | { redis: string } | PoppyReplayStore;
   rateLimit: false | { sessionsPerMinute: number; mediatedPerHour: number } | PoppyLimiter;
   toActor?: PoppyConfigInput['toActor'];
@@ -505,10 +599,22 @@ export function resolvePoppyConfig(
   if (all.length === 0 && (signInInput.direct !== false || signInInput.device !== false)) {
     fail('nenhum scope: declare `scopes` ou desligue signIn.direct e signIn.device.');
   }
+  const legacy = input as unknown as Record<string, unknown>;
+  if (legacy.feedback !== undefined || legacy.excludedTasks !== undefined) {
+    fail('feedback e excludedTasks foram para `tasks` (tasks.feedback, tasks.excludedTasks).');
+  }
+  const offersSignIn =
+    signInInput.direct !== false || signInInput.device !== false || !!signInInput.mediated;
 
   for (const entry of input.agent?.protocols ?? []) {
     if (!entry.type) fail('agent.protocols[].type é obrigatório.');
     absoluteUrl(entry.endpoint, 'agent.protocols[].endpoint');
+    if (typeof entry.description !== 'string' || !entry.description.trim()) {
+      fail('agent.protocols[].description é obrigatório (o que o agente ajuda a fazer).');
+    }
+    if (entry.access === 'signed_in' && !offersSignIn) {
+      fail('agent.protocols[].access signed_in exige um tipo de sign-in.');
+    }
     if (entry.resource) absoluteUrl(entry.resource, 'agent.protocols[].resource');
     if (entry.access && entry.access !== 'session' && entry.access !== 'signed_in') {
       fail('agent.protocols[].access precisa ser session ou signed_in.');
@@ -520,16 +626,66 @@ export function resolvePoppyConfig(
     if (api.resource) absoluteUrl(api.resource, 'apis[].resource');
     if (typeof api.description !== 'string') fail('apis[].description é obrigatório.');
   }
-  if (input.feedback) absoluteUrl(input.feedback.endpoint, 'feedback.endpoint');
-  if (input.excludedTasks) absoluteUrl(input.excludedTasks.url, 'excludedTasks.url');
+  const tasks = resolveTasks(input.tasks, input.apis ?? []);
   const redirectTo = input.web ? (input.web.redirectTo ?? '/') : '/';
   if (!redirectTo.startsWith('/') || redirectTo.startsWith('//')) {
     fail('web.redirectTo precisa ser um path do site.');
   }
-  for (const name of Object.keys(input.extensions ?? {})) {
-    if (typeof input.extensions![name]?.version !== 'string') {
-      fail(`extensions.${name}.version é obrigatório (string).`);
+  let web: ResolvedPoppyConfig['web'] = null;
+  if (input.web !== false) {
+    const disabled = input.web?.disabled === true;
+    if (disabled && input.web?.browserSession === true) {
+      fail(
+        'web.disabled não combina com web.browserSession: não liste o browser_session_endpoint.',
+      );
     }
+    const browserSession = !disabled && input.web?.browserSession !== false;
+    if (input.web?.unscoped === true && !browserSession) {
+      fail('web.unscoped exige o browser_session_endpoint (web.browserSession).');
+    }
+    web = {
+      browserSession,
+      disabled,
+      unscoped: browserSession && input.web?.unscoped !== false,
+      login: input.web?.login,
+      redirectTo,
+    };
+  }
+  const extensions: ResolvedPoppyConfig['extensions'] = {};
+  for (const [name, entries] of Object.entries(input.extensions ?? {})) {
+    if (name === MEDIATED_SIGN_IN_EXTENSION) {
+      fail(`extensions.${name} é publicada por signIn.mediated.`);
+    }
+    if (!Array.isArray(entries) || entries.length === 0) {
+      fail(`extensions.${name} precisa ser uma lista, uma entrada por versão (§3.3).`);
+    }
+    for (const entry of entries) {
+      if (typeof entry?.version !== 'string' || !entry.version) {
+        fail(`extensions.${name}[].version é obrigatório (string).`);
+      }
+    }
+    extensions[name] = entries.map((e) => ({ ...e }));
+  }
+
+  // `poppy:browser-sign-in` (§4.7, §6): quem lista o browser_session_endpoint e oferece sign-in
+  // precisa suportá-lo. No site que não aplica os scopes, ele dá a conta inteira — e diz isso.
+  if (web?.browserSession && offersSignIn && !(BROWSER_SIGN_IN_SCOPE in scopes)) {
+    scopes[BROWSER_SIGN_IN_SCOPE] = web.unscoped
+      ? BROWSER_SIGN_IN_UNSCOPED_DESCRIPTION
+      : BROWSER_SIGN_IN_SCOPED_DESCRIPTION;
+    if (web.unscoped && !(BROWSER_SIGN_IN_SCOPE in scopeHints)) {
+      scopeHints[BROWSER_SIGN_IN_SCOPE] = { changes: 'irreversible', personal_data: true };
+    }
+  }
+  const catalog = Object.keys(scopes);
+  const withBrowserScope = (type: { scopes: string[] } | null) =>
+    type && BROWSER_SIGN_IN_SCOPE in scopes && !type.scopes.includes(BROWSER_SIGN_IN_SCOPE)
+      ? { scopes: [...type.scopes, BROWSER_SIGN_IN_SCOPE] }
+      : type;
+
+  const assertionMaxLifetime = positive(input.assertionMaxLifetime, 300, 'assertionMaxLifetime');
+  if (assertionMaxLifetime < 300) {
+    fail('assertionMaxLifetime precisa ser >= 300: a spec proíbe recusar assertions de até 5 min.');
   }
 
   const dpopAlgs = input.dpop?.algorithms ?? ['ES256'];
@@ -564,23 +720,19 @@ export function resolvePoppyConfig(
     scopes,
     scopeHints,
     signIn: {
-      direct: typeScopes(signInInput.direct, all, 'direct'),
-      device: typeScopes(signInInput.device, all, 'device'),
+      direct: withBrowserScope(typeScopes(signInInput.direct, catalog, 'direct')),
+      device: withBrowserScope(typeScopes(signInInput.device, catalog, 'device')),
       mediated,
     },
     agent: input.agent?.protocols?.length ? { protocols: [...input.agent.protocols] } : null,
     apis: [...(input.apis ?? [])],
-    feedback: input.feedback ?? null,
-    excludedTasks: input.excludedTasks ?? null,
-    web:
-      input.web === false
+    tasks,
+    web,
+    extensions,
+    par:
+      input.par === false || signInInput.direct === false
         ? null
-        : {
-            browserSession: input.web?.browserSession !== false,
-            login: input.web?.login,
-            redirectTo,
-          },
-    extensions: { ...(input.extensions ?? {}) },
+        : { required: typeof input.par === 'object' && input.par.required === true },
     clients: {
       requireRegistration: input.clients?.requireRegistration === true,
       isRegistered: membership(input.clients?.registered),
@@ -595,13 +747,14 @@ export function resolvePoppyConfig(
     authorizationCodeTtl: positive(input.authorizationCodeTtl, 60, 'authorizationCodeTtl'),
     deviceCodeTtl: positive(input.deviceCodeTtl, 600, 'deviceCodeTtl'),
     pollInterval: positive(input.pollInterval, 5, 'pollInterval'),
-    assertionMaxLifetime: positive(input.assertionMaxLifetime, 300, 'assertionMaxLifetime'),
+    assertionMaxLifetime,
     sessionJwt: { maxAge: positive(input.sessionJwt?.maxAge, 60, 'sessionJwt.maxAge') },
     dpop: {
       required: input.dpop?.required === true,
       requireNonce: input.dpop?.requireNonce === true,
       maxAge: positive(input.dpop?.maxAge, 60, 'dpop.maxAge'),
       algorithms: [...dpopAlgs],
+      bindRefreshTokens: input.dpop?.bindRefreshTokens !== false,
     },
     replay: input.replay ?? 'database',
     rateLimit,
@@ -610,6 +763,83 @@ export function resolvePoppyConfig(
   };
   resolved.devTools = input.devTools ?? null;
   return input.devTools === true ? withAgoraDevScope(resolved, input) : resolved;
+}
+
+/** O único scope que o protocolo define: o navegador do agente entra logado no site (§6). */
+export const BROWSER_SIGN_IN_SCOPE = 'poppy:browser-sign-in';
+/** A descrição quando o site aplica os scopes do cookie. */
+export const BROWSER_SIGN_IN_SCOPED_DESCRIPTION =
+  'Use the website signed in, with the other access you approve';
+/** A descrição quando o site dá a conta inteira (`web.unscoped`, §6). */
+export const BROWSER_SIGN_IN_UNSCOPED_DESCRIPTION =
+  'Browse the website, and see and do anything your account can do there';
+/** O nome da extensão Mediated Sign-In em `extensions`. */
+export const MEDIATED_SIGN_IN_EXTENSION = 'mediated-sign-in';
+
+const SKILL_DIGEST = /^sha256:[0-9a-f]{64}$/;
+
+function resolveTasks(
+  input: PoppyTasksConfigInput | undefined,
+  apis: PoppyApiEntry[],
+): ResolvedPoppyConfig['tasks'] {
+  if (!input) return null;
+  if (input.endpoint !== undefined) {
+    absoluteUrl(input.endpoint, 'tasks.endpoint');
+    if (input.excludedTasks || input.skillIndex || input.feedback || input.resolve) {
+      fail('tasks.endpoint é um endpoint do app: os demais campos de tasks ficam nele.');
+    }
+    return { endpoint: input.endpoint, response: {} };
+  }
+  const response: PoppyTasksResponse = {};
+  if (input.excludedTasks) {
+    for (const item of input.excludedTasks) {
+      if (typeof item?.task !== 'string' || !item.task.trim()) {
+        fail('tasks.excludedTasks[].task é obrigatório.');
+      }
+      if (item.alternative) validateAlternative(item.alternative, apis);
+    }
+    response.excluded_tasks = input.excludedTasks.map((t) => ({ ...t }));
+  }
+  if (input.skillIndex) {
+    const index = input.skillIndex;
+    if (typeof index.$schema !== 'string' || !Array.isArray(index.skills)) {
+      fail('tasks.skillIndex precisa de $schema e skills (Agent Skills discovery 0.2.0).');
+    }
+    for (const skill of index.skills as Record<string, unknown>[]) {
+      for (const field of ['name', 'description', 'type', 'url']) {
+        if (typeof skill?.[field] !== 'string' || !skill[field]) {
+          fail(`tasks.skillIndex.skills[].${field} é obrigatório.`);
+        }
+      }
+      if (typeof skill.digest !== 'string' || !SKILL_DIGEST.test(skill.digest)) {
+        fail('tasks.skillIndex.skills[].digest precisa ser sha256: + 64 hex minúsculos.');
+      }
+    }
+    response.skill_index = index;
+  }
+  if (input.feedback) {
+    absoluteUrl(input.feedback.endpoint, 'tasks.feedback.endpoint');
+    response.feedback = { endpoint: input.feedback.endpoint };
+  }
+  if (input.resolve !== undefined && typeof input.resolve !== 'function') {
+    fail('tasks.resolve precisa ser uma função.');
+  }
+  return { endpoint: null, response, resolve: input.resolve };
+}
+
+function validateAlternative(alternative: PoppyAlternative, apis: PoppyApiEntry[]): void {
+  const refs = alternative.references ?? [];
+  if (!alternative.instructions && refs.length === 0) {
+    fail('tasks.excludedTasks[].alternative precisa de instructions ou references (§9.2).');
+  }
+  for (const ref of refs) {
+    absoluteUrl(ref.url, 'tasks alternative references[].url');
+    if (ref.type === 'openapi' || ref.type === 'mcp') {
+      if (!apis.some((a) => a.type === ref.type && a.url === ref.url)) {
+        fail(`references[] ${ref.type} precisa apontar uma entrada de apis (${ref.url}).`);
+      }
+    }
+  }
 }
 
 /** The scope that lets a personal agent use the app's Agora developer tools over MCP. */

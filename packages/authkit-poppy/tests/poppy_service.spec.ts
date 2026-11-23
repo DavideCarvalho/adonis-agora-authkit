@@ -81,18 +81,18 @@ function failure(result: PoppyVerifyResult) {
 }
 
 test.group('poppy — discovery', () => {
-  test('poppy.json 0.3: domínio exato, auth com scopes/hints, sem resource nem direct/device', async ({
+  test('poppy.json 1.0: domínio exato, auth com scopes/hints, descrição do agente, tasks, web', async ({
     assert,
   }) => {
     const env = await setupPoppy({
       scopeHints: { 'orders:read': { changes: 'none', personal_data: true } },
-      feedback: { endpoint: 'https://shop.example/poppy/feedback' },
-      excludedTasks: { url: 'https://shop.example/poppy/excluded.json' },
+      tasks: { feedback: { endpoint: 'https://shop.example/poppy/feedback' } },
       agent: {
         protocols: [
           {
             type: 'poppy',
             endpoint: 'https://shop.example/poppy/conversations',
+            description: 'Anything about your orders',
             access: 'signed_in',
             resource: 'https://shop.example/poppy/conversations',
           },
@@ -100,26 +100,35 @@ test.group('poppy — discovery', () => {
       },
     });
     const doc = env.poppy.discoveryDocument('SHOP.example') as any;
-    assert.equal(doc.protocol_version, '0.3');
+    assert.equal(doc.protocol_version, '1.0');
+    assert.notProperty(doc, 'supported_versions');
     assert.deepEqual(doc.organization, { name: 'Shop', domain: 'shop.example' });
     assert.equal(doc.auth.issuer, POPPY_ISSUER);
+    assert.notProperty(doc.auth, 'disabled');
     assert.equal(doc.auth.scopes['orders:read'], 'See your orders');
+    assert.equal(
+      doc.auth.scopes['poppy:browser-sign-in'],
+      'Browse the website, and see and do anything your account can do there',
+    );
     assert.deepEqual(doc.auth.scope_hints, {
       'orders:read': { changes: 'none', personal_data: true },
+      'poppy:browser-sign-in': { changes: 'irreversible', personal_data: true },
     });
-    assert.notProperty(doc.auth, 'direct');
-    assert.notProperty(doc.auth, 'device');
-    assert.notProperty(doc.auth, 'custom_scopes');
     assert.deepEqual(doc.agent.protocols, [
       {
         type: 'poppy',
         endpoint: 'https://shop.example/poppy/conversations',
+        description: 'Anything about your orders',
         access: 'signed_in',
       },
     ]);
-    assert.deepEqual(doc.feedback, { endpoint: 'https://shop.example/poppy/feedback' });
-    assert.deepEqual(doc.excluded_tasks, { url: 'https://shop.example/poppy/excluded.json' });
-    assert.equal(doc.web.browser_session_endpoint, `${POPPY_ISSUER}/browser-session`);
+    assert.deepEqual(doc.tasks, { endpoint: `${POPPY_ISSUER}/tasks` });
+    assert.notProperty(doc, 'feedback');
+    assert.notProperty(doc, 'excluded_tasks');
+    assert.deepEqual(doc.web, {
+      browser_session_endpoint: `${POPPY_ISSUER}/browser-session`,
+      unscoped: true,
+    });
     assert.equal(
       (env.poppy.discoveryDocument('shop.example.co.uk') as any).organization.domain,
       'shop.example.co.uk',
@@ -135,7 +144,8 @@ test.group('poppy — discovery', () => {
       { issuer: 'http://localhost:3333/oidc' },
     );
     const doc = env.poppy.discoveryDocument('localhost:3333') as any;
-    assert.equal(doc.organization.domain, 'localhost');
+    // `organization.domain` leva a porta quando não é a 443 (§3.1).
+    assert.equal(doc.organization.domain, 'localhost:3333');
     assert.equal(doc.web.browser_session_endpoint, 'http://localhost:3333/poppy/browser-session');
     assert.equal(
       (env.poppy.protectedResourceMetadata('localhost:3333') as any).resource,
@@ -175,7 +185,90 @@ test.group('poppy — discovery', () => {
     assert.notProperty(meta, 'authorization_endpoint');
     assert.notProperty(meta, 'device_authorization_endpoint');
     assert.deepEqual(meta.grant_types_supported, ['refresh_token']);
+    assert.notProperty(meta, 'pushed_authorization_request_endpoint');
+    // Sem nenhum sign-in: `auth.disabled`, e o scope do navegador não é oferecido.
+    const doc = env.poppy.discoveryDocument('shop.example') as any;
+    assert.isTrue(doc.auth.disabled);
+    assert.notProperty(doc.auth.scopes, 'poppy:browser-sign-in');
     await env.close();
+  });
+
+  test('web.disabled e web.unscoped: false; o scope do navegador muda de descrição', async ({
+    assert,
+  }) => {
+    const disabled = await setupPoppy({ web: { disabled: true } });
+    const doc = disabled.poppy.discoveryDocument('shop.example') as any;
+    assert.deepEqual(doc.web, { disabled: true });
+    assert.notProperty(doc.auth.scopes, 'poppy:browser-sign-in');
+    await disabled.close();
+
+    const scoped = await setupPoppy({ web: { unscoped: false } });
+    const scopedDoc = scoped.poppy.discoveryDocument('shop.example') as any;
+    assert.deepEqual(scopedDoc.web, {
+      browser_session_endpoint: `${POPPY_ISSUER}/browser-session`,
+    });
+    assert.equal(
+      scopedDoc.auth.scopes['poppy:browser-sign-in'],
+      'Use the website signed in, with the other access you approve',
+    );
+    assert.notProperty(scopedDoc.auth.scope_hints ?? {}, 'poppy:browser-sign-in');
+    // Oferecido nos dois sign-ins, mesmo com lista explícita.
+    assert.include(scoped.poppy.cfg.signIn.direct!.scopes, 'poppy:browser-sign-in');
+    await scoped.close();
+
+    const explicit = await setupPoppy({ signIn: { direct: { scopes: ['orders:read'] } } });
+    assert.deepEqual(explicit.poppy.cfg.signIn.direct!.scopes, [
+      'orders:read',
+      'poppy:browser-sign-in',
+    ]);
+    await explicit.close();
+  });
+
+  test('extensões: uma entrada por versão; Mediated Sign-In publicada como lista', async ({
+    assert,
+  }) => {
+    const env = await setupPoppy({
+      extensions: {
+        'example.com/gift-wrap': [
+          { version: '2', endpoint: 'https://shop.example/gift-wrap/v2' },
+          { version: '1', endpoint: 'https://shop.example/gift-wrap' },
+        ],
+      },
+    });
+    const doc = env.poppy.discoveryDocument('shop.example') as any;
+    assert.lengthOf(doc.extensions['example.com/gift-wrap'], 2);
+    await env.close();
+    assert.throws(
+      () =>
+        resolvePoppyConfig(
+          {
+            organization: { name: 'S', domain: 's.example' },
+            scopes: { a: 'A' },
+            extensions: { x: { version: '1' } as any },
+          },
+          undefined,
+        ),
+      /uma entrada por versão/,
+    );
+  });
+
+  test('protected resource metadata lista os scopes; PAR na metadata do issuer', async ({
+    assert,
+  }) => {
+    const env = await setupPoppy();
+    const prm = env.poppy.protectedResourceMetadata('shop.example') as any;
+    assert.deepEqual(prm.resource, 'https://shop.example');
+    assert.includeMembers(prm.scopes_supported, ['orders:read', 'poppy:browser-sign-in']);
+    const meta = env.poppy.authorizationServerMetadata() as any;
+    assert.equal(meta.pushed_authorization_request_endpoint, `${POPPY_ISSUER}/oauth/par`);
+    assert.isFalse(meta.require_pushed_authorization_requests);
+    await env.close();
+    const off = await setupPoppy({ par: false });
+    assert.notProperty(
+      off.poppy.authorizationServerMetadata(),
+      'pushed_authorization_request_endpoint',
+    );
+    await off.close();
   });
 });
 
@@ -344,24 +437,32 @@ test.group('poppy — header Poppy-Session', () => {
     await env.close();
   });
 
-  test('sub ou agent_id diferente da Session; jti repetido; Session encerrada', async ({
+  test('Session por client_id + sid + User ID; jti repetido; Session encerrada → session_ended', async ({
     assert,
   }) => {
     const env = await setupPoppy();
-    assert.isTrue((await env.poppy.verifyAccess(await env.request({ sid: 's1' }))).ok);
-    for (const opts of [{ sub: 'outro' }, { agentId: 'agt_2' }]) {
-      const f = failure(await env.poppy.verifyAccess(await env.request({ sid: 's1', ...opts })));
-      assert.equal(f.error, 'invalid_session');
+    const first = await env.poppy.verifyAccess(await env.request({ sid: 's1', agentId: 'agt_1' }));
+    assert.isTrue(first.ok);
+    // O mesmo sid com outro User ID é outra Session (§5.3); o Agent ID não é conferido.
+    const other = await env.poppy.verifyAccess(await env.request({ sid: 's1', sub: 'outro' }));
+    assert.isTrue(other.ok);
+    if (first.ok && other.ok) assert.notEqual(other.principal.sessionId, first.principal.sessionId);
+    const agent2 = await env.poppy.verifyAccess(await env.request({ sid: 's1', agentId: 'agt_2' }));
+    assert.isTrue(agent2.ok);
+    if (first.ok && agent2.ok) {
+      assert.equal(agent2.principal.sessionId, first.principal.sessionId);
+      assert.equal(agent2.principal.agentId, 'agt_1');
     }
     const req = await env.request({ sid: 's1' });
     assert.isTrue((await env.poppy.verifyAccess(req)).ok);
     assert.match(failure(await env.poppy.verifyAccess(req)).description, /jti/);
 
     await env.poppy.disconnectClient(CLIENT_ID);
-    assert.match(
-      failure(await env.poppy.verifyAccess(await env.request({ sid: 's1' }))).description,
-      /ended/,
-    );
+    const ended = failure(await env.poppy.verifyAccess(await env.request({ sid: 's1' })));
+    assert.equal(ended.status, 400);
+    assert.equal(ended.error, 'session_ended');
+    assert.deepInclude(ended.body!, { error: 'session_ended' });
+    assert.isNull(ended.wwwAuthenticate);
     // Um sid novo começa outra Session.
     assert.isTrue((await env.poppy.verifyAccess(await env.request({ sid: 's2' }))).ok);
     await env.close();
@@ -379,6 +480,59 @@ test.group('poppy — header Poppy-Session', () => {
     );
     assert.isTrue(a.ok && b.ok);
     if (a.ok && b.ok) assert.notEqual(a.principal.sessionId, b.principal.sessionId);
+    await env.close();
+  });
+
+  test('Poppy-Version: obrigatório e compatível (mesmo major); antes da Session', async ({
+    assert,
+  }) => {
+    const env = await setupPoppy();
+    for (const version of [null, '0.3', '2.0', 'x', '1']) {
+      const f = failure(await env.poppy.verifyAccess(await env.request({ version, sid: 'v1' })));
+      assert.equal(f.status, 400, String(version));
+      assert.equal(f.error, 'version_unsupported', String(version));
+      assert.equal(f.body!.error, 'version_unsupported');
+    }
+    const later = await env.poppy.verifyAccess(await env.request({ version: '1.3', sid: 'v1' }));
+    assert.isTrue(later.ok);
+    if (later.ok) assert.equal(later.principal.protocolVersion, '1.3');
+    const ok = await env.poppy.verifyAccess(await env.request({ sid: 'v1' }));
+    assert.isTrue(ok.ok);
+    if (ok.ok) assert.equal(ok.principal.protocolVersion, '1.0');
+    await env.close();
+  });
+
+  test('Poppy-Extensions: só as listadas, na versão listada; extension_required', async ({
+    assert,
+  }) => {
+    const env = await setupPoppy({
+      extensions: { operations: [{ version: '3', endpoint: 'https://shop.example/ops' }] },
+    });
+    const declared = async (extensionsHeader: string) => {
+      const r = await env.poppy.verifyAccess(await env.request({ extensionsHeader }));
+      if (!r.ok) throw new Error(r.description);
+      return r.principal.extensions;
+    };
+    assert.deepEqual(await declared('"operations";v="3", "links";v="1"'), { operations: '3' });
+    assert.deepEqual(await declared('"operations";v="2"'), {});
+    assert.deepEqual(await declared('operations;v="3"'), {});
+    assert.deepEqual(await declared('"operations";v="3", ,'), {});
+    assert.deepEqual(await declared('"operations";v=3'), {});
+    const missing = failure(
+      await env.poppy.verifyAccess(await env.request(), { extension: 'operations' }),
+    );
+    assert.equal(missing.status, 403);
+    assert.deepInclude(missing.body!, { error: 'extension_required', extension: 'operations' });
+    assert.isTrue(
+      (
+        await env.poppy.verifyAccess(
+          await env.request({ extensionsHeader: '"operations";v="3"' }),
+          {
+            extension: 'operations',
+          },
+        )
+      ).ok,
+    );
     await env.close();
   });
 
@@ -643,7 +797,7 @@ test.group('poppy — refresh, revogação e contas', () => {
     await env.close();
   });
 
-  test('Session com outra conta → invalid_session; deslogada continua', async ({ assert }) => {
+  test('Session com outra conta → session_ended; deslogada continua', async ({ assert }) => {
     const env = await setupPoppy();
     const jane = await env.signIn();
     const john = await env.signIn({ accountId: OTHER_ACCOUNT_ID });
@@ -654,7 +808,7 @@ test.group('poppy — refresh, revogação e contas', () => {
       await env.poppy.verifyAccess(await env.request({ token: john.access_token })),
     );
     assert.equal(f.status, 400);
-    assert.equal(f.error, 'invalid_session');
+    assert.equal(f.error, 'session_ended');
     const out = await env.poppy.verifyAccess(await env.request());
     assert.isTrue(out.ok && !out.principal.signedIn);
     await env.close();
@@ -957,11 +1111,9 @@ test.group('poppy — extensão Mediated Sign-In', () => {
       },
     });
     const doc = env.poppy.discoveryDocument('shop.example') as any;
-    assert.deepEqual(doc.extensions['mediated-sign-in'], {
-      version: '1',
-      fields,
-      scopes: ['orders:read'],
-    });
+    assert.deepEqual(doc.extensions['mediated-sign-in'], [
+      { version: '1', fields, scopes: ['orders:read'] },
+    ]);
     assert.notProperty(doc.auth, 'mediated');
     assert.include(
       (env.poppy.authorizationServerMetadata() as any).grant_types_supported,
@@ -1130,10 +1282,20 @@ test.group('poppy — slot de endpoints do agente', () => {
     try {
       const env = await setupPoppy({ agent: undefined });
       assert.notProperty(env.poppy.discoveryDocument('shop.example') as any, 'agent');
+      // Sem `description` (obrigatória na 1.0): a entrada não sai.
       slot[key] = { conversations: 'https://shop.example/poppy/conversations' };
+      assert.notProperty(env.poppy.discoveryDocument('shop.example') as any, 'agent');
+      slot[key] = {
+        conversations: 'https://shop.example/poppy/conversations',
+        description: 'Anything about your orders',
+      };
       const doc = env.poppy.discoveryDocument('shop.example') as any;
       assert.deepEqual(doc.agent.protocols, [
-        { type: 'poppy', endpoint: 'https://shop.example/poppy/conversations' },
+        {
+          type: 'poppy',
+          endpoint: 'https://shop.example/poppy/conversations',
+          description: 'Anything about your orders',
+        },
       ]);
       await env.close();
     } finally {
@@ -1150,7 +1312,9 @@ test.group('poppy — config', () => {
     assert.equal(only.organization.domain, 'shop.example');
     assert.equal(only.prefix, '/poppy');
     assert.isNull(only.signIn.mediated);
-    assert.deepEqual(only.signIn.direct!.scopes, ['orders:read']);
+    assert.deepEqual(only.signIn.direct!.scopes, ['orders:read', 'poppy:browser-sign-in']);
+    assert.isTrue(only.web!.unscoped);
+    assert.deepEqual(only.par, { required: false });
     assert.isFalse(only.dpop.required);
     assert.equal(only.sessionJwt.maxAge, 60);
 
@@ -1166,7 +1330,7 @@ test.group('poppy — config', () => {
       { organization: org, scopes: { 'poppy:admin': 'x' } },
       undefined,
     )!;
-    assert.deepEqual(named.scopes, { 'poppy:admin': 'x' });
+    assert.equal(named.scopes['poppy:admin'], 'x');
 
     // Os scopes da delegação PACT viram os scopes do Poppy por default (o authkit passa
     // `delegationScopes` para o `resolve` da extension).
@@ -1176,7 +1340,7 @@ test.group('poppy — config', () => {
     });
     assert.equal(definition.prefix, '/poppy');
     assert.equal(definition.grantIdPrefix, 'pgrant_');
-    assert.deepEqual(resolvePoppyConfig({ organization: org }, scopes)!.scopes, scopes);
+    assert.deepInclude(resolvePoppyConfig({ organization: org }, scopes)!.scopes, scopes);
 
     const signedOutOnly = resolvePoppyConfig(
       { organization: org, signIn: { direct: false, device: false } },
@@ -1200,8 +1364,66 @@ test.group('poppy — config', () => {
     assert.throws(bad({ scopeHints: { a: { changes: 'none' } } }), /personal_data/);
     assert.throws(bad({ web: { redirectTo: 'https://evil.example' } }), /redirectTo/);
     assert.throws(
-      bad({ agent: { protocols: [{ type: 'poppy', endpoint: 'https://a.b', access: 'x' }] } }),
+      bad({
+        agent: {
+          protocols: [{ type: 'poppy', endpoint: 'https://a.b', description: 'd', access: 'x' }],
+        },
+      }),
       /access/,
+    );
+    assert.throws(
+      bad({ agent: { protocols: [{ type: 'poppy', endpoint: 'https://a.b' }] } }),
+      /description/,
+    );
+    assert.throws(
+      bad({
+        signIn: { direct: false, device: false },
+        agent: {
+          protocols: [
+            { type: 'poppy', endpoint: 'https://a.b', description: 'd', access: 'signed_in' },
+          ],
+        },
+      }),
+      /signed_in/,
+    );
+    assert.throws(bad({ feedback: { endpoint: 'https://a.b/f' } }), /tasks/);
+    assert.throws(bad({ assertionMaxLifetime: 120 }), /300/);
+    assert.throws(bad({ web: { disabled: true, browserSession: true } }), /disabled/);
+    assert.throws(bad({ web: { browserSession: false, unscoped: true } }), /unscoped/);
+    assert.throws(bad({ tasks: { excludedTasks: [{ task: '' }] } }), /task/);
+    assert.throws(
+      bad({ tasks: { excludedTasks: [{ task: 'Wire', alternative: {} }] } }),
+      /instructions ou references/,
+    );
+    assert.throws(
+      bad({
+        tasks: {
+          excludedTasks: [
+            {
+              task: 'Wire',
+              alternative: {
+                references: [{ type: 'mcp', url: 'https://other.example/mcp', tool: 't' }],
+              },
+            },
+          ],
+        },
+      }),
+      /apis/,
+    );
+    assert.throws(
+      bad({
+        tasks: {
+          skillIndex: {
+            $schema: 'https://schemas.agentskills.io/discovery/0.2.0/schema.json',
+            skills: [{ name: 'a', description: 'b', type: 'skill-md', url: 'x', digest: 'md5:1' }],
+          },
+        },
+      }),
+      /digest/,
+    );
+    assert.throws(
+      bad({ tasks: { endpoint: 'https://a.b/tasks', feedback: { endpoint: 'https://a.b/f' } } }),
+      /tasks.endpoint/,
     );
     assert.throws(
       bad({
@@ -1221,17 +1443,299 @@ test.group('poppy — config', () => {
     assert.deepEqual(definition.csrfExemptPaths, [
       '/agents-poppy/oauth/token',
       '/agents-poppy/oauth/revoke',
+      '/agents-poppy/oauth/par',
       '/agents-poppy/oauth/device',
       '/agents-poppy/browser-session',
       '/agents-poppy/browser-session/authorize',
     ]);
     assert.deepEqual(
       definition.tables!.map((t) => t.name),
-      ['auth_poppy_sessions', 'auth_poppy_tokens', 'auth_poppy_requests', 'auth_poppy_jtis'],
+      [
+        'auth_poppy_sessions',
+        'auth_poppy_tokens',
+        'auth_poppy_requests',
+        'auth_poppy_grant_keys',
+        'auth_poppy_jtis',
+      ],
     );
     assert.equal(definition.messages!['pt-BR']['mail.poppy_sign_in.code_label'], 'Seu código:');
     const ctx = (marker: unknown) => ({ session: { get: () => marker } }) as any;
     assert.isTrue(definition.isAgentBrowser!(ctx({ sessionId: 'ses_1' })));
     assert.isFalse(definition.isAgentBrowser!(ctx(undefined)));
+  });
+});
+
+test.group('poppy — 1.0: PAR, chave DPoP no refresh, resources e tasks', () => {
+  const PAR_URL = `${POPPY_ISSUER}/oauth/par`;
+
+  /** Empurra um pedido Direct (RFC 9126) e devolve o `request_uri`. */
+  async function push(env: Env, extra: Record<string, unknown> = {}, proof?: string) {
+    const { verifier, challenge } = pkce();
+    const pushed = await env.poppy.pushAuthorization(
+      await env.form({
+        response_type: 'code',
+        redirect_uri: REDIRECT_URI,
+        scope: 'orders:read',
+        state: 'st4te',
+        prompt: 'consent',
+        code_challenge: challenge,
+        code_challenge_method: 'S256',
+        ...extra,
+      }),
+      proof,
+    );
+    return { pushed, verifier };
+  }
+
+  /** Abre o `request_uri`, aprova e troca o código. */
+  async function finish(env: Env, requestUri: string, verifier: string, proof?: string) {
+    const start = await env.poppy.startAuthorization(
+      { client_id: CLIENT_ID, request_uri: requestUri },
+      ACCOUNT_ID,
+    );
+    if (start.kind !== 'consent') throw new Error(`unexpected ${start.kind}`);
+    const decided = await env.poppy.decideAuthorization({
+      requestId: start.request.id,
+      accountId: ACCOUNT_ID,
+      allow: true,
+      scopes: ['orders:read'],
+    });
+    const url = new URL(decided!.url);
+    assert_(url.searchParams.get('state') === 'st4te', 'state');
+    return env.poppy.token(
+      await env.form({
+        grant_type: 'authorization_code',
+        code: url.searchParams.get('code'),
+        redirect_uri: REDIRECT_URI,
+        code_verifier: verifier,
+      }),
+      proof,
+    );
+  }
+
+  function assert_(ok: boolean, what: string) {
+    if (!ok) throw new Error(what);
+  }
+
+  test('PAR: request_uri de uso único, só para o mesmo client; os parâmetros vêm do push', async ({
+    assert,
+  }) => {
+    const env = await setupPoppy();
+    const { pushed, verifier } = await push(env);
+    assert.match(pushed.request_uri, /^urn:ietf:params:oauth:request_uri:/);
+    assert.equal(pushed.expires_in, 60);
+    const res = await finish(env, pushed.request_uri, verifier);
+    assert.equal(res.scope, 'orders:read');
+    // Uso único.
+    const again = await env.poppy.startAuthorization(
+      { client_id: CLIENT_ID, request_uri: pushed.request_uri },
+      ACCOUNT_ID,
+    );
+    assert.equal(again.kind, 'error');
+
+    // Expirado.
+    const old = await push(env);
+    env.setNow(Date.now() + 61_000);
+    const late = await env.poppy.startAuthorization(
+      { client_id: CLIENT_ID, request_uri: old.pushed.request_uri },
+      ACCOUNT_ID,
+    );
+    assert.equal(late.kind, 'error');
+    env.setNow(null);
+
+    // Erros no push: JSON OAuth, sem redirecionar.
+    assert.equal((await rejects(() => push(env, { scope: 'nope' }))).code, 'invalid_scope');
+    assert.equal(
+      (await rejects(() => push(env, { redirect_uri: 'https://evil.example/cb' }))).code,
+      'invalid_request',
+    );
+    assert.equal(
+      (await rejects(() => push(env, { request_uri: 'urn:x' }))).code,
+      'invalid_request',
+    );
+    assert.equal(
+      (
+        await rejects(async () =>
+          env.poppy.pushAuthorization({ client_id: CLIENT_ID, scope: 'orders:read' }, undefined),
+        )
+      ).code,
+      'invalid_client',
+    );
+    await env.close();
+  });
+
+  test('PAR exigido: authorization_endpoint sem request_uri volta com invalid_request', async ({
+    assert,
+  }) => {
+    const env = await setupPoppy({ par: { required: true } });
+    assert.isTrue(
+      (env.poppy.authorizationServerMetadata() as any).require_pushed_authorization_requests,
+    );
+    const { challenge } = pkce();
+    const start = await env.poppy.startAuthorization(
+      {
+        response_type: 'code',
+        client_id: CLIENT_ID,
+        redirect_uri: REDIRECT_URI,
+        scope: 'orders:read',
+        code_challenge: challenge,
+        code_challenge_method: 'S256',
+      },
+      ACCOUNT_ID,
+    );
+    assert.equal(start.kind, 'redirect');
+    if (start.kind === 'redirect') {
+      assert.equal(new URL(start.url).searchParams.get('error'), 'invalid_request');
+    }
+    const { pushed, verifier } = await push(env);
+    assert.isOk((await finish(env, pushed.request_uri, verifier)).access_token);
+    await env.close();
+  });
+
+  test('PAR com prova DPoP: o código só sai com a mesma chave', async ({ assert }) => {
+    const env = await setupPoppy();
+    const key = await dpopKey();
+    const other = await dpopKey();
+    const a = await push(env, {}, await dpopProof(key, { htu: PAR_URL }));
+    const err = await rejects(() => finish(env, a.pushed.request_uri, a.verifier, undefined));
+    assert.equal(err.code, 'invalid_grant');
+    const b = await push(env, {}, await dpopProof(key, { htu: PAR_URL }));
+    const wrong = await rejects(async () =>
+      finish(env, b.pushed.request_uri, b.verifier, await dpopProof(other)),
+    );
+    assert.equal(wrong.code, 'invalid_grant');
+    const c = await push(env, {}, await dpopProof(key, { htu: PAR_URL }));
+    const ok = await finish(env, c.pushed.request_uri, c.verifier, await dpopProof(key));
+    assert.equal(ok.token_type, 'DPoP');
+    await env.close();
+  });
+
+  test('refresh com a chave DPoP do sign-in; outra chave ou sem prova → invalid_grant', async ({
+    assert,
+  }) => {
+    const env = await setupPoppy();
+    const key = await dpopKey();
+    const signed = await env.signIn({ dkey: key });
+    const refresh = async (proof?: string) =>
+      env.poppy.token(
+        await env.form({ grant_type: 'refresh_token', refresh_token: signed.refresh_token }),
+        proof,
+      );
+    assert.equal((await rejects(() => refresh())).code, 'invalid_grant');
+    assert.equal(
+      (await rejects(async () => refresh(await dpopProof(await dpopKey())))).code,
+      'invalid_grant',
+    );
+    assert.equal((await refresh(await dpopProof(key))).token_type, 'DPoP');
+    // MCP: o token sai Bearer, mas o refresh continua exigindo a chave.
+    const mcp = await env.poppy.token(
+      await env.form({
+        grant_type: 'refresh_token',
+        refresh_token: signed.refresh_token,
+        resource: MCP_URL,
+      }),
+      await dpopProof(key),
+    );
+    assert.equal(mcp.token_type, 'Bearer');
+    await env.close();
+
+    // Sign-in sem prova: refresh solto, como antes. Desligado: qualquer chave.
+    const loose = await setupPoppy({ dpop: { bindRefreshTokens: false } });
+    const s2 = await loose.signIn({ dkey: key });
+    const r2 = await loose.poppy.token(
+      await loose.form({ grant_type: 'refresh_token', refresh_token: s2.refresh_token }),
+      await dpopProof(await dpopKey()),
+    );
+    assert.equal(r2.token_type, 'DPoP');
+    const s3 = await loose.signIn();
+    assert.isOk(
+      (
+        await loose.poppy.token(
+          await loose.form({ grant_type: 'refresh_token', refresh_token: s3.refresh_token }),
+          undefined,
+        )
+      ).access_token,
+    );
+    await loose.close();
+  });
+
+  test('resource = https://{organization.domain} dá o token default', async ({ assert }) => {
+    const env = await setupPoppy();
+    const signed = await env.signIn();
+    const res = await env.poppy.token(
+      await env.form({
+        grant_type: 'refresh_token',
+        refresh_token: signed.refresh_token,
+        resource: 'https://shop.example',
+      }),
+      undefined,
+    );
+    const ok = await env.poppy.verifyAccess(await env.request({ token: res.access_token }));
+    assert.isTrue(ok.ok);
+    if (ok.ok) assert.isNull(ok.principal.resource);
+    await env.close();
+  });
+
+  test('client assertion de 5 minutos é aceita', async ({ assert }) => {
+    const env = await setupPoppy();
+    const iat = Math.floor(Date.now() / 1000);
+    const client = await env.poppy.authenticateClient({
+      ...(await env.form({})),
+      client_assertion: await env.clientAssertion({ exp: iat + 300 }),
+    });
+    assert.equal(client.clientId, CLIENT_ID);
+    await env.close();
+  });
+
+  test('tasks: resposta com o header da Session; por Session com resolve', async ({ assert }) => {
+    const TASKS_URL = `${POPPY_ISSUER}/tasks`;
+    const excluded = [
+      {
+        task: 'Send a wire transfer',
+        alternative: { references: [{ type: 'web' as const, url: 'https://shop.example/wire' }] },
+      },
+      { task: 'Close an account' },
+    ];
+    const env = await setupPoppy({
+      tasks: {
+        excludedTasks: excluded,
+        feedback: { endpoint: 'https://shop.example/poppy/feedback' },
+      },
+    });
+    const res = await env.poppy.tasksResponse(await env.request({ url: TASKS_URL }));
+    assert.isTrue(res.ok);
+    if (res.ok) {
+      assert.isFalse(res.perSession);
+      assert.deepEqual(res.body, {
+        excluded_tasks: excluded,
+        feedback: { endpoint: 'https://shop.example/poppy/feedback' },
+      });
+    }
+    const bad = await env.poppy.tasksResponse(
+      await env.request({ url: TASKS_URL, version: '0.3' }),
+    );
+    assert.isTrue(!bad.ok && bad.error === 'version_unsupported');
+    await env.close();
+
+    const seen: string[] = [];
+    const per = await setupPoppy({
+      tasks: {
+        resolve: ({ principal, response }) => {
+          seen.push(principal.userId);
+          return { ...response, excluded_tasks: [{ task: 'Beta' }] };
+        },
+      },
+    });
+    const r = await per.poppy.tasksResponse(await per.request({ url: TASKS_URL }));
+    assert.isTrue(r.ok && r.perSession);
+    if (r.ok) assert.deepEqual(r.body, { excluded_tasks: [{ task: 'Beta' }] });
+    assert.deepEqual(seen, ['usr_Q7c1vK']);
+    await per.close();
+
+    const external = await setupPoppy({ tasks: { endpoint: 'https://api.shop.example/tasks' } });
+    assert.deepEqual((external.poppy.discoveryDocument('shop.example') as any).tasks, {
+      endpoint: 'https://api.shop.example/tasks',
+    });
+    await external.close();
   });
 });
