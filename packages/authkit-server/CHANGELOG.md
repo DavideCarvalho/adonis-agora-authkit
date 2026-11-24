@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.52
+
+### Minor Changes
+
+- [#545](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/545) [`1c1e74d`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/1c1e74dff54da413fee2501c4080c437f26cb241) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The personal-agent consent screen can mark a scope the account already granted (`granted` on `AgentConsentScope`, message `agents.consent.granted_hint`).
+
 ## 1.0.0-rc.51
 
 ### Patch Changes
