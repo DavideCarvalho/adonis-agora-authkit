@@ -120,7 +120,7 @@ catalogs:
     "@adonisjs/queue": "0.7.0"
     "@adonisjs/redis": "11.0.0"
     "@adonisjs/session": "8.3.0"
-    "@adonisjs/shield": "9.0.0"
+    "@adonisjs/shield": "9.0.1"
     "@adonisjs/static": "2.0.1"
     "@adonisjs/transmit": "3.0.2"
     "@adonisjs/transmit-client": "1.1.0"
