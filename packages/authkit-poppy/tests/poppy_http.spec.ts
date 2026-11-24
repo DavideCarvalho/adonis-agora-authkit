@@ -10,12 +10,20 @@ import { poppy as poppyExtension } from '../src/extension.js';
 import {
   installPoppySlots,
   POPPY_AUTHENTICATE_SLOT,
+  POPPY_OPERATIONS_SLOT,
   type PoppyAuthenticate,
+  type PoppyOperationsSlot,
   poppyAuth,
   poppyOf,
+  requirePoppyOperation,
+  writePoppyOperationResult,
 } from '../src/resource.js';
 import { MEDIATED_SIGN_IN_GRANT } from '../src/service.js';
-import { POPPY_WEB_SESSION_KEY, poppyWebSession } from '../src/web_session.js';
+import {
+  POPPY_WEB_SESSION_KEY,
+  poppyBrowserControlOf,
+  poppyWebSession,
+} from '../src/web_session.js';
 import {
   AccountAppsController,
   resetAuthHostConfig,
@@ -127,7 +135,11 @@ function makeCtx(
 }
 
 /** Passos 1 e 2 da entrada do navegador: `{ code, cookie }` autorizados. */
-async function authorizedJoin(env: Env, c: PoppyController, opts: { token?: string; sid: string }) {
+async function authorizedJoin(
+  env: Env,
+  c: PoppyController,
+  opts: { token?: string; sid: string; extensionsHeader?: string },
+) {
   const page = makeCtx(env, { method: 'GET', url: JOIN_URL });
   await c.browserSessionPage(page.ctx);
   const code = /name="code" value="([^"]+)"/.exec(String(page.res.body))![1];
@@ -137,6 +149,7 @@ async function authorizedJoin(env: Env, c: PoppyController, opts: { token?: stri
     url: `${JOIN_URL}/authorize`,
     sid: opts.sid,
     token: opts.token,
+    extensionsHeader: opts.extensionsHeader,
   });
   const auth = makeCtx(env, { url: req.url, headers: req.headers, body: { code } });
   await c.browserSessionAuthorize(auth.ctx);
@@ -690,6 +703,229 @@ test.group('poppy — SSRF guard', () => {
       .catch((e) => e);
     assert.equal(r.code, 'invalid_client');
     assert.notInclude(env.fetched, 'http://agent.example/agent.json');
+    await env.close();
+  });
+});
+
+test.group('poppy optionals — HTTP', () => {
+  test('versões: documento no mesmo host, Deprecation/Sunset; 404 fora', async ({ assert }) => {
+    const at = new Date('2026-12-01T00:00:00Z');
+    const env = await setupPoppy({ versions: { '0.9': { deprecated: { at } } } });
+    const c = new PoppyController();
+    const disco = makeCtx(env, {
+      method: 'GET',
+      url: 'https://shop.example/.well-known/poppy.json',
+    });
+    await c.discovery(disco.ctx);
+    assert.deepEqual((disco.res.body as any).supported_versions, {
+      '0.9': 'https://shop.example/poppy/versions/0.9.json',
+    });
+    assert.isUndefined(disco.res.headers.deprecation);
+    const doc = makeCtx(env, {
+      method: 'GET',
+      url: 'https://shop.example/poppy/versions/0.9.json',
+      params: { file: '0.9.json' },
+    });
+    await c.versionDocument(doc.ctx);
+    assert.equal(doc.res.status, 200);
+    assert.equal((doc.res.body as any).protocol_version, '0.9');
+    assert.equal(doc.res.headers.deprecation, `@${Math.floor(at.getTime() / 1000)}`);
+    for (const file of ['0.8.json', 'x', '0.9']) {
+      const missing = makeCtx(env, {
+        method: 'GET',
+        url: 'https://shop.example/',
+        params: { file },
+      });
+      await c.versionDocument(missing.ctx);
+      assert.equal(missing.res.status, 404, file);
+    }
+    const foreign = makeCtx(env, {
+      method: 'GET',
+      url: 'https://evil.example/poppy/versions/0.9.json',
+      params: { file: '0.9.json' },
+    });
+    await c.versionDocument(foreign.ctx);
+    assert.equal(foreign.res.status, 404);
+
+    // poppyAuth devolve os headers da versão em retirada.
+    const url = `${ORDERS_API}/1`;
+    const req = await env.request({ url, version: '0.9', sid: 'dep' });
+    const api = makeCtx(env, { method: 'GET', url, headers: req.headers });
+    await poppyAuth()(api.ctx, async () => {});
+    assert.equal(api.res.headers.deprecation, `@${Math.floor(at.getTime() / 1000)}`);
+    await env.close();
+  });
+
+  test('feedback pelo controller: 202 sem corpo, 400 invalid_request, 404 desligado', async ({
+    assert,
+  }) => {
+    const env = await setupPoppy({ tasks: { feedback: {} } });
+    const c = new PoppyController();
+    const url = `${POPPY_ISSUER}/feedback`;
+    const send = async (body: unknown) => {
+      const req = await env.request({ method: 'POST', url });
+      const ctx = makeCtx(env, { url, headers: req.headers, body: body as any });
+      await c.feedback(ctx.ctx);
+      return ctx.res;
+    };
+    const ok = await send({ task: 'Return a jacket', description: 'No API for returns.' });
+    assert.equal(ok.status, 202);
+    assert.equal(ok.body, '');
+    assert.equal(ok.headers['cache-control'], 'no-store');
+    const bad = await send({ task: '' });
+    assert.equal(bad.status, 400);
+    assert.equal((bad.body as any).error, 'invalid_request');
+    await env.close();
+
+    const off = await setupPoppy();
+    const ctx = makeCtx(off, { url });
+    await new PoppyController().feedback(ctx.ctx);
+    assert.equal(ctx.res.status, 404);
+    await off.close();
+  });
+
+  test('operações no site: a entrada guarda as extensões; requirePoppyOperation(ctx) e o endpoint', async ({
+    assert,
+  }) => {
+    const env = await setupPoppy({ operations: true, browserControl: true });
+    setBootedApp({
+      container: { make: async (t: string) => (t === 'lucid.db' ? env.db : env.service) },
+    } as any);
+    installPoppySlots(POPPY_ISSUER, { operations: true });
+    const slot = (globalThis as any)[POPPY_OPERATIONS_SLOT] as PoppyOperationsSlot;
+    assert.equal(slot.version, '3');
+    const c = new PoppyController();
+    const { code, cookie } = await authorizedJoin(env, c, {
+      sid: 'site1',
+      extensionsHeader: '"operations";v="3", "browser-control";v="1"',
+    });
+    const joined = makeCtx(env, {
+      url: JOIN_URL,
+      body: { code },
+      headers: { cookie: `__Host-poppy_join=${cookie}` },
+    });
+    await c.browserSession(joined.ctx);
+    assert.equal(joined.res.status, 303);
+    const marker = joined.session.get(POPPY_WEB_SESSION_KEY) as any;
+    assert.deepEqual(marker.extensions, { operations: '3', 'browser-control': '1' });
+
+    const page = makeCtx(env, {
+      url: 'https://shop.example/orders/ord_1/exchange',
+      session: Object.fromEntries(joined.session),
+      headers: { accept: 'text/html' },
+    });
+    await poppyWebSession()(page.ctx, async () => {});
+    assert.isTrue(poppyBrowserControlOf(page.ctx));
+    const input = {
+      interface: 'website' as const,
+      action: { path: '/orders/ord_1/exchange' },
+      terms: { order_id: 'ord_1' },
+    };
+    const result = await requirePoppyOperation(page.ctx, input);
+    assert.isFalse(result.ok);
+    if (result.ok) return;
+    writePoppyOperationResult(page.ctx, result);
+    assert.equal(page.res.status, 403);
+    assert.match(page.res.headers['poppy-operation'], /^sid="site1", ref="op_[^"]+"$/);
+    assert.include(String(page.res.body), 'waiting for your approval');
+    const ref = /ref="([^"]+)"/.exec(page.res.headers['poppy-operation'])![1];
+
+    // O agente busca e aprova no endpoint (pelo controller).
+    const endpoint = `${POPPY_ISSUER}/operations`;
+    const look = await env.request({
+      method: 'POST',
+      url: endpoint,
+      sid: 'site1',
+      extensionsHeader: '"operations";v="3"',
+    });
+    const lookCtx = makeCtx(env, { url: endpoint, headers: look.headers, body: { ref } });
+    await c.operations(lookCtx.ctx);
+    assert.equal(lookCtx.res.status, 403);
+    const op = (lookCtx.res.body as any).operation;
+    const approve = await env.request({
+      method: 'POST',
+      url: endpoint,
+      sid: 'site1',
+      extensionsHeader: '"operations";v="3"',
+    });
+    const approveCtx = makeCtx(env, {
+      url: endpoint,
+      headers: {
+        ...approve.headers,
+        'poppy-approval': `operation_id="${op.operation_id}", revision="${op.revision}", approver="user"`,
+      },
+      body: { ref },
+    });
+    await c.operations(approveCtx.ctx);
+    assert.equal(approveCtx.res.status, 204);
+
+    // O navegador repete (JSON de um script): executa pela aprovação gravada, pelo slot.
+    const again = makeCtx(env, {
+      url: 'https://shop.example/orders/ord_1/exchange',
+      session: Object.fromEntries(joined.session),
+      headers: { accept: 'application/json' },
+    });
+    const done = await slot.require(again.ctx, null, input);
+    assert.isTrue(done.ok);
+    assert.isTrue(await slot.markPerformed(op.operation_id, { status: 200, body: { ok: 1 } }));
+    const record = await slot.get({ clientId: CLIENT_ID, userId: 'usr_Q7c1vK' }, op.operation_id);
+    assert.equal(record!.status, 'performed');
+
+    // Um script recebe JSON.
+    const fresh = await requirePoppyOperation(again.ctx, input);
+    if (!fresh.ok) writePoppyOperationResult(again.ctx, fresh);
+    assert.deepEqual(again.res.body, { error: 'approval_required' });
+
+    // Um navegador com login próprio (entrada deslogada) fica com o fluxo do site.
+    const own = makeCtx(env, {
+      url: 'https://shop.example/orders/ord_1/exchange',
+      session: { ...Object.fromEntries(joined.session), [ACCOUNT_SESSION_KEY]: ACCOUNT_ID },
+    });
+    assert.equal(((await requirePoppyOperation(own.ctx, input)) as any).kind, 'unsupported');
+
+    // Sem Operations, o slot some.
+    installPoppySlots(POPPY_ISSUER);
+    assert.isUndefined((globalThis as any)[POPPY_OPERATIONS_SLOT]);
+    await env.close();
+  });
+
+  test('API com requirePoppyOperation(ctx) depois de poppyAuth: Poppy-Approval do header', async ({
+    assert,
+  }) => {
+    const env = await setupPoppy({ operations: true });
+    setBootedApp({
+      container: { make: async (t: string) => (t === 'lucid.db' ? env.db : env.service) },
+    } as any);
+    const url = `${ORDERS_API}/ord_1/exchanges`;
+    const handle = async (approval?: string) => {
+      const req = await env.request({
+        method: 'POST',
+        url,
+        extensionsHeader: '"operations";v="3"',
+      });
+      const ctx = makeCtx(env, {
+        url,
+        headers: { ...req.headers, ...(approval ? { 'poppy-approval': approval } : {}) },
+      });
+      let outcome: any = null;
+      await poppyAuth()(ctx.ctx, async () => {
+        outcome = await requirePoppyOperation(ctx.ctx, {
+          interface: 'api',
+          action: { url, sku: 'm' },
+          terms: { order_id: 'ord_1' },
+        });
+        if (!outcome.ok) writePoppyOperationResult(ctx.ctx, outcome);
+      });
+      return { outcome, res: ctx.res };
+    };
+    const first = await handle();
+    assert.equal(first.res.status, 403);
+    const op = (first.res.body as any).operation;
+    assert.equal((first.res.body as any).error, 'approval_required');
+    const second = await handle(
+      `operation_id="${op.operation_id}", revision="${op.revision}", approver="agent"`,
+    );
+    assert.isTrue(second.outcome.ok);
     await env.close();
   });
 });

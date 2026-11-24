@@ -87,6 +87,31 @@ test.group('views de personal agents', () => {
     assert.include(html, DEFAULT_MESSAGES['agents.consent.opt_in_hint']);
   });
 
+  test('consent: a scope the account already granted is still listed, ticked and marked', async ({
+    assert,
+  }) => {
+    const edge = makeEdge();
+    edge.global('t', (key: string, params?: Record<string, string | number>) =>
+      translate(DEFAULT_MESSAGES, key, params),
+    );
+    const html = await edge.render('authkit::agents/consent', {
+      csrfToken: 'csrf',
+      action: '/agents/consent',
+      request: {
+        ...request,
+        scopes: [
+          { id: 'orders:read', description: 'Look up your orders', granted: true },
+          { id: 'orders:write', description: 'Change your orders' },
+        ],
+      },
+      account: null,
+      error: null,
+    });
+    assert.include(html, 'value="orders:read" checked');
+    assert.include(html, 'value="orders:write" checked');
+    assert.equal(html.split(DEFAULT_MESSAGES['agents.consent.granted_hint']).length, 2);
+  });
+
   test('consent sem pedido: formulário do código, com erro quando houver', async ({ assert }) => {
     const edge = makeEdge();
     const blank = await edge.render('authkit::agents/consent', {

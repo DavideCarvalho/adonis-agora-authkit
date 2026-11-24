@@ -268,6 +268,7 @@ export const DEFAULT_MESSAGES = {
   'agents.consent.signed_in_as': 'Signed in as {email}',
   'agents.consent.scopes_label': 'Allow it to:',
   'agents.consent.opt_in_hint': 'Not selected for you: tick it only if you want to allow it.',
+  'agents.consent.granted_hint': 'Already allowed before.',
   'agents.consent.code':
     'Request code: {code}. Make sure it matches the code your assistant shows.',
   'agents.consent.allow': 'Allow',
@@ -1340,6 +1341,7 @@ export const PT_BR_MESSAGES = {
   'agents.consent.signed_in_as': 'Conectado como {email}',
   'agents.consent.scopes_label': 'Permitir que ele:',
   'agents.consent.opt_in_hint': 'Não vem marcado: marque só se quiser permitir.',
+  'agents.consent.granted_hint': 'Já permitido antes.',
   'agents.consent.code':
     'Código do pedido: {code}. Confira se é o mesmo que o seu assistente mostra.',
   'agents.consent.allow': 'Permitir',

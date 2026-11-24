@@ -1,12 +1,12 @@
 ---
 icon: Bot
 title: Personal agents — Poppy
-description: Serve the Personal Agent Protocol ("Poppy" 1.0) with @adonis-agora/authkit-poppy — discovery, the Poppy-Session header, OAuth sign-in, MCP, browser join and task coverage.
+description: Serve the Personal Agent Protocol ("Poppy" 1.0) with @adonis-agora/authkit-poppy — discovery, the Poppy-Session header, OAuth sign-in, MCP, browser join, task coverage and the Operations, Browser Control, Links and Disclosures extensions.
 ---
 
 <Callout title="Poppy 1.0">
-`@adonis-agora/authkit-poppy` implements [Poppy 1.0](https://personalagentprotocol.org/docs/1.0/spec) and serves version `1.0` only. The
-package version follows the spec version: `1.x` implements Poppy `1.x`.
+`@adonis-agora/authkit-poppy` implements [Poppy 1.0](https://personalagentprotocol.org/docs/1.0/spec). By default it serves version `1.0`;
+[`versions`](#serving-several-versions) adds more. The package version follows the spec version: `1.x` implements Poppy `1.x`.
 `@adonis-agora/authkit-server` only provides the
 [extension points](/docs/authkit/personal-agents#other-protocols-extensions) the package plugs into.
 </Callout>
@@ -36,8 +36,8 @@ defines no scopes of its own: you declare yours. The agent reads the sign-in typ
 | **Mediated** ([extension](https://personalagentprotocol.org/docs/1.0/extensions/mediated-sign-in)) | An OAuth extension grant. The agent asks for what your app declares (an email, say), your app sends a one-time code to the user, and the user tells the code to the agent. | The agent relays what the user types — so ask for an identifier and a one-time code, never a password. | off |
 
 Direct and Device need nothing beyond your normal login: AuthKit's pages do it. The consent page
-always lists every scope the agent asked for, even ones the account approved before, and opening a
-link never approves anything. Mediated is **transitional**: the protocol plans to retire it on
+always lists every scope the agent asked for, and marks the ones the account already granted to that
+agent ("Already allowed before"). Opening a link never approves anything. Mediated is **transitional**: the protocol plans to retire it on
 March 17, 2027, so offer it only until Direct or Device cover the same scopes. It needs a `verify` that checks what the agent sends — or the ready-made
 [`poppyEmailCodeSignIn()`](#ready-made-mediated-sign-in-email--code), which does it with your
 accounts and email.
@@ -131,17 +131,23 @@ defineConfig({
 | `scopes` / `scopeHints` | PACT scopes / — | `auth.scopes` and `auth.scope_hints`. Required unless Direct and Device are both off. |
 | `signIn.direct` / `.device` | on, all scopes | `false` disables; `{ scopes }` restricts what that grant can give. With every sign-in type off, `poppy.json` says `auth.disabled: true`. |
 | `signIn.mediated` | off | `fields` (reserved OAuth names are refused), `scopes` (required), `verify`, optional `verifyCode`, `codeTtl` (600 s), `maxCodeAttempts` (5). |
+| `signIn.limitToResource` | `false` | A sign-in whose first request names `resource` only covers those resources: tokens come out only for them, and the default token only if it named `https://{organization.domain}`. A sign-in without `resource` still covers everything. Off, `resource` in the first request is ignored. |
 | `agent` | — | `protocols`: `{ type, endpoint, description }`. `description` (required) says what the agent there can help with. An entry can set `access: 'signed_in'` (needs a sign-in type). |
 | `apis` | — | `{ type, url, description }`. |
 | `resource` (on `agent`/`apis` entries) | — | The entry only accepts tokens issued for it (RFC 8707). It isn't published: serve that service's protected resource metadata (RFC 9728) yourself. |
 | `extensions` | — | Published as is, a list with one entry per version: `{ 'example.com/gift-wrap': [{ version: '1', … }] }`. |
 | `tasks` | — | [Task coverage](#task-coverage): `excludedTasks`, `skillIndex`, `feedback`, `resolve`, or `endpoint` for one you serve yourself. |
+| `versions` / `preferredVersion` | `{ '1.0': {} }` / newest | [Several protocol versions](#serving-several-versions). |
+| `operations` | off | The [Operations extension](#operations) (version 3). `true`, or `{ website, decide, expiresIn }`. |
+| `browserControl` | `false` | Lists the [Browser Control extension](#browser-control). Needs browser join. |
+| `links` / `disclosures` | `false` | Lists the Links and Disclosures extensions (message content, sent by `@adonis-agora/agent`). |
 | `web` | browser join on | `false` publishes no `web`. `disabled: true` asks agents not to browse (no browser join; list `agent` or `apis`). `unscoped` (default `true`) — see [web browsing](#web-browsing). `login(ctx, { accountId, … })` replaces the default login; `redirectTo` (default `/`) is where the browser lands after joining. |
 | `par` | offered | Pushed Authorization Requests for Direct Sign-In. `{ required: true }` requires them; `false` doesn't offer them. |
 | `clients` | open | `requireRegistration`, `registered`, `blocked` (lists or functions). A refused agent gets `invalid_client` at the authorization server and `invalid_session` at a resource. The [admin console](/docs/admin-console#personal-agents) can allow and block on top of these without a deploy. |
 | `allowInsecureClientIds` | `false` | **Development/test only, not spec-compliant.** Accepts `http://` `client_id`s (and their `jwks_uri`/`redirect_uris`) and fetches them without the SSRF guard, so a local agent (the `poppy-agent` CLI of `@adonis-agora/agent`, with `--insecure-dev`, at `http://localhost:7777/agent.json`) can work. Boot fails with `NODE_ENV=production`. |
 | `accessTokenTtl` / `refreshTokenTtl` / `sessionTtl` | 1 h / 30 d / 30 d | Access token lifetime, refresh token lifetime, idle Session lifetime. |
 | `sessionJwt.maxAge` | 60 s | Acceptance window for a Session JWT's `iat`. |
+| `sessionJwt.oneUserPerKey` | `true` | A delegated key that already signed for another User ID gets `invalid_session` while its delegation lasts, so a leaked key exposes one user. `false` turns it off. |
 | `dpop` | optional, ES256, 60 s | Binding tokens is your choice: a token request with a proof gets a DPoP-bound token, one without gets Bearer. `required` refuses requests without a proof. A sign-in made with a proof binds its refresh token to that key: a refresh needs a proof from it (`bindRefreshTokens: false` turns this off). Also `requireNonce`, `maxAge`, `algorithms`. |
 | `assertionMaxLifetime` | 300 s | Longest client assertion accepted. Can't be lower than 300. |
 | `replay` | `'database'` | Where seen `jti`s live: `'database'`, `'memory'`, `{ redis: 'main' }`, or your own `{ claim }`. Session JWTs are claimed too, so every verified request writes one entry. |
@@ -149,8 +155,10 @@ defineConfig({
 | `toActor` | — | Maps a verified principal to your actor (returned as `principal.actor`). |
 | `devTools` | offered when the app serves Agora dev tools | Offers the `agora:dev` scope ([below](#developer-tools-over-mcp)). `false` never offers it; `true` always does. |
 
-Five lib-owned tables back it — `auth_poppy_sessions`, `auth_poppy_tokens`,
-`auth_poppy_requests`, `auth_poppy_grant_keys`, `auth_poppy_jtis` — created at boot with AuthKit's own tables
+Lib-owned tables back it — `auth_poppy_sessions`, `auth_poppy_tokens`, `auth_poppy_requests`,
+`auth_poppy_grant_keys`, `auth_poppy_grant_resources`, `auth_poppy_delegated_keys`,
+`auth_poppy_feedback`, `auth_poppy_operations`, `auth_poppy_operation_revisions`, `auth_poppy_jtis` —
+created at boot with AuthKit's own tables
 (`schema.autoManage`). If you manage the schema in migrations, call `ensurePoppySchema()` next to
 `ensureAuthkitSchema()`:
 
@@ -273,6 +281,9 @@ Rate limits (`rateLimit.mediatedPerHour`, the OTP throttle) still apply.
 | `POST /poppy/browser-session/authorize` | [§6](https://personalagentprotocol.org/docs/1.0/spec#web-browsing) | Agent — authorizes the code |
 | `POST /poppy/browser-session` | [§6](https://personalagentprotocol.org/docs/1.0/spec#web-browsing) | Agent's browser — submits the code and gets the Session's cookie |
 | `GET /poppy/tasks` | [§9](https://personalagentprotocol.org/docs/1.0/spec#task-coverage) | Agent — excluded tasks, skills and feedback for its Session |
+| `POST /poppy/feedback` | [§9.3](https://personalagentprotocol.org/docs/1.0/spec#feedback) | Agent — a task it couldn't do (only with `tasks.feedback` and no `endpoint`) |
+| `POST /poppy/operations` | [Operations §4, §6](https://personalagentprotocol.org/docs/1.0/extensions/operations) | Agent — gets and approves operations your website returned (only with `operations`) |
+| `GET /poppy/versions/{version}.json` | [§3.4](https://personalagentprotocol.org/docs/1.0/spec#versions) | Agent — the document of another version you serve |
 
 `authkitCsrfExceptions` exempts the agent endpoints automatically; the two consent screens keep
 CSRF, deny framing, refuse impersonation and never approve on open.
@@ -293,22 +304,25 @@ router
 `poppyAuth()` / `verifyPoppyRequest(ctx | { method, url, headers }, options)` verify the
 `Poppy-Session` JWT and its delegation (`poppy_dlg`, `poppy-delegation+jwt`, `ES256` or `PS384`, at
 most 24 hours): `typ`, `aud` (your issuer), `htm`, `htu`, the `iat` window, `ath`, the `jti`. They
-check `Poppy-Version` (any `1.x`), and read `Poppy-Extensions`. A new `client_id` + `sid` + User ID
-starts a signed-out Session; a known one continues it. If the request has an access token, they also
+check `Poppy-Version` (compatible with a version you serve: any `1.x` by default), and read
+`Poppy-Extensions`. A new `client_id` + `sid` + User ID starts a signed-out Session; a known one
+continues it, and must keep the `Poppy-Version` it started with. If the request has an access token, they also
 check it was issued to the same `client_id`, its DPoP proof when bound, its `resource`, whether its
 refresh token is still alive, and its scopes.
 
 Options: `scopes` (all required), `signedIn` (needs an access token), `resource`, and `extension` —
 a name the request must declare in `Poppy-Extensions`, in a version you list in `extensions`.
 
-The principal has `protocolVersion` (the request's `Poppy-Version`) and `extensions`
-(`name → version`, only the ones you list), so a route can answer with what that version defines.
+The principal has `protocolVersion` (the request's `Poppy-Version`), `documentVersion` (the served
+version the request is handled under) and `extensions` (`name → version`, only the ones you list), so
+a route can answer with what that version defines. `poppyAuth()` adds `Deprecation`/`Sunset` to the
+response when that version is being retired; with `verifyPoppyRequest()`, send `result.headers`.
 
 | Failure | Status | Where |
 | --- | --- | --- |
-| `invalid_session` | 400 | JSON body. A Session check failed or the agent was refused. |
-| `session_ended` | 400 | JSON body. The Session ended, or it already used a different account. The agent starts a new Session. |
-| `version_unsupported` | 400 | JSON body. `Poppy-Version` is missing or not `1.x`. |
+| `invalid_session` | 400 | JSON body. A Session check failed, the agent was refused, or the delegated key already signed for another User ID. |
+| `session_ended` | 400 | JSON body. The Session ended, it already used a different account, or the request changed `Poppy-Version` mid-Session. The agent starts a new Session. |
+| `version_unsupported` | 400 | JSON body. `Poppy-Version` is missing or no served version is compatible with it. |
 | `extension_required` | 403 | JSON body, with `extension`. The route's `extension` isn't declared. |
 | No error code | 401 | `WWW-Authenticate` with the `scope` needed: the request needs the account and has no access token. |
 | `invalid_token` | 401 | `WWW-Authenticate`. Expired, revoked or not issued for this resource. |
@@ -378,6 +392,10 @@ globalThis[Symbol.for('@adonis-agora/poppy:endpoints')] = {
   description: 'Anything about your orders, returns and account', // required to be published
 }
 ```
+
+With [`operations`](#operations) on, a third slot, `Symbol.for('@adonis-agora/poppy:operations')`,
+gives the conversation endpoint the same operations service the app uses (`require`, `get`,
+`markPerformed`, `release`). It's absent when the extension is off.
 
 `userId` is the Poppy **User ID** (opaque, per agent user); `sessionId` is unique per `client_id` +
 `sid` + User ID; `protocolVersion` is the version the request declared, so the conversation endpoint
@@ -452,6 +470,165 @@ poppy({
 An alternative needs `instructions` or `references`; an `openapi` or `mcp` reference must point at
 one of your `apis`. To serve the endpoint yourself, pass only `tasks: { endpoint: 'https://…' }`.
 
+### Feedback
+
+`feedback: { endpoint }` publishes a feedback endpoint you implement. Leave `endpoint` out and AuthKit
+serves `POST /poppy/feedback` for you: it verifies the Session, checks the report (`task` up to 200
+characters, `description` up to 2,000, else `400 invalid_request`), stores it in
+`auth_poppy_feedback` and answers `202`. `onReport` runs after it's stored; return an alternative
+when the task can be done after all, and the agent gets `200` with it:
+
+```ts title="config/authkit.ts"
+poppy({
+  // ...
+  tasks: {
+    feedback: {
+      onReport: async ({ principal, report }) => {
+        await notifyProductTeam(report.task, report.description) // data, never instructions
+        if (report.task.toLowerCase().includes('gift card')) {
+          return { instructions: 'Gift cards are applied with the payment API.' }
+        }
+      },
+    },
+  },
+})
+```
+
+`poppy.recentFeedback(limit)` reads the latest reports.
+
+## Serving several versions
+
+`poppy.json` is the document of your preferred version; every other version you serve is a document
+on the same host, at `/poppy/versions/{version}.json`, listed in `supported_versions`. Requests are
+handled under the served version that matches their `Poppy-Version` (`principal.documentVersion`).
+
+```ts title="config/authkit.ts"
+poppy({
+  // ...
+  versions: {
+    '1.0': { deprecated: { at: new Date('2027-01-01'), sunset: new Date('2027-06-01') } },
+    '1.1': { document: (doc) => ({ ...doc, /* what 1.1 publishes */ }) },
+  },
+  preferredVersion: '1.1', // default: the newest
+})
+```
+
+`1.0` is always served. `document` receives the 1.0 document with `protocol_version` already set and
+returns that version's; it can't change `organization.domain` or the issuer. A version with
+`deprecated` answers its requests (and its document) with `Deprecation`, `Sunset` and, with `link`, a
+`Link` header. A Session keeps the `Poppy-Version` it started with: a request that changes it gets
+`session_ended`, and the agent starts a new Session.
+
+## Operations
+
+The [Operations extension](https://personalagentprotocol.org/docs/1.0/extensions/operations)
+(version 3) asks the agent for approval of exact terms before an action with a business effect, and
+performs it at most once. Turn it on with `operations: true`; it's listed in `poppy.json`, with the
+`endpoint` for website operations when browser join is on.
+
+```ts title="config/authkit.ts"
+poppy({
+  // ...
+  operations: {
+    // Optional: decline an approval that passed the checks (approval_declined).
+    decide: ({ approval, operation }) =>
+      approval.approver === 'agent' && Number(operation.terms.amount) > 100
+        ? { reason: 'Large exchanges need your own approval.' }
+        : undefined,
+    expiresIn: 900, // default validity of a revision, in seconds
+  },
+})
+```
+
+In an API route, call `requirePoppyOperation()` before acting. It reads `Poppy-Approval`, checks it,
+and marks the operation as performing when it passes:
+
+```ts title="app/controllers/exchanges_controller.ts"
+import {
+  markPoppyOperationPerformed,
+  requirePoppyOperation,
+  writePoppyOperationResult,
+} from '@adonis-agora/authkit-poppy'
+
+export default class ExchangesController {
+  async store(ctx: HttpContext) {
+    const { item_id, sku } = ctx.request.only(['item_id', 'sku'])
+    const quote = await exchanges.quote(ctx.params.id, item_id, sku) // today's price
+    const result = await requirePoppyOperation(ctx, {
+      interface: 'api',
+      action: { method: 'POST', url: ctx.request.url(), item_id, sku }, // what the request asks
+      terms: { order_id: ctx.params.id, item_id, sku, price_difference: quote.difference },
+      summary: `Exchange for **${sku}**, ${quote.difference.amount} ${quote.difference.currency} more.`,
+      idPrefix: 'exc_',
+    })
+    if (!result.ok) return writePoppyOperationResult(ctx, result)
+
+    const exchange = await exchanges.perform(ctx.params.id, item_id, sku, {
+      idempotencyKey: result.operationId, // a retry can't perform it twice downstream either
+    })
+    await markPoppyOperationPerformed(result.operationId, { status: 201, body: exchange })
+    return ctx.response.status(201).json(exchange)
+  }
+}
+```
+
+The route needs `poppyAuth()`. What you get back:
+
+| `kind` | Status | Meaning |
+| --- | --- | --- |
+| `approved` (`ok: true`) | — | Perform the action, then `markPoppyOperationPerformed(id, response)`. If it failed without effect, `releasePoppyOperation(id)` lets the same approval retry. |
+| `approval_required` | 403 | Nothing done; the body carries the operation (`operation_id`, `revision`, `terms`, `summary`, `expires_at`). Terms or the request changed since the approval: same `operation_id`, new `revision`. |
+| `approval_declined` | 403 | Your `decide` declined it; nothing recorded. |
+| `performed` | as first time | Already performed: the response you stored, repeated. |
+| `performing` | 503 | Still running (`Retry-After`). |
+| `challenge` | 401 | The operation belongs to an account and the request is signed out. |
+| `extension_required` | 403 | The request didn't declare `operations` version 3. Handle approval yourself, or send it. |
+| `invalid_request` | 400 | A malformed `Poppy-Approval`. |
+
+An operation can be approved by the same agent and User in any Session — signed in to the same
+account if it was returned signed in, signed out otherwise. Revisions, approvals (`approver`,
+`approved_at`, `input_type`, `reference`) and the stored response live in `auth_poppy_operations`
+and `auth_poppy_operation_revisions` until the revision expires.
+
+**MCP**: pass the tool arguments as `action` and the approval from
+`params._meta['personalagentprotocol.org/approval']` (`approvalFromMcpMeta(meta)`) as `approval`, with
+the principal; `poppyOperationToolResult(result)` turns a refusal into the tool error result.
+**Conversations** (`@adonis-agora/agent`) pass the message's `extensions.operations.approval` and use
+the conversation as `action`; `operationId` gives an operation a new revision when the user asks for
+other terms.
+
+**Websites**: in a browser joined to a Session that declared the extension, call
+`requirePoppyOperation(ctx, { interface: 'website', action, terms, summary })` from the page's
+handler (with `poppyWebSession()` in the router middleware). It performs nothing and answers `403`
+with `Poppy-Operation: sid="…", ref="…"` — a waiting page, or `{ "error": "approval_required" }` for a
+script that accepts JSON. The agent gets and approves the operation at `POST /poppy/operations`; when
+the browser repeats the request, the oldest matching recorded approval is used, once. Make the page's
+action repeatable (a **Continue** button), and let your CDN pass a `403` with `Poppy-Operation`
+through. A browser with its own login (joined without an access token) gets `kind: 'unsupported'`:
+handle approval on your site as usual.
+
+## Browser Control
+
+With `browserControl: true`, `poppy.json` lists the Browser Control extension (version 1): mark the
+steps the user should take themselves, and an agent that declared it leaves them to the user.
+
+```edge title="resources/views/check_in.edge"
+<form method="post" action="/bookings/{{ booking.id }}/check-in" {{{ poppyUserStep('submission') }}}>
+  <input type="hidden" name="controller">
+  <button type="submit">Check in</button>
+</form>
+<script>
+  document.forms[0].elements.controller.value = navigator.poppy?.controller ?? ''
+</script>
+```
+
+`poppyUserStep(step)` is an Edge global (registered at boot when edge.js is installed) and a function;
+`poppyUserStepAttrs(step)` gives `{ 'data-poppy-user-step': step }` for JSX. `interaction` on a
+control or form leaves it to the user; `submission` on a form lets the agent fill it in but not submit
+it. `poppyBrowserControlOf(ctx)` says whether this browser declared the extension, and
+`poppyControllerOf(value)` reads the `controller` the page sent (`'user'`, `'agent'` or `null`). It
+isn't signed: record it, but your server still checks every action.
+
 ## Signing out and disconnecting
 
 The agent revokes its refresh token at `/poppy/oauth/revoke`: its access tokens die with it, and its
@@ -474,6 +651,10 @@ Where the spec leaves a choice, AuthKit makes these:
   as `aud`, even when both sign-in types are off.
 - Revoking another agent's refresh token is a silent no-op (RFC 7009).
 
-AuthKit serves `tasks.endpoint` but not the feedback endpoint, and it publishes extensions such as
-Operations but doesn't enforce them. Operator signatures (Web Bot Auth) are your
-edge's concern, and PS384 delegations are accepted for blind signing.
+- The consent page marks scopes the account already granted to the agent (§10.8 allows it).
+- A delegated key that signed for one User ID can't sign for another while its delegation lasts
+  (§5.2 allows it; `sessionJwt.oneUserPerKey`).
+- A Session that changes `Poppy-Version` gets `session_ended`, as an account change does.
+
+Operator signatures (Web Bot Auth) are your edge's concern, and PS384 delegations are accepted for
+blind signing. Links and Disclosures are message content: `@adonis-agora/agent` sends them.

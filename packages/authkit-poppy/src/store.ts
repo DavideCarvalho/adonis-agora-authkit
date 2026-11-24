@@ -12,6 +12,11 @@ export const SESSION_TABLE = 'auth_poppy_sessions';
 export const TOKEN_TABLE = 'auth_poppy_tokens';
 export const REQUEST_TABLE = 'auth_poppy_requests';
 export const GRANT_KEY_TABLE = 'auth_poppy_grant_keys';
+export const GRANT_RESOURCES_TABLE = 'auth_poppy_grant_resources';
+export const DELEGATED_KEY_TABLE = 'auth_poppy_delegated_keys';
+export const FEEDBACK_TABLE = 'auth_poppy_feedback';
+export const OPERATION_TABLE = 'auth_poppy_operations';
+export const REVISION_TABLE = 'auth_poppy_operation_revisions';
 
 export interface SessionRow {
   /** Derivado de `client_id` + `sid` + User ID (§5.3). */
@@ -24,8 +29,67 @@ export interface SessionRow {
   /** Colunas da Draft 0.1, sem uso: o acesso à conta não passa pela Session. */
   grantId: string | null;
   scope: string;
+  /** O `sid` do agente (§5.2); `null` em Sessions de antes da coluna. */
+  sid: string | null;
+  /** O `Poppy-Version` com que a Session começou (§3.4); `null` em Sessions de antes da coluna. */
+  protocolVersion: string | null;
   expiresAt: Date;
   endedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type OperationInterface = 'api' | 'mcp' | 'conversation' | 'website';
+export type OperationStatus = 'pending' | 'approved' | 'performing' | 'performed';
+
+/** Uma operação (extensão Operations 3). */
+export interface OperationRow {
+  id: string;
+  clientId: string;
+  userId: string;
+  /** Conta dona da operação; `null` = devolvida numa Session deslogada. */
+  accountId: string | null;
+  interface: OperationInterface;
+  /** A revisão atual: a última devolvida. */
+  revision: string;
+  status: OperationStatus;
+  refHash: string | null;
+  approvedRevision: string | null;
+  approver: 'user' | 'agent' | null;
+  approvedAt: number | null;
+  inputType: string | null;
+  reference: string | null;
+  /** Quando a aprovação foi gravada (site) ou aceita. */
+  recordedAt: Date | null;
+  /** A resposta da execução (`markPerformed`), repetida nos retries. */
+  response: unknown;
+  expiresAt: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface RevisionRow {
+  revision: string;
+  operationId: string;
+  fingerprint: string;
+  terms: Record<string, unknown>;
+  summary: string | null;
+  expiresAt: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** Um relato de feedback (§9.3). */
+export interface FeedbackRow {
+  id: string;
+  clientId: string;
+  userId: string;
+  agentId: string | null;
+  sessionId: string;
+  accountId: string | null;
+  protocolVersion: string;
+  task: string;
+  description: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -95,6 +159,8 @@ function toSession(row: any): SessionRow {
     accountId: row.account_id ?? null,
     grantId: row.grant_id ?? null,
     scope: row.scope ?? '',
+    sid: row.sid ?? null,
+    protocolVersion: row.protocol_version ?? null,
     expiresAt: toDate(row.expires_at),
     endedAt: toDateOrNull(row.ended_at),
     createdAt: toDate(row.created_at),
@@ -113,6 +179,52 @@ function toToken(row: any): TokenRow {
     jkt: row.jkt ?? null,
     expiresAt: toDate(row.expires_at),
     createdAt: toDate(row.created_at),
+  };
+}
+
+function parseJson(value: unknown): any {
+  if (value === null || value === undefined || value === '') return null;
+  try {
+    return JSON.parse(String(value));
+  } catch {
+    return null;
+  }
+}
+
+function toOperation(row: any): OperationRow {
+  return {
+    id: row.id,
+    clientId: row.client_id,
+    userId: row.user_id,
+    accountId: row.account_id ?? null,
+    interface: row.interface,
+    revision: row.revision,
+    status: row.status,
+    refHash: row.ref_hash ?? null,
+    approvedRevision: row.approved_revision ?? null,
+    approver: row.approver ?? null,
+    approvedAt:
+      row.approved_at === null || row.approved_at === undefined ? null : Number(row.approved_at),
+    inputType: row.input_type ?? null,
+    reference: row.reference ?? null,
+    recordedAt: toDateOrNull(row.recorded_at),
+    response: parseJson(row.response),
+    expiresAt: toDate(row.expires_at),
+    createdAt: toDate(row.created_at),
+    updatedAt: toDate(row.updated_at),
+  };
+}
+
+function toRevision(row: any): RevisionRow {
+  return {
+    revision: row.revision,
+    operationId: row.operation_id,
+    fingerprint: row.fingerprint,
+    terms: parseJson(row.terms) ?? {},
+    summary: row.summary ?? null,
+    expiresAt: toDate(row.expires_at),
+    createdAt: toDate(row.created_at),
+    updatedAt: toDate(row.updated_at),
   };
 }
 
@@ -168,10 +280,30 @@ export class PoppyStore {
       account_id: row.accountId,
       grant_id: row.grantId,
       scope: row.scope,
+      sid: row.sid,
+      protocol_version: row.protocolVersion,
       expires_at: row.expiresAt,
       created_at: row.createdAt,
       updated_at: row.updatedAt,
     });
+  }
+
+  /**
+   * Completa `sid` e `protocol_version` de uma Session de antes dessas colunas. Atômico: só onde
+   * a versão ainda é `null`; `false` = outra request gravou antes.
+   */
+  async fillSessionColumns(
+    id: string,
+    sid: string,
+    protocolVersion: string,
+    at: Date,
+  ): Promise<boolean> {
+    const result = await this.conn()
+      .from(this.t(SESSION_TABLE))
+      .where('id', id)
+      .whereNull('protocol_version')
+      .update({ sid, protocol_version: protocolVersion, updated_at: at });
+    return affected(result) > 0;
   }
 
   async findSession(id: string): Promise<SessionRow | null> {
@@ -262,6 +394,280 @@ export class PoppyStore {
   async findGrantKey(grantId: string): Promise<string | null> {
     const row = await this.conn().from(this.t(GRANT_KEY_TABLE)).where('grant_id', grantId).first();
     return row?.jkt ?? null;
+  }
+
+  // ─── resources de um sign-in limitado (§4.5) ───────────────────────────────
+
+  async insertGrantResources(grantId: string, resources: string[], at: Date): Promise<void> {
+    await this.conn()
+      .table(this.t(GRANT_RESOURCES_TABLE))
+      .insert({
+        grant_id: grantId,
+        resources: JSON.stringify(resources),
+        created_at: at,
+        updated_at: at,
+      });
+  }
+
+  /** Os resources a que o grant ficou limitado; `null` = cobre todos. */
+  async findGrantResources(grantId: string): Promise<string[] | null> {
+    const row = await this.conn()
+      .from(this.t(GRANT_RESOURCES_TABLE))
+      .where('grant_id', grantId)
+      .first();
+    const list = row ? parseJson(row.resources) : null;
+    return Array.isArray(list) ? list.map(String) : null;
+  }
+
+  // ─── chaves delegadas (§5.2) ───────────────────────────────────────────────
+
+  /**
+   * Liga a chave delegada (`id`) ao User ID que assinou com ela, até `expiresAt`. Devolve o User
+   * ID a que ela está ligada agora — outro que o pedido = a chave já assinou por outro usuário.
+   */
+  async bindDelegatedKey(
+    id: string,
+    clientId: string,
+    userId: string,
+    expiresAt: Date,
+    now: Date,
+  ): Promise<string> {
+    const table = this.t(DELEGATED_KEY_TABLE);
+    const row = await this.conn().from(table).where('id', id).first();
+    if (row && toDate(row.expires_at) > now) {
+      // Uma delegação nova para a mesma chave estende a ligação.
+      if (row.user_id === userId && toDate(row.expires_at) < expiresAt) {
+        await this.conn()
+          .from(table)
+          .where('id', id)
+          .where('user_id', userId)
+          .update({ expires_at: expiresAt, updated_at: now });
+      }
+      return row.user_id;
+    }
+    if (row) {
+      // Ligação vencida: a chave pode ser de outro usuário agora. Atômico sobre o vencimento lido.
+      const moved = await this.conn()
+        .from(table)
+        .where('id', id)
+        .where('expires_at', row.expires_at)
+        .update({ client_id: clientId, user_id: userId, expires_at: expiresAt, updated_at: now });
+      if (affected(moved) > 0) return userId;
+    } else {
+      try {
+        await this.conn().table(table).insert({
+          id,
+          client_id: clientId,
+          user_id: userId,
+          expires_at: expiresAt,
+          created_at: now,
+          updated_at: now,
+        });
+        return userId;
+      } catch {
+        // Outra request inseriu antes: vale o que ela gravou.
+      }
+    }
+    const current = await this.conn().from(table).where('id', id).first();
+    return current?.user_id ?? userId;
+  }
+
+  async deleteDelegatedKeysExpiredBefore(before: Date): Promise<void> {
+    await this.conn().from(this.t(DELEGATED_KEY_TABLE)).where('expires_at', '<', before).delete();
+  }
+
+  // ─── feedback (§9.3) ───────────────────────────────────────────────────────
+
+  async insertFeedback(row: FeedbackRow): Promise<void> {
+    await this.conn().table(this.t(FEEDBACK_TABLE)).insert({
+      id: row.id,
+      client_id: row.clientId,
+      user_id: row.userId,
+      agent_id: row.agentId,
+      session_id: row.sessionId,
+      account_id: row.accountId,
+      protocol_version: row.protocolVersion,
+      task: row.task,
+      description: row.description,
+      created_at: row.createdAt,
+      updated_at: row.updatedAt,
+    });
+  }
+
+  /** Os relatos mais recentes primeiro. */
+  async listFeedback(limit: number): Promise<FeedbackRow[]> {
+    const rows = await this.conn()
+      .from(this.t(FEEDBACK_TABLE))
+      .orderBy('created_at', 'desc')
+      .limit(limit);
+    return rows.map((row: any) => ({
+      id: row.id,
+      clientId: row.client_id,
+      userId: row.user_id,
+      agentId: row.agent_id ?? null,
+      sessionId: row.session_id,
+      accountId: row.account_id ?? null,
+      protocolVersion: row.protocol_version,
+      task: row.task,
+      description: row.description,
+      createdAt: toDate(row.created_at),
+      updatedAt: toDate(row.updated_at),
+    }));
+  }
+
+  // ─── operações (extensão Operations 3) ─────────────────────────────────────
+
+  async insertOperation(
+    row: Pick<
+      OperationRow,
+      | 'id'
+      | 'clientId'
+      | 'userId'
+      | 'accountId'
+      | 'interface'
+      | 'revision'
+      | 'refHash'
+      | 'expiresAt'
+    > & { at: Date },
+  ): Promise<void> {
+    await this.conn().table(this.t(OPERATION_TABLE)).insert({
+      id: row.id,
+      client_id: row.clientId,
+      user_id: row.userId,
+      account_id: row.accountId,
+      interface: row.interface,
+      revision: row.revision,
+      status: 'pending',
+      ref_hash: row.refHash,
+      expires_at: row.expiresAt,
+      created_at: row.at,
+      updated_at: row.at,
+    });
+  }
+
+  async findOperation(id: string): Promise<OperationRow | null> {
+    if (typeof id !== 'string' || !id) return null;
+    const row = await this.conn().from(this.t(OPERATION_TABLE)).where('id', id).first();
+    return row ? toOperation(row) : null;
+  }
+
+  async findOperationByRefHash(hash: string): Promise<OperationRow | null> {
+    const row = await this.conn().from(this.t(OPERATION_TABLE)).where('ref_hash', hash).first();
+    return row ? toOperation(row) : null;
+  }
+
+  /**
+   * Operações do site com aprovação gravada e ainda não usada, de quem pode aprová-las, da mais
+   * antiga para a mais nova (Operations 3, §6 "Websites").
+   */
+  async listRecordedWebsiteApprovals(input: {
+    clientId: string;
+    userId: string;
+    accountId: string | null;
+  }): Promise<OperationRow[]> {
+    const q = this.conn()
+      .from(this.t(OPERATION_TABLE))
+      .where('client_id', input.clientId)
+      .where('user_id', input.userId)
+      .where('interface', 'website')
+      .where('status', 'approved');
+    if (input.accountId === null) q.whereNull('account_id');
+    else q.where('account_id', input.accountId);
+    const rows = await q.orderBy('recorded_at', 'asc').orderBy('id', 'asc');
+    return rows.map(toOperation);
+  }
+
+  /** Transição atômica de status — só se a operação ainda está num dos `from`. */
+  async transitionOperation(
+    id: string,
+    from: OperationStatus[],
+    patch: {
+      status: OperationStatus;
+      approvedRevision?: string | null;
+      approver?: 'user' | 'agent' | null;
+      approvedAt?: number | null;
+      inputType?: string | null;
+      reference?: string | null;
+      recordedAt?: Date | null;
+      response?: unknown;
+      expiresAt?: Date;
+      at: Date;
+    },
+  ): Promise<boolean> {
+    const update: Record<string, unknown> = { status: patch.status, updated_at: patch.at };
+    if (patch.approvedRevision !== undefined) update.approved_revision = patch.approvedRevision;
+    if (patch.approver !== undefined) update.approver = patch.approver;
+    if (patch.approvedAt !== undefined) update.approved_at = patch.approvedAt;
+    if (patch.inputType !== undefined) update.input_type = patch.inputType;
+    if (patch.reference !== undefined) update.reference = patch.reference;
+    if (patch.recordedAt !== undefined) update.recorded_at = patch.recordedAt;
+    if (patch.response !== undefined) {
+      update.response = patch.response === null ? null : JSON.stringify(patch.response);
+    }
+    if (patch.expiresAt !== undefined) update.expires_at = patch.expiresAt;
+    const result = await this.conn()
+      .from(this.t(OPERATION_TABLE))
+      .where('id', id)
+      .whereIn('status', from)
+      .update(update);
+    return affected(result) > 0;
+  }
+
+  /**
+   * Troca a revisão atual de uma operação ainda não executada (termos novos) e estende a
+   * lembrança até `expiresAt`, quando for mais longe. `false` = a operação já saiu de `pending`.
+   */
+  async replaceRevision(id: string, revision: string, expiresAt: Date, at: Date): Promise<boolean> {
+    const current = await this.findOperation(id);
+    if (!current || current.status !== 'pending') return false;
+    const result = await this.conn()
+      .from(this.t(OPERATION_TABLE))
+      .where('id', id)
+      .where('status', 'pending')
+      .update({
+        revision,
+        expires_at: current.expiresAt > expiresAt ? current.expiresAt : expiresAt,
+        updated_at: at,
+      });
+    return affected(result) > 0;
+  }
+
+  async insertRevision(row: RevisionRow): Promise<void> {
+    await this.conn()
+      .table(this.t(REVISION_TABLE))
+      .insert({
+        revision: row.revision,
+        operation_id: row.operationId,
+        fingerprint: row.fingerprint,
+        terms: JSON.stringify(row.terms),
+        summary: row.summary,
+        expires_at: row.expiresAt,
+        created_at: row.createdAt,
+        updated_at: row.updatedAt,
+      });
+  }
+
+  async findRevision(revision: string): Promise<RevisionRow | null> {
+    if (typeof revision !== 'string' || !revision) return null;
+    const row = await this.conn().from(this.t(REVISION_TABLE)).where('revision', revision).first();
+    return row ? toRevision(row) : null;
+  }
+
+  /**
+   * Esquece operações vencidas (Operations 3, §7): nunca uma em execução. As revisões vão junto.
+   */
+  async deleteOperationsExpiredBefore(before: Date): Promise<void> {
+    const ids = (
+      await this.conn()
+        .from(this.t(OPERATION_TABLE))
+        .where('expires_at', '<', before)
+        .whereNot('status', 'performing')
+        .select('id')
+        .limit(500)
+    ).map((r: any) => r.id);
+    if (ids.length === 0) return;
+    await this.conn().from(this.t(REVISION_TABLE)).whereIn('operation_id', ids).delete();
+    await this.conn().from(this.t(OPERATION_TABLE)).whereIn('id', ids).delete();
   }
 
   // ─── sign-in requests ─────────────────────────────────────────────────────

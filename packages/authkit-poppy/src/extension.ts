@@ -43,7 +43,7 @@ import { POPPY_PROTOCOL_ID } from './runtime.js';
 import { type PoppyMcpBridge, PoppyService, poppyUrls } from './service.js';
 import { PoppyStore } from './store.js';
 import { POPPY_TABLES } from './tables.js';
-import { isPoppyBrowser } from './web_session.js';
+import { isPoppyBrowser, poppyUserStep } from './web_session.js';
 
 /** Prefixo dos ids dos grants (refresh tokens) do Poppy no ledger do authkit. */
 export const POPPY_GRANT_PREFIX = 'pgrant_';
@@ -86,6 +86,13 @@ function registerRoutes(router: any, prefix: string, kit: PersonalAgentRouteKit)
     .post(`${prefix}/oauth/par`, [PoppyController, 'pushedAuthorization'])
     .as('authkit.poppy.par');
   router.get(`${prefix}/tasks`, [PoppyController, 'tasks']).as('authkit.poppy.tasks');
+  router.post(`${prefix}/feedback`, [PoppyController, 'feedback']).as('authkit.poppy.feedback');
+  router
+    .post(`${prefix}/operations`, [PoppyController, 'operations'])
+    .as('authkit.poppy.operations');
+  router
+    .get(`${prefix}/versions/:file`, [PoppyController, 'versionDocument'])
+    .as('authkit.poppy.version_document');
   router
     .post(`${prefix}/oauth/device`, [PoppyController, 'deviceAuthorization'])
     .as('authkit.poppy.device_authorization');
@@ -160,6 +167,20 @@ async function resolveReplay(
   return redisReplayStore(redis.connection((replay as { redis: string }).redis));
 }
 
+/**
+ * O global `poppyUserStep(step)` do Edge (Browser Control 1): `<form {{{ poppyUserStep('submission') }}}>`.
+ * Sem edge.js no app (Inertia, headless), nada a fazer.
+ */
+async function registerEdgeGlobal(): Promise<void> {
+  try {
+    const specifier = 'edge.js';
+    const edge = (await import(specifier)) as { default?: any };
+    (edge.default ?? edge).global('poppyUserStep', poppyUserStep);
+  } catch {
+    // Sem edge.js: o app usa `poppyUserStepAttrs()` no JSX.
+  }
+}
+
 /** O app serve os dev tools do Agora (`@adonis-agora/agent` ligou `'agora.devTools'`)? */
 async function servesDevTools(host: PersonalAgentHost): Promise<boolean> {
   try {
@@ -209,6 +230,8 @@ export function poppy(
         `${resolved.prefix}/oauth/device`,
         `${resolved.prefix}/browser-session`,
         `${resolved.prefix}/browser-session/authorize`,
+        `${resolved.prefix}/feedback`,
+        `${resolved.prefix}/operations`,
       ];
       return {
         label: 'Poppy',
@@ -218,10 +241,14 @@ export function poppy(
         tables: POPPY_TABLES,
         messages: POPPY_MESSAGES,
         isAgentBrowser: (ctx) => isPoppyBrowser(ctx),
-        boot() {
+        async boot() {
           // O slot global que o `@adonis-agora/agent` usa para autenticar o endpoint de conversas
-          // (e o MCP) sem importar este pacote — o contrato é o símbolo.
-          installPoppySlots(poppyUrls(context.issuer, resolved.prefix).issuer);
+          // (e o MCP) sem importar este pacote — o contrato é o símbolo. Com Operations ligada,
+          // também o slot das operações.
+          installPoppySlots(poppyUrls(context.issuer, resolved.prefix).issuer, {
+            operations: resolved.operations !== null,
+          });
+          if (resolved.browserControl) await registerEdgeGlobal();
         },
         routes: (router, kit) => registerRoutes(router, resolved.prefix, kit),
         async setup(host) {

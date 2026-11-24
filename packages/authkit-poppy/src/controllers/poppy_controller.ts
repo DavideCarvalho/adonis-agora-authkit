@@ -59,7 +59,78 @@ export default class PoppyController {
     if (!doc) return ctx.response.notFound();
     ctx.response.header('Access-Control-Allow-Origin', '*');
     ctx.response.header('Cache-Control', 'public, max-age=300');
+    for (const [k, v] of Object.entries(poppy.versionHeaders(poppy.cfg.preferredVersion))) {
+      ctx.response.header(k, v);
+    }
     return ctx.response.json(doc);
+  }
+
+  /**
+   * `GET {prefix}/versions/{versão}.json` (§3.4): o documento de outra versão servida, no mesmo host
+   * do poppy.json, sem `supported_versions`. Uma versão em retirada sai com `Deprecation`/`Sunset`.
+   */
+  async versionDocument(ctx: HttpContext) {
+    const poppy = await poppyOr404(ctx);
+    if (!poppy) return;
+    const match = /^(\d{1,4}\.\d{1,4})\.json$/.exec(String(ctx.request.param('file') ?? ''));
+    const host = ctx.request.host() ?? ctx.request.hostname() ?? '';
+    const doc = match ? poppy.versionDocument(host, match[1]) : null;
+    if (!doc) return ctx.response.notFound();
+    ctx.response.header('Access-Control-Allow-Origin', '*');
+    ctx.response.header('Cache-Control', 'public, max-age=300');
+    for (const [k, v] of Object.entries(poppy.versionHeaders(match![1]))) {
+      ctx.response.header(k, v);
+    }
+    return ctx.response.json(doc);
+  }
+
+  /**
+   * `POST feedback.endpoint` da lib (§9.3): com o header da Session. 202 sem corpo, 200 com uma
+   * alternativa, 400 `invalid_request` para um relato malformado.
+   */
+  async feedback(ctx: HttpContext) {
+    const poppy = await poppyOr404(ctx);
+    if (!poppy) return;
+    if (!poppy.cfg.tasks?.feedback) return ctx.response.notFound();
+    noStore(ctx);
+    const result = await poppy.feedback(
+      {
+        method: ctx.request.method(),
+        url: publicRequestUrl(ctx, poppy),
+        headers: ctx.request.headers() as Record<string, string | string[] | undefined>,
+      },
+      ctx.request.body(),
+    );
+    if (!result.ok) {
+      if ('wwwAuthenticate' in result) return writePoppyAuthError(ctx, result);
+      return ctx.response.status(result.status).json(result.body);
+    }
+    for (const [k, v] of Object.entries(result.headers)) ctx.response.header(k, v);
+    if (result.body === null) return ctx.response.status(202).send('');
+    return ctx.response.status(200).json(result.body);
+  }
+
+  /**
+   * `POST endpoint` da extensão Operations (operações do site): `{ ref }`, com o header da Session,
+   * o access token quando logado e, para aprovar, `Poppy-Approval`.
+   */
+  async operations(ctx: HttpContext) {
+    const poppy = await poppyOr404(ctx);
+    if (!poppy) return;
+    if (!poppy.cfg.operations?.website) return ctx.response.notFound();
+    noStore(ctx);
+    const result = await poppy.operationsEndpoint(
+      {
+        method: ctx.request.method(),
+        url: publicRequestUrl(ctx, poppy),
+        headers: ctx.request.headers() as Record<string, string | string[] | undefined>,
+      },
+      ctx.request.body(),
+    );
+    if (!result.ok) return writePoppyAuthError(ctx, result);
+    for (const [k, v] of Object.entries(result.headers)) ctx.response.header(k, v);
+    if (result.body === null) return ctx.response.status(result.status).send('');
+    return ctx.response.status(result.status).json(result.body);
   }
 
   /** `GET /.well-known/oauth-protected-resource` do domínio (§3.2, RFC 9728). */
@@ -126,6 +197,7 @@ export default class PoppyController {
     });
     if (!result.ok)
       return writePoppyAuthError(ctx, result as Extract<PoppyAuthResult, { ok: false }>);
+    for (const [k, v] of Object.entries(result.headers)) ctx.response.header(k, v);
     ctx.response.header('Cache-Control', result.perSession ? 'no-store' : 'private, max-age=300');
     return ctx.response.status(200).json(result.body);
   }

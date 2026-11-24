@@ -109,6 +109,19 @@ export interface SessionJwtOptions {
   noDelegation?: boolean;
   kid?: string;
   delegation?: { typ?: string; iat?: number; exp?: number; iss?: string; cnf?: unknown };
+  /** Assina com esta chave delegada (de {@link delegatedKey}) em vez de uma nova. */
+  delegatedKey?: DelegatedKey;
+}
+
+export interface DelegatedKey {
+  privateKey: CryptoKey;
+  jwk: JWK;
+}
+
+/** Uma chave delegada para reusar entre JWTs. */
+export async function delegatedKey(): Promise<DelegatedKey> {
+  const { privateKey, publicKey } = await generateKeyPair('ES256', { extractable: true });
+  return { privateKey, jwk: await exportJWK(publicKey) };
 }
 
 export interface RequestOptions extends SessionJwtOptions {
@@ -300,8 +313,7 @@ export async function setupPoppy(
           .setProtectedHeader({ alg: 'ES256', typ, kid: 'k1' })
           .sign(keys.sign);
       }
-      const { privateKey, publicKey } = await generateKeyPair('ES256', { extractable: true });
-      const delegated = await exportJWK(publicKey);
+      const { privateKey, jwk: delegated } = opts.delegatedKey ?? (await delegatedKey());
       const dlgIat = opts.delegation?.iat ?? nowS() - 60;
       const delegation = await new SignJWT({
         iss: opts.delegation?.iss ?? CLIENT_ID,

@@ -39,6 +39,10 @@ export interface VerifiedSessionJwt {
   agentId: string | null;
   jti: string;
   iat: number;
+  /** Thumbprint (RFC 7638) da chave delegada que assinou. */
+  delegatedKey: string;
+  /** `exp` da delegação, em Unix seconds. */
+  delegationExp: number;
 }
 
 export interface VerifySessionJwtInput {
@@ -111,7 +115,8 @@ export async function verifySessionJwt(input: VerifySessionJwtInput): Promise<Ve
     throw fail('the client_id was refused');
   }
   const delegation = await verifyDelegation(header.poppy_dlg, client, input.now);
-  if (header.kid !== (await calculateJwkThumbprint(delegation.jwk, 'sha256'))) {
+  const thumbprint = await calculateJwkThumbprint(delegation.jwk, 'sha256');
+  if (header.kid !== thumbprint) {
     throw fail('kid must be the thumbprint of the delegated key');
   }
 
@@ -164,5 +169,7 @@ export async function verifySessionJwt(input: VerifySessionJwtInput): Promise<Ve
     agentId: (agentId as string | undefined) ?? null,
     jti: claims.jti,
     iat: claims.iat,
+    delegatedKey: thumbprint,
+    delegationExp: delegation.exp,
   };
 }

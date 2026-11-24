@@ -496,9 +496,12 @@ test.group('poppy — header Poppy-Session', () => {
     const later = await env.poppy.verifyAccess(await env.request({ version: '1.3', sid: 'v1' }));
     assert.isTrue(later.ok);
     if (later.ok) assert.equal(later.principal.protocolVersion, '1.3');
-    const ok = await env.poppy.verifyAccess(await env.request({ sid: 'v1' }));
+    const ok = await env.poppy.verifyAccess(await env.request({ sid: 'v2' }));
     assert.isTrue(ok.ok);
-    if (ok.ok) assert.equal(ok.principal.protocolVersion, '1.0');
+    if (ok.ok) {
+      assert.equal(ok.principal.protocolVersion, '1.0');
+      assert.equal(ok.principal.documentVersion, '1.0');
+    }
     await env.close();
   });
 
@@ -1447,6 +1450,8 @@ test.group('poppy — config', () => {
       '/agents-poppy/oauth/device',
       '/agents-poppy/browser-session',
       '/agents-poppy/browser-session/authorize',
+      '/agents-poppy/feedback',
+      '/agents-poppy/operations',
     ]);
     assert.deepEqual(
       definition.tables!.map((t) => t.name),
@@ -1455,6 +1460,11 @@ test.group('poppy — config', () => {
         'auth_poppy_tokens',
         'auth_poppy_requests',
         'auth_poppy_grant_keys',
+        'auth_poppy_grant_resources',
+        'auth_poppy_delegated_keys',
+        'auth_poppy_feedback',
+        'auth_poppy_operations',
+        'auth_poppy_operation_revisions',
         'auth_poppy_jtis',
       ],
     );
