@@ -122,7 +122,7 @@ catalogs:
     "@adonisjs/session": "8.3.0"
     "@adonisjs/shield": "9.0.1"
     "@adonisjs/static": "2.0.1"
-    "@adonisjs/transmit": "3.0.2"
+    "@adonisjs/transmit": "3.0.3"
     "@adonisjs/transmit-client": "1.1.0"
     "@adonisjs/vite": "6.0.4"
     "@adonisjs/assembler": "8.6.0"
