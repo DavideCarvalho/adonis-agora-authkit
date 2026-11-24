@@ -217,6 +217,11 @@ export interface AgentConsentScope {
   descriptionKey?: string;
   /** Not ticked for the person: granted only if they tick it themselves. */
   optIn?: boolean;
+  /**
+   * The account already granted this scope to the same agent. The screen still lists it (the agent
+   * asks for every scope it needs again) and marks it as already allowed.
+   */
+  granted?: boolean;
 }
 
 export interface AgentConsentRequest {

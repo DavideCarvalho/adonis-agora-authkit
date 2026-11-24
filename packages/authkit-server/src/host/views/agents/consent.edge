@@ -38,6 +38,9 @@
                 @if(scope.optIn)
                   <span class="mt-1 block text-xs text-gray-500">{{ t('agents.consent.opt_in_hint') }}</span>
                 @end
+                @if(scope.granted)
+                  <span class="mt-1 block text-xs text-gray-500">{{ t('agents.consent.granted_hint') }}</span>
+                @end
               </span>
             </label>
           @end

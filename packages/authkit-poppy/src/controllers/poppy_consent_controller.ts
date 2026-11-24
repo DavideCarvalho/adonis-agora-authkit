@@ -132,14 +132,14 @@ export default class PoppyConsentController {
     const input: unknown = ctx.request.input('user_code');
     if (!input)
       return render(ctx, 'agents/consent', base satisfies ScreenRenderProps<'agents/consent'>);
-    const pending = await poppy.pendingDevice(input);
+    const accountId = ctx.session.get(ACCOUNT_SESSION_KEY) as string;
+    const pending = await poppy.pendingDevice(input, accountId);
     if (!pending) {
       return render(ctx, 'agents/consent', {
         ...base,
         error: 'agents.consent.invalid_code',
       } satisfies ScreenRenderProps<'agents/consent'>);
     }
-    const accountId = ctx.session.get(ACCOUNT_SESSION_KEY) as string;
     const account = await service.config.accountStore.findById(accountId);
     return render(ctx, 'agents/consent', {
       ...base,

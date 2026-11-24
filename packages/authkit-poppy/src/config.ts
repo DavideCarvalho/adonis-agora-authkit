@@ -155,6 +155,28 @@ export interface PoppyTasksResponse {
   feedback?: { endpoint: string };
 }
 
+/** Um relato de feedback recebido (§9.3), já guardado. */
+export interface PoppyFeedbackReport {
+  /** Id do relato na tabela `auth_poppy_feedback`. */
+  id: string;
+  /** O que o usuário tentava fazer, em uma frase (até 200 caracteres). */
+  task: string;
+  /** O que o personal agent tentou e por quê (até 2.000 caracteres). Dado, nunca instrução. */
+  description: string;
+}
+
+/** O endpoint de feedback servido pela lib (§9.3). */
+export interface PoppyFeedbackConfigInput {
+  /**
+   * Chamado depois de guardar o relato. Devolva uma alternativa (§9.2) quando a tarefa dá para
+   * fazer — o agente recebe 200 com ela; sem retorno, 202.
+   */
+  onReport?: (input: {
+    principal: PoppyPrincipalBase;
+    report: PoppyFeedbackReport;
+  }) => undefined | PoppyAlternative | Promise<undefined | PoppyAlternative>;
+}
+
 /** Cobertura de tarefas (§9): o que sai no `tasks.endpoint`. */
 export interface PoppyTasksConfigInput {
   /**
@@ -166,8 +188,12 @@ export interface PoppyTasksConfigInput {
   excludedTasks?: PoppyExcludedTask[];
   /** Índice de skills (§9.4), no formato do Agent Skills discovery 0.2.0. */
   skillIndex?: Record<string, unknown>;
-  /** Endpoint de feedback que o app implementa (§9.3). */
-  feedback?: { endpoint: string };
+  /**
+   * Feedback (§9.3). `{ endpoint }` publica um endpoint que o próprio app implementa. Sem
+   * `endpoint`, a lib serve `{prefix}/feedback`: verifica a Session, guarda o relato na tabela
+   * `auth_poppy_feedback` e chama `onReport`, quando houver.
+   */
+  feedback?: { endpoint: string } | PoppyFeedbackConfigInput;
   /**
    * Resposta por Session (ex.: testar uma skill com parte dos usuários). Recebe a Session já
    * verificada e a resposta montada dos campos acima; a resposta sai `Cache-Control: no-store`.
@@ -246,6 +272,12 @@ export interface PoppyConfigInput {
     device?: boolean | { scopes?: string[] };
     /** Desligado por default: o app precisa conferir as credenciais. */
     mediated?: PoppyMediatedConfigInput;
+    /**
+     * Um sign-in que nomeia `resource` vale só para esses resources (§4.5, RFC 8707 §2.2): o
+     * default token só sai se ele nomeou `https://{organization.domain}`. Sem `resource`, o sign-in
+     * continua cobrindo tudo. Default: false (o `resource` do início é ignorado).
+     */
+    limitToResource?: boolean;
   };
   /** Company Agent (§8) — o endpoint de conversas é implementado pelo `@adonis-agora/agent`. */
   agent?: { protocols: PoppyAgentProtocolEntry[] };
@@ -314,6 +346,11 @@ export interface PoppyConfigInput {
   sessionJwt?: {
     /** Janela de aceitação do `iat`, em segundos. Default: 60. */
     maxAge?: number;
+    /**
+     * Recusa (`invalid_session`) uma chave delegada que já assinou por outro User ID enquanto a
+     * delegação dela vale (§5.2): limita uma chave vazada a um usuário. Default: true.
+     */
+    oneUserPerKey?: boolean;
   };
   /** DPoP (§4.5): prender os access tokens é escolha da empresa. */
   dpop?: {
@@ -350,12 +387,89 @@ export interface PoppyConfigInput {
    */
   toActor?: (principal: PoppyPrincipalBase) => unknown | Promise<unknown>;
   /**
+   * Versões do protocolo servidas (§3.4), `'major.minor' → opções`. Default: só `'1.0'`, a que este
+   * pacote implementa — ela sempre entra. Cada outra versão vira um documento no mesmo host
+   * (`{prefix}/versions/{versão}.json`), listado em `supported_versions`; `document` ajusta o que
+   * ela publica. `deprecated` manda `Deprecation` (RFC 9745) e `Sunset` (RFC 8594) nas respostas a
+   * requests nela.
+   */
+  versions?: Record<string, PoppyVersionInput>;
+  /** A versão do `/.well-known/poppy.json` (§3.4). Default: a mais nova servida. */
+  preferredVersion?: string;
+  /** Extensão Operations, versão 3. Desligada por default. */
+  operations?: boolean | PoppyOperationsConfigInput;
+  /**
+   * Extensão Browser Control, versão 1: o site marca passos do usuário com
+   * `data-poppy-user-step`. Exige o `browser_session_endpoint`. Default: false.
+   */
+  browserControl?: boolean;
+  /** Extensão Links, versão 1: mensagens da empresa com links. Default: false. */
+  links?: boolean;
+  /** Extensão Disclosures, versão 1: avisos destacados nas mensagens. Default: false. */
+  disclosures?: boolean;
+  /**
    * Offer the `agora:dev` scope: a personal agent the person grants it to may use the app's Agora
    * developer tools over MCP (`@adonis-agora/agent`, `/mcp/agora`). It is never ticked for the
    * person on the consent screen and Mediated Sign-In can never grant it. Default: offered when the
    * app serves those dev tools (the `'agora.devTools'` binding exists). `false` never offers it.
    */
   devTools?: boolean;
+}
+
+/** Uma versão do protocolo servida (§3.4). */
+export interface PoppyVersionInput {
+  /**
+   * Ajusta o documento desta versão: recebe o da 1.0 (com `protocol_version` já trocado, sem
+   * `supported_versions`) e devolve o desta versão. Não troque `organization.domain` nem o issuer.
+   */
+  document?: (doc: Record<string, unknown>) => Record<string, unknown>;
+  /**
+   * A versão vai deixar de ser servida: as respostas a requests nela levam `Deprecation` (desde
+   * `at`), `Sunset` (quando houver) e um `Link` `rel="deprecation"` (quando houver).
+   */
+  deprecated?: { at: Date; sunset?: Date; link?: string };
+}
+
+/** Uma aprovação recebida (Operations 3, §6). */
+export interface PoppyApproval {
+  operation_id: string;
+  revision: string;
+  /** `user` (o usuário aprovou) ou `agent` (o agente aprovou por instrução do usuário). */
+  approver: 'user' | 'agent';
+  /** Unix seconds. */
+  approved_at?: number;
+  /** Só com `user`: `tap`, `typed`, `voice`… */
+  input_type?: string;
+  /** Id do registro do personal agent para esta aprovação. */
+  reference?: string;
+}
+
+/** A recusa de uma aprovação (Operations 3, §6), devolvida pelo `decide`. */
+export interface PoppyDecline {
+  /** Por quê, curto, para o usuário. Nada que a Session não pudesse ver. */
+  reason?: string;
+  /** Outro jeito de fazer (§9.2). */
+  alternative?: PoppyAlternative;
+}
+
+export interface PoppyOperationsConfigInput {
+  /**
+   * Operações no site (§4 "Websites"): publica `endpoint` (`{prefix}/operations`), onde o agente
+   * busca e aprova as operações que o site devolveu. Exige o `browser_session_endpoint`. Default:
+   * ligado quando o site tem browser join.
+   */
+  website?: boolean;
+  /**
+   * Chamado com uma aprovação que passou nas checagens, antes de executar: devolva um
+   * {@link PoppyDecline} para recusá-la (`approval_declined`), ou nada para seguir.
+   */
+  decide?: (input: {
+    principal: PoppyPrincipalBase;
+    operation: { operationId: string; revision: string; terms: Record<string, unknown> };
+    approval: PoppyApproval;
+  }) => undefined | PoppyDecline | Promise<undefined | PoppyDecline>;
+  /** Validade default de uma revisão, em segundos. Default: 900 (15 min, o mínimo dos guias). */
+  expiresIn?: number;
 }
 
 /**
@@ -376,6 +490,11 @@ export interface PoppyPrincipalBase {
   sessionId: string;
   /** A versão do protocolo que a request declarou em `Poppy-Version` (`'1.0'`, `'1.1'`…). */
   protocolVersion: string;
+  /**
+   * A versão servida (§3.4) com que a request é atendida: a de `versions` compatível com
+   * `protocolVersion` — a igual, senão a mais nova que não passa dela.
+   */
+  documentVersion: string;
   /**
    * As extensões que a request declarou em `Poppy-Extensions` e que este app lista, `nome → versão`
    * (§3.3, §3.4).
@@ -407,6 +526,7 @@ export interface ResolvedPoppyConfig {
     direct: { scopes: string[] } | null;
     device: { scopes: string[] } | null;
     mediated: ResolvedPoppyMediatedConfig | null;
+    limitToResource: boolean;
   };
   agent: { protocols: PoppyAgentProtocolEntry[] } | null;
   apis: PoppyApiEntry[];
@@ -416,6 +536,8 @@ export interface ResolvedPoppyConfig {
     endpoint: string | null;
     response: PoppyTasksResponse;
     resolve?: PoppyTasksConfigInput['resolve'];
+    /** O endpoint de feedback da lib (`{prefix}/feedback`); `null` = nenhum ou do app. */
+    feedback: PoppyFeedbackConfigInput | null;
   } | null;
   web: {
     browserSession: boolean;
@@ -425,6 +547,18 @@ export interface ResolvedPoppyConfig {
     redirectTo: string;
   } | null;
   extensions: Record<string, ({ version: string } & Record<string, unknown>)[]>;
+  /** Versões servidas (§3.4), com `'1.0'` sempre. */
+  versions: Record<string, PoppyVersionInput>;
+  preferredVersion: string;
+  /** Operations 3; `null` = desligada. */
+  operations: {
+    website: boolean;
+    decide?: PoppyOperationsConfigInput['decide'];
+    expiresIn: number;
+  } | null;
+  browserControl: boolean;
+  links: boolean;
+  disclosures: boolean;
   /** `null` = sem PAR. */
   par: { required: boolean } | null;
   clients: {
@@ -444,7 +578,7 @@ export interface ResolvedPoppyConfig {
   deviceCodeTtl: number;
   pollInterval: number;
   assertionMaxLifetime: number;
-  sessionJwt: { maxAge: number };
+  sessionJwt: { maxAge: number; oneUserPerKey: boolean };
   dpop: {
     required: boolean;
     requireNonce: boolean;
@@ -652,9 +786,18 @@ export function resolvePoppyConfig(
     };
   }
   const extensions: ResolvedPoppyConfig['extensions'] = {};
+  const flagged: Record<string, boolean> = {
+    [OPERATIONS_EXTENSION]: !!input.operations,
+    [BROWSER_CONTROL_EXTENSION]: input.browserControl === true,
+    [LINKS_EXTENSION]: input.links === true,
+    [DISCLOSURES_EXTENSION]: input.disclosures === true,
+  };
   for (const [name, entries] of Object.entries(input.extensions ?? {})) {
     if (name === MEDIATED_SIGN_IN_EXTENSION) {
       fail(`extensions.${name} é publicada por signIn.mediated.`);
+    }
+    if (flagged[name]) {
+      fail(`extensions.${name} é publicada pela opção do próprio poppy() — não liste as duas.`);
     }
     if (!Array.isArray(entries) || entries.length === 0) {
       fail(`extensions.${name} precisa ser uma lista, uma entrada por versão (§3.3).`);
@@ -682,6 +825,27 @@ export function resolvePoppyConfig(
     type && BROWSER_SIGN_IN_SCOPE in scopes && !type.scopes.includes(BROWSER_SIGN_IN_SCOPE)
       ? { scopes: [...type.scopes, BROWSER_SIGN_IN_SCOPE] }
       : type;
+
+  const browserJoin = web?.browserSession === true;
+  let operations: ResolvedPoppyConfig['operations'] = null;
+  if (input.operations) {
+    const o = input.operations === true ? {} : input.operations;
+    if (o.website === true && !browserJoin) {
+      fail('operations.website exige o browser_session_endpoint (web.browserSession).');
+    }
+    if (o.decide !== undefined && typeof o.decide !== 'function') {
+      fail('operations.decide precisa ser uma função.');
+    }
+    operations = {
+      website: o.website ?? browserJoin,
+      decide: o.decide,
+      expiresIn: positive(o.expiresIn, 900, 'operations.expiresIn'),
+    };
+  }
+  if (input.browserControl === true && !browserJoin) {
+    fail('browserControl exige o browser_session_endpoint (web.browserSession).');
+  }
+  const { versions, preferredVersion } = resolveVersions(input.versions, input.preferredVersion);
 
   const assertionMaxLifetime = positive(input.assertionMaxLifetime, 300, 'assertionMaxLifetime');
   if (assertionMaxLifetime < 300) {
@@ -723,12 +887,19 @@ export function resolvePoppyConfig(
       direct: withBrowserScope(typeScopes(signInInput.direct, catalog, 'direct')),
       device: withBrowserScope(typeScopes(signInInput.device, catalog, 'device')),
       mediated,
+      limitToResource: signInInput.limitToResource === true,
     },
     agent: input.agent?.protocols?.length ? { protocols: [...input.agent.protocols] } : null,
     apis: [...(input.apis ?? [])],
     tasks,
     web,
     extensions,
+    versions,
+    preferredVersion,
+    operations,
+    browserControl: input.browserControl === true,
+    links: input.links === true,
+    disclosures: input.disclosures === true,
     par:
       input.par === false || signInInput.direct === false
         ? null
@@ -748,7 +919,10 @@ export function resolvePoppyConfig(
     deviceCodeTtl: positive(input.deviceCodeTtl, 600, 'deviceCodeTtl'),
     pollInterval: positive(input.pollInterval, 5, 'pollInterval'),
     assertionMaxLifetime,
-    sessionJwt: { maxAge: positive(input.sessionJwt?.maxAge, 60, 'sessionJwt.maxAge') },
+    sessionJwt: {
+      maxAge: positive(input.sessionJwt?.maxAge, 60, 'sessionJwt.maxAge'),
+      oneUserPerKey: input.sessionJwt?.oneUserPerKey !== false,
+    },
     dpop: {
       required: input.dpop?.required === true,
       requireNonce: input.dpop?.requireNonce === true,
@@ -775,6 +949,57 @@ export const BROWSER_SIGN_IN_UNSCOPED_DESCRIPTION =
   'Browse the website, and see and do anything your account can do there';
 /** O nome da extensão Mediated Sign-In em `extensions`. */
 export const MEDIATED_SIGN_IN_EXTENSION = 'mediated-sign-in';
+/** Extensão Operations (versão 3). */
+export const OPERATIONS_EXTENSION = 'operations';
+export const OPERATIONS_VERSION = '3';
+/** Extensão Browser Control (versão 1). */
+export const BROWSER_CONTROL_EXTENSION = 'browser-control';
+/** Extensões Links e Disclosures (versão 1). */
+export const LINKS_EXTENSION = 'links';
+export const DISCLOSURES_EXTENSION = 'disclosures';
+/** A versão do protocolo que este pacote implementa (§3.4). */
+export const POPPY_BASE_VERSION = '1.0';
+const VERSION = /^(0|[1-9]\d{0,3})\.(0|[1-9]\d{0,3})$/;
+
+function resolveVersions(
+  input: Record<string, PoppyVersionInput> | undefined,
+  preferred: string | undefined,
+): { versions: Record<string, PoppyVersionInput>; preferredVersion: string } {
+  const versions: Record<string, PoppyVersionInput> = { [POPPY_BASE_VERSION]: {} };
+  for (const [version, options] of Object.entries(input ?? {})) {
+    if (!VERSION.test(version)) fail(`versions — "${version}" precisa ser major.minor.`);
+    if (options?.document !== undefined && typeof options.document !== 'function') {
+      fail(`versions.${version}.document precisa ser uma função.`);
+    }
+    if (version === POPPY_BASE_VERSION && options?.document) {
+      fail(`versions.${POPPY_BASE_VERSION}.document — o documento da 1.0 é o poppy.json da lib.`);
+    }
+    const dep = options?.deprecated;
+    if (dep !== undefined) {
+      if (!(dep?.at instanceof Date) || Number.isNaN(dep.at.getTime())) {
+        fail(`versions.${version}.deprecated.at precisa ser uma Date.`);
+      }
+      if (dep.sunset !== undefined && !(dep.sunset instanceof Date)) {
+        fail(`versions.${version}.deprecated.sunset precisa ser uma Date.`);
+      }
+      if (dep.link !== undefined) absoluteUrl(dep.link, `versions.${version}.deprecated.link`);
+    }
+    versions[version] = { ...(options ?? {}) };
+  }
+  const newest = Object.keys(versions).sort(compareVersions).at(-1)!;
+  const preferredVersion = preferred ?? newest;
+  if (!(preferredVersion in versions)) {
+    fail(`preferredVersion "${preferredVersion}" não está em versions.`);
+  }
+  return { versions, preferredVersion };
+}
+
+/** Ordena `major.minor` numericamente. */
+export function compareVersions(a: string, b: string): number {
+  const [am, an] = a.split('.').map(Number);
+  const [bm, bn] = b.split('.').map(Number);
+  return am - bm || an - bn;
+}
 
 const SKILL_DIGEST = /^sha256:[0-9a-f]{64}$/;
 
@@ -788,7 +1013,7 @@ function resolveTasks(
     if (input.excludedTasks || input.skillIndex || input.feedback || input.resolve) {
       fail('tasks.endpoint é um endpoint do app: os demais campos de tasks ficam nele.');
     }
-    return { endpoint: input.endpoint, response: {} };
+    return { endpoint: input.endpoint, response: {}, feedback: null };
   }
   const response: PoppyTasksResponse = {};
   if (input.excludedTasks) {
@@ -817,14 +1042,25 @@ function resolveTasks(
     }
     response.skill_index = index;
   }
+  let feedback: PoppyFeedbackConfigInput | null = null;
   if (input.feedback) {
-    absoluteUrl(input.feedback.endpoint, 'tasks.feedback.endpoint');
-    response.feedback = { endpoint: input.feedback.endpoint };
+    if ('endpoint' in input.feedback && input.feedback.endpoint !== undefined) {
+      absoluteUrl(input.feedback.endpoint, 'tasks.feedback.endpoint');
+      if ((input.feedback as PoppyFeedbackConfigInput).onReport !== undefined) {
+        fail('tasks.feedback.onReport é do endpoint da lib: sem `endpoint`.');
+      }
+      response.feedback = { endpoint: input.feedback.endpoint };
+    } else {
+      feedback = input.feedback as PoppyFeedbackConfigInput;
+      if (feedback.onReport !== undefined && typeof feedback.onReport !== 'function') {
+        fail('tasks.feedback.onReport precisa ser uma função.');
+      }
+    }
   }
   if (input.resolve !== undefined && typeof input.resolve !== 'function') {
     fail('tasks.resolve precisa ser uma função.');
   }
-  return { endpoint: null, response, resolve: input.resolve };
+  return { endpoint: null, response, resolve: input.resolve, feedback };
 }
 
 function validateAlternative(alternative: PoppyAlternative, apis: PoppyApiEntry[]): void {

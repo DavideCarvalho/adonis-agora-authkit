@@ -32,6 +32,11 @@ export interface PoppyWebSessionMarker {
   accountId: string | null;
   grantId: string | null;
   scopes: string[];
+  /**
+   * As extensões que o passo 2 da entrada declarou (§6): as das requests deste navegador
+   * (Operations, Browser Control). Ausente num marcador de antes do campo.
+   */
+  extensions?: Record<string, string>;
 }
 
 /**
@@ -58,6 +63,7 @@ export async function loginPoppyBrowser(
     accountId: result.accountId,
     grantId: result.grantId,
     scopes: result.scopes,
+    extensions: result.extensions,
   };
   ctx.session.put(POPPY_WEB_SESSION_KEY, marker);
   if (login) {
@@ -133,4 +139,44 @@ export function poppyWebSession() {
     }
     return next();
   };
+}
+
+/**
+ * O valor de `data-poppy-user-step` (extensão Browser Control 1): um passo que o usuário dá ele
+ * mesmo. `interaction` num controle (ou formulário: os controles e o envio ficam com o usuário);
+ * `submission` num formulário (o agente pode preencher, o envio fica com o usuário).
+ */
+export type PoppyUserStep = 'interaction' | 'submission';
+
+/** O atributo, para JSX/objetos: `<form {...poppyUserStepAttrs('submission')}>`. */
+export function poppyUserStepAttrs(step: PoppyUserStep): { 'data-poppy-user-step': PoppyUserStep } {
+  if (step !== 'interaction' && step !== 'submission') {
+    throw new Error('authkit-poppy: data-poppy-user-step é interaction ou submission.');
+  }
+  return { 'data-poppy-user-step': step };
+}
+
+/**
+ * O atributo como HTML, para templates: `<form {{{ poppyUserStep('submission') }}}>` no Edge (o
+ * global `poppyUserStep` é registrado no boot quando `browserControl` está ligado).
+ */
+export function poppyUserStep(step: PoppyUserStep): string {
+  const { 'data-poppy-user-step': value } = poppyUserStepAttrs(step);
+  return `data-poppy-user-step="${value}"`;
+}
+
+/**
+ * O navegador desta request declarou Browser Control 1 na entrada (§6)? Então ele lê as marcas e
+ * oferece `navigator.poppy.controller` à página.
+ */
+export function poppyBrowserControlOf(ctx: HttpContext): boolean {
+  return poppyWebSessionOf(ctx)?.extensions['browser-control'] === '1';
+}
+
+/**
+ * O `controller` que a página mandou (`navigator.poppy.controller`): `'user'`, `'agent'` ou
+ * `null`. Não é assinado: registre, não confie como garantia (Browser Control 1, §8.2).
+ */
+export function poppyControllerOf(value: unknown): 'user' | 'agent' | null {
+  return value === 'user' || value === 'agent' ? value : null;
 }
