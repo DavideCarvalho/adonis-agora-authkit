@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.53
+
+### Patch Changes
+
+- [#550](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/550) [`876c9d3`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/876c9d3ff1c05828573c8f99ea0f56df6bf7dae7) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Admin console: switching pages now clears the `after`/`before` cursors too. The Audit Log cursor no longer follows you to Sessions, where it failed with "Invalid cursor.".
+
 ## 1.0.0-rc.52
 
 ### Minor Changes
