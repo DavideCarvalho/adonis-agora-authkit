@@ -26,9 +26,10 @@ export type Route = (typeof ROUTES)[number];
  * Roteamento e estado de rota do console via nuqs (query params na URL).
  *
  * - `view` controla a página atual (omitido quando `overview`, o default).
- * - Ao navegar, limpamos os filtros compartilhados (page/q/user/org/type) para
- *   que o estado de uma página não vaze para outra — todas as páginas montam no
- *   mesmo querystring, uma de cada vez.
+ * - Ao navegar, limpamos os filtros e cursores compartilhados (page/q/user/org/
+ *   type/after/before) para que o estado de uma página não vaze para outra —
+ *   todas as páginas montam no mesmo querystring, uma de cada vez. O cursor de
+ *   uma lista não serve em outra (o do Audit em Sessions dava "Invalid cursor.").
  *
  * O adapter é o `NuqsAdapter` de `nuqs/adapters/react` (SPA sem framework),
  * montado em `main.tsx`.
@@ -47,12 +48,22 @@ export function useRouter() {
     user: parseAsString,
     org: parseAsString,
     type: parseAsString,
+    after: parseAsString,
+    before: parseAsString,
   });
 
   const navigate = useCallback(
     (r: Route) => {
       void setView(r === 'overview' ? null : r);
-      void clearFilters({ page: null, q: null, user: null, org: null, type: null });
+      void clearFilters({
+        page: null,
+        q: null,
+        user: null,
+        org: null,
+        type: null,
+        after: null,
+        before: null,
+      });
     },
     [setView, clearFilters],
   );
