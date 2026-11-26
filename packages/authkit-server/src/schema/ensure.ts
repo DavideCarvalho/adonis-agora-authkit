@@ -368,6 +368,26 @@ const TABLES: TableDef[] = [
       updated_at: (t) => t.dateTime('updated_at', { useTz: true, precision: 3 }).nullable(),
     },
   },
+  {
+    name: 'auth_app_keys',
+    /**
+     * The app key directory: public keys an app publishes about itself, one row per
+     * (app, purpose) — e.g. `console:durable`. Public OKP JWKs only, as a JSON array.
+     */
+    create: (t) => {
+      t.string('app', 64).notNullable();
+      t.string('purpose', 64).notNullable();
+      t.text('keys').notNullable();
+      t.dateTime('created_at', { useTz: true, precision: 3 }).nullable();
+      t.dateTime('updated_at', { useTz: true, precision: 3 }).notNullable();
+      t.primary(['app', 'purpose']);
+    },
+    columns: {
+      keys: (t) => t.text('keys'),
+      created_at: (t) => t.dateTime('created_at', { useTz: true, precision: 3 }).nullable(),
+      updated_at: (t) => t.dateTime('updated_at', { useTz: true, precision: 3 }).nullable(),
+    },
+  },
 ];
 
 /** Os nomes (sem schema) das tabelas que {@link ensureAuthkitSchema} garante. */

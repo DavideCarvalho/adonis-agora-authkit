@@ -29,6 +29,10 @@ test.group('poppy — rotas no Router real', () => {
           throttled.push(`otp ${route.getPattern()}`);
           return route;
         },
+        token: (route: any) => {
+          throttled.push(`token ${route.getPattern()}`);
+          return route;
+        },
       },
     });
     assert.doesNotThrow(() => router.commit());
@@ -55,8 +59,13 @@ test.group('poppy — rotas no Router real', () => {
     ]);
     assert.sameMembers(throttled, [
       'login /poppy/browser-session',
+      'login /poppy/browser-session',
       'otp /poppy/device',
       'otp /poppy/device',
+      'token /poppy/oauth/token',
+      'token /poppy/oauth/revoke',
+      'token /poppy/oauth/par',
+      'token /poppy/oauth/device',
     ]);
     // As telas do usuário ficam atrás do guard de conta; os endpoints de máquina, não.
     const guarded = (pattern: string, method: string) =>

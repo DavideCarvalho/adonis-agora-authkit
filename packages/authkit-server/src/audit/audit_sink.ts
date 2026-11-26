@@ -137,6 +137,8 @@ export const AUDIT_EVENT_TYPES = [
   'keys.retired',
   // `node ace authkit:purge`: contagens do que foi apagado, por tipo.
   'oidc.purged',
+  // An app published its public keys to the key directory (`PUT /api/apps/keys`).
+  'app.keys_published',
 ] as const;
 
 /** Tipos de eventos de auditoria relevantes para segurança emitidos pelo IdP. */

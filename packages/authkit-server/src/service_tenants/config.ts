@@ -36,8 +36,14 @@ export interface ServiceTenantsConfigInput {
    * Calls between apps: a service tenant granted another app (`apps` on the client) gets
    * tokens for `urn:agora:app:<name>`. On by default; `false` turns it off.
    * `expiresIn` is the token lifetime in seconds (default 300).
+   *
+   * `client`: the service-tenant client THIS server's app uses for its own calls between apps
+   * when authkit-client is not installed here (the in-process `authkit.client` the other Agora
+   * libs use, e.g. a Hub's federated consoles). Default: the service-tenant client whose
+   * `partition` is this app's name (`appName`, from package.json). Its grants (`apps`) apply as
+   * for any other client.
    */
-  apps?: false | { expiresIn?: number };
+  apps?: false | { expiresIn?: number; client?: string };
 }
 
 /** Resource indicator prefix of an app (calls between apps): `urn:agora:app:<name>`. */
@@ -74,7 +80,7 @@ export interface ResolvedServiceTenantsConfig {
   enabled: boolean;
   resources: Record<string, ResolvedServiceTenantResource>;
   /** Calls between apps (`urn:agora:app:<name>`). Absent = off. */
-  apps?: { expiresIn: number };
+  apps?: { expiresIn: number; client?: string };
 }
 
 /** Default token lifetime: 10 minutes. */
@@ -139,7 +145,7 @@ export function resolveServiceTenants(
       capabilities,
     };
   }
-  let apps: { expiresIn: number } | undefined;
+  let apps: { expiresIn: number; client?: string } | undefined;
   if (input && input.apps !== false) {
     const expiresIn = input.apps?.expiresIn ?? DEFAULT_APP_TOKEN_TTL;
     if (!Number.isInteger(expiresIn) || expiresIn <= 0) {
@@ -147,7 +153,13 @@ export function resolveServiceTenants(
         'authkit: serviceTenants.apps.expiresIn must be a positive integer (seconds).',
       );
     }
-    apps = { expiresIn };
+    const client = input.apps?.client;
+    if (client !== undefined && (typeof client !== 'string' || client.trim() === '')) {
+      throw new Error(
+        "authkit: serviceTenants.apps.client must be the client id of this app's service tenant.",
+      );
+    }
+    apps = { expiresIn, ...(client ? { client: client.trim() } : {}) };
   }
   return {
     enabled: Object.keys(resources).length > 0 || apps !== undefined,

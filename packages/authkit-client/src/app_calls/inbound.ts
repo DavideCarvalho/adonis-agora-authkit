@@ -112,6 +112,27 @@ export class AppCallerVerifier {
   async callerOf(ctx: HttpContext): Promise<AgoraCaller | null | undefined> {
     const token = bearerOf(ctx);
     if (!token || !addressedTo(token, this.audience)) return undefined;
+    return this.verifyToken(token);
+  }
+
+  /**
+   * Verifies a service token that reached this app outside HTTP (a Redis message, a queue
+   * job): the same checks as {@link callerOf} — signature against the issuer's JWKS,
+   * audience `urn:agora:app:<service.name>`, `client_credentials` shape, and the pinned
+   * `service.environment` when set.
+   *
+   * ```ts
+   * const manager = await app.container.make('authkit.client')
+   * const caller = await manager.appCallerVerifier()?.verifyToken(message.token)
+   * if (!caller || !caller.capabilities.includes('flags:write')) return // refuse
+   * ```
+   *
+   * `null` for any token that does not verify (malformed, expired, another audience, another
+   * environment…) — a bad token never throws. It throws only when the issuer cannot be
+   * reached (discovery/JWKS), so the caller can retry instead of dropping the message.
+   */
+  async verifyToken(token: string): Promise<AgoraCaller | null> {
+    if (typeof token !== 'string' || !token || !addressedTo(token, this.audience)) return null;
     const verified = await this.#verifier.verify({ token });
     if (!verified) return null;
     return {

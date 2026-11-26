@@ -19,6 +19,7 @@ import { withAuthUser } from '../../src/mixins/with_auth_user.js';
 import { withCredentials } from '../../src/mixins/with_credentials.js';
 import { AUTHKIT_TABLE_NAMES, ensureAuthkitSchema } from '../../src/schema/ensure.js';
 import { authkitTable, bindTablesLocation } from '../../src/schema/tables_location.js';
+import { appKeysStoreOf } from '../../src/service_tenants/app_keys.js';
 
 /**
  * `schema.name` against real Postgres and MySQL (testcontainers): the connection's default
@@ -349,6 +350,29 @@ for (const dialect of dialects) {
       assert.lengthOf(await delegation.listGrants(account.id), 1);
       assert.equal(await delegation.revokeAllGrants(account.id, new Date()), 1);
 
+      await assertDefaultSchemaClean(assert);
+    })
+      .skip(!DOCKER, 'Docker not available')
+      .timeout(300_000);
+
+    test('the key directory (auth_app_keys) lives in the schema, like the other tables', async ({
+      assert,
+    }) => {
+      // An existing install that predates the table: a second run (a new migration) adds it.
+      await ensureAuthkitSchema(db, { schema: SCHEMA, accountTable: 'users' });
+      await db.connection().schema.withSchema(SCHEMA).dropTable('auth_app_keys');
+      const again = await ensureAuthkitSchema(db, { schema: SCHEMA, accountTable: 'users' });
+      assert.deepEqual(again.created, ['auth_app_keys']);
+      assert.include(await tablesIn(db, SCHEMA), 'auth_app_keys');
+
+      const store = await appKeysStoreOf({ config: { schema: { name: SCHEMA } } }, async () => db);
+      const jwk = {
+        kty: 'OKP' as const,
+        crv: 'X25519',
+        x: 'q1Wd3bH4vYbLwOqS9C3p5vH0k3Dq3dU7J0x2pQzKc3A',
+      };
+      await store!.put('shop', new Map([['console:durable', [jwk]]]));
+      assert.deepEqual((await store!.find('shop', 'console:durable'))?.keys, [jwk]);
       await assertDefaultSchemaClean(assert);
     })
       .skip(!DOCKER, 'Docker not available')

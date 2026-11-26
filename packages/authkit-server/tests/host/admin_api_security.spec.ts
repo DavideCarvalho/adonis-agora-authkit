@@ -151,3 +151,51 @@ test.group('M9 — id NÃO-SENSÍVEL da API key', () => {
     assert.isUndefined(ctx.adminApiKeyId);
   });
 });
+
+test.group('throttle agentToken (endpoints OAuth de agentes) por IP', (group) => {
+  group.each.teardown(() => {
+    __setLimiterLoaderForTests(undefined);
+  });
+
+  test('default 120/min, keyed por IP em bucket próprio', async ({ assert }) => {
+    const { limiter, calls } = fakeLimiter();
+    __setLimiterLoaderForTests(async () => limiter);
+    const cfg = resolveRateLimit({ enabled: true });
+    assert.deepEqual(cfg.agentToken, { points: 120, duration: '1 min' });
+    const throttles = createAuthThrottles(cfg)!;
+
+    const ctx = (ip: string) => ({ request: { ip: () => ip, header: () => undefined } }) as any;
+    await throttles.agentToken(ctx('1.1.1.1'), async () => {});
+    await throttles.agentToken(ctx('2.2.2.2'), async () => {});
+    assert.deepEqual(
+      calls.map((c) => [c.name, c.key]),
+      [
+        ['authkit_agent_token', 'agent-token-ip:1.1.1.1'],
+        ['authkit_agent_token', 'agent-token-ip:2.2.2.2'],
+      ],
+    );
+  });
+
+  test('estoura por IP independentemente do client/identificador', async ({ assert }) => {
+    const { limiter } = fakeLimiter();
+    __setLimiterLoaderForTests(async () => limiter);
+    const cfg = resolveRateLimit({ enabled: true });
+    cfg.agentToken = { points: 2, duration: '1 min' };
+    const throttles = createAuthThrottles(cfg)!;
+    let allowed = 0;
+    let blocked = 0;
+    for (let i = 0; i < 4; i++) {
+      const ctx = { request: { ip: () => '5.5.5.5', header: () => undefined } } as any;
+      await throttles.agentToken(ctx, async () => {
+        allowed++;
+      });
+      if (ctx.__throttled) blocked++;
+    }
+    assert.equal(allowed, 2);
+    assert.equal(blocked, 2);
+  });
+
+  test('`enabled: false` → sem throttles', ({ assert }) => {
+    assert.isUndefined(createAuthThrottles(resolveRateLimit({ enabled: false })));
+  });
+});

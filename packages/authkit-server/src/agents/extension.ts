@@ -214,6 +214,12 @@ export interface PersonalAgentRouteKit {
     login<R>(route: R): R;
     /** Per IP, the one-time-code bucket — screens that take a typed code. */
     otp<R>(route: R): R;
+    /**
+     * Per IP, the machine bucket — unauthenticated OAuth endpoints agents call server-to-server
+     * (token, device authorization, PAR, revocation). Answers a plain 429, never the HTML
+     * `throttled` screen.
+     */
+    token<R>(route: R): R;
   };
 }
 

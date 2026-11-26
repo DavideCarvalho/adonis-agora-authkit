@@ -67,7 +67,7 @@ export async function dbSchemaResults(
       {
         status: 'error',
         message: `AuthKit tables missing from schema "${schema}": ${missing.join(', ')}`,
-        fix: 'Boot the app once with schema.autoManage on, or run ensureAuthkitSchema(db, { schema }) in a migration',
+        fix: `Run a migration that calls ensureAuthkitSchema(db, { schema: '${schema}' }) where the identity schema is migrated: this app (or just boot it with schema.autoManage on), or, when autoManage is false here, the app that owns schema "${schema}". It only adds what is missing`,
         docs,
       },
     ];

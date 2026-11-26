@@ -25,9 +25,11 @@ export type { AgoraDiscovery } from './src/app_calls/discovery.js';
 export type {
   AgoraCaller,
   AgoraRequestContext,
+  AppCallerVerifier,
   AuthkitServiceOptions,
 } from './src/app_calls/inbound.js';
 export { authkitService, getAgoraCaller } from './src/app_calls/inbound.js';
+export type { OkpJwk } from './src/app_calls/keys.js';
 export { Authenticator } from './src/authenticator.js';
 export type {
   AuthorizationRequest,
@@ -43,6 +45,7 @@ export {
   OidcCallbackError,
 } from './src/authorization.js';
 export type {
+  InMemorySessionIndexOptions,
   SessionIndex,
   SessionIndexEntry,
   ValidatedLogoutToken,
