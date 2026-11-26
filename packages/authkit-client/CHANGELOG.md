@@ -1,5 +1,19 @@
 # @adonis-agora/authkit-client
 
+## 1.0.0-rc.15
+
+### Minor Changes
+
+- [`0c4c958`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/0c4c95895572969cd6dc915a3a2b862a75c834fb) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `AppCallerVerifier.verifyToken(token)` verifies a service token that arrived outside HTTP (Redis, queues) with the same checks as the inbound middleware — audience `urn:agora:app:<service.name>`, environment pinning — and returns the `AgoraCaller` or `null` (a bad token never throws). `callerOf` uses it. The `AppCallerVerifier` type is now exported.
+
+- [`0c4c958`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/0c4c95895572969cd6dc915a3a2b862a75c834fb) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - App key directory, so Agora apps share public keys without copying them. authkit-server: `PUT /api/apps/keys` (`{ keys: [{ purpose, jwk }] }`, an app publishes its own public OKP keys with its service client id and secret; a key with `d`, an invalid `purpose` or too many keys get 422; audited as `app.keys_published`) and `GET /api/apps/:app/keys?purpose=` (any authenticated service client; 404 when none). Same credentials, CSRF exemption and throttle as the catalog; stored in the new lib-owned table `auth_app_keys`; listed at `GET …/api/apps/keys` (console) and `GET …/apps/keys` (Admin API). `registerAuthHost({ appKeys: false })` turns it off. authkit-client: `manager.publishAppKey({ purpose, jwk })` (background, retried, never rejects) and `manager.appKey({ app, purpose })` (cached 5 min, `null` when none); type `OkpJwk`.
+
+### Patch Changes
+
+- [`0c4c958`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/0c4c95895572969cd6dc915a3a2b862a75c834fb) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - authkit-server serves calls between apps in-process. Without authkit-client in the app (e.g. the Agora Hub), it binds an `authkit.client`-compatible object: `appCallTokens().token(app)`/`reset()` minted by its own token endpoint for this app's service client (new `serviceTenants.apps.client`; default: the service tenant whose `partition` is the package.json name, the same without its npm scope, or AdonisJS `appName`, else the only service tenant granted other apps; a clear error naming the config line when none or several match), with grants checked exactly as for remote tokens; `appCallerVerifier().verifyToken()` with its own keys; `appKey()`/`publishAppKey()` on its own `auth_app_keys` table. authkit-client, when installed, wins. The `/api/apps/*` endpoints never return a stack trace: a missing table answers `503 schema_missing` with the fix, anything else `500 server_error`, both logged. The doctor's missing-tables fix names the migration to add. authkit-client: a failed key publish is logged once, at the first failure, with the HTTP status and what fixes it, then retried quietly.
+
+- [`0c4c958`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/0c4c95895572969cd6dc915a3a2b862a75c834fb) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `InMemorySessionIndex` now forgets sessions: entries expire (`expiresAt` on the entry, or `ttlMs`, default 24 h), the index has a cap (`maxEntries`, default 10 000, oldest evicted first), and the new optional `SessionIndex.unregister(sessionId)` drops a session that ended locally — the built-in logout calls it with `ctx.session.sessionId`. Still not for multi-instance production.
+
 ## 1.0.0-rc.14
 
 ### Patch Changes

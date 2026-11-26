@@ -1,5 +1,23 @@
 # @adonis-agora/authkit-server
 
+## 1.0.0-rc.54
+
+### Minor Changes
+
+- [`0c4c958`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/0c4c95895572969cd6dc915a3a2b862a75c834fb) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - App key directory, so Agora apps share public keys without copying them. authkit-server: `PUT /api/apps/keys` (`{ keys: [{ purpose, jwk }] }`, an app publishes its own public OKP keys with its service client id and secret; a key with `d`, an invalid `purpose` or too many keys get 422; audited as `app.keys_published`) and `GET /api/apps/:app/keys?purpose=` (any authenticated service client; 404 when none). Same credentials, CSRF exemption and throttle as the catalog; stored in the new lib-owned table `auth_app_keys`; listed at `GET …/api/apps/keys` (console) and `GET …/apps/keys` (Admin API). `registerAuthHost({ appKeys: false })` turns it off. authkit-client: `manager.publishAppKey({ purpose, jwk })` (background, retried, never rejects) and `manager.appKey({ app, purpose })` (cached 5 min, `null` when none); type `OkpJwk`.
+
+- [`0c4c958`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/0c4c95895572969cd6dc915a3a2b862a75c834fb) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - authkit-server serves calls between apps in-process. Without authkit-client in the app (e.g. the Agora Hub), it binds an `authkit.client`-compatible object: `appCallTokens().token(app)`/`reset()` minted by its own token endpoint for this app's service client (new `serviceTenants.apps.client`; default: the service tenant whose `partition` is the package.json name, the same without its npm scope, or AdonisJS `appName`, else the only service tenant granted other apps; a clear error naming the config line when none or several match), with grants checked exactly as for remote tokens; `appCallerVerifier().verifyToken()` with its own keys; `appKey()`/`publishAppKey()` on its own `auth_app_keys` table. authkit-client, when installed, wins. The `/api/apps/*` endpoints never return a stack trace: a missing table answers `503 schema_missing` with the fix, anything else `500 server_error`, both logged. The doctor's missing-tables fix names the migration to add. authkit-client: a failed key publish is logged once, at the first failure, with the HTTP status and what fixes it, then retried quietly.
+
+### Patch Changes
+
+- [`0c4c958`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/0c4c95895572969cd6dc915a3a2b862a75c834fb) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Security: on `/account/orgs` and `/account/api/orgs`, an org member can only remove or change the role of a member whose role is below their own. An `admin` can no longer demote or remove an `owner` (or another `admin`); only an owner acts on an owner. Refusals answer 403 with a message saying to ask an owner. The admin console and Admin API are unchanged.
+
+- [`0c4c958`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/0c4c95895572969cd6dc915a3a2b862a75c834fb) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Poppy's default in-memory rate limiter now has a hard cap (100 000 windows, oldest evicted first) and drops expired windows as it goes, so a stream of new identifiers on Mediated Sign-In can no longer grow it without bound.
+  
+  The unauthenticated OAuth endpoints agents call server-to-server now sit behind a per-IP throttle by default (new `agentToken` bucket, 120/min, plain 429; off with the existing `rateLimit: { enabled: false }`): Poppy's `{prefix}/oauth/token`, `oauth/device`, `oauth/par` and `oauth/revoke`, and authkit-server's personal-agents `{personalAgents.prefix}/oauth/token` and `oauth/device_authorization`. Personal-agent extensions get the bucket as `kit.throttle.token(route)`.
+  
+  The OIDC provider's own machine endpoints get the same treatment: inside the `${mountPath}/*` catch-all, only the POSTs to token, dynamic registration, device authorization, PAR, revocation, introspection and CIBA (paths read from the provider via `pathFor`, so custom `routes` and the issuer mount apply; disabled features are skipped) go through a new per-IP `oidcToken` bucket (120/min, plain 429). Authorize, userinfo, JWKS, discovery, end-session and the device code screen are never throttled. Poppy's `POST {prefix}/browser-session` now uses the login bucket, like its page. All of it is off with `rateLimit: { enabled: false }`.
+
 ## 1.0.0-rc.53
 
 ### Patch Changes
