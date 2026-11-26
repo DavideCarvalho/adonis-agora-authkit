@@ -1,6 +1,6 @@
 {
   "name": "@adonis-agora/authkit-server",
-  "version": "1.0.0-rc.54",
+  "version": "1.0.0",
   "description": "AdonisJS OIDC/OAuth2 provider (Identity Provider) toolkit: ejectable auth server with sessions, rate-limiting, MFA/TOTP, audit log, federated logout and OpenTelemetry metrics.",
   "license": "MIT",
   "author": "dudousxd",
@@ -76,9 +76,9 @@
     "build:host-css": "node scripts/build_host_css.mjs"
   },
   "peerDependencies": {
-    "@adonis-agora/durable": ">=0.7.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0",
-    "@adonis-agora/media": ">=0.5.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0",
-    "@adonis-agora/telescope": ">=0.1.0 <2.0.0 || >=1.0.0-rc.0 <2.0.0",
+    "@adonis-agora/durable": ">=0.7.0 <2.0.0",
+    "@adonis-agora/media": ">=0.5.0 <2.0.0",
+    "@adonis-agora/telescope": ">=0.1.0 <2.0.0",
     "@adonisjs/ally": "catalog:adonisPeers",
     "@adonisjs/auth": "catalog:adonisPeers",
     "@adonisjs/core": "catalog:adonisPeers",
@@ -122,7 +122,7 @@
   },
   "dependencies": {
     "@adonis-agora/authkit-core": "workspace:*",
-    "@adonis-agora/filter": "^1.0.0-rc.5",
+    "@adonis-agora/filter": "^1.0.0",
     "@simplewebauthn/browser": "14.0.0",
     "@simplewebauthn/server": "14.1.0",
     "jose": "6.2.18",

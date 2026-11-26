@@ -1,5 +1,172 @@
 # @adonis-agora/authkit-react
 
+## 1.0.0
+
+### Major Changes
+
+- [#484](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/484) [`4a9eeb4`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/4a9eeb46782e78ad06ad0c2955e49398ab21bc7e) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Lists use the `@adonis-agora/filter` wire format: `filter[field]=…`, `search`, `sort=-field`, then `page`/`size` or a cursor. A filter field, operator or sort a list does not support answers `400 { error: { code: 'invalid_list_query' } }`.
+  
+  `@adonis-agora/authkit-server`:
+  
+  - `GET {admin}/api/users` and Admin API `GET /users`: `?search&sort&page&size` (`sort` accepts `email` only) → `{ data, meta: { total, perPage, currentPage, lastPage, firstPage } }` (was `meta: { page, size, total }`).
+  - `GET {admin}/api/clients` and `GET /clients`: page with `?search&sort&page&size` (`sort`: `clientId`, `clientName`) → `{ data, meta, canList }`.
+  - `GET {admin}/api/orgs` and `GET /organizations`: page with `?search&sort&page&size` (`sort`: `name`, `slug`, `createdAt`, `memberCount`) → `{ data, meta }`.
+  - `GET {admin}/api/audit` and `GET /audit`: newest first, by cursor. `?filter[type]` (one or more), `?filter[subject]`, `after` / `before` + `first` / `last` → `{ data, meta: { nextCursor, prevCursor, hasNext, hasPrev } }`. `?type`, `?subject`, `page` and `size` are gone.
+  - `GET {admin}/api/sessions`: `?filter[accountId]&search&sort&page&size` (`sort`: `loginTs`, `email`; default `-loginTs`) → `{ data, meta, supported, truncated, grants }` (was `{ supported, truncated, sessions, grants }` with `?accountId`).
+  - `GET {admin}/api/personal-agents/connections`: `filter[protocol]`, `filter[clientId]`, `filter[accountId]` (were flat `?protocol=`…) → `{ data, meta }` with the offset meta above.
+  - `GET {admin}/api/overview`: `auditTotal` is `null` when the audit sink cannot count.
+  - `AuditSink.list` pages by cursor: it takes `{ type?: string | string[], subject?, size?, after?, before? }` and returns `{ data, nextCursor, prevCursor, hasNext, hasPrev }` (newest first). New optional `AuditSink.count({ type?, subject? })`. `lucidAuditSink` implements both (keyset on `createdAt`, `id`). Custom sinks with `list` must follow the new shape.
+  - The `authkit_list_audit` dev tool takes `cursor` (the previous result's `next`) instead of `page`, and no longer returns `total`.
+  - The `authkit_get_overview` dev tool returns `auditTotal: null` when the audit sink cannot count.
+  - Removed exports: `ListMeta`, `PaginatedResponse`, `parseListPage`, `parseListSize`. New exports: `listAccountsPage`, `listAuditPage`, `listClientsPage`, `listOrgsPage`, the list filter classes and `CountAuditParams`.
+  - Depends on `@adonis-agora/filter`.
+  
+  `@adonis-agora/authkit-react`:
+  
+  - `client.admin.users.list({ search?, sort?, page?, size? })`, `clients.list(params?)`, `orgs.list(params?)` return `OffsetPage<T>` (`meta: { total, perPage, currentPage, lastPage, firstPage }`).
+  - `client.admin.sessions.list({ accountId?, search?, sort?, page?, size? })` (was `list(accountId?)`) returns `AdminSessionListResult` (`data` instead of `sessions`).
+  - `client.admin.audit.list({ type?, subject?, after?, before?, first?, last? })` returns `CursorPageResponse<AuditEventEntry>`; `page` / `size` are gone.
+  - `useSessionsQueryOptions(params?)`, `useClientsQueryOptions(params?)` and `useOrgsQueryOptions(params?)` take the list params; `authkitKeys.admin.sessions/clients/orgs` take them too.
+  - `ListMeta` is removed; `OffsetPage`, `OffsetPageMeta`, `CursorPageResponse`, `CursorPageMeta`, `AdminListParams`, `CursorListParams`, `AdminSessionListParams` and `AdminSessionListResult` are exported. `AdminOverview.auditTotal` is `number | null`.
+  
+  `@adonis-agora/authkit-sdk`:
+  
+  - `users.list`, `clients.list` and `organizations.list` take `{ search?, sort?, page?, size? }` and return `OffsetPage<T>` (`clients.list` adds `canList`).
+  - `audit.list({ type?, subject?, after?, before?, first?, last? })` returns `CursorPageResponse<AuthkitAuditEvent>`.
+  - `ListMeta` is removed; `OffsetPage`, `CursorPageResponse`, `OffsetListParams`, `CursorListParams`, `ListClientsParams` and `ListOrganizationsParams` are exported.
+
+- [#456](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/456) [`9c12ef9`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/9c12ef9c1c49db9d54a7da6d241264499ad76e18) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Poppy (the Personal Agent Protocol) moves out of `@adonis-agora/authkit-server` into the new `@adonis-agora/authkit-poppy` package, and authkit-server gains a stable extension surface for personal-agent protocols. See [Install `@adonis-agora/authkit-poppy` for Poppy](https://github.com/DavideCarvalho/adonis-agora-authkit/blob/main/apps/docs/content/docs/migrating-to-1-0.mdx#install-adonis-agoraauthkit-poppy-for-poppy).
+  
+  Breaking changes (`@adonis-agora/authkit-server`):
+  
+  - `personalAgents.poppy` is removed: install `@adonis-agora/authkit-poppy` and use `personalAgents: { extensions: [poppy({ ... })] }` with the same options. A config that still has `personalAgents.poppy` fails at boot. Routes, tables, tokens and sessions are unchanged, so no data migration is needed.
+  - Every Poppy export (`PoppyConfigInput` and the other `Poppy*` types, `poppyEmailCodeSignIn`, `verifyPoppyRequest`, `poppyAuth`, `poppyOf`, `poppyWebSession`, `poppyWebSessionOf`, `installPoppySlots`, `POPPY_AUTHENTICATE_SLOT`, `POPPY_WEB_SESSION_KEY`, `PoppyError`, `verifyDpopProof`, `accessTokenHash`, `hmacNonceSource`, `databaseReplayStore`, `memoryReplayStore`, `redisReplayStore`, `safeFetchJson`, `isBlockedAddress`, `SafeFetchError`, `maskEmail`) now comes from `@adonis-agora/authkit-poppy`.
+  - `mail.onPoppySignInCode` is removed: pass `sendCode` to `poppyEmailCodeSignIn()`.
+  - `authkitCsrfExceptions` no longer takes `poppyPrefix`; extensions' endpoints are exempted from the config (`personalAgentExtensions: false` turns that off).
+  - `ensureAuthkitSchema()` no longer creates the `auth_poppy_*` tables (the extension's tables are ensured at boot; `ensurePoppySchema()` for migrations).
+  - Admin console API: an extension's `protocols` entry is `{ label, requireRegistration, hostResolver, allowHttpIdentifiers, identifierLabel, identifierPlaceholder }`.
+  
+  New, stable for 1.x: `personalAgents.extensions` and the types `PersonalAgentExtension`, `PersonalAgentExtensionDefinition`, `PersonalAgentExtensionContext`, `PersonalAgentRouteKit`, `PersonalAgentHost`, `PersonalAgentGrantLedger`, `PersonalAgentGrant`, `PersonalAgentRefreshToken`, `PersonalAgentAccessTokens`, `PersonalAgentProtocolRuntime`, `PersonalAgentGrantSummary`, `PersonalAgentConsoleSummary`, `ResolvedPersonalAgentExtension`, `AuthkitTable`; the functions `personalAgentExtensionRuntime`, `ensureAuthkitTables`, `sendAuthkitCodeEmail`, `signInAccountSession` and `signOutAccountSession`; and the `tables` option of `ensureAuthkitSchema`.
+  
+  Breaking changes (`@adonis-agora/authkit-react`):
+  
+  - `PersonalAgentProtocol` is `'pact'` or any extension id, and `PersonalAgentsOverview.protocols` has one entry per extension (`PersonalAgentExtensionOverview`) instead of a fixed `poppy` key. `AccountAgentGrant.protocol` uses `PersonalAgentProtocol`.
+
+- [#436](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/436) [`c942fe3`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/c942fe30483346217c9c89112e13db0d4a65c647) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - AuthKit 1.0. See the [Migrating to 1.0](https://github.com/DavideCarvalho/adonis-agora-authkit/blob/main/apps/docs/content/docs/migrating-to-1-0.mdx) guide.
+  
+  Breaking changes (`@adonis-agora/authkit-server`):
+  
+  - `withMfa` is removed. MFA state lives in the lib-owned `auth_mfa` table, so drop the mixin from your `AuthUser` model's `compose(...)`.
+  - `markSudo` is no longer exported. Grant sudo with `completeSudo(sudoContextFrom(ctx), methodId)`, which also writes the `sudo.confirmed` audit event, remembers the method and redirects to the validated `return_to`.
+  - The email-change confirmation link is sent through `mail.onEmailChangeConfirm` only. Without it, AuthKit sends its built-in email; `onEmailVerification` no longer receives email-change confirmations.
+  - The `clients` option of `defineConfig` is removed. Create clients in the admin console, through the Admin API or with `node ace authkit:clients:create` (new `--client-secret` flag keeps an existing secret). `buildImpersonationPanel(cfg, targetId, clients)` now requires `clients`, and the impersonation curl always shows the `<CLIENT_SECRET>` placeholder.
+  - `inertiaRenderer({ prefix, views })`: `views` is required. Screens not listed render with the built-in Edge view. `AuthkitScreen` is now the exact union of the screens AuthKit renders (adds `throttled`, `agents/consent`, `agents/done`; no arbitrary strings), and every screen's props are exported: `AuthkitScreenProps['<view>']` plus named types (`LoginProps`, `SessionExpiredProps`, …). The controllers are checked against them. Hosts declare screens of their own by augmenting `AuthkitScreenProps` (`declare module '@adonis-agora/authkit-server'`).
+  - The Admin API client body reads `grantTypes` only; the `grants` alias is gone (responses still return `grants`).
+  - `lucidAccountStore` always mounts password history over the model's connection (`auth_password_history`).
+  - `/account/orgs/json`, `/account/orgs/invitations/json` and `/account/orgs/:id/json` are removed; use `/account/api/orgs/*`.
+  - `GET /account/api/apps` entries gain `name` and `logoUrl`.
+  
+  - The admin console reads its config from a `<script type="application/json" id="authkit-admin-config">` data block (CSP-safe) instead of an inline `window.__AUTHKIT__` script; the dev fallback is gone.
+  - The admin client DTO returns `grantTypes` (was `grants`), plus `clientName` and `logoUri`, which the console and the Admin API can now set (`null` removes them, as it does `backchannelLogoutUri`). `GET {admin}/api/clients/:id` exists.
+  - Anonymous JSON callers of the admin and account JSON APIs get `401` (and `403` without an admin role) instead of a redirect to the login page.
+  - Fixes: the Redis adapter's `list()` honours the connection `keyPrefix` (sessions, apps and admin lists were empty); a password login posted without a password is an invalid-credentials answer, not a 500.
+  
+  Breaking changes (`@adonis-agora/authkit-core`):
+  
+  - `ClientConfig` and `ResolvedAuthServerConfig.clients` are removed.
+  
+  Breaking changes (`@adonis-agora/authkit-client`):
+  
+  - `@adonisjs/auth` is a required peer. `ctx.auth` is `@adonisjs/auth`, backed by the AuthKit session through `authkitClientGuard`; `ctx.authkit` (from `authkit_context_middleware`) carries the AuthKit-only data (identity, `hasGlobalRole`, active org, `toSharedProps`).
+  - `authkit_middleware`, `auth_middleware` and `silent_auth_middleware` (and their subpaths) are removed: `ctx.auth` comes from `@adonisjs/auth`, and `middleware.auth()` / `silentAuth` are the `#middleware/auth_middleware` / `#middleware/silent_auth_middleware` files `node ace configure` publishes. `require_org_middleware` stays. `@adonis-agora/authkit-client/types` no longer declares `HttpContext.auth`; type `ctx.authkit.getUser()` through the `AuthkitUserType` interface.
+  - `node ace configure @adonis-agora/authkit-client` installs `@adonisjs/auth` when missing (`--no-install` prints the command), writes `config/auth.ts` with `authkitClientGuard` + `sessionUserProvider` (`--model`, default `#models/user`; an existing file is left alone and the guard to add is printed), registers `@adonisjs/auth/auth_provider`, `initialize_auth_middleware` + `authkit_context_middleware`, and publishes the named `auth` / `silentAuth` middleware.
+  - `authkitClientGuard` takes its user from `resolveUser` when one is configured (so `lucidMirror` provisions the row on first login, and what it loads is on `ctx.auth.user`, the same instance as `ctx.authkit.getUser()`), with the provider as the fallback.
+  - New `authkitIdentityProvider()`: a user provider with no database; `ctx.auth.user` is the AuthKit `Identity`.
+  - New `authkitClientGuard({ provider, resolver })` option: a per-guard resolver for API routes (bearer JWT, opaque, PAT).
+  - `resolvers.jwt({ tokenSource: 'bearer' })` accepts `Authorization: DPoP <jwt>` with a valid `DPoP` proof for `cnf.jkt`-bound tokens, and refuses DPoP-bound tokens sent as `Bearer`.
+  - `UnauthorizedAccessConstructor` is no longer exported, and `AuthkitClientGuard` no longer takes an exception class; it always throws `@adonisjs/auth`'s `E_UNAUTHORIZED_ACCESS`.
+  
+  Breaking changes (`@adonis-agora/authkit-sdk`):
+  
+  - `clients.*` return `grantTypes` (was `grants`), plus `clientName` and `logoUri`.
+  
+  Breaking changes (`@adonis-agora/authkit-react`):
+  
+  - `createAuthkitClient()` no longer reads `window.__AUTHKIT__`: pass `baseUrl` for `client.admin.*` and `csrfToken`.
+  - Admin response types match the server: `users.remove` / `clients.remove` → `{ ok, deleted }`, `users.resetPassword` → `{ ok, email }`, `users.disable` / `enable` → the user, `SettingListResult.locked`; `AdminClient.grants` → `grantTypes` (+ `clientName`, `logoUri`); `UpdateUserInput` is `{ globalRoles? }`, `CreateUserInput` takes no `null`.
+  - New: `client.account.agents.list()` / `revoke()`, `useAccountAgentsQueryOptions`, `useRevokeAccountAgentMutationOptions`.
+  - Peers: `react` / `react-dom` `^19.0.0`, `@inertiajs/react` `^2.0.0 || ^3.0.0`.
+  
+  - `useProfile`, `useSessions`, `useAuthorizedApps`, `useOrganizations`, `useOrganization`, `useOrgInvitations`, `useSwitchOrganization` and their types are removed, with the `profile`, `sessions`, `apps`, `orgs` and `orgInvitations` keys of `endpoints`. Use the query options (`useMeQueryOptions`, `useAccountSessionsQueryOptions`, `useAppsQueryOptions`, `useAccountOrgsQueryOptions`, …).
+  - `UserProfile`, `AuthorizedApps`, `OrganizationSwitcher` and `OrganizationProfile` need `QueryClientProvider` and `AuthkitClientProvider`.
+  
+  All packages:
+  
+  - `@adonis-agora/*` peer ranges accept 1.x and its release candidates (`<2.0.0 || >=1.0.0-rc.0 <2.0.0`): `durable`, `media`, `telescope` (authkit-server), `resilience` (authkit-client), `authkit-server` (authkit-sdk).
+  - Node.js `>=24` is required (tested on 24 and 26).
+
+### Minor Changes
+
+- [#470](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/470) [`d8ee87a`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/d8ee87abd875e8c141cde051023f1035d8274513) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Account console extensions: other packages (and your app) can add pages to `/account/*`.
+  
+  - New subpath `@adonis-agora/authkit-server/account-extension` with the stable contract (`AccountExtension`, blocks, actions) and the `authkit.accountExtensions` registry binding. Contributors register from their provider's `boot()`; AuthKit renders the pages (Edge or your Inertia page) behind the account sign-in, with CSRF, sudo for sensitive actions, a per-account rate limit, and audit of external redirects.
+  - Blocks: `notice`, `keyValue`, `list`, `table`, `meter`, `actions`, `link`, `toolPreview` (approve/reject previews) and `component` (a provider's card fields, scripts loaded with the response's CSP nonce, with a link fallback).
+  - `accountConsole` in `config/authkit.ts`: one `subject(account, { activeOrg, tenant })` mapping shared by every extension, host overrides to disable, rename or reorder pages, and `loadTimeoutMs`.
+  - The account screens share one navigation (`accountNav`) that lists the mounted screens and the extension pages; `AuthHostRouteMap.account.extensions` lists the pages.
+  - JSON API: `GET {prefix}/api/extensions`, `GET {prefix}/api/x/:pageId`, `POST {prefix}/api/x/:pageId/actions/:action`.
+  - authkit-react: `<AccountExtensionPage>`, `useAccountExtensions()`, the page/action query options and `client.account.extensions.*`.
+
+- [#495](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/495) [`4830805`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/4830805039c3f0e978c403d3062275a892704eb7) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Separate servers: every piece of an Agora deployment can run without authkit-server in its process.
+  
+  - `authkitTenantVerifier({ issuer, resource, environment? })` (authkit-client) verifies service-tenant tokens on any server against the issuer's discovered JWKS and returns `{ partition, environment?, capabilities, clientId, expiresAt }` or `null`. `authkitTenantToken` now takes the token endpoint only from discovery (no guessed path).
+  - Service tenants get an optional `environment` (console, Admin API, SDK, `--environment`), emitted as the `environment` claim. Both verifiers take `environment` and, when it is set, accept only tokens claiming exactly that environment (fail closed); authkit-server's in-process verifier also returns `environment`. One service-tenant client gets tokens for every `urn:agora:*` resource declared.
+  - `registerOidcClient` announces `POST /auth/logout` as `account.signOut` on the `agora.consoles` registry (skipped when authkit-server runs in the app), so every console shows a sign-out.
+  - `Identity.actor` (`{ sub, email? }`) from the RFC 8693 `act` claim of an impersonated token (`deriveActor` in authkit-core).
+  - Org labels: authkit-server serves `GET /api/orgs/labels?ids=` (first-party confidential clients, Basic auth) and emits `org_name` for the active org; authkit-client installs a cached `Context.setTenantLabeler` (`orgLabels` option, `authkitOrgLabels`).
+  - Webhooks: the body carries `id` and `actorId`, `events.webhook` accepts a list; authkit-client's `registerAuthkitWebhook` / `authkitWebhookHandler` verify the HMAC, the `ts` window and the id, and re-emit on the diagnostics bus as `agora:authkit:<type>` with the in-process payload.
+  - `identityFromAccessToken`, `bindAuthkitIdentity` and `bridgeAuthkitToken` put a verified authkit bearer token on `ctx.authkit`.
+
+- [#501](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/501) [`b7ec894`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/b7ec8944da9530978abc5e7790c45b285356702f) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Calls between apps: a service tenant can be granted other apps. Each grant (`apps` on the client: app name → capabilities) lets it get JWT access tokens for `urn:agora:app:<name>`, with its own `partition` and the capabilities of that grant. Grant from the admin console ("Apps it can call"), the Admin API (`PUT`/`DELETE /clients/:id/apps/:app`, or `serviceTenant.apps` on create/update) or the CLI (`authkit:client create --app=billing=invoices:read`, `grant-app`, `revoke-app`). On by default with `serviceTenants` (`serviceTenants: {}` turns on only this); `serviceTenants.apps: false` turns it off, `apps.expiresIn` sets the token lifetime (default 300 s). `serviceTenants.resources` is now optional.
+
+- [#529](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/529) [`cd1d2b9`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/cd1d2b969e4232c8e221b3b8a97f47e5db3f2509) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Created and updated times everywhere. `AuthAccount` gains optional `createdAt` / `updatedAt`, which the Lucid account store reads from the model's `created_at` / `updated_at` (nothing when the table has no such column). The Admin API and the admin console now send `createdAt` / `updatedAt` (ISO 8601, or `null`) for users, clients, organizations, invitations and roles; clients written by authkit are stamped on create and on every change (a `/reg` client keeps `client_id_issued_at` as its creation time), roles in the catalog are stamped when created or edited, and the app catalog (`auth_app_catalog`) gets a `created_at` column. The console shows a "Created" column on the users list, "Updated" on roles, and "Created · Updated" on the user, client and organization details.
+  
+  The new `auth_app_catalog.created_at` column is added at boot by `schema.autoManage` (the default). With `autoManage: false`, run `ensureAuthkitSchema(db)` in a migration.
+  
+  The email-verification grace window (`requireVerifiedEmail` with `graceDays`) now applies: it reads the account's `createdAt`, which the Lucid store did not provide before.
+
+- [#502](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/502) [`4c91361`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/4c91361fe209ee76e1cc4a0a3189568f6d4c0558) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Read-only keystore: `jwks: { source: 'managed', store, readOnly: true }` lets a second authkit-server serve the same identity (same keystore, same `auth_settings`) under another issuer while only the first one writes the keys. A read-only instance never runs the scheduled rotation and picks up the writer's rotations through the reload poll. Rotate, generate, retire and reseal throw `KeystoreReadOnlyError` (`E_KEYSTORE_READ_ONLY`): `authkit:key generate|rotate|retire` and `authkit:crypto:reseal` exit 1 (their `--dry-run` still works), the Admin API and the console answer `409 keystore_read_only`, and the console's Keys page hides those actions (`GET /keys` returns `readOnly: true`). The `key_rotation` setting reads but can't be changed there (`409 keystore_read_only`). At boot it reads the keystore and fails with `KeystoreUnavailableError` (`E_KEYSTORE_UNAVAILABLE`) when it's missing or doesn't open: it never creates a key or a table. `agora:doctor` adds the **Keystore read-only** check. `authkit:settings:unset` now exits 1 when it refuses a locked key (it used to print the refusal and exit 0, and for a key locked by `defineConfig` it reported "not set").
+
+- [#489](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/489) [`3c650b1`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/3c650b1fe176752ad68df7fc061fa8a6dc1a475a) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Admin client: `admin.mcpClients.status()` / `admin.mcpClients.update()` with `useMcpClientsQueryOptions` / `useUpdateMcpClientsMutationOptions`, for the live state and switch of automatic MCP client login. Also `admin.clients.revoke(id)` with `useRevokeClientMutationOptions`. `AdminClient` now carries `dynamicallyRegistered`, `registeredAt` and `scope`.
+
+- [#460](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/460) [`1858ee8`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/1858ee837bb4edcf0578f86d224693ac9a86a495) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Service tenants: a client can act as one partition of another service, such as a durable control plane.
+  
+  - `serviceTenants: { resources: { 'urn:agora:durable': { expiresIn: 600 } } }` in `config/authkit.ts` declares the resources (RFC 8707) that issue service-tenant tokens: JWT access tokens (RFC 9068) with `aud` = the resource and the client's `partition` and `capabilities` as claims.
+  - A service-tenant client is confidential, uses only `client_credentials` and has no redirect URIs. Create and edit it from the console (**Service tenant** kind), the Admin API and the SDKs (`serviceTenant: { partition, capabilities? }`), or `node ace authkit:clients:create --partition=acme --capability=reports`.
+  - Any client can now be disabled and enabled again (console, `POST /clients/:id/disable|enable`, SDK `clients.disable/enable`): the token endpoint answers `invalid_client` from the next request on.
+  - `authkitTenantVerifier()` (authkit-server) verifies those tokens against the local issuer and keys and returns `{ tenant, capabilities }`; `authkitTenantToken({ issuer, clientId, clientSecret, resource })` (authkit-client) fetches, caches and refreshes them on the tenant side. Both fit durable's `verifyTenant` and `tenant.token` as a function or a class, without depending on durable.
+  - New audit events: `client.disabled`, `client.enabled`, `service_tenant.token_issued`.
+  - Access-token verification (`oidcBearerGuard`, in-process and remote) now refuses a token whose `sub` is a client (a `client_credentials` token), so a service-tenant token never authenticates a user.
+
+- [#511](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/511) [`e63afe9`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/e63afe9300c26f67454ba479653ce4f2652173f2) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The admin console's Sessions page pages by cursor, most recent activity first, and the overview no longer counts the whole audit trail.
+  
+  - `GET {prefix}/api/sessions?first=&after=` (no `filter[accountId]`) answers `{ data, meta: { nextCursor, prevCursor, hasNext, hasPrev }, supported, truncated, grants }`. On the database adapter each page is one seek on `(expires_at, id)` through the new optional adapter method `listRecent({ limit, after })`, with no total and nothing else loaded. Without `listRecent` (Redis), or with a search, the page walks the bounded listing by position. `page`/`size` keep the offset envelope.
+  - `AdminSessionsService.listRecentSessions` / `canListRecent`. `listAllSessions` now keeps the 500 most recent logins when it truncates, instead of the first 500 by id.
+  - `authkit-react`: `client.admin.sessions.listRecent({ first, after, search })` and `useRecentSessionsQueryOptions`. The console's Sessions page uses them, keeps the walked cursors in the URL (`?after=…`) and no longer shows a session total.
+  - `GET {prefix}/api/overview` and the `authkit_get_overview` dev tool count audit events up to 1,000 through the new optional sink method `countUpTo`. Past that, `auditTotal` is `1000` and `auditTotalCapped` is `true` (shown as "1,000+"). A sink without `countUpTo` reports `null` instead of running a full `COUNT(*)`. The Lucid sink implements it.
+  - New opt-in migration `add_authkit_session_list_index` (published by `configure`), plus `createAuthkitSessionListIndex` / `dropAuthkitSessionListIndex`. It indexes `authkit_oidc_payloads` on `(model_name, expires_at, id)`, built `CONCURRENTLY` on Postgres. Run it once on existing installs (see Admin console → Sessions & revocation).
+
+### Patch Changes
+
+- [#513](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/513) [`edb6ba5`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/edb6ba51ec9865fc92091b6fb0d2b47d7b9ce011) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Clients, the same on every surface:
+  
+  - `serviceTenants.resources[x].capabilities` declares the capabilities a control plane checks. The console's capabilities field becomes a picker over them (any other value can still be typed), and "Apps it can call" becomes one row per app with that app's capabilities.
+  - Allowed scopes: the console and the Admin API now set them (`scopes`, `null` lifts the restriction); the client shows them as `scope`.
+  - The console no longer offers the `implicit` grant (the server refuses it) and offers token-exchange.
+  - Admin API: `POST /clients/:id/revoke` (disable + cut grants and tokens), like the console and the CLI.
+  - CLI: `authkit:client disable` / `enable`, `--logo-uri` and `--backchannel-logout-session-required`.
+- Updated dependencies [[`66ccc36`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/66ccc365dbbd7d9d5bf22dba7aad196aff9f5d4b), [`4830805`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/4830805039c3f0e978c403d3062275a892704eb7), [`df9e49d`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/df9e49d7817c03a7cce4cac1df709c7788d6307c), [`4c91361`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/4c91361fe209ee76e1cc4a0a3189568f6d4c0558), [`c942fe3`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/c942fe30483346217c9c89112e13db0d4a65c647)]:
+  - @adonis-agora/authkit-core@1.0.0
+
 ## 1.0.0-rc.13
 
 ### Minor Changes

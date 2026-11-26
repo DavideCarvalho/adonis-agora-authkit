@@ -1,5 +1,151 @@
 # @adonis-agora/authkit-client
 
+## 1.0.0
+
+### Major Changes
+
+- [#451](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/451) [`1162aee`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/1162aeeee00d4706b8515d89e37f93d172cec44a) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `authkitDashboardMiddleware` is removed: every `@adonis-agora` console takes `authorize` now, so use `authkitDashboardAuthorize()` in its place. `authkitDashboardAuthorize` tells the two denials apart: a visitor without a session gets `401` (`{ allowed: false, reason: 'unauthenticated' }`) instead of `403`, and with the new `loginPath` option is sent to the app's login (`{ redirectTo }`). Signed in without the role is still `403`.
+
+- [#436](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/436) [`c942fe3`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/c942fe30483346217c9c89112e13db0d4a65c647) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - AuthKit 1.0. See the [Migrating to 1.0](https://github.com/DavideCarvalho/adonis-agora-authkit/blob/main/apps/docs/content/docs/migrating-to-1-0.mdx) guide.
+  
+  Breaking changes (`@adonis-agora/authkit-server`):
+  
+  - `withMfa` is removed. MFA state lives in the lib-owned `auth_mfa` table, so drop the mixin from your `AuthUser` model's `compose(...)`.
+  - `markSudo` is no longer exported. Grant sudo with `completeSudo(sudoContextFrom(ctx), methodId)`, which also writes the `sudo.confirmed` audit event, remembers the method and redirects to the validated `return_to`.
+  - The email-change confirmation link is sent through `mail.onEmailChangeConfirm` only. Without it, AuthKit sends its built-in email; `onEmailVerification` no longer receives email-change confirmations.
+  - The `clients` option of `defineConfig` is removed. Create clients in the admin console, through the Admin API or with `node ace authkit:clients:create` (new `--client-secret` flag keeps an existing secret). `buildImpersonationPanel(cfg, targetId, clients)` now requires `clients`, and the impersonation curl always shows the `<CLIENT_SECRET>` placeholder.
+  - `inertiaRenderer({ prefix, views })`: `views` is required. Screens not listed render with the built-in Edge view. `AuthkitScreen` is now the exact union of the screens AuthKit renders (adds `throttled`, `agents/consent`, `agents/done`; no arbitrary strings), and every screen's props are exported: `AuthkitScreenProps['<view>']` plus named types (`LoginProps`, `SessionExpiredProps`, …). The controllers are checked against them. Hosts declare screens of their own by augmenting `AuthkitScreenProps` (`declare module '@adonis-agora/authkit-server'`).
+  - The Admin API client body reads `grantTypes` only; the `grants` alias is gone (responses still return `grants`).
+  - `lucidAccountStore` always mounts password history over the model's connection (`auth_password_history`).
+  - `/account/orgs/json`, `/account/orgs/invitations/json` and `/account/orgs/:id/json` are removed; use `/account/api/orgs/*`.
+  - `GET /account/api/apps` entries gain `name` and `logoUrl`.
+  
+  - The admin console reads its config from a `<script type="application/json" id="authkit-admin-config">` data block (CSP-safe) instead of an inline `window.__AUTHKIT__` script; the dev fallback is gone.
+  - The admin client DTO returns `grantTypes` (was `grants`), plus `clientName` and `logoUri`, which the console and the Admin API can now set (`null` removes them, as it does `backchannelLogoutUri`). `GET {admin}/api/clients/:id` exists.
+  - Anonymous JSON callers of the admin and account JSON APIs get `401` (and `403` without an admin role) instead of a redirect to the login page.
+  - Fixes: the Redis adapter's `list()` honours the connection `keyPrefix` (sessions, apps and admin lists were empty); a password login posted without a password is an invalid-credentials answer, not a 500.
+  
+  Breaking changes (`@adonis-agora/authkit-core`):
+  
+  - `ClientConfig` and `ResolvedAuthServerConfig.clients` are removed.
+  
+  Breaking changes (`@adonis-agora/authkit-client`):
+  
+  - `@adonisjs/auth` is a required peer. `ctx.auth` is `@adonisjs/auth`, backed by the AuthKit session through `authkitClientGuard`; `ctx.authkit` (from `authkit_context_middleware`) carries the AuthKit-only data (identity, `hasGlobalRole`, active org, `toSharedProps`).
+  - `authkit_middleware`, `auth_middleware` and `silent_auth_middleware` (and their subpaths) are removed: `ctx.auth` comes from `@adonisjs/auth`, and `middleware.auth()` / `silentAuth` are the `#middleware/auth_middleware` / `#middleware/silent_auth_middleware` files `node ace configure` publishes. `require_org_middleware` stays. `@adonis-agora/authkit-client/types` no longer declares `HttpContext.auth`; type `ctx.authkit.getUser()` through the `AuthkitUserType` interface.
+  - `node ace configure @adonis-agora/authkit-client` installs `@adonisjs/auth` when missing (`--no-install` prints the command), writes `config/auth.ts` with `authkitClientGuard` + `sessionUserProvider` (`--model`, default `#models/user`; an existing file is left alone and the guard to add is printed), registers `@adonisjs/auth/auth_provider`, `initialize_auth_middleware` + `authkit_context_middleware`, and publishes the named `auth` / `silentAuth` middleware.
+  - `authkitClientGuard` takes its user from `resolveUser` when one is configured (so `lucidMirror` provisions the row on first login, and what it loads is on `ctx.auth.user`, the same instance as `ctx.authkit.getUser()`), with the provider as the fallback.
+  - New `authkitIdentityProvider()`: a user provider with no database; `ctx.auth.user` is the AuthKit `Identity`.
+  - New `authkitClientGuard({ provider, resolver })` option: a per-guard resolver for API routes (bearer JWT, opaque, PAT).
+  - `resolvers.jwt({ tokenSource: 'bearer' })` accepts `Authorization: DPoP <jwt>` with a valid `DPoP` proof for `cnf.jkt`-bound tokens, and refuses DPoP-bound tokens sent as `Bearer`.
+  - `UnauthorizedAccessConstructor` is no longer exported, and `AuthkitClientGuard` no longer takes an exception class; it always throws `@adonisjs/auth`'s `E_UNAUTHORIZED_ACCESS`.
+  
+  Breaking changes (`@adonis-agora/authkit-sdk`):
+  
+  - `clients.*` return `grantTypes` (was `grants`), plus `clientName` and `logoUri`.
+  
+  Breaking changes (`@adonis-agora/authkit-react`):
+  
+  - `createAuthkitClient()` no longer reads `window.__AUTHKIT__`: pass `baseUrl` for `client.admin.*` and `csrfToken`.
+  - Admin response types match the server: `users.remove` / `clients.remove` → `{ ok, deleted }`, `users.resetPassword` → `{ ok, email }`, `users.disable` / `enable` → the user, `SettingListResult.locked`; `AdminClient.grants` → `grantTypes` (+ `clientName`, `logoUri`); `UpdateUserInput` is `{ globalRoles? }`, `CreateUserInput` takes no `null`.
+  - New: `client.account.agents.list()` / `revoke()`, `useAccountAgentsQueryOptions`, `useRevokeAccountAgentMutationOptions`.
+  - Peers: `react` / `react-dom` `^19.0.0`, `@inertiajs/react` `^2.0.0 || ^3.0.0`.
+  
+  - `useProfile`, `useSessions`, `useAuthorizedApps`, `useOrganizations`, `useOrganization`, `useOrgInvitations`, `useSwitchOrganization` and their types are removed, with the `profile`, `sessions`, `apps`, `orgs` and `orgInvitations` keys of `endpoints`. Use the query options (`useMeQueryOptions`, `useAccountSessionsQueryOptions`, `useAppsQueryOptions`, `useAccountOrgsQueryOptions`, …).
+  - `UserProfile`, `AuthorizedApps`, `OrganizationSwitcher` and `OrganizationProfile` need `QueryClientProvider` and `AuthkitClientProvider`.
+  
+  All packages:
+  
+  - `@adonis-agora/*` peer ranges accept 1.x and its release candidates (`<2.0.0 || >=1.0.0-rc.0 <2.0.0`): `durable`, `media`, `telescope` (authkit-server), `resilience` (authkit-client), `authkit-server` (authkit-sdk).
+  - Node.js `>=24` is required (tested on 24 and 26).
+
+### Minor Changes
+
+- [#471](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/471) [`66ccc36`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/66ccc365dbbd7d9d5bf22dba7aad196aff9f5d4b) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Account console extensions from another app. An app that signs in through an authkit IdP can now add pages to the IdP's account console:
+  
+  - authkit-client binds the same `authkit.accountExtensions` registry, so packages register their pages the same way in both setups. With `accountConsole: { remote: true }` the app serves them at `/.well-known/agora-account-extensions` (mounted by `registerOidcClient`, or `registerAccountExtensionsEndpoint(router)`), only to requests the IdP signed for its client id with the scope `authkit:account-extensions`. `accountConsole.subject` maps the IdP account to the app's user.
+  - authkit-server: `accountConsole.remote: [{ clientId, url }]` lists those apps; their pages show in the console next to the in-process ones, with the same sign-in, sudo, confirmation, rate limit and audit rules.
+  - The contract types and validation now live in authkit-core (still exported from `@adonis-agora/authkit-server/account-extension`).
+
+- [#495](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/495) [`4830805`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/4830805039c3f0e978c403d3062275a892704eb7) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Separate servers: every piece of an Agora deployment can run without authkit-server in its process.
+  
+  - `authkitTenantVerifier({ issuer, resource, environment? })` (authkit-client) verifies service-tenant tokens on any server against the issuer's discovered JWKS and returns `{ partition, environment?, capabilities, clientId, expiresAt }` or `null`. `authkitTenantToken` now takes the token endpoint only from discovery (no guessed path).
+  - Service tenants get an optional `environment` (console, Admin API, SDK, `--environment`), emitted as the `environment` claim. Both verifiers take `environment` and, when it is set, accept only tokens claiming exactly that environment (fail closed); authkit-server's in-process verifier also returns `environment`. One service-tenant client gets tokens for every `urn:agora:*` resource declared.
+  - `registerOidcClient` announces `POST /auth/logout` as `account.signOut` on the `agora.consoles` registry (skipped when authkit-server runs in the app), so every console shows a sign-out.
+  - `Identity.actor` (`{ sub, email? }`) from the RFC 8693 `act` claim of an impersonated token (`deriveActor` in authkit-core).
+  - Org labels: authkit-server serves `GET /api/orgs/labels?ids=` (first-party confidential clients, Basic auth) and emits `org_name` for the active org; authkit-client installs a cached `Context.setTenantLabeler` (`orgLabels` option, `authkitOrgLabels`).
+  - Webhooks: the body carries `id` and `actorId`, `events.webhook` accepts a list; authkit-client's `registerAuthkitWebhook` / `authkitWebhookHandler` verify the HMAC, the `ts` window and the id, and re-emit on the diagnostics bus as `agora:authkit:<type>` with the in-process payload.
+  - `identityFromAccessToken`, `bindAuthkitIdentity` and `bridgeAuthkitToken` put a verified authkit bearer token on `ctx.authkit`.
+
+- [`0c4c958`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/0c4c95895572969cd6dc915a3a2b862a75c834fb) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `AppCallerVerifier.verifyToken(token)` verifies a service token that arrived outside HTTP (Redis, queues) with the same checks as the inbound middleware — audience `urn:agora:app:<service.name>`, environment pinning — and returns the `AgoraCaller` or `null` (a bad token never throws). `callerOf` uses it. The `AppCallerVerifier` type is now exported.
+
+- [`0c4c958`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/0c4c95895572969cd6dc915a3a2b862a75c834fb) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - App key directory, so Agora apps share public keys without copying them. authkit-server: `PUT /api/apps/keys` (`{ keys: [{ purpose, jwk }] }`, an app publishes its own public OKP keys with its service client id and secret; a key with `d`, an invalid `purpose` or too many keys get 422; audited as `app.keys_published`) and `GET /api/apps/:app/keys?purpose=` (any authenticated service client; 404 when none). Same credentials, CSRF exemption and throttle as the catalog; stored in the new lib-owned table `auth_app_keys`; listed at `GET …/api/apps/keys` (console) and `GET …/apps/keys` (Admin API). `registerAuthHost({ appKeys: false })` turns it off. authkit-client: `manager.publishAppKey({ purpose, jwk })` (background, retried, never rejects) and `manager.appKey({ app, purpose })` (cached 5 min, `null` when none); type `OkpJwk`.
+
+- [#519](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/519) [`7c06b48`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/7c06b48c00ab8a9d4ca4a216eb084c1d4e698089) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - App permission catalog. Each app publishes what it accepts from the other apps when its web server starts. authkit-client's `service.catalog` controls the source:
+  - `authz.permissionCatalog()` by default, when `@adonis-agora/authz` is in the app;
+  - a function of your own;
+  - `false`, to publish nothing.
+  
+  The app sends it to `PUT /api/apps/catalog` with its service tenant's id and secret. The server stores it in `auth_app_catalog`, and the CSRF helper exempts that path. The console's "Apps it can call" offers the apps and their capabilities. The catalogs are also listed by `node ace authkit:apps` and by the Admin API at `GET /apps/catalog`.
+
+- [#501](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/501) [`b7ec894`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/b7ec8944da9530978abc5e7790c45b285356702f) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Calls between apps, from config only. With `service: { name, clientId, clientSecret }` in `config/authkit_client.ts`, a plain `fetch` to another app carries a cached token for `urn:agora:app:<target>` (an undici interceptor composed onto the global dispatcher). The target comes from the service discovery published on `Symbol.for('@adonis-agora/discovery')` (telescope), or from the static `apps` map (name → origin), which overrides it. Exact origin only, never across a redirect to another origin, never over an `Authorization` the app set. `service.nodeHttp: true` covers `node:http`/`https` too: tokens are pre-warmed (the start waits, at most `service.prewarmTimeoutMs` (5 s), for the static apps' tokens; discovered apps through the slot's `subscribe`) and refreshed ahead of expiry, and a request to a known app with no token ready fails with `E_AGORA_APP_TOKEN_UNAVAILABLE` instead of leaving bare. A wrong `service`/`apps` now fails the boot. On the receiving app, `service: { name }` exposes the calling app as `ctx.agora.caller` / `getAgoraCaller(ctx)` (server middleware registered by the provider). `ctx.agora` is always an object, typed by `AgoraRequestContext` in `@adonisjs/core/http`, which every Agora lib extends with its own optional fields; and `authkitService({ capabilities?, apps? })` protects routes only other apps may call. User requests are untouched.
+
+- [#507](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/507) [`4b676e8`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/4b676e807574e306d694802c1a92b595187e33f1) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Control-plane discovery: apps find where each Agora control plane lives from the IdP instead of one URL env var per control plane.
+  
+  - `serviceTenants.resources[*].url` in `config/authkit.ts` (absolute `https`, `http` only on localhost, no credentials or fragment) is published in the discovery document as `agora_control_planes` (resource indicator → URL), so a token's audience and the control plane's location live in one table.
+  - authkit-client: `discoverControlPlane({ issuer, resource })` returns the URL, and `controlPlaneUrl({ issuer, resource })` is its lazy form for config files (`() => Promise<string>` with `peek()` and `refresh()`). The discovery document is cached per issuer; a resource missing from it triggers one refetch (at most every 10 s) before `ControlPlaneNotFoundError` (`E_CONTROL_PLANE_NOT_FOUND`). `discoverEndpoints()` also returns the map as `controlPlanes`.
+
+- [#497](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/497) [`96374a5`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/96374a56acd328e8a4322104fb0ea4d73bba566c) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Encryption at rest and webhook signatures through the Agora crypto kit (a verbatim copy at `src/crypto-kit/`, the same in every Agora lib), on top of Adonis' own encryption.
+  
+  **authkit-server**
+  - The managed JWKS keystore and the TOTP secrets (`auth_mfa.totp_secret`) are sealed with the app's `encryption` service (`config/encryption.ts`), each bound to its use (`authkit:keystore`, `authkit:account-secrets`) and, for TOTP, to its account. Values written by earlier versions (the app's encryption, no purpose; keystore envelope `aes`) still open — no migration step. New writes use the kit's `agora:v1:` format (keystore envelope `agora`). An older AuthKit instance can't read a keystore rewritten by this version (e.g. after a rotation): upgrade every instance together.
+  - New `crypto` option: `keys` (newest first: the first seals, all open), `encryption` (an Adonis encryption instance) or `kms` (envelope encryption).
+  - `node ace authkit:crypto:reseal [--dry-run] [--all] [--json]` rewrites values sealed with an older key or in the old format (`--all`: every value, after rotating `config/encryption.ts`). Compare-and-swap writes; exit 1 when a value doesn't open.
+  - `authkit.crypto` doctor check (`--deep`): warns on old-format or retired-key values, errors on values that don't open.
+  - `AccountSecretEncrypter` may now be async and receives `{ accountId }`; `appKeyEncrypter()` is async (custom sync encrypters keep working).
+  - Webhooks are signed with Ed25519 on every delivery: `x-authkit-signature-ed25519: agora:sig1:<kid>:<sig>`. The public keys are in the discovery document as `authkit_webhook_jwks`. The default key is derived from `APP_KEY`; `events.signing: { keys }` gives your own (private Ed25519 JWKs, newest first), `false` turns it off. The HMAC `x-authkit-signature` is still sent when `webhook.secret` is set.
+  
+  **authkit-client**
+  - `registerAuthkitWebhook` / `authkitWebhookHandler` verify the Ed25519 signature with the issuer's discovery keys (`issuer`), or given keys (`jwks`): no shared secret needed. Unknown key ids refetch the discovery (at most every `refreshCooldownMs`, default 30 s). `secret` is now optional; with it, the HMAC header is accepted too. New export: `webhookKeys`.
+
+- [#474](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/474) [`df9e49d`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/df9e49d7817c03a7cce4cac1df709c7788d6307c) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - AuthKit's tables can live in their own database schema: `schema: { name: 'auth' }` in `defineConfig` puts every table AuthKit owns in `auth` (`"auth"."auth_settings"`) while the app stays in `public`. The schema is written into every statement, so it works on any connection and inside the app's own transaction, with no `searchPath` (which leaks across clients behind PgBouncer in transaction mode).
+  
+  - The boot creates the schema (`CREATE SCHEMA IF NOT EXISTS`; MySQL: `CREATE DATABASE IF NOT EXISTS`) when `autoManage` is on, and fails with a message naming the schema and the grant when the role cannot create it. `ensureAuthkitSchema(db, { schema })` does the same from a migration.
+  - Covers the OIDC adapter table (`adapters.database({ schema })` overrides), the Lucid keystore (`jwks.store: { driver: 'lucid', schema }` overrides), the account store's tables (MFA, password history, organizations), runtime settings, session revocations, the personal-agent tables and agent extensions (`PersonalAgentHost.table(name)`, `AuthkitTable.create(table, { table })`, `ensureAuthkitTables(db, tables, { schema })`; Poppy uses them and `ensurePoppySchema(db, { schema })`).
+  - authkit-client: `lucidRevocationStore({ schema })`.
+  - SQLite with `schema.name` fails the boot instead of ignoring the option.
+  - `agora:doctor` gains `authkit.db-schema`: the schema exists, the tables are in it, the connection can write there. Silent without `schema.name`.
+  - The key-rotation lock key includes the schema, so two installs in two schemas of one database do not share it.
+  
+  Without `schema.name` nothing changes.
+
+- [#503](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/503) [`017a301`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/017a301f4c6a16a890dbd6de2bdec15806ba825f) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `registerOidcClient` now mounts everything a relying party needs so identity stays on the identity server: `GET {prefix}/signup` (same flow as login, with the standard `prompt=create`) and redirects to the issuer's pages, keeping the rest of the path and the query string — `/account` and `/account/*`, `{prefix}/forgot-password`, `{prefix}/reset-password[/*]`, `{prefix}/admin[/*]`. The targets come from the issuer's discovery (`authkit_*_uri`), falling back to the authkit-server defaults on the issuer origin; redirects never leave that origin. When authkit-server runs in the same app the redirects are not mounted. New `oidcClientRoutes(options)` exports the same handlers (`login`, `signup`, `callback`, `logout`, `backchannelLogout`, `account`, `forgotPassword`, `resetPassword`, `admin`) for apps that mount routes themselves.
+  
+  authkit-server honours `prompt=create`: with no IdP session the interaction opens on the sign-up screen (login screen when public sign-up is closed), and discovery advertises it in `prompt_values_supported`. Discovery also publishes `authkit_account_uri`, `authkit_account_home_uri`, `authkit_admin_uri` (when the admin console is mounted and enabled), `authkit_forgot_password_uri` and `authkit_reset_password_uri`.
+
+- [#465](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/465) [`6bd9575`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/6bd95759752c0fac14a061875abebb38c0e238b7) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - The active organization is published as the request's tenant in `@adonis-agora/context`: `Context.tenant()` returns `{ id, kind: 'organization', source: 'authkit', slug, role }` (and `tenantId` as before). New client option `tenancy`: `eager` resolves the session at request start (default on when `config/context.ts` enables tenancy and the resolver is `jwt`), `personal` makes the user the tenant when there is no active organization (off by default), and `resolve` maps the session to your own (optionally nested) tenants. A tenant the app sets itself with `Context.setTenant` is never overwritten. authkit-server ships `authkitTenantLabels()`, a label resolver for `config/context.ts` → `tenancy.label` that shows organization names in the consoles, and account stores gain the optional `findOrgsByIds` (implemented by the Lucid store).
+
+- [#460](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/460) [`1858ee8`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/1858ee837bb4edcf0578f86d224693ac9a86a495) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Service tenants: a client can act as one partition of another service, such as a durable control plane.
+  
+  - `serviceTenants: { resources: { 'urn:agora:durable': { expiresIn: 600 } } }` in `config/authkit.ts` declares the resources (RFC 8707) that issue service-tenant tokens: JWT access tokens (RFC 9068) with `aud` = the resource and the client's `partition` and `capabilities` as claims.
+  - A service-tenant client is confidential, uses only `client_credentials` and has no redirect URIs. Create and edit it from the console (**Service tenant** kind), the Admin API and the SDKs (`serviceTenant: { partition, capabilities? }`), or `node ace authkit:clients:create --partition=acme --capability=reports`.
+  - Any client can now be disabled and enabled again (console, `POST /clients/:id/disable|enable`, SDK `clients.disable/enable`): the token endpoint answers `invalid_client` from the next request on.
+  - `authkitTenantVerifier()` (authkit-server) verifies those tokens against the local issuer and keys and returns `{ tenant, capabilities }`; `authkitTenantToken({ issuer, clientId, clientSecret, resource })` (authkit-client) fetches, caches and refreshes them on the tenant side. Both fit durable's `verifyTenant` and `tenant.token` as a function or a class, without depending on durable.
+  - New audit events: `client.disabled`, `client.enabled`, `service_tenant.token_issued`.
+  - Access-token verification (`oidcBearerGuard`, in-process and remote) now refuses a token whose `sub` is a client (a `client_credentials` token), so a service-tenant token never authenticates a user.
+
+### Patch Changes
+
+- [`0c4c958`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/0c4c95895572969cd6dc915a3a2b862a75c834fb) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - authkit-server serves calls between apps in-process. Without authkit-client in the app (e.g. the Agora Hub), it binds an `authkit.client`-compatible object: `appCallTokens().token(app)`/`reset()` minted by its own token endpoint for this app's service client (new `serviceTenants.apps.client`; default: the service tenant whose `partition` is the package.json name, the same without its npm scope, or AdonisJS `appName`, else the only service tenant granted other apps; a clear error naming the config line when none or several match), with grants checked exactly as for remote tokens; `appCallerVerifier().verifyToken()` with its own keys; `appKey()`/`publishAppKey()` on its own `auth_app_keys` table. authkit-client, when installed, wins. The `/api/apps/*` endpoints never return a stack trace: a missing table answers `503 schema_missing` with the fix, anything else `500 server_error`, both logged. The doctor's missing-tables fix names the migration to add. authkit-client: a failed key publish is logged once, at the first failure, with the HTTP status and what fixes it, then retried quietly.
+
+- [`8981f69`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/8981f6970271ae96bf302463816008c6bf256413) Thanks [@github-actions[bot]](https://github.com/github-actions%5Bbot%5D)! - fix(deps): update dependency jose to v6.2.16 ([#454](https://github.com/DavideCarvalho/adonis-agora-authkit/issues/454))
+
+- [`02e6878`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/02e68788a46d3e5a7dba2f8f34d25c5100bf0bf4) Thanks [@github-actions[bot]](https://github.com/github-actions%5Bbot%5D)! - fix(deps): update dependency jose to v6.2.18 ([#535](https://github.com/DavideCarvalho/adonis-agora-authkit/issues/535))
+
+- [`0c4c958`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/0c4c95895572969cd6dc915a3a2b862a75c834fb) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - `InMemorySessionIndex` now forgets sessions: entries expire (`expiresAt` on the entry, or `ttlMs`, default 24 h), the index has a cap (`maxEntries`, default 10 000, oldest evicted first), and the new optional `SessionIndex.unregister(sessionId)` drops a session that ended locally — the built-in logout calls it with `ctx.session.sessionId`. Still not for multi-instance production.
+- Updated dependencies [[`66ccc36`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/66ccc365dbbd7d9d5bf22dba7aad196aff9f5d4b), [`4830805`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/4830805039c3f0e978c403d3062275a892704eb7), [`df9e49d`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/df9e49d7817c03a7cce4cac1df709c7788d6307c), [`4c91361`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/4c91361fe209ee76e1cc4a0a3189568f6d4c0558), [`c942fe3`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/c942fe30483346217c9c89112e13db0d4a65c647)]:
+  - @adonis-agora/authkit-core@1.0.0
+
 ## 1.0.0-rc.15
 
 ### Minor Changes
