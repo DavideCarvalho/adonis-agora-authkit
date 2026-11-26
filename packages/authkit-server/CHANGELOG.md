@@ -1,5 +1,13 @@
 # @adonis-agora/authkit-server
 
+## 0.90.3
+
+### Patch Changes
+
+- [`3f63c36`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/3f63c36ee7c7871ac139af82179841035e99eca5) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - **Security:** the unauthenticated OAuth/OIDC machine endpoints are now rate limited per IP by default. The provider's token, dynamic registration, device authorization, PAR, revocation, introspection and CIBA endpoints use a new `oidcToken` bucket, and the personal agents' `oauth/token` and `oauth/device_authorization` use a new `agentToken` bucket (120 requests per minute each). Authorize, userinfo, JWKS and discovery are not throttled. `rateLimit: { enabled: false }` turns them off with the other buckets.
+
+- [`3f63c36`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/3f63c36ee7c7871ac139af82179841035e99eca5) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - **Security:** on the self-service organization routes (`/account/orgs` and `/account/api/orgs`), a member can now only remove or change the role of a member ranked below them (`owner` > `admin` > other roles). Only an owner can act on another owner. Refusals answer 403. The admin console and the Admin API are unchanged.
+
 ## 0.90.2
 
 ### Patch Changes
