@@ -877,6 +877,135 @@ test.group('AccountOrgsApiController — membros', () => {
     assert.deepEqual(await (store as any).getOrgMembership(org.id, member.id), { role: 'member' });
   });
 
+  test('admin rebaixando um owner → 403 e o owner fica', async ({ assert }) => {
+    const store = buildMemoryStore();
+    const cfg = buildCfg(store);
+    const owner = await (store as any).create({ email: 'o@x.com' });
+    const owner2 = await (store as any).create({ email: 'o2@x.com' });
+    const adminUser = await (store as any).create({ email: 'ad@x.com' });
+    const org = await (store as any).createOrg({ name: 'A', slug: 'a', ownerAccountId: owner.id });
+    // Dois owners: a trava de `last_owner` do store NÃO seguraria.
+    await (store as any).addOrgMember(org.id, owner2.id, 'owner');
+    await (store as any).addOrgMember(org.id, adminUser.id, 'admin');
+
+    const { ctx, captured } = fakeCtx({
+      actorId: adminUser.id,
+      params: { id: org.id, accountId: owner2.id },
+      inputs: { role: 'member' },
+      cfg,
+    });
+    await new AccountOrgsApiController().updateMemberRole(ctx);
+
+    assert.equal(captured.status(), 403);
+    assert.equal(captured.body().error.code, 'forbidden');
+    assert.match(captured.body().error.message, /Only an owner/);
+    assert.deepEqual(await (store as any).getOrgMembership(org.id, owner2.id), { role: 'owner' });
+  });
+
+  test('admin removendo um owner → 403 e o owner fica', async ({ assert }) => {
+    const store = buildMemoryStore();
+    const cfg = buildCfg(store);
+    const owner = await (store as any).create({ email: 'o@x.com' });
+    const owner2 = await (store as any).create({ email: 'o2@x.com' });
+    const adminUser = await (store as any).create({ email: 'ad@x.com' });
+    const org = await (store as any).createOrg({ name: 'A', slug: 'a', ownerAccountId: owner.id });
+    await (store as any).addOrgMember(org.id, owner2.id, 'owner');
+    await (store as any).addOrgMember(org.id, adminUser.id, 'admin');
+
+    const { ctx, captured } = fakeCtx({
+      actorId: adminUser.id,
+      params: { id: org.id, accountId: owner2.id },
+      cfg,
+    });
+    await new AccountOrgsApiController().removeMember(ctx);
+
+    assert.equal(captured.status(), 403);
+    assert.deepEqual(await (store as any).getOrgMembership(org.id, owner2.id), { role: 'owner' });
+    assert.isFalse(cfg.audit.events.some((e: any) => e.type === 'organization.member_removed'));
+  });
+
+  test('admin mexendo em outro admin → 403 (remover e trocar papel)', async ({ assert }) => {
+    const store = buildMemoryStore();
+    const cfg = buildCfg(store);
+    const owner = await (store as any).create({ email: 'o@x.com' });
+    const a1 = await (store as any).create({ email: 'a1@x.com' });
+    const a2 = await (store as any).create({ email: 'a2@x.com' });
+    const org = await (store as any).createOrg({ name: 'A', slug: 'a', ownerAccountId: owner.id });
+    await (store as any).addOrgMember(org.id, a1.id, 'admin');
+    await (store as any).addOrgMember(org.id, a2.id, 'admin');
+
+    const demote = fakeCtx({
+      actorId: a1.id,
+      params: { id: org.id, accountId: a2.id },
+      inputs: { role: 'member' },
+      cfg,
+    });
+    await new AccountOrgsApiController().updateMemberRole(demote.ctx);
+    assert.equal(demote.captured.status(), 403);
+    assert.match(demote.captured.body().error.message, /Ask an owner/);
+
+    const remove = fakeCtx({ actorId: a1.id, params: { id: org.id, accountId: a2.id }, cfg });
+    await new AccountOrgsApiController().removeMember(remove.ctx);
+    assert.equal(remove.captured.status(), 403);
+    assert.deepEqual(await (store as any).getOrgMembership(org.id, a2.id), { role: 'admin' });
+  });
+
+  test('owner rebaixa outro owner e rebaixa admin → ok', async ({ assert }) => {
+    const store = buildMemoryStore();
+    const cfg = buildCfg(store);
+    const owner = await (store as any).create({ email: 'o@x.com' });
+    const owner2 = await (store as any).create({ email: 'o2@x.com' });
+    const adminUser = await (store as any).create({ email: 'ad@x.com' });
+    const org = await (store as any).createOrg({ name: 'A', slug: 'a', ownerAccountId: owner.id });
+    await (store as any).addOrgMember(org.id, owner2.id, 'owner');
+    await (store as any).addOrgMember(org.id, adminUser.id, 'admin');
+
+    for (const target of [owner2.id, adminUser.id]) {
+      const { ctx, captured } = fakeCtx({
+        actorId: owner.id,
+        params: { id: org.id, accountId: target },
+        inputs: { role: 'member' },
+        cfg,
+      });
+      await new AccountOrgsApiController().updateMemberRole(ctx);
+      assert.equal(captured.status(), 200);
+      assert.deepEqual(await (store as any).getOrgMembership(org.id, target), { role: 'member' });
+    }
+  });
+
+  test('admin se rebaixando → ok (só desce)', async ({ assert }) => {
+    const store = buildMemoryStore();
+    const cfg = buildCfg(store);
+    const owner = await (store as any).create({ email: 'o@x.com' });
+    const adminUser = await (store as any).create({ email: 'ad@x.com' });
+    const org = await (store as any).createOrg({ name: 'A', slug: 'a', ownerAccountId: owner.id });
+    await (store as any).addOrgMember(org.id, adminUser.id, 'admin');
+
+    const { ctx, captured } = fakeCtx({
+      actorId: adminUser.id,
+      params: { id: org.id, accountId: adminUser.id },
+      inputs: { role: 'member' },
+      cfg,
+    });
+    await new AccountOrgsApiController().updateMemberRole(ctx);
+    assert.equal(captured.status(), 200);
+  });
+
+  test('alvo que não é membro → 404', async ({ assert }) => {
+    const store = buildMemoryStore();
+    const cfg = buildCfg(store);
+    const owner = await (store as any).create({ email: 'o@x.com' });
+    const org = await (store as any).createOrg({ name: 'A', slug: 'a', ownerAccountId: owner.id });
+
+    const { ctx, captured } = fakeCtx({
+      actorId: owner.id,
+      params: { id: org.id, accountId: 'ghost' },
+      cfg,
+    });
+    await new AccountOrgsApiController().removeMember(ctx);
+    assert.equal(captured.status(), 404);
+  });
+
   test('rebaixar o último owner → 409 last_owner', async ({ assert }) => {
     const store = buildMemoryStore();
     const cfg = buildCfg(store);

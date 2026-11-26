@@ -12,6 +12,7 @@ import {
 import { sendOrgInvitationEmail } from '../default_mailer.js';
 import { ensureConsoleSession } from '../idp_session_bridge.js';
 import { revokeOrgAccess } from '../org_access_revocation.js';
+import { checkOrgMemberAction } from '../org_member_rules.js';
 // Política efetiva compartilhada com o espelho JSON (`account_orgs_api_controller`):
 // ponto de verdade único, para as duas superfícies nunca divergirem.
 import { effectiveOrgPolicy, orgPolicyDefaults } from '../org_policy.js';
@@ -360,6 +361,15 @@ export default class AccountOrgsController {
       (actorMembership.role !== 'owner' && actorMembership.role !== 'admin')
     ) {
       return response.forbidden();
+    }
+    // Só remove quem está abaixo do próprio papel (owner remove owner) — mesma regra da JSON API.
+    const targetMembership = await store.getOrgMembership!(params.id, params.accountId);
+    if (targetMembership) {
+      const check = checkOrgMemberAction(
+        { accountId: actorId, role: actorMembership.role },
+        { accountId: params.accountId, role: targetMembership.role },
+      );
+      if (!check.ok) return response.forbidden(check.message);
     }
 
     const result = await store.removeOrgMember!(params.id, params.accountId);

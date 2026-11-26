@@ -527,6 +527,19 @@ export class AuthkitClientManager {
     if (!session) return;
     session.forget(this.config.sessionKey);
     session.forget(this.#impersonatorKey);
+    // A sessão acabou localmente: o índice do back-channel não precisa mais dela.
+    const sessionId = (session as { sessionId?: unknown }).sessionId;
+    const unregister = this.config.sessionIndex?.unregister;
+    if (unregister && typeof sessionId === 'string' && sessionId !== '') {
+      Promise.resolve()
+        .then(() => unregister.call(this.config.sessionIndex, sessionId))
+        .catch((error) => {
+          this.#logger.warn(
+            { err: error },
+            'authkit-client: sessionIndex.unregister failed on local logout',
+          );
+        });
+    }
   }
 
   /**

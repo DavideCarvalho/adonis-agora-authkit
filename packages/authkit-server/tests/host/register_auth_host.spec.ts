@@ -636,3 +636,32 @@ test.group('registerAuthHost — montagem por tela do console de conta', (group)
     assert.equal(getAccountLoginUrl(), '/account/login');
   });
 });
+
+test.group('registerAuthHost — throttle dos endpoints OAuth de agentes', (group) => {
+  group.each.teardown(() => resetAuthHostConfig());
+
+  const register = (rateLimit: { enabled: boolean }) => {
+    setAuthHostConfig({
+      mountPath: '/oidc',
+      rateLimit: resolveRateLimit(rateLimit),
+      personalAgents: { prefix: '/agents' },
+    } as any);
+    const router = fakeRouter();
+    registerAuthHost(router);
+    return (pattern: string) =>
+      router.routes.find((r: any) => r.pattern === pattern && r.method === 'POST').middleware;
+  };
+  const patterns = ['/agents/oauth/token', '/agents/oauth/device_authorization'];
+
+  test('token e device_authorization: throttle por default', ({ assert }) => {
+    const middlewareOf = register({ enabled: true });
+    for (const pattern of patterns) {
+      assert.lengthOf(middlewareOf(pattern), 1, `esperava throttle em ${pattern}`);
+    }
+  });
+
+  test('`rateLimit: { enabled: false }` desliga todos', ({ assert }) => {
+    const middlewareOf = register({ enabled: false });
+    for (const pattern of patterns) assert.lengthOf(middlewareOf(pattern), 0, pattern);
+  });
+});

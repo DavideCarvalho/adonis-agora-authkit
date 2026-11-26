@@ -39,6 +39,17 @@ export interface AuthThrottles {
    * anti-brute-force do código adivinhável, ANTES do lockout por interaction.
    */
   otpLogin: ThrottleMiddleware;
+  /**
+   * Endpoints OAuth de máquina dos personal agents (token, device authorization),
+   * keyed por IP em bucket PRÓPRIO (`authkit_agent_token`). API: responde o 429 cru.
+   */
+  agentToken: ThrottleMiddleware;
+  /**
+   * POSTs de máquina do provider OIDC (token, registro, device, PAR, revogação,
+   * introspecção), keyed por IP em bucket PRÓPRIO (`authkit_oidc_token`). Só é
+   * aplicado a esses endpoints — ver `oidcMachineThrottle`. 429 cru.
+   */
+  oidcToken: ThrottleMiddleware;
 }
 
 /**
@@ -155,6 +166,18 @@ export function createAuthThrottles(config: ResolvedRateLimitConfig): AuthThrott
     // Verificação de código OTP: keyed por IP (default), bucket próprio e mais
     // apertado que o login. O namespace do nome mantém a contagem separada.
     otpLogin: withFriendly429(buildThrottle('authkit_otp_login', config.otpLogin, config.store)),
+    agentToken: buildThrottle(
+      'authkit_agent_token',
+      config.agentToken ?? { points: 120, duration: '1 min' },
+      config.store,
+      (ctx) => `agent-token-ip:${ctx.request.ip?.() ?? 'unknown'}`,
+    ),
+    oidcToken: buildThrottle(
+      'authkit_oidc_token',
+      config.oidcToken ?? { points: 120, duration: '1 min' },
+      config.store,
+      (ctx) => `oidc-token-ip:${ctx.request.ip?.() ?? 'unknown'}`,
+    ),
   };
 }
 

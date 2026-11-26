@@ -108,6 +108,11 @@ export interface SessionIndexEntry {
   sid?: string;
   sub: string;
   sessionId: string;
+  /**
+   * Quando a sessão local expira (Date ou epoch em ms). Depois disso a entrada sai
+   * do índice sozinha. Sem ele, o índice usa o próprio TTL default.
+   */
+  expiresAt?: Date | number;
 }
 
 /**
@@ -127,18 +132,83 @@ export interface SessionIndex {
   revokeBySid(sid: string): Promise<string[]> | string[];
   /** Remove e retorna TODOS os sessionIds vinculados ao sub (todas as sessões do usuário). */
   revokeBySub(sub: string): Promise<string[]> | string[];
+  /**
+   * Esquece uma sessão local que acabou sem o OP (logout local). O `POST {prefix}/logout`
+   * embutido chama com `ctx.session.sessionId`; chame você mesmo se registrou outro id.
+   */
+  unregister?(sessionId: string): Promise<void> | void;
+}
+
+export interface InMemorySessionIndexOptions {
+  /** Teto de sessões indexadas; no teto, a mais antiga sai. Default 10 000. */
+  maxEntries?: number;
+  /** Vida de uma entrada registrada sem `expiresAt`, em ms. Default 24 h. */
+  ttlMs?: number;
+  /** Relógio (testes). Default `Date.now`. */
+  now?: () => number;
 }
 
 /**
- * Implementação default em memória do {@link SessionIndex}. Mantém o mapeamento
- * sid -> sessionId e sub -> Set<sessionId>. NÃO use em produção multi-instância.
+ * Implementação default em memória do {@link SessionIndex}. NÃO use em produção
+ * multi-instância: o POST de back-channel pode chegar em outra instância.
+ *
+ * Tem teto (`maxEntries`, a mais antiga sai primeiro) e esquece as entradas vencidas
+ * (`expiresAt` da entrada ou `ttlMs`) e as sessões encerradas por `unregister`.
  */
 export class InMemorySessionIndex implements SessionIndex {
+  // sessionId -> entrada; a ordem de inserção é a ordem de registro (a mais antiga primeiro).
+  #sessions = new Map<string, { sid?: string; sub: string; expiresAt: number }>();
   #bySid = new Map<string, string>();
   #bySub = new Map<string, Set<string>>();
+  #maxEntries: number;
+  #ttlMs: number;
+  #now: () => number;
+  #writes = 0;
+
+  constructor(options: InMemorySessionIndexOptions = {}) {
+    const { maxEntries = 10_000, ttlMs = 24 * 60 * 60 * 1000 } = options;
+    if (!Number.isInteger(maxEntries) || maxEntries < 1) {
+      throw new Error(
+        `[authkit-client] InMemorySessionIndex: maxEntries must be a positive integer (got ${maxEntries}).`,
+      );
+    }
+    if (!(ttlMs > 0)) {
+      throw new Error(
+        `[authkit-client] InMemorySessionIndex: ttlMs must be a positive number (got ${ttlMs}).`,
+      );
+    }
+    this.#maxEntries = maxEntries;
+    this.#ttlMs = ttlMs;
+    this.#now = options.now ?? Date.now;
+  }
+
+  /** Quantas sessões estão indexadas agora. */
+  get size(): number {
+    return this.#sessions.size;
+  }
 
   register(entry: SessionIndexEntry): void {
+    const t = this.#now();
+    const expiresAt =
+      entry.expiresAt === undefined
+        ? t + this.#ttlMs
+        : entry.expiresAt instanceof Date
+          ? entry.expiresAt.getTime()
+          : entry.expiresAt;
+    this.#forget(entry.sessionId);
+    if (++this.#writes % 1000 === 0 || this.#sessions.size >= this.#maxEntries) this.#prune(t);
+    while (this.#sessions.size >= this.#maxEntries) {
+      this.#forget(this.#sessions.keys().next().value as string);
+    }
+    if (expiresAt <= t) return;
+    this.#sessions.set(entry.sessionId, { sid: entry.sid, sub: entry.sub, expiresAt });
     if (entry.sid) {
+      // Um sid reapontado para outra sessão: a antiga perde o vínculo com ele.
+      const previous = this.#bySid.get(entry.sid);
+      if (previous !== undefined && previous !== entry.sessionId) {
+        const old = this.#sessions.get(previous);
+        if (old) old.sid = undefined;
+      }
       this.#bySid.set(entry.sid, entry.sessionId);
     }
     const set = this.#bySub.get(entry.sub) ?? new Set<string>();
@@ -146,26 +216,41 @@ export class InMemorySessionIndex implements SessionIndex {
     this.#bySub.set(entry.sub, set);
   }
 
+  unregister(sessionId: string): void {
+    this.#forget(sessionId);
+  }
+
   revokeBySid(sid: string): string[] {
     const sessionId = this.#bySid.get(sid);
-    if (!sessionId) return [];
-    this.#bySid.delete(sid);
-    // Mantém os índices coerentes: remove o sessionId de qualquer bucket de sub.
-    for (const [sub, set] of this.#bySub) {
-      if (set.delete(sessionId) && set.size === 0) this.#bySub.delete(sub);
-    }
-    return [sessionId];
+    if (sessionId === undefined) return [];
+    const live = this.#isLive(sessionId);
+    this.#forget(sessionId);
+    return live ? [sessionId] : [];
   }
 
   revokeBySub(sub: string): string[] {
     const set = this.#bySub.get(sub);
     if (!set) return [];
-    const sessionIds = [...set];
-    this.#bySub.delete(sub);
-    // Remove as entradas de sid que apontavam p/ essas sessões.
-    for (const [sid, sessionId] of this.#bySid) {
-      if (set.has(sessionId)) this.#bySid.delete(sid);
-    }
+    const sessionIds = [...set].filter((id) => this.#isLive(id));
+    for (const id of [...set]) this.#forget(id);
     return sessionIds;
+  }
+
+  #isLive(sessionId: string): boolean {
+    const entry = this.#sessions.get(sessionId);
+    return entry !== undefined && entry.expiresAt > this.#now();
+  }
+
+  #prune(t: number): void {
+    for (const [id, entry] of this.#sessions) if (entry.expiresAt <= t) this.#forget(id);
+  }
+
+  #forget(sessionId: string): void {
+    const entry = this.#sessions.get(sessionId);
+    if (!entry) return;
+    this.#sessions.delete(sessionId);
+    if (entry.sid && this.#bySid.get(entry.sid) === sessionId) this.#bySid.delete(entry.sid);
+    const set = this.#bySub.get(entry.sub);
+    if (set?.delete(sessionId) && set.size === 0) this.#bySub.delete(entry.sub);
   }
 }

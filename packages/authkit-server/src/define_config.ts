@@ -365,6 +365,18 @@ export interface ResolvedRateLimitConfig {
    * force ANTES do lockout por interaction (contador persistido no slot do código).
    */
   otpLogin: RateLimitBucket;
+  /**
+   * Bucket por IP dos endpoints OAuth de máquina dos personal agents
+   * (`POST {prefix}/oauth/token`, `device_authorization`), que não têm sessão.
+   * Default 120/min.
+   */
+  agentToken?: RateLimitBucket;
+  /**
+   * Bucket por IP dos POSTs de máquina do provider OIDC (token, registro dinâmico,
+   * device authorization, PAR, revogação, introspecção, CIBA) — só esses, dentro do
+   * wildcard `${mountPath}/*`. Default 120/min, contado à parte do `agentToken`.
+   */
+  oidcToken?: RateLimitBucket;
   store?: string;
 }
 
@@ -374,6 +386,8 @@ const RATE_LIMIT_DEFAULTS: {
   adminIp: RateLimitBucket;
   sudo: RateLimitBucket;
   otpLogin: RateLimitBucket;
+  agentToken: RateLimitBucket;
+  oidcToken: RateLimitBucket;
 } = {
   login: { points: 10, duration: '1 min' },
   introspection: { points: 60, duration: '1 min' },
@@ -382,6 +396,10 @@ const RATE_LIMIT_DEFAULTS: {
   sudo: { points: 10, duration: '1 min' },
   // Mais apertado que o login — verificação de código adivinhável.
   otpLogin: { points: 5, duration: '1 min' },
+  // Endpoints OAuth de máquina dos personal agents, por IP.
+  agentToken: { points: 120, duration: '1 min' },
+  // POSTs de máquina do provider OIDC, por IP.
+  oidcToken: { points: 120, duration: '1 min' },
 };
 
 export function resolveRateLimit(input?: RateLimitConfigInput): ResolvedRateLimitConfig {
@@ -393,6 +411,8 @@ export function resolveRateLimit(input?: RateLimitConfigInput): ResolvedRateLimi
     adminIp: RATE_LIMIT_DEFAULTS.adminIp,
     sudo: RATE_LIMIT_DEFAULTS.sudo,
     otpLogin: RATE_LIMIT_DEFAULTS.otpLogin,
+    agentToken: RATE_LIMIT_DEFAULTS.agentToken,
+    oidcToken: RATE_LIMIT_DEFAULTS.oidcToken,
     store: input?.store,
   };
 }

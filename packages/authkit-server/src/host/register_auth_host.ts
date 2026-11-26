@@ -28,6 +28,7 @@ import {
 } from './auth_host_config.js';
 import type { PolicyRouteOption } from './config_locks.js';
 import { ensureConsoleSession } from './idp_session_bridge.js';
+import { oidcMachineThrottle } from './oidc_endpoint_throttle.js';
 import { POPPY_WEB_SESSION_KEY } from './poppy_session_key.js';
 import { createAuthThrottles } from './rate_limit.js';
 import { redirectExact } from './redirect_exact.js';
@@ -781,6 +782,12 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
     if (throttles) route.use([throttles.otpLogin]);
     return route;
   };
+  // Bucket por IP dos endpoints OAuth de máquina dos agentes (token, device):
+  // sem sessão, então o IP é o único eixo. 429 cru (API).
+  const withAgentToken = <R>(route: R): R => {
+    if (throttles) (route as { use(m: unknown[]): unknown }).use([throttles.agentToken]);
+    return route;
+  };
 
   // ─── Rotas do fluxo de login expostas ao host ──────────────────────────────
   // `AuthHostRouteMap.routes` entrega o Route do AdonisJS (dá para pendurar
@@ -859,7 +866,13 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
   }
 
   // Provider OIDC (wildcard + root) — o que registerOidcRoutes fazia.
-  router.any(`${mount}/*`, [C.oidc]).as('authkit.oidc.wildcard');
+  // Throttle por IP SÓ nos POSTs de máquina do provider (token, registro, device, PAR,
+  // revogação, introspecção — paths lidos do provider); authorize/userinfo/JWKS/discovery
+  // passam direto.
+  const oidcWildcard = router.any(`${mount}/*`, [C.oidc]).as('authkit.oidc.wildcard');
+  if (throttles && typeof oidcWildcard?.use === 'function') {
+    oidcWildcard.use([oidcMachineThrottle(throttles.oidcToken)]);
+  }
   router.any(mount, [C.oidc]).as('authkit.oidc.root');
 
   // Interaction (login multi-step + consent + signup).
@@ -975,8 +988,11 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
     const oauth = `${agentsPrefix}/oauth`;
     router.get(`${oauth}/.well-known/oauth-authorization-server`, [C.agentOAuth, 'metadata']);
     router.get(`${oauth}/jwks.json`, [C.agentOAuth, 'jwks']);
-    router.post(`${oauth}/device_authorization`, [C.agentOAuth, 'deviceAuthorization']);
-    router.post(`${oauth}/token`, [C.agentOAuth, 'token']);
+    // Server-to-server sem sessão: throttle por IP (bucket `agentToken`).
+    withAgentToken(
+      router.post(`${oauth}/device_authorization`, [C.agentOAuth, 'deviceAuthorization']),
+    );
+    withAgentToken(router.post(`${oauth}/token`, [C.agentOAuth, 'token']));
     // Throttle de código (bucket do OTP, por IP): o `user_code` tem 8 letras e
     // a RFC 8628 §5.1 conta com rate limit para não ser adivinhável.
     router

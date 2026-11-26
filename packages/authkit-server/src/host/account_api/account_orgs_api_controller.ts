@@ -59,6 +59,7 @@ import {
 } from '../active_org_cookie.js';
 import { sendOrgInvitationEmail } from '../default_mailer.js';
 import { revokeOrgAccess } from '../org_access_revocation.js';
+import { checkOrgMemberAction } from '../org_member_rules.js';
 // Política efetiva: o MESMO módulo que o console HTML usa. Duas cópias da
 // resolução são como o espelho JSON acabaria mais frouxo que o formulário.
 import { effectiveOrgPolicy, orgPolicyDefaults } from '../org_policy.js';
@@ -385,6 +386,7 @@ export default class AccountOrgsApiController {
     const targetId = String(ctx.request.param('accountId'));
     const membership = await this.#requireManager(ctx, c.store, orgId, c.accountId);
     if (!membership) return;
+    if (!(await this.#requireOutranks(ctx, c, orgId, membership, targetId))) return;
 
     const result = await c.store.removeOrgMember(orgId, targetId);
     if (!result.ok) {
@@ -441,6 +443,7 @@ export default class AccountOrgsApiController {
     if (role === 'owner' && membership.role !== 'owner') {
       return ctx.response.forbidden(apiErr('forbidden', 'Only an owner can grant the owner role.'));
     }
+    if (!(await this.#requireOutranks(ctx, c, orgId, membership, targetId))) return;
 
     const result = await c.store.updateOrgMemberRole(orgId, targetId, role);
     if (!result.ok) {
@@ -542,5 +545,38 @@ export default class AccountOrgsApiController {
       return null;
     }
     return membership as { role: string };
+  }
+
+  /**
+   * Só se remove ou troca o papel de quem está abaixo do próprio papel (um owner
+   * age sobre outro owner) — ver `checkOrgMemberAction`. Responde 404 quando o
+   * alvo não é membro e 403 quando o ator não o alcança; devolve `false` nos dois.
+   */
+  async #requireOutranks(
+    ctx: HttpContext,
+    c: {
+      store: {
+        getOrgMembership(orgId: string, accountId: string): Promise<{ role: string } | null>;
+      };
+      accountId: string;
+    },
+    orgId: string,
+    actor: { role: string },
+    targetId: string,
+  ): Promise<boolean> {
+    const target = await c.store.getOrgMembership(orgId, targetId);
+    if (!target) {
+      ctx.response.notFound(apiErr('not_found', 'Member not found in this organization.'));
+      return false;
+    }
+    const check = checkOrgMemberAction(
+      { accountId: c.accountId, role: actor.role },
+      { accountId: targetId, role: target.role },
+    );
+    if (!check.ok) {
+      ctx.response.forbidden(apiErr('forbidden', check.message));
+      return false;
+    }
+    return true;
   }
 }

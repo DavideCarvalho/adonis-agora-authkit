@@ -20,6 +20,7 @@ export {
   OidcCallbackError,
 } from './src/authorization.js';
 export type {
+  InMemorySessionIndexOptions,
   SessionIndex,
   SessionIndexEntry,
   ValidatedLogoutToken,
