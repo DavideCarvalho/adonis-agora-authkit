@@ -37,6 +37,13 @@ import {
   publishAppCatalogHandler,
 } from './app_catalog.js';
 import {
+  APP_KEYS_PATH,
+  APP_KEYS_READ_PATH,
+  listAppKeysHandler,
+  publishAppKeysHandler,
+  readAppKeysHandler,
+} from './app_keys.js';
+import {
   getAuthHostConfig,
   markAuthHostAutoMounted,
   wasAuthHostAutoMounted,
@@ -45,6 +52,7 @@ import type { PolicyRouteOption } from './config_locks.js';
 import { consoleDeniedPage } from './console_denied_page.js';
 import { CONSOLE_SSO_CALLBACK_PATH, CONSOLE_SSO_START_PATH } from './console_sso.js';
 import { endBridgedIdpSession, ensureConsoleSession } from './idp_session_bridge.js';
+import { oidcMachineThrottle } from './oidc_endpoint_throttle.js';
 import { ORG_LABELS_PATH, orgLabelsHandler } from './org_labels.js';
 import { createAuthThrottles } from './rate_limit.js';
 import { redirectExact } from './redirect_exact.js';
@@ -561,6 +569,12 @@ export interface AuthHostOptions {
    */
   appCatalog?: boolean | { path?: string };
   /**
+   * The app key directory: `PUT /api/apps/keys` (an app publishes its own public keys with its
+   * service tenant's id and secret) and `GET /api/apps/:app/keys?purpose=` (any authenticated
+   * service client reads them). Default: mounted. `false` skips both.
+   */
+  appKeys?: boolean;
+  /**
    * Métodos de sudo cujas rotas devem ser montadas. Necessário aqui (e não só
    * no config) porque a decisão de MONTAR rotas acontece em tempo de registro,
    * antes de o config lazy resolver — mesma razão de `social`/`admin`/`rateLimit`.
@@ -725,6 +739,8 @@ export interface AuthHostRouteMap {
   orgLabels: { path: string } | null;
   /** App catalog publish endpoint path, or `null` when it was not mounted. */
   appCatalog: { path: string } | null;
+  /** App key directory paths (publish, read), or `null` when they were not mounted. */
+  appKeys: { publish: string; read: string } | null;
   /** Nomes das rotas nomeadas (as demais herdam o auto-naming do AdonisJS). */
   names: Record<string, string>;
   /**
@@ -1012,6 +1028,12 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
     if (throttles) route.use([throttles.otpLogin]);
     return route;
   };
+  // Bucket por IP dos endpoints OAuth de máquina dos agentes (token, device, PAR, revoke):
+  // sem sessão, então o IP é o único eixo. 429 cru (API).
+  const withAgentToken = <R>(route: R): R => {
+    if (throttles) (route as { use(m: unknown[]): unknown }).use([throttles.agentToken]);
+    return route;
+  };
 
   // ─── Rotas do fluxo de login expostas ao host ──────────────────────────────
   // `AuthHostRouteMap.routes` entrega o Route do AdonisJS (dá para pendurar
@@ -1102,7 +1124,13 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
   });
 
   // Provider OIDC (wildcard + root) — o que registerOidcRoutes fazia.
-  router.any(`${mount}/*`, [C.oidc]).as('authkit.oidc.wildcard');
+  // Throttle por IP SÓ nos POSTs de máquina do provider (token, registro, device, PAR,
+  // revogação, introspecção — paths lidos do provider); authorize/userinfo/JWKS/discovery
+  // passam direto.
+  const oidcWildcard = router.any(`${mount}/*`, [C.oidc]).as('authkit.oidc.wildcard');
+  if (throttles && typeof oidcWildcard?.use === 'function') {
+    oidcWildcard.use([oidcMachineThrottle(throttles.oidcToken)]);
+  }
   router.any(mount, [C.oidc]).as('authkit.oidc.root');
 
   // Login do console pelo IdP (SSO; client interno `authkit-console`, ver
@@ -1227,8 +1255,11 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
     const oauth = `${agentsPrefix}/oauth`;
     router.get(`${oauth}/.well-known/oauth-authorization-server`, [C.agentOAuth, 'metadata']);
     router.get(`${oauth}/jwks.json`, [C.agentOAuth, 'jwks']);
-    router.post(`${oauth}/device_authorization`, [C.agentOAuth, 'deviceAuthorization']);
-    router.post(`${oauth}/token`, [C.agentOAuth, 'token']);
+    // Server-to-server sem sessão: throttle por IP (bucket `agentToken`).
+    withAgentToken(
+      router.post(`${oauth}/device_authorization`, [C.agentOAuth, 'deviceAuthorization']),
+    );
+    withAgentToken(router.post(`${oauth}/token`, [C.agentOAuth, 'token']));
     // Throttle de código (bucket do OTP, por IP): o `user_code` tem 8 letras e
     // a RFC 8628 §5.1 conta com rate limit para não ser adivinhável.
     router
@@ -1244,7 +1275,11 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
   for (const extension of hostCfg?.personalAgents?.extensions ?? []) {
     extension.routes?.(router, {
       accountGuard,
-      throttle: { login: (route) => withLogin(route), otp: (route) => withOtpLogin(route) },
+      throttle: {
+        login: (route) => withLogin(route),
+        otp: (route) => withOtpLogin(route),
+        token: (route) => withAgentToken(route),
+      },
     });
   }
 
@@ -1622,6 +1657,8 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
         ]);
         // What each app accepts from the others (published by the apps): the "Apps it can call" picker.
         router.get(`${ap}/api/apps/catalog`, listAppCatalogsHandler);
+        // The public keys the apps published (key directory), `?app=` to narrow.
+        router.get(`${ap}/api/apps/keys`, listAppKeysHandler);
         // Roles.
         router.get(`${ap}/api/roles`, [C.consoleRoles, 'index']);
         router.post(`${ap}/api/roles`, [C.consoleRoles, 'store']);
@@ -1731,6 +1768,7 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
         withApiThrottle(router.put('/clients/:id/apps/:app', [C.apiClients, 'grantApp']));
         withApiThrottle(router.delete('/clients/:id/apps/:app', [C.apiClients, 'revokeApp']));
         withApiThrottle(router.get('/apps/catalog', listAppCatalogsHandler));
+        withApiThrottle(router.get('/apps/keys', listAppKeysHandler));
         // Organizações.
         withApiThrottle(router.get('/organizations', [C.apiOrgs, 'index']));
         withApiThrottle(router.post('/organizations', [C.apiOrgs, 'store']));
@@ -1799,6 +1837,17 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
     if (throttles && typeof route?.use === 'function') route.use([throttles.introspection]);
   }
 
+  // App key directory: same credentials, CSRF exemption and throttle as the catalog.
+  if (opts.appKeys !== false) {
+    const publish = router.put(APP_KEYS_PATH, publishAppKeysHandler);
+    publish?.as?.('authkit.app_keys.publish');
+    const read = router.get(APP_KEYS_READ_PATH, readAppKeysHandler);
+    read?.as?.('authkit.app_keys.read');
+    for (const route of [publish, read]) {
+      if (throttles && typeof route?.use === 'function') route.use([throttles.introspection]);
+    }
+  }
+
   // ─── Mapa resolvido (R4) ───────────────────────────────────────────────────
   // Lido DEPOIS de todo o registro: `accountPath()`/`accountPrefix()` já
   // refletem o `accountRoutes` aplicado no topo, e os prefixos de console já
@@ -1830,6 +1879,7 @@ export function registerAuthHost(router: Router, opts: AuthHostOptions = {}): Au
     adminApi: resolvedAdminApiPrefix ? { prefix: resolvedAdminApiPrefix } : null,
     orgLabels: orgLabelsPath ? { path: orgLabelsPath } : null,
     appCatalog: appCatalogPath ? { path: appCatalogPath } : null,
+    appKeys: opts.appKeys !== false ? { publish: APP_KEYS_PATH, read: APP_KEYS_READ_PATH } : null,
     names: {
       webauthnAsset: 'authkit.assets.webauthn',
       oidcWildcard: 'authkit.oidc.wildcard',

@@ -49,6 +49,17 @@ export interface AuthThrottles {
    */
   accountActions: ThrottleMiddleware;
   accountActionsJson: ThrottleMiddleware;
+  /**
+   * Endpoints OAuth de máquina das extensions de agente (token), keyed por IP em
+   * bucket PRÓPRIO (`authkit_agent_token`). API: responde o 429 cru.
+   */
+  agentToken: ThrottleMiddleware;
+  /**
+   * POSTs de máquina do provider OIDC (token, registro, device, PAR, revogação,
+   * introspecção), keyed por IP em bucket PRÓPRIO (`authkit_oidc_token`). Só é
+   * aplicado a esses endpoints — ver `oidcMachineThrottle`. 429 cru.
+   */
+  oidcToken: ThrottleMiddleware;
 }
 
 /**
@@ -179,6 +190,18 @@ export function createAuthThrottles(config: ResolvedRateLimitConfig): AuthThrott
     otpLogin: withFriendly429(buildThrottle('authkit_otp_login', config.otpLogin, config.store)),
     accountActions: withFriendly429(accountActions),
     accountActionsJson: accountActions,
+    agentToken: buildThrottle(
+      'authkit_agent_token',
+      config.agentToken ?? { points: 120, duration: '1 min' },
+      config.store,
+      (ctx) => `agent-token-ip:${ctx.request.ip?.() ?? 'unknown'}`,
+    ),
+    oidcToken: buildThrottle(
+      'authkit_oidc_token',
+      config.oidcToken ?? { points: 120, duration: '1 min' },
+      config.store,
+      (ctx) => `oidc-token-ip:${ctx.request.ip?.() ?? 'unknown'}`,
+    ),
   };
 }
 

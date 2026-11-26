@@ -80,11 +80,20 @@ function registerRoutes(router: any, prefix: string, kit: PersonalAgentRouteKit)
   router
     .get(`${prefix}/.well-known/oauth-authorization-server`, [PoppyController, 'metadata'])
     .as('authkit.poppy.metadata_under_issuer');
-  router.post(`${prefix}/oauth/token`, [PoppyController, 'token']).as('authkit.poppy.token');
-  router.post(`${prefix}/oauth/revoke`, [PoppyController, 'revoke']).as('authkit.poppy.revoke');
-  router
-    .post(`${prefix}/oauth/par`, [PoppyController, 'pushedAuthorization'])
-    .as('authkit.poppy.par');
+  // Os endpoints OAuth de máquina não têm sessão e o registro de client não é obrigatório:
+  // throttle por IP (antes do limite por agente, que é por identificador — um e-mail novo por
+  // pedido nunca bateria nele).
+  kit.throttle.token(
+    router.post(`${prefix}/oauth/token`, [PoppyController, 'token']).as('authkit.poppy.token'),
+  );
+  kit.throttle.token(
+    router.post(`${prefix}/oauth/revoke`, [PoppyController, 'revoke']).as('authkit.poppy.revoke'),
+  );
+  kit.throttle.token(
+    router
+      .post(`${prefix}/oauth/par`, [PoppyController, 'pushedAuthorization'])
+      .as('authkit.poppy.par'),
+  );
   router.get(`${prefix}/tasks`, [PoppyController, 'tasks']).as('authkit.poppy.tasks');
   router.post(`${prefix}/feedback`, [PoppyController, 'feedback']).as('authkit.poppy.feedback');
   router
@@ -93,18 +102,23 @@ function registerRoutes(router: any, prefix: string, kit: PersonalAgentRouteKit)
   router
     .get(`${prefix}/versions/:file`, [PoppyController, 'versionDocument'])
     .as('authkit.poppy.version_document');
-  router
-    .post(`${prefix}/oauth/device`, [PoppyController, 'deviceAuthorization'])
-    .as('authkit.poppy.device_authorization');
+  kit.throttle.token(
+    router
+      .post(`${prefix}/oauth/device`, [PoppyController, 'deviceAuthorization'])
+      .as('authkit.poppy.device_authorization'),
+  );
   // A página grava um pedido sem autenticação: throttle por IP.
   kit.throttle.login(
     router
       .get(`${prefix}/browser-session`, [PoppyController, 'browserSessionPage'])
       .as('authkit.poppy.browser_session_page'),
   );
-  router
-    .post(`${prefix}/browser-session`, [PoppyController, 'browserSession'])
-    .as('authkit.poppy.browser_session');
+  // O navegador submete o código sem sessão: o mesmo throttle por IP da página (bucket de login).
+  kit.throttle.login(
+    router
+      .post(`${prefix}/browser-session`, [PoppyController, 'browserSession'])
+      .as('authkit.poppy.browser_session'),
+  );
   router
     .post(`${prefix}/browser-session/authorize`, [PoppyController, 'browserSessionAuthorize'])
     .as('authkit.poppy.browser_session_authorize');

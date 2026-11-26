@@ -166,6 +166,57 @@ test.group('back-channel logout', (group) => {
     assert.deepEqual(idx.revokeBySub('u1'), []);
   });
 
+  test('SessionIndex: unregister esquece a sessão encerrada localmente', ({ assert }) => {
+    const idx = new InMemorySessionIndex();
+    idx.register({ sid: 's1', sub: 'u1', sessionId: 'sess-1' });
+    idx.register({ sid: 's2', sub: 'u1', sessionId: 'sess-2' });
+    idx.unregister('sess-1');
+    assert.equal(idx.size, 1);
+    assert.deepEqual(idx.revokeBySid('s1'), []);
+    assert.deepEqual(idx.revokeBySub('u1'), ['sess-2']);
+    assert.equal(idx.size, 0);
+  });
+
+  test('SessionIndex: entradas vencidas saem (expiresAt da entrada ou ttlMs)', ({ assert }) => {
+    let t = 0;
+    const idx = new InMemorySessionIndex({ ttlMs: 1000, now: () => t });
+    idx.register({ sid: 's1', sub: 'u1', sessionId: 'sess-1' });
+    idx.register({ sid: 's2', sub: 'u1', sessionId: 'sess-2', expiresAt: 5000 });
+    idx.register({ sid: 's3', sub: 'u1', sessionId: 'sess-3', expiresAt: new Date(0) });
+    assert.equal(idx.size, 2); // a já vencida nem entra
+    t = 2000;
+    // sess-1 venceu (ttlMs): não volta como sessão a destruir.
+    assert.deepEqual(idx.revokeBySid('s1'), []);
+    assert.deepEqual(idx.revokeBySub('u1'), ['sess-2']);
+    assert.equal(idx.size, 0);
+  });
+
+  test('SessionIndex: no teto, a sessão mais antiga sai primeiro', ({ assert }) => {
+    const idx = new InMemorySessionIndex({ maxEntries: 2 });
+    idx.register({ sid: 's1', sub: 'u1', sessionId: 'sess-1' });
+    idx.register({ sid: 's2', sub: 'u2', sessionId: 'sess-2' });
+    idx.register({ sid: 's3', sub: 'u3', sessionId: 'sess-3' });
+    assert.equal(idx.size, 2);
+    assert.deepEqual(idx.revokeBySid('s1'), []);
+    assert.deepEqual(idx.revokeBySub('u1'), []);
+    assert.deepEqual(idx.revokeBySid('s3'), ['sess-3']);
+  });
+
+  test('SessionIndex: um teto ou TTL inválido falha alto', ({ assert }) => {
+    assert.throws(() => new InMemorySessionIndex({ maxEntries: 0 }), /maxEntries/);
+    assert.throws(() => new InMemorySessionIndex({ ttlMs: -1 }), /ttlMs/);
+  });
+
+  test('logout local (endSession) tira a sessão do índice', async ({ assert }) => {
+    const idx = new InMemorySessionIndex();
+    idx.register({ sid: 's1', sub: 'u1', sessionId: 'adonis-session-1' });
+    const mgr = await manager({ sessionIndex: idx });
+    const session = { sessionId: 'adonis-session-1', get: () => undefined, put() {}, forget() {} };
+    mgr.endSession({ session } as any);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(idx.size, 0);
+  });
+
   // ----- handler -----
 
   async function manager(extra: Partial<ResolvedClientConfig> = {}) {

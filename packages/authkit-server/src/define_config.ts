@@ -435,6 +435,19 @@ export interface ResolvedRateLimitConfig {
    * (`POST /account/<página>/actions/*`), keyed pela CONTA. Default 30/min.
    */
   accountActions?: RateLimitBucket;
+  /**
+   * Bucket por IP dos endpoints OAuth de máquina das extensions de agente (ex.: o
+   * `POST {prefix}/oauth/token` do Poppy), que não têm sessão. Default 120/min —
+   * folgado para um agente legítimo, mas limita quem varre identificadores (cada
+   * e-mail novo é um bucket novo no limite por agente).
+   */
+  agentToken?: RateLimitBucket;
+  /**
+   * Bucket por IP dos POSTs de máquina do provider OIDC (token, registro dinâmico,
+   * device authorization, PAR, revogação, introspecção, CIBA) — só esses, dentro do
+   * wildcard `${mountPath}/*`. Default 120/min, como o `agentToken`, mas contado à parte.
+   */
+  oidcToken?: RateLimitBucket;
   store?: string;
 }
 
@@ -445,6 +458,8 @@ const RATE_LIMIT_DEFAULTS: {
   sudo: RateLimitBucket;
   otpLogin: RateLimitBucket;
   accountActions: RateLimitBucket;
+  agentToken: RateLimitBucket;
+  oidcToken: RateLimitBucket;
 } = {
   login: { points: 10, duration: '1 min' },
   introspection: { points: 60, duration: '1 min' },
@@ -455,6 +470,10 @@ const RATE_LIMIT_DEFAULTS: {
   otpLogin: { points: 5, duration: '1 min' },
   // Actions das extensions do console de conta, por conta.
   accountActions: { points: 30, duration: '1 min' },
+  // Endpoints OAuth de máquina das extensions de agente, por IP.
+  agentToken: { points: 120, duration: '1 min' },
+  // POSTs de máquina do provider OIDC, por IP.
+  oidcToken: { points: 120, duration: '1 min' },
 };
 
 export function resolveRateLimit(input?: RateLimitConfigInput): ResolvedRateLimitConfig {
@@ -467,6 +486,8 @@ export function resolveRateLimit(input?: RateLimitConfigInput): ResolvedRateLimi
     sudo: RATE_LIMIT_DEFAULTS.sudo,
     otpLogin: RATE_LIMIT_DEFAULTS.otpLogin,
     accountActions: RATE_LIMIT_DEFAULTS.accountActions,
+    agentToken: RATE_LIMIT_DEFAULTS.agentToken,
+    oidcToken: RATE_LIMIT_DEFAULTS.oidcToken,
     store: input?.store,
   };
 }

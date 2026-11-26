@@ -665,3 +665,72 @@ test.group('registerAuthHost — montagem por tela do console de conta', (group)
     assert.equal(getAccountLoginUrl(), '/account/login');
   });
 });
+
+test.group('registerAuthHost — throttle dos endpoints OAuth de agentes', (group) => {
+  group.each.teardown(() => resetAuthHostConfig());
+
+  /** Uma extension que pendura o bucket `token` numa rota própria, como o Poppy faz. */
+  const extension = {
+    routes: (router: any, kit: any) => {
+      kit.throttle.token(router.post('/ext/oauth/token', () => null));
+    },
+  };
+  const register = (rateLimit: { enabled: boolean }) => {
+    setAuthHostConfig({
+      mountPath: '/oidc',
+      rateLimit: resolveRateLimit(rateLimit),
+      personalAgents: { prefix: '/agents', extensions: [extension] },
+    } as any);
+    const router = fakeRouter();
+    registerAuthHost(router);
+    const middlewareOf = (pattern: string) =>
+      router.routes.find((r: any) => r.pattern === pattern && r.method === 'POST').middleware;
+    return middlewareOf;
+  };
+  const patterns = [
+    '/agents/oauth/token',
+    '/agents/oauth/device_authorization',
+    '/ext/oauth/token',
+  ];
+
+  test('token, device_authorization e o `kit.throttle.token` das extensions: throttle por default', ({
+    assert,
+  }) => {
+    const middlewareOf = register({ enabled: true });
+    for (const pattern of patterns) {
+      assert.lengthOf(middlewareOf(pattern), 1, `esperava throttle em ${pattern}`);
+    }
+  });
+
+  test('`rateLimit: { enabled: false }` desliga todos', ({ assert }) => {
+    const middlewareOf = register({ enabled: false });
+    for (const pattern of patterns) assert.lengthOf(middlewareOf(pattern), 0, pattern);
+  });
+});
+
+test.group('registerAuthHost — app key directory', () => {
+  test('PUT /api/apps/keys and GET /api/apps/:app/keys mounted with the throttle', ({ assert }) => {
+    const router = fakeRouter();
+    const map = registerAuthHost(router, { mountPath: '/oidc' });
+    const put = router.routes.find(
+      (r: any) => r.method === 'PUT' && r.pattern === '/api/apps/keys',
+    );
+    const get = router.routes.find(
+      (r: any) => r.method === 'GET' && r.pattern === '/api/apps/:app/keys',
+    );
+    assert.lengthOf(put.middleware, 1);
+    assert.lengthOf(get.middleware, 1);
+    assert.deepEqual(map.appKeys, { publish: '/api/apps/keys', read: '/api/apps/:app/keys' });
+  });
+
+  test('`appKeys: false` mounts neither', ({ assert }) => {
+    const router = fakeRouter();
+    const map = registerAuthHost(router, { mountPath: '/oidc', appKeys: false });
+    assert.isFalse(
+      router.routes.some(
+        (r: any) => r.pattern.startsWith('/api/apps/') && r.pattern.endsWith('keys'),
+      ),
+    );
+    assert.isNull(map.appKeys);
+  });
+});

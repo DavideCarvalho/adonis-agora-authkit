@@ -130,6 +130,31 @@ A caller is an app, never a user: `ctx.auth` and `ctx.authkit` stay empty for it
 user routes keep refusing it, and user requests are not touched. Set `service.environment`
 to accept only callers from that environment.
 
+### Outside HTTP: Redis, queues
+
+When a service token travels some other way (a command over Redis, a queue job), verify it
+with the same checks `authkitService` runs — signature, audience
+`urn:agora:app:<service.name>`, and `service.environment` when set:
+
+```ts
+const manager = await app.container.make('authkit.client')
+
+// the sender
+const token = await manager.appCallTokens()?.token('billing')
+
+// the receiver (billing)
+const caller = await manager.appCallerVerifier()?.verifyToken(message.token)
+if (!caller || !caller.capabilities.includes('invoices:write')) {
+  return // refuse the message
+}
+```
+
+`verifyToken` answers the caller (`app`, `capabilities`, `environment`, `clientId`,
+`expiresAt`) or `null` for any token that does not verify (malformed, expired, for another
+app or environment); a bad token never throws. It throws only when the issuer cannot be
+reached, so you can retry the message instead of dropping it. `appCallerVerifier()` is
+`null` when `service` is not configured.
+
 ## 4. What each app accepts
 
 Each app publishes the capabilities it accepts from the other apps when its web server
@@ -182,3 +207,70 @@ service-tenant clients: their ids (`clientIds`), whether every one is disabled, 
 environments, and the apps it may call with which capabilities. It also lists the catalogs the
 apps published. Telescope's Architecture page draws it.
 
+
+## 5. Sharing public keys between apps
+
+An app can publish its own public keys to the authkit server, and the other apps read them
+from there, so no key is copied into another app's config. The Agora libs use it for the
+federated consoles: the app publishes the key the console seals commands to under
+`console:<lib>`, and the console reads it.
+
+```ts
+const manager = await app.container.make('authkit.client')
+
+// the app publishing (shop)
+await manager.publishAppKey({ purpose: 'console:durable', jwk: publicJwk })
+
+// another app reading it
+const jwk = await manager.appKey({ app: 'shop', purpose: 'console:durable' })
+```
+
+- `publishAppKey({ purpose, jwk })` sends `PUT /api/apps/keys` with the app's
+  `service.clientId`/`clientSecret`, replacing that app's keys for that purpose. It resolves
+  after the first attempt and retries a failure in the background (10 s, 1 min, 5 min); it
+  never rejects, so it is safe to call at boot. A private key (a JWK with `d`) is never sent.
+- `appKey({ app, purpose })` reads `GET /api/apps/:app/keys?purpose=` with the same
+  credentials and returns the public JWK, or `null` when the app published none. A key is
+  cached for 5 minutes; a miss asks again on the next call.
+
+Both need `service: { name, clientId, clientSecret }`. Only public OKP JWKs (Ed25519, X25519…)
+are accepted; `purpose` matches `^[a-z0-9:_-]{1,64}$`. The server keeps them in its own table
+`auth_app_keys` (created with the other authkit tables), audits each publish
+(`app.keys_published`), and lists them in the admin console API (`GET …/api/apps/keys`) and the
+Admin API (`GET /api/authkit/v1/apps/keys` with the default prefix). `registerAuthHost({ appKeys: false })` turns the endpoints off.
+
+The trust comes from authkit: a key is published by the app's own authenticated client and
+served over an authenticated API.
+
+## 6. The app that runs the authkit server (the Hub)
+
+An app that runs `@adonis-agora/authkit-server` does not need authkit-client to call other apps.
+When `authkit.client` is not bound, authkit-server binds an in-process one with the same
+methods the Agora libs use: `appCallTokens().token(app)` and `reset()`,
+`appCallerVerifier().verifyToken(token)`, `appKey({ app, purpose })` and
+`publishAppKey({ purpose, jwk })`. Tokens come from the server's own token endpoint (the same
+grant checks as for any other app), callers are verified with its own keys, and keys go to its own
+`auth_app_keys` table. When authkit-client is installed in that app, it is used instead.
+
+The app calls as its own service client, picked in this order:
+
+1. `serviceTenants.apps.client` in `config/authkit.ts`;
+2. the service tenant whose `partition` is the app's name: the `name` in its package.json
+   (`@acme/hub`), the same without the npm scope (`hub`), or AdonisJS `appName`;
+3. the only service tenant granted other apps (the one the Hub's consoles call them with).
+
+When two clients match, it fails with an error that names the line to add:
+
+```ts title="config/authkit.ts"
+serviceTenants: { apps: { client: 'hub' } },
+```
+
+Without one, the first token request fails with an error naming that line. Grants still apply:
+grant the client what it may do on each app (`node ace authkit:client grant-app hub shop durable:console:*`).
+
+With `schema: { autoManage: false }`, AuthKit's tables come from a migration: after an upgrade
+that adds a table (like `auth_app_keys`), run a migration that calls
+`ensureAuthkitSchema(db, { schema: '<schema>' })` where the identity schema is migrated. That is
+this app, or, when another app owns the identity schema, that app. It only adds what is missing.
+`node ace agora:doctor` lists missing tables. The `/api/apps/*` endpoints answer JSON errors
+(`503 schema_missing` when a table is missing), never a stack trace.

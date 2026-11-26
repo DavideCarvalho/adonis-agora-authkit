@@ -91,26 +91,42 @@ export function redisReplayStore(redis: {
   };
 }
 
-/** Janelas fixas em memória, por processo: `sessionsPerMinute` por agente, `mediatedPerHour` por (agente, usuário). */
+/**
+ * Janelas fixas em memória, por processo: `sessionsPerMinute` por agente, `mediatedPerHour` por
+ * (agente, usuário). Só serve com uma instância — com várias, passe um `rateLimit` próprio.
+ *
+ * A chave do Mediated Sign-In vem do identificador que o agente digita, então cada e-mail novo é
+ * uma entrada nova: o mapa tem teto (`max`, default 100 000). Janelas vencidas saem aos poucos e,
+ * no teto, a mais antiga sai primeiro — como no `memoryReplayStore`.
+ */
 export function memoryLimiter(
   limits: { sessionsPerMinute: number; mediatedPerHour: number },
-  now: () => number = Date.now,
+  options: { max?: number; now?: () => number } = {},
 ): PoppyLimiter {
-  const windows = new Map<string, { start: number; count: number }>();
+  const max = options.max ?? 100_000;
+  if (!Number.isInteger(max) || max < 1) {
+    throw new Error(`[authkit-poppy] memoryLimiter: max must be a positive integer (got ${max}).`);
+  }
+  const now = options.now ?? Date.now;
+  // Ordem de inserção = ordem de abertura da janela (uma janela nova é reinserida no fim).
+  const windows = new Map<string, { start: number; windowMs: number; count: number }>();
+  let calls = 0;
   return async ({ action, key }) => {
     const [limit, windowMs] =
       action === 'session'
         ? [limits.sessionsPerMinute, 60_000]
         : [limits.mediatedPerHour, 3_600_000];
     const t = now();
+    if (++calls % 1000 === 0 || windows.size >= max) {
+      for (const [k, v] of windows) if (t - v.start >= v.windowMs) windows.delete(k);
+    }
     const id = `${action}:${key}`;
     let w = windows.get(id);
     if (!w || t - w.start >= windowMs) {
-      w = { start: t, count: 0 };
+      windows.delete(id);
+      while (windows.size >= max) windows.delete(windows.keys().next().value as string);
+      w = { start: t, windowMs, count: 0 };
       windows.set(id, w);
-      if (windows.size > 50_000) {
-        for (const [k, v] of windows) if (t - v.start >= 3_600_000) windows.delete(k);
-      }
     }
     if (w.count >= limit) return Math.ceil((w.start + windowMs - t) / 1000);
     w.count++;

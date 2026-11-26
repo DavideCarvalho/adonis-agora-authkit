@@ -5,6 +5,7 @@ import {
   presentCatalog,
   validateCatalog,
 } from '../service_tenants/app_catalog.js';
+import { jsonApiErrors } from './api_errors.js';
 import { parseBasicCredentials } from './org_labels.js';
 
 export { APP_CATALOG_PATH };
@@ -20,31 +21,39 @@ async function storeOf(ctx: any) {
  * from the other apps. Authenticated with its service tenant's client id and secret
  * (`Authorization: Basic`); the app is the tenant's `partition`. Replaces that app's catalog.
  */
-export async function publishAppCatalogHandler(ctx: any): Promise<unknown> {
-  const { service, store } = await storeOf(ctx);
-  const app = await authenticateCatalogPublisher(
-    service.config.AdapterClass,
-    parseBasicCredentials(ctx.request.header('authorization')),
-  );
-  if (!app) {
-    ctx.response.header('www-authenticate', 'Basic realm="authkit"');
-    return ctx.response.unauthorized({ error: 'invalid_client' });
-  }
-  if (!store) return ctx.response.serviceUnavailable({ error: 'no_database' });
-  const capabilities = validateCatalog(ctx.request.input('capabilities'));
-  if (!Array.isArray(capabilities)) {
-    return ctx.response.unprocessableEntity({
-      error: 'invalid_catalog',
-      message: capabilities.error,
-    });
-  }
-  const entry = await store.put(app, capabilities);
-  ctx.response.header('cache-control', 'no-store');
-  return presentCatalog(entry);
-}
+export const publishAppCatalogHandler = jsonApiErrors(
+  'publishing the app catalog',
+  'auth_app_catalog',
+  async (ctx: any): Promise<unknown> => {
+    const { service, store } = await storeOf(ctx);
+    const app = await authenticateCatalogPublisher(
+      service.config.AdapterClass,
+      parseBasicCredentials(ctx.request.header('authorization')),
+    );
+    if (!app) {
+      ctx.response.header('www-authenticate', 'Basic realm="authkit"');
+      return ctx.response.unauthorized({ error: 'invalid_client' });
+    }
+    if (!store) return ctx.response.serviceUnavailable({ error: 'no_database' });
+    const capabilities = validateCatalog(ctx.request.input('capabilities'));
+    if (!Array.isArray(capabilities)) {
+      return ctx.response.unprocessableEntity({
+        error: 'invalid_catalog',
+        message: capabilities.error,
+      });
+    }
+    const entry = await store.put(app, capabilities);
+    ctx.response.header('cache-control', 'no-store');
+    return presentCatalog(entry);
+  },
+);
 
 /** Console and Admin API: `GET …/apps/catalog` → `{ apps: [{ app, capabilities, updatedAt }] }`. */
-export async function listAppCatalogsHandler(ctx: any): Promise<unknown> {
-  const { store } = await storeOf(ctx);
-  return { apps: store ? (await store.list()).map(presentCatalog) : [] };
-}
+export const listAppCatalogsHandler = jsonApiErrors(
+  'listing app catalogs',
+  'auth_app_catalog',
+  async (ctx: any): Promise<unknown> => {
+    const { store } = await storeOf(ctx);
+    return { apps: store ? (await store.list()).map(presentCatalog) : [] };
+  },
+);

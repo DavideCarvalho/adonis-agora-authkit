@@ -20,6 +20,7 @@ import {
   installAgoraContext,
   resolveAppCaller,
 } from '../src/app_calls/inbound.js';
+import { AppKeysClient, type OkpJwk } from '../src/app_calls/keys.js';
 import {
   AppCallsInstallError,
   fetchPassesThroughAppCalls,
@@ -604,6 +605,19 @@ export class AuthkitClientManager {
     if (!session) return;
     session.forget(this.config.sessionKey);
     session.forget(this.#impersonatorKey);
+    // A sessão acabou localmente: o índice do back-channel não precisa mais dela.
+    const sessionId = (session as { sessionId?: unknown }).sessionId;
+    const unregister = this.config.sessionIndex?.unregister;
+    if (unregister && typeof sessionId === 'string' && sessionId !== '') {
+      Promise.resolve()
+        .then(() => unregister.call(this.config.sessionIndex, sessionId))
+        .catch((error) => {
+          this.#logger.warn(
+            { err: error },
+            'authkit-client: sessionIndex.unregister failed on local logout',
+          );
+        });
+    }
   }
 
   /**
@@ -717,6 +731,56 @@ export class AuthkitClientManager {
     });
   }
 
+  /**
+   * Publishes one of this app's public keys to the authkit key directory under `purpose`
+   * (e.g. `console:durable`), with the service client's id and secret. Resolves after the first
+   * attempt and retries a failure in the background; never rejects. Without
+   * `service: { clientId, clientSecret }` it logs a warning and publishes nothing.
+   */
+  async publishAppKey(input: { purpose: string; jwk: OkpJwk }): Promise<void> {
+    const keys = this.#appKeys();
+    if (!keys) {
+      this.#logger.warn(
+        { purpose: input?.purpose },
+        'authkit: publishAppKey needs `service: { name, clientId, clientSecret }` in config/authkit_client.ts; nothing published',
+      );
+      return;
+    }
+    await keys.publish(input);
+  }
+
+  /**
+   * Another app's current public key for `purpose` from the authkit key directory, or `null`
+   * when it published none (or `service` credentials are not configured). Cached 5 minutes;
+   * a miss asks again on the next call.
+   */
+  async appKey(input: { app: string; purpose: string }): Promise<OkpJwk | null> {
+    return (await this.#appKeys()?.get(input)) ?? null;
+  }
+
+  #appKeysClient: AppKeysClient | null | undefined;
+
+  #appKeys(): AppKeysClient | null {
+    if (this.#appKeysClient !== undefined) return this.#appKeysClient;
+    const calls = this.config.appCalls;
+    this.#appKeysClient =
+      calls?.clientId && calls.clientSecret
+        ? new AppKeysClient({
+            issuer: this.config.issuer,
+            clientId: calls.clientId,
+            clientSecret: calls.clientSecret,
+            ...(this.deps.fetchImpl ? { fetch: this.deps.fetchImpl } : {}),
+            logger: this.#logger,
+          })
+        : null;
+    return this.#appKeysClient;
+  }
+
+  /** Stops background work of the key directory (publish retries). */
+  stopAppKeys(): void {
+    this.#appKeysClient?.stop();
+  }
+
   /** The resolved calls-between-apps config, or `undefined` without `service`. */
   appCallsConfig() {
     return this.config.appCalls;
@@ -773,6 +837,7 @@ export default class AuthkitClientProvider {
 
   #appCalls: InstalledAppCalls | undefined;
   #stopCatalog: (() => void) | undefined;
+  #readyManager: AuthkitClientManager | undefined;
 
   register() {
     // `ctx.agora` (the request context shared by the Agora libs) is always an object.
@@ -860,6 +925,8 @@ export default class AuthkitClientProvider {
   async shutdown() {
     this.#stopCatalog?.();
     this.#stopCatalog = undefined;
+    // Publish retries of the key directory: timers are unref'd, but a clean stop leaves none.
+    this.#readyManager?.stopAppKeys();
     this.#appCalls?.uninstall();
     this.#appCalls = undefined;
   }
@@ -876,6 +943,7 @@ export default class AuthkitClientProvider {
     if (this.app.getEnvironment() === 'web') {
       try {
         const manager = await this.app.container.make(AuthkitClientManager);
+        this.#readyManager = manager;
         this.#stopCatalog = manager.publishAppCatalog() ?? undefined;
       } catch {
         // no usable config: nothing to publish

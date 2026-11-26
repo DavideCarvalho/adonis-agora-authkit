@@ -64,6 +64,17 @@ export default class AuthkitServerProvider {
       resolveAppKey(this.app);
     }
 
+    // Calls between apps in-process: without authkit-client in this app (e.g. the Agora Hub),
+    // the other Agora libs still find `authkit.client` (structurally: app-call tokens, the caller
+    // verifier and the key directory), served by this server's own issuer, keys and tables.
+    // authkit-client binds it in `register()`, so when it is installed it wins.
+    if (this.app.config.get('authkit')) {
+      const { bindInProcessAppCalls } = await import(
+        '../src/service_tenants/in_process_app_calls.js'
+      );
+      bindInProcessAppCalls(this.app);
+    }
+
     // The apps and what links them (who may call whom, what each accepts), for the other Agora
     // libs (telescope's Architecture page), on a global slot. Built lazily, on first read.
     if (this.app.config.get('authkit')) {
