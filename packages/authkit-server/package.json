@@ -185,7 +185,7 @@
     "tailwind-merge": "catalog:frontend",
     "tailwindcss": "catalog:frontend",
     "tempura": "0.4.1",
-    "testcontainers": "12.2.1",
+    "testcontainers": "12.2.2",
     "tw-animate-css": "catalog:frontend",
     "typescript": "catalog:frontend",
     "vite": "catalog:"
