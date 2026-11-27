@@ -51,6 +51,8 @@ export interface DoctorInput {
    * Uso interno — não deve ser definido pelo host.
    */
   __adapterClasses?: { DatabaseAdapter?: new (...args: any[]) => any };
+  /** `app.inProduction` (undefined = unknown: treated as not production). */
+  inProduction?: boolean;
 }
 
 /** Type guard estrutural: o store expõe um método (capacidade presente). */
@@ -650,9 +652,9 @@ export function checkJwks(input: DoctorInput): Finding | null {
   if (jwks.source === 'managed') {
     if (!jwks.store) {
       return {
-        level: 'warn',
+        level: input.inProduction === true ? 'error' : 'warn',
         message:
-          'jwks managed WITHOUT a `store` — a fresh ephemeral key is generated each boot (tokens stop validating after a restart and `node ace authkit:key rotate` has no effect). Set `jwks.store` to persist and enable real rotation.',
+          "jwks managed WITHOUT a shared `store` — each process (web, `durable:work`, workers) generates its own ephemeral signing key on every boot: tokens issued by one process do not validate in another (tenants calling the Hub get 401s), every restart invalidates issued tokens, and `node ace authkit:key rotate` has no effect. Configure @adonisjs/lucid (the keystore then defaults to the database) or set `jwks.store` (for example { driver: 'lucid' }).",
       };
     }
     if (jwks.readOnly === true) {

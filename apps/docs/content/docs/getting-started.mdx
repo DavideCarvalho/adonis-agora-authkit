@@ -84,7 +84,8 @@ import {
 const authServerConfig = defineConfig({
   issuer: env.get('AUTHKIT_ISSUER'),
   adapter: adapters.database({ connection: 'auth' }),
-  jwks: { source: 'managed', algorithm: 'RS256' },
+  // Signing keys live in the database, shared by every process (web, workers) and kept across restarts.
+  jwks: { source: 'managed', algorithm: 'RS256', store: { driver: 'lucid' } },
   ttl: { accessToken: '15m', refreshToken: '30d' },
   accountStore: lucidAccountStore(AuthUser),
   mountPath: '/oidc',

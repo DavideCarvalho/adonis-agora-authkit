@@ -30,11 +30,14 @@ packages in detail.
 </Callout>
 
 <Callout type="warn">
-  **Omitting `store` under `source: 'managed'` is not "the default file store" — it means no
-  persistence at all.** AuthKit generates a fresh key on every boot: tokens issued before a
-  restart stop validating, and `node ace authkit:key rotate` has nothing to rotate. It is
-  fine for a scratch dev process and wrong everywhere else. `node ace authkit:doctor`
-  reports it.
+  **Omitting `store` under `source: 'managed'`** stores the keystore in the database
+  (`{ driver: 'lucid' }`, table `authkit_keystore`) when `@adonisjs/lucid` is configured, so
+  every process of the app (web, `durable:work`, other workers) signs with the same keys and
+  restarts keep them. Without Lucid, or with `store: false`, there is no persistence at all:
+  each process generates its own key on every boot, so tokens issued by one process fail in
+  another, tokens issued before a restart stop validating, and `node ace authkit:key rotate`
+  has nothing to rotate. That is fine for a scratch dev process and wrong everywhere else: the
+  boot logs a warning and `node ace agora:doctor` reports an error in production.
 </Callout>
 
 ## The `jwks.store` config surface

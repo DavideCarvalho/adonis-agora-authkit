@@ -72,7 +72,8 @@ import { defineConfig, adapters, lucidAccountStore } from '@adonis-agora/authkit
 const authServerConfig = defineConfig({
   issuer: env.get('AUTHKIT_ISSUER'),
   adapter: adapters.redis({ connection: 'main' }), // or adapters.database()
-  jwks: { source: 'managed', algorithm: 'RS256' },
+  // Signing keys live in the database, shared by every process (web, workers) and kept across restarts.
+  jwks: { source: 'managed', algorithm: 'RS256', store: { driver: 'lucid' } },
   ttl: { accessToken: '15m', refreshToken: '30d' },
   globalRolesClaim: 'roles',
   accountStore: lucidAccountStore(AuthUser),
@@ -121,7 +122,10 @@ or `{ driver: ... }`: built-in vaults are `file`, `drive` (a `@adonisjs/drive` d
 `lucid` (table created on first write; `schema` overrides, default `schema.name`), `redis`, and `hashicorp`; for cloud secret
 managers install the add-ons `@adonis-agora/authkit-vault-aws` / `-azure` / `-gcp`
 and pass their `createKeystoreVault(...)` result as `store` (any object with a
-`read()` method is accepted). With no `store` at all, keys are ephemeral per boot.
+`read()` method is accepted). With no `store` and `@adonisjs/lucid` configured, the keystore
+defaults to `{ driver: 'lucid' }` (shared by every process, kept across restarts); without
+Lucid, or with `store: false`, keys are ephemeral per process and per boot (the doctor flags it
+as an error in production).
 
 Rotation tooling ships as `node ace authkit:key rotate`; health checks via
 `node ace authkit:doctor`. The private keystore (and TOTP secrets) are sealed at rest with the

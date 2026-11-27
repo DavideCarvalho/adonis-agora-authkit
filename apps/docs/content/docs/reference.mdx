@@ -12,7 +12,7 @@ description: The full defineConfig option tables for server and client.
 | --- | --- | --- | --- |
 | `issuer` | `string` | — | Public provider URL; must end with `mountPath`. |
 | `adapter` | `AdapterFactory` | — | Storage adapter, e.g. `adapters.database({ connection })`. |
-| `jwks` | `JwksConfig` | — | `{ source: 'managed' \| 'jwks', algorithm?, rotationDays?, keys? }`. |
+| `jwks` | `JwksConfig` | — | `{ source: 'managed' \| 'jwks', algorithm?, rotationDays?, store?, keys? }`. With `source: 'managed'` and no `store`, the keystore defaults to `{ driver: 'lucid' }` when `@adonisjs/lucid` is configured (shared by every process and kept across restarts); `store: false` forces an ephemeral per-process key. |
 | `ttl` | `TtlConfig` | see below | Token/session lifetimes; accepts `'15m'`, `'30d'`, or seconds. **Declaring this key locks the `token_ttl` setting.** |
 | `globalRolesClaim` | `string` | `'roles'` | Claim name where global roles are emitted. |
 | `resolveTokenRoles` | `(account, ctx) => string[] \| Promise<string[]>` | `account.globalRoles ?? []` | The pluggable seam for role **emission** — see [Customizing auth](/docs/customizing-auth#where-roles-come-from-resolvetokenroles). Called at mint time for first-party clients (see `firstPartyClients`), on token-exchange, and on the admin-console gate; `ctx` carries `{ clientId?, activeOrg? }`. This is what lets an external authority (typically `@adonis-agora/authz`) own roles instead of a column on the account model. |

@@ -41,9 +41,12 @@ export interface JwksConfig {
   /**
    * Onde o keystore PRIVADO managed é persistido. String = atalho p/ arquivo
    * (`{driver:'file', path}`). Objeto `{ driver }` = cofre (file/drive/vault).
-   * Ausente = chave efêmera por boot (sem rotação real).
+   * Ausente: com `@adonisjs/lucid` configurado, `{ driver: 'lucid' }` (tabela
+   * `authkit_keystore`, compartilhada por todos os processos do app: web, workers, e
+   * sobrevive a restarts). Sem Lucid: chave efêmera por processo e por boot.
+   * `false` = força a chave efêmera (testes).
    */
-  store?: KeystoreStoreConfig;
+  store?: KeystoreStoreConfig | false;
   /** Encripta o keystore em repouso (APP_KEY). Default backend-aware: file/drive ON, vault real OFF. */
   encrypt?: boolean;
   /**

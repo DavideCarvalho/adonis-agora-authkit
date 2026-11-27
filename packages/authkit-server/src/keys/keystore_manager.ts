@@ -84,7 +84,14 @@ export class KeystoreManager {
     const blob = await this.vault.read();
     if (blob == null) {
       const store: PersistedKeystore = { keys: [await generateSigningJwk(this.alg)] };
-      await this.vault.write(await this.codec.encode(store));
+      const encoded = await this.codec.encode(store);
+      if (this.vault.writeIfAbsent) {
+        // Outro processo pode ter criado o keystore entre o read e aqui: vale o que ficou gravado.
+        await this.vault.writeIfAbsent(encoded);
+        const persisted = await this.vault.read();
+        return persisted == null || persisted === encoded ? store : this.codec.decode(persisted);
+      }
+      await this.vault.write(encoded);
       return store;
     }
     return this.codec.decode(blob);

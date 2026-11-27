@@ -11,6 +11,11 @@ export interface KeystoreVault {
   read(): Promise<string | null>;
   write(blob: string): Promise<void>;
   head?(): Promise<string | null>;
+  /**
+   * Grava só se ainda não houver blob (atômico no backend). Opcional: quando existe, o primeiro
+   * boot de vários processos ao mesmo tempo converge para UMA chave em vez de cada um gravar a sua.
+   */
+  writeIfAbsent?(blob: string): Promise<void>;
 }
 
 /** Cofre em arquivo local (default; mode 0600). */
@@ -112,6 +117,17 @@ export class LucidKeystoreVault implements KeystoreVault {
       .merge();
   }
 
+  async writeIfAbsent(blob: string): Promise<void> {
+    const conn = await this.getConn();
+    assertSchemaSupported(conn, this.schema);
+    await this.ensureTable(conn);
+    await conn
+      .table(this.qualified)
+      .insert({ key: this.key, blob, updated_at: Date.now() })
+      .onConflict('key')
+      .ignore();
+  }
+
   async head(): Promise<string | null> {
     const conn = await this.getConn();
     assertSchemaSupported(conn, this.schema);
@@ -142,6 +158,11 @@ export class RedisKeystoreVault implements KeystoreVault {
   async write(blob: string): Promise<void> {
     const client = await this.getClient();
     await client.set(this.key, blob);
+  }
+
+  async writeIfAbsent(blob: string): Promise<void> {
+    const client = await this.getClient();
+    await client.set(this.key, blob, 'NX');
   }
 
   async head(): Promise<string | null> {

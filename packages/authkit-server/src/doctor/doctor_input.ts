@@ -68,6 +68,7 @@ export async function buildDoctorInput(
       limiter: await canImport('@adonisjs/limiter', logger),
     },
     __adapterClasses: { DatabaseAdapter },
+    inProduction: (app as { inProduction?: boolean }).inProduction === true,
     ...(authkitConfig?.mcpClients?.allowed
       ? { mcpClientsSetting: await readMcpClientsSettingFor(app, authkitConfig) }
       : {}),
