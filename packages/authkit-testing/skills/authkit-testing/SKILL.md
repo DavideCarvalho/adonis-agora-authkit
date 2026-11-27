@@ -14,7 +14,7 @@ license: MIT
 metadata:
   type: core
   library: "@adonis-agora/authkit-testing"
-  library_version: "1.0.1"
+  library_version: "1.0.2"
   framework: adonisjs
 sources:
   - "DavideCarvalho/adonis-authkit:packages/authkit-testing/README.md"
