@@ -62,6 +62,7 @@
     "observability",
     "health-check",
     "reference",
+    "agent-skills",
     "migrating-to-1-0"
   ]
 }

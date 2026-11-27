@@ -1,0 +1,54 @@
+---
+icon: Sparkles
+title: AI agent skills
+description: The agent skills the AuthKit packages ship for coding agents (Claude Code, Cursor, Copilot, Codex) and how to load them with TanStack Intent.
+---
+
+The AuthKit packages ship [Agent Skills](https://agentskills.io): short `SKILL.md` files that tell a
+coding agent how to use the library, the patterns to follow and the mistakes to avoid. They live
+inside each npm package (its `skills/` folder), so they always match the version you installed:
+upgrade the package and the skills come with it.
+
+## Skills in these packages
+
+| Skill | Package | Load it when |
+| --- | --- | --- |
+| `authkit-idp-setup` | `@adonis-agora/authkit-server` | booting an IdP app: `config/authkit.ts`, the persistence adapter, signing keys, mounting the OIDC routes and consoles, or debugging 404s on `/oidc`, `/account/*`, `/admin` |
+| `authkit-interactions` | `@adonis-agora/authkit-server` | building the login and consent screens, plugging an external user base, or testing OIDC flows without booting an IdP |
+| `authkit-rp-client` | `@adonis-agora/authkit-client` | wiring a client app to the IdP, protecting API routes, back-channel logout, or configuring `service` so Agora libs run in `topology: 'tenant'` with no `tenant` block |
+| `authkit-react-auth` | `@adonis-agora/authkit-react` | sharing the auth prop with Inertia, gating UI by global roles, adding sign-in/out buttons or account components |
+
+## Load them with TanStack Intent
+
+[TanStack Intent](https://github.com/TanStack/intent) finds the skills in your installed packages
+and tells your agent when to load them.
+
+```bash
+npm i -D @tanstack/intent    # pnpm add -D @tanstack/intent
+npx intent install
+```
+
+The first `intent install` runs in a terminal: it asks which packages' skills to allow (saved as
+`intent.skills` in your `package.json`) and writes a short skill-loading block into `AGENTS.md`
+(or into the `CLAUDE.md`, `.cursorrules` or `.github/copilot-instructions.md` that already carries
+it). To allow every Agora library without the prompt, for example in CI, add this to
+`package.json` first:
+
+```json
+{
+  "intent": { "skills": ["@adonis-agora/*"] }
+}
+```
+
+Then your agent, or you, can list and load them:
+
+```bash
+npx intent list
+npx intent load @adonis-agora/authkit-client#authkit-rp-client
+```
+
+`npx intent hooks install` adds hooks that remind Claude Code, Codex and Copilot to load a matching
+skill before editing. Without Intent, point your agent at
+`node_modules/@adonis-agora/<package>/skills/<skill>/SKILL.md`.
+
+See [AI agent skills](/docs/agent-skills) for every Agora library that ships skills.

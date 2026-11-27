@@ -9,9 +9,10 @@ description: >-
   authkitClientGuard({ resolver }) for bearer JWT, DPoP, opaque and PAT, the session ->
   initialize_auth -> authkit_context_middleware ordering rule, ctx.authkit
   (getIdentity/hasGlobalRole/toSharedProps), registerOidcClient, backchannelLogout:
-  { store }, and why app-role gating belongs to @adonis-agora/authz. Use when wiring a
-  client app to the IdP, fixing a null identity or a first-login loop, choosing a user
-  provider, protecting API routes, or adding back-channel logout.
+  { store }, service (tenantOf for libs in topology: 'tenant', app calls), and why
+  app-role gating belongs to @adonis-agora/authz. Use when wiring a client app to the
+  IdP, fixing a null identity or a first-login loop, choosing a user provider,
+  protecting API routes, adding back-channel logout, or running Agora libs as tenants.
 license: MIT
 metadata:
   type: core
@@ -215,13 +216,79 @@ validated `{ sid, sub }` (store runs first, then the hook).
 
 Source: `src/define_config.ts` (`BackchannelLogoutInput`), README.
 
-### Pattern 5 — authkit-server on another server
+### Pattern 5 — `service`: this app as a tenant of the Agora control planes
+
+`service` in `config/authkit_client.ts` is what makes every sibling Agora lib in
+`topology: 'tenant'` (config, crypto, flags, telescope, durable, media, payments, from their
+1.1.0) a one-line config. Configure it once:
+
+```ts
+// config/authkit_client.ts
+export default defineConfig({
+  // …issuer, clientId, redirectUri, resolver as in Setup
+  service: {
+    name: 'shop', // app name (audience urn:agora:app:shop) and default partition
+    clientId: env.get('AUTHKIT_SERVICE_CLIENT_ID'), // a service-tenant client
+    clientSecret: env.get('AUTHKIT_SERVICE_CLIENT_SECRET'),
+    // partition: 'shop-eu', // only when the client's partition is not `name`
+  },
+})
+```
+
+```ts
+// config/telescope.ts (any lib in the tenant topology)
+export default defineConfig({ topology: 'tenant' }) // no tenant block
+```
+
+The lib calls `tenantOf('urn:agora:<lib>')` on the `authkit.client` binding (structurally, no
+import of authkit-client), which returns `{ url, token, partition }`: `url` =
+`controlPlaneUrl({ issuer, resource })` (lazy, `url.refresh()`), `token` =
+`authkitTenantToken` with the service credentials, audience = the resource, cached
+(`token.reset()`), `partition` = `service.partition ?? service.name`. Explicit `tenant` fields
+win field by field; `tenant: { auto: false }` turns the detection off. Durable takes only
+`token`/`partition`; payments fills `url` only without `tenant.transport`. Without
+`service.clientId`/`clientSecret`, `tenantOf()` throws `TenantOfConfigError`
+(`E_AUTHKIT_SERVICE_NOT_CONFIGURED`) naming the line to add; libs call it lazily, so a
+login-only app is unaffected, and a tenant lib with neither `service` nor explicit fields fails
+its boot.
+
+What the IdP must grant (authkit-server side), or the token / URL requests fail:
+
+- `serviceTenants.resources['urn:agora:<lib>']` declared in `config/authkit.ts`, with
+  `url: 'https://<control plane>'` so discovery publishes it (`agora_control_planes`); durable
+  needs no `url`.
+- `service.clientId` is a service-tenant client whose partition equals
+  `service.partition ?? service.name` (the control plane trusts the token's partition), with
+  the capabilities that control plane checks:
+  `node ace authkit:client create --client-id=shop --partition=shop --capability='payments:*'`.
+
+The same `service` block powers calls between apps, which the federated consoles use:
+
+- `appCallTokens()` (after boot): `token(app)` / `reset()`, tokens for `urn:agora:app:<app>`
+  (needs `clientId`/`clientSecret`); plain `fetch` to a known app origin gets one too.
+- `appCallerVerifier()`: verifies tokens addressed to this app (`service.name` alone is
+  enough), `null` without `service`; requests get `ctx.agora.caller`
+  (`getAgoraCaller(ctx)`, `authkitService` for app-only routes).
+- `publishAppKey({ purpose, jwk })` / `appKey({ app, purpose })`: public OKP keys in the
+  authkit key directory, e.g. `console:durable` (the key the console seals commands to).
+- A console (the Hub) running `<lib>`'s federated console commands against this app needs
+  the grant `<lib>:console:*` on this app for the Hub's service client:
+  `node ace authkit:client grant-app hub --app=shop --capability='durable:console:*'`.
+
+An app running authkit-server binds an in-process `authkit.client` with the same
+app-call methods when authkit-client is not installed there.
+
+Source: `src/tenant_of.ts`, `src/app_calls/config.ts` (`ServiceInput`),
+`providers/authkit_client_provider.ts` (`tenantOf`, `appCallTokens`, `appCallerVerifier`,
+`publishAppKey`, `appKey`); docs `service-tenants.mdx`, `calls-between-apps.mdx`.
+
+### Pattern 6 — authkit-server on another server
 
 Nothing on this server may need authkit-server in-process. The remote-safe helpers:
 
 ```ts
 import {
-  authkitTenantToken, // tenant side: client_credentials token for one resource; endpoint from discovery only
+  authkitTenantToken, // tenant side: client_credentials token for one resource; endpoint from discovery (or tokenEndpoint)
   controlPlaneUrl, // lazy URL of a control plane from the issuer's `agora_control_planes` (serviceTenants.resources[*].url); peek()/refresh()
   discoverControlPlane, // one-shot: Promise<string>; ControlPlaneNotFoundError when not published
   authkitTenantVerifier, // control-plane side: (request) => { partition, environment?, capabilities, clientId, expiresAt } | null
@@ -233,12 +300,9 @@ verifyTenant: authkitTenantVerifier({ issuer: env.get('AUTHKIT_ISSUER'), resourc
 registerAuthkitWebhook(router, { issuer: env.get('AUTHKIT_ISSUER') }) // Ed25519 via discovery, no secret; + csrf.exceptRoutes
 ```
 
-A lib in `topology: 'tenant'` (config, crypto, flags, telescope, durable, media, payments 1.1+)
-needs no `tenant` block when `service: { name, clientId, clientSecret, partition? }` is set in
-`config/authkit_client.ts`: it calls `tenantOf('urn:agora:<lib>')` on the `authkit.client` binding
-(`url` = `controlPlaneUrl`, `token` = `authkitTenantToken` with the service credentials,
-`partition` = `service.partition ?? service.name`). Explicit `tenant` fields win per field;
-`tenant: { auto: false }` disables it. Use the helpers above directly without `service`, or to override one field.
+With `service` configured a tenant lib needs none of these (Pattern 5). Use
+`controlPlaneUrl` / `authkitTenantToken` directly for the explicit form: a tenant client other
+than `service`, another IdP, or overriding one field (a private-network `url`, say).
 
 `registerOidcClient` already announces `POST /auth/logout` as the consoles' sign-out (skipped
 when authkit-server runs in the app), the provider installs org labels (`orgLabels`), and
