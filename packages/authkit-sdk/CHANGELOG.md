@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-sdk
 
+## 1.0.1
+
+### Patch Changes
+
+- [#578](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/578) [`915cfef`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/915cfef943f0e07600a2b4ab2b02cfb691529322) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Ship a TanStack Intent agent skill with the package, so coding agents that install it get setup and usage guidance verified against the code.
+
 ## 1.0.0
 
 ### Major Changes
