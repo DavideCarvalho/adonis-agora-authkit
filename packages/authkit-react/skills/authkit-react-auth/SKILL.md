@@ -34,24 +34,38 @@ components and ready-made account UI on top.
 
 ## Setup
 
-Share the `authkit` prop from the host, typically in `config/inertia.ts`:
+Share the `authkit` prop from the host, in the `share()` method of the app's Inertia
+middleware. Declare the user your `resolveUser` produces (here `identityToUser`'s) so
+`ctx.authkit.getUser()` is typed:
 
 ```ts
-// config/inertia.ts
-import { defineConfig } from '@adonisjs/inertia'
+// types/authkit.ts
+import type { ClaimsUser } from '@adonis-agora/authkit-client'
 
-export default defineConfig({
-  sharedData: {
-    authkit: async (ctx) => {
-      const authkit = ctx.authkit // your Authenticator instance
-      const user = await authkit.getUser() // same shape as identityToUser/resolveUser
-      return {
-        user: user ?? null,
+declare module '@adonis-agora/authkit-client' {
+  interface AuthkitUserType {
+    user: ClaimsUser
+  }
+}
+```
+
+```ts
+// app/middleware/inertia_middleware.ts (excerpt)
+import type { HttpContext } from '@adonisjs/core/http'
+import BaseInertiaMiddleware from '@adonisjs/inertia/inertia_middleware'
+
+export default class InertiaMiddleware extends BaseInertiaMiddleware {
+  async share(ctx: HttpContext) {
+    const authkit = ctx.authkit // your Authenticator instance
+    const user = await authkit.getUser() // same shape as identityToUser/resolveUser
+    return {
+      authkit: {
+        user: user ? { ...user } : null, // a plain object: Inertia props are JSON
         globalRoles: authkit.identity?.globalRoles ?? [],
-      }
-    },
-  },
-})
+      },
+    }
+  }
+}
 ```
 
 Then consume it in any component:
@@ -94,10 +108,10 @@ import { Authenticated, Guest } from '@adonis-agora/authkit-react'
 For pure functions outside components:
 
 ```ts
-import { hasGlobalRole, hasAnyGlobalRole, hasAllGlobalRoles } from '@adonis-agora/authkit-react'
+import { hasGlobalRole, hasAnyGlobalRole, type AuthUser } from '@adonis-agora/authkit-react'
 
-hasGlobalRole(user, 'ADMIN')
-hasAnyGlobalRole(user, ['ADMIN', 'TEACHER'])
+export const isAdmin = (user: AuthUser | null) => hasGlobalRole(user, 'ADMIN')
+export const canTeach = (user: AuthUser | null) => hasAnyGlobalRole(user, ['ADMIN', 'TEACHER'])
 ```
 
 Source: `packages/authkit-react/README.md` §§ 3 and "Helpers puros".
@@ -108,11 +122,18 @@ In tests or Storybook there are no page props; inject state manually. Context ta
 precedence over Inertia props when present:
 
 ```tsx
-import { AuthProvider } from '@adonis-agora/authkit-react'
+// .storybook/preview.tsx — a test wrapper looks the same
+import { AuthProvider, type AuthUser } from '@adonis-agora/authkit-react'
 
-<AuthProvider value={{ user, globalRoles: user.globalRoles }}>
-  <App />
-</AuthProvider>
+const user: AuthUser = { id: 'user-42', email: 'jane@test.dev', globalRoles: ['ADMIN'] }
+
+export const decorators = [
+  (Story) => (
+    <AuthProvider value={{ user, globalRoles: user.globalRoles }}>
+      <Story />
+    </AuthProvider>
+  ),
+]
 ```
 
 Source: `packages/authkit-react/README.md` § 4.
@@ -173,9 +194,11 @@ When the backend authenticates against another IdP (via
 instead of calling endpoints that do not exist:
 
 ```tsx
+import { AuthkitProvider, SignInButton, UserProfile } from '@adonis-agora/authkit-react'
+
 <AuthkitProvider config={{ idp: 'external' }}>
-  {/* works: SignInButton, SignOutButton, useAuth, Avatar */}
-  {/* degrades to null: UserProfile, OrganizationSwitcher, AuthorizedApps */}
+  <SignInButton /> {/* works: SignInButton, SignOutButton, useAuth, Avatar */}
+  <UserProfile /> {/* degrades to null: UserProfile, OrganizationSwitcher, AuthorizedApps */}
 </AuthkitProvider>
 ```
 
@@ -186,20 +209,31 @@ Source: `src/config.ts` (`AuthkitIdpMode` JSDoc).
 ### HIGH — Never sharing the `authkit` prop from the host
 
 ```ts
-// Wrong — no sharedData; every page renders unauthenticated
-export default defineConfig({ sharedData: {} })
+// Wrong — share() never returns `authkit`; every page renders unauthenticated
+import BaseInertiaMiddleware from '@adonisjs/inertia/inertia_middleware'
+
+export default class InertiaMiddleware extends BaseInertiaMiddleware {
+  async share() {
+    return {}
+  }
+}
 ```
 
-```ts no-check
+```ts
 // Correct — share { user, globalRoles } under the `authkit` key
-sharedData: {
-  authkit: async (ctx) => {
-    const authkit = ctx.authkit
+import type { HttpContext } from '@adonisjs/core/http'
+import BaseInertiaMiddleware from '@adonisjs/inertia/inertia_middleware'
+
+export default class InertiaMiddleware extends BaseInertiaMiddleware {
+  async share({ authkit }: HttpContext) {
+    const user = await authkit.getUser()
     return {
-      user: (await authkit.getUser()) ?? null,
-      globalRoles: authkit.identity?.globalRoles ?? [],
+      authkit: {
+        user: user ? { ...user } : null,
+        globalRoles: authkit.identity?.globalRoles ?? [],
+      },
     }
-  },
+  }
 }
 ```
 
@@ -213,7 +247,8 @@ Source: `src/use_auth.ts` (fallback + warn), README § 1.
 
 ```ts no-check
 // Wrong — raw token claims passed as the user
-sharedData: { authkit: async (ctx) => ({ user: ctx.authkit.identity }) }
+// inertia middleware share()
+return { authkit: { user: ctx.authkit.identity, globalRoles: [] } }
 ```
 
 ```ts no-check
@@ -239,7 +274,7 @@ import { Can } from '@adonis-agora/authkit-react' // not exported
 ```tsx
 // Correct — global-role gates come from authkit; permissions live in authz-react
 import { Authenticated } from '@adonis-agora/authkit-react'
-import { CanPermission } from '@adonis-agora/authz-react' // consults the Authz service
+import { Can } from '@adonis-agora/authz-react' // consults the Authz service
 ```
 
 App-role/permission gating migrated to `@adonis-agora/authz-react`; this package

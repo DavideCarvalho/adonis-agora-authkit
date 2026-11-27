@@ -209,3 +209,14 @@ minimumReleaseAgeExclude:
   - '@adonis-agora/resilience@0.1.0'
   - '@adonis-agora/durable@0.2.0'
   - '@adonis-agora/durable@0.22.0'
+
+# Skill examples are typechecked by `intent validate` from the repo root, so a package they import
+# must resolve from the root node_modules. These are already dependencies of the workspace packages
+# (one copy each in the lockfile); hoisting them lets the examples load their types. Install-time
+# only: no published package changes.
+publicHoistPattern:
+  - "@adonisjs/auth"
+  - "@adonisjs/core"
+  - "@adonisjs/lucid"
+  - "@adonisjs/session"
+  - "@tanstack/react-query"

@@ -93,6 +93,11 @@ derives both):
 
 ```ts
 // config/authkit.ts
+import env from '#start/env'
+import hash from '@adonisjs/core/services/hash'
+import AuthUser from '#models/auth_user'
+import { defineConfig, adapters, lucidAccountStore } from '@adonis-agora/authkit-server'
+
 defineConfig({
   issuer: env.get('AUTHKIT_ISSUER'),
   adapter: adapters.redis({ connection: 'main' }),
@@ -102,8 +107,9 @@ defineConfig({
     verifyCredentials: async (email, password) => {
       // Return the account on success; throw/falsy paths fail the login.
       const account = await AuthUser.query().where('email', email).first()
-      if (!account) throw new Error('Invalid credentials')
-      await verifyPassword(account.passwordHash, password)
+      if (!account || !(await hash.verify(account.password, password))) {
+        throw new Error('Invalid credentials')
+      }
       return account
     },
   },
@@ -123,7 +129,9 @@ Hosts building their own React screens set the `render` option instead of relyin
 on the default Edge renderer:
 
 ```ts
-import { defineConfig, inertiaRenderer } from '@adonis-agora/authkit-server'
+import env from '#start/env'
+import AuthUser from '#models/auth_user'
+import { adapters, defineConfig, inertiaRenderer, lucidAccountStore } from '@adonis-agora/authkit-server'
 
 defineConfig({
   issuer: env.get('AUTHKIT_ISSUER'),
@@ -216,12 +224,20 @@ Source: `packages/authkit-testing/README.md`, `packages/authkit-testing/src/auth
 
 ```ts
 // Wrong — only the protocol endpoints exist
+import router from '@adonisjs/core/services/router'
+import { registerOidcRoutes } from '@adonis-agora/authkit-server'
+
 registerOidcRoutes(router)
 // no GET /auth/interaction/:uid anywhere
 ```
 
 ```ts
 // Correct — the three host-owned routes are registered next to the OIDC mount
+import router from '@adonisjs/core/services/router'
+import { registerOidcRoutes } from '@adonis-agora/authkit-server'
+
+import AuthInteractionController from '#controllers/auth_interaction_controller'
+
 registerOidcRoutes(router)
 router.get('/auth/interaction/:uid', [AuthInteractionController, 'show'])
 router.post('/auth/interaction/:uid/login', [AuthInteractionController, 'login'])

@@ -104,6 +104,10 @@ Source: `stubs/config/authkit.stub`, `src/define_config.ts` (`AuthServerConfigIn
 ### Pattern 2 — signing keys: managed JWKS, `'auto'`, and inline keys
 
 ```ts
+import env from '#start/env'
+import AuthUser from '#models/auth_user'
+import { defineConfig, adapters, lucidAccountStore } from '@adonis-agora/authkit-server'
+
 defineConfig({
   issuer: env.get('AUTHKIT_ISSUER'),
   adapter: adapters.redis({ connection: 'main' }),
@@ -149,8 +153,8 @@ const authkitRoutes = registerAuthHost(router, {
   admin: true,    // admin console under /admin
   adminApi: true, // Admin REST API under /api/authkit/v1
 })
-// Hand authkitRoutes to your frontend instead of hardcoding hrefs.
-router.get('/', async ({ inertia }) => inertia.render('home', { authkitRoutes }))
+// Hand authkitRoutes to your frontend instead of hardcoding hrefs (as an Inertia prop, or JSON).
+router.get('/authkit/routes', () => authkitRoutes)
 ```
 
 Alternatively set `routes: true` in `config/authkit.ts` to auto-mount in the
@@ -173,13 +177,31 @@ Source: `src/host/register_auth_host.ts` (`AuthHostOptions`, policy-vs-structura
 
 ```ts
 // Wrong — issuer says /oauth but routes mount at default /oidc
-defineConfig({ issuer: 'https://idp.example.com/oauth' })
+import router from '@adonisjs/core/services/router'
+import AuthUser from '#models/auth_user'
+import { adapters, defineConfig, lucidAccountStore, registerOidcRoutes } from '@adonis-agora/authkit-server'
+
+defineConfig({
+  issuer: 'https://idp.example.com/oauth',
+  adapter: adapters.database(),
+  jwks: 'auto',
+  accountStore: lucidAccountStore(AuthUser),
+})
 registerOidcRoutes(router) // mounts /oidc/*
 ```
 
 ```ts
 // Correct — issuer ends exactly at the mount path
-defineConfig({ issuer: 'https://idp.example.com/oidc' })
+import router from '@adonisjs/core/services/router'
+import AuthUser from '#models/auth_user'
+import { adapters, defineConfig, lucidAccountStore, registerOidcRoutes } from '@adonis-agora/authkit-server'
+
+defineConfig({
+  issuer: 'https://idp.example.com/oidc',
+  adapter: adapters.database(),
+  jwks: 'auto',
+  accountStore: lucidAccountStore(AuthUser),
+})
 registerOidcRoutes(router) // default mountPath '/oidc' matches the issuer
 ```
 
@@ -193,11 +215,17 @@ Source: `packages/authkit-server/README.md` § Montar as rotas OIDC;
 
 ```ts
 // Wrong — only the protocol endpoints exist; /account/* and /admin are dead
+import router from '@adonisjs/core/services/router'
+import { registerOidcRoutes } from '@adonis-agora/authkit-server'
+
 registerOidcRoutes(router)
 ```
 
 ```ts
 // Correct — mount the host surface too (or set config.routes: true)
+import router from '@adonisjs/core/services/router'
+import { registerAuthHost, registerOidcRoutes } from '@adonis-agora/authkit-server'
+
 registerOidcRoutes(router)
 registerAuthHost(router, { mountPath: '/oidc', admin: true })
 ```

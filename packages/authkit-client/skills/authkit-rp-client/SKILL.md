@@ -106,6 +106,8 @@ Source: `packages/authkit-client/README.md`, `stubs/config/authkit_client.stub`.
 
 ```ts
 // app/controllers/me_controller.ts
+import type { HttpContext } from '@adonisjs/core/http'
+
 export default class MeController {
   async handle({ auth, authkit }: HttpContext) {
     const user = auth.getUserOrFail()             // the resolveUser user (sync, behind auth)
@@ -114,8 +116,15 @@ export default class MeController {
     return { user, identity, isAdmin }
   }
 }
+```
 
+```ts
 // start/routes.ts
+import router from '@adonisjs/core/services/router'
+import { middleware } from '#start/kernel'
+
+const MeController = () => import('#controllers/me_controller')
+
 router.get('/me', [MeController]).use(middleware.auth())
 ```
 
@@ -132,12 +141,30 @@ Source: `packages/authkit-client/README.md` § Uso por request,
 
 ```ts
 // config/auth.ts
-api: authkitClientGuard({
-  provider: authkitIdentityProvider(),
-  resolver: resolvers.jwt({ tokenSource: 'bearer' }), // Bearer <jwt> or DPoP <jwt> + DPoP proof
-}),
+import { defineConfig } from '@adonisjs/auth'
+import { sessionUserProvider } from '@adonisjs/auth/session'
+import { resolvers } from '@adonis-agora/authkit-client'
+import { authkitClientGuard, authkitIdentityProvider } from '@adonis-agora/authkit-client/auth'
 
+export default defineConfig({
+  default: 'web',
+  guards: {
+    web: authkitClientGuard({
+      provider: sessionUserProvider({ model: () => import('#models/app_user') }),
+    }),
+    api: authkitClientGuard({
+      provider: authkitIdentityProvider(),
+      resolver: resolvers.jwt({ tokenSource: 'bearer' }), // Bearer <jwt> or DPoP <jwt> + DPoP proof
+    }),
+  },
+})
+```
+
+```ts
 // start/routes.ts
+import router from '@adonisjs/core/services/router'
+import { middleware } from '#start/kernel'
+
 router.group(() => { /* … */ }).prefix('/api').use(middleware.auth({ guards: ['api'] }))
 ```
 
@@ -150,18 +177,32 @@ work the same way. A DPoP-bound token (`cnf.jkt`) sent as `Bearer` is refused.
 Identity always comes from the token; what varies is how the app model is fetched:
 
 ```ts
-// Same DB, cross-schema FK: map to a local Lucid model
-resolveUser: async (identity) => {
-  return AppUser.query().where('authUserId', identity.userId).firstOrFail()
+// config/authkit_client.ts — pick the resolveUser that fits your topology
+import env from '#start/env'
+import AppUser from '#models/app_user'
+import { createUserinfoResolver, defineConfig, identityToUser, resolvers } from '@adonis-agora/authkit-client'
+
+const base = {
+  issuer: env.get('AUTHKIT_ISSUER'),
+  clientId: env.get('AUTHKIT_CLIENT_ID'),
+  redirectUri: env.get('AUTHKIT_REDIRECT_URI'),
+  resolver: resolvers.jwt({ tokenSource: 'session' }),
 }
 
+// Same DB, cross-schema FK: map to a local Lucid model
+defineConfig({
+  ...base,
+  resolveUser: async (identity) => {
+    return AppUser.query().where('authUserId', identity.userId).firstOrFail()
+  },
+})
+
 // Separate DBs: the IdP emits a fat ID token — claims-only, zero lookups
-import { identityToUser } from '@adonis-agora/authkit-client'
-resolveUser: identityToUser // { id, email, name?, avatarUrl?, globalRoles }
+// { id, email, name?, avatarUrl?, globalRoles }; resolveUser must return a promise
+defineConfig({ ...base, resolveUser: async (identity) => identityToUser(identity) })
 
 // Separate DBs + data beyond the claims: userinfo resolver against ${issuer}/me
-import { createUserinfoResolver } from '@adonis-agora/authkit-client'
-resolveUser: createUserinfoResolver({ issuer: env.get('AUTHKIT_ISSUER') })
+defineConfig({ ...base, resolveUser: createUserinfoResolver({ issuer: env.get('AUTHKIT_ISSUER') }) })
 ```
 
 Source: `packages/authkit-client/README.md` § Topologias de banco,
@@ -196,6 +237,7 @@ Source: `src/register_oidc_client.ts` (`RegisterOidcClientOptions` + doc example
 Pass a store and the kit derives the callback + enforcement middleware:
 
 ```ts
+import env from '#start/env'
 import { defineConfig, resolvers, lucidRevocationStore } from '@adonis-agora/authkit-client'
 
 defineConfig({
@@ -224,8 +266,14 @@ Source: `src/define_config.ts` (`BackchannelLogoutInput`), README.
 
 ```ts
 // config/authkit_client.ts
+import env from '#start/env'
+import { defineConfig, resolvers } from '@adonis-agora/authkit-client'
+
 export default defineConfig({
-  // …issuer, clientId, redirectUri, resolver as in Setup
+  issuer: env.get('AUTHKIT_ISSUER'),
+  clientId: env.get('AUTHKIT_CLIENT_ID'),
+  redirectUri: env.get('AUTHKIT_REDIRECT_URI'),
+  resolver: resolvers.jwt({ tokenSource: 'session' }),
   service: {
     name: 'shop', // app name (audience urn:agora:app:shop) and default partition
     clientId: env.get('AUTHKIT_SERVICE_CLIENT_ID'), // a service-tenant client
@@ -237,6 +285,8 @@ export default defineConfig({
 
 ```ts
 // config/telescope.ts (any lib in the tenant topology)
+import { defineConfig } from '@adonis-agora/telescope'
+
 export default defineConfig({ topology: 'tenant' }) // no tenant block
 ```
 
@@ -287,6 +337,8 @@ Source: `src/tenant_of.ts`, `src/app_calls/config.ts` (`ServiceInput`),
 Nothing on this server may need authkit-server in-process. The remote-safe helpers:
 
 ```ts
+import router from '@adonisjs/core/services/router'
+import env from '#start/env'
 import {
   authkitTenantToken, // tenant side: client_credentials token for one resource; endpoint from discovery (or tokenEndpoint)
   controlPlaneUrl, // lazy URL of a control plane from the issuer's `agora_control_planes` (serviceTenants.resources[*].url); peek()/refresh()
@@ -296,7 +348,8 @@ import {
   bridgeAuthkitToken, // bearer token (MCP/API) → ctx.authkit, so authkitDashboardAuthorize admits it
 } from '@adonis-agora/authkit-client'
 
-verifyTenant: authkitTenantVerifier({ issuer: env.get('AUTHKIT_ISSUER'), resource: 'urn:agora:flags' })
+// a control plane's config (here flags): `verifyTenant` checks each tenant's token
+const verifyTenant = authkitTenantVerifier({ issuer: env.get('AUTHKIT_ISSUER'), resource: 'urn:agora:flags' })
 registerAuthkitWebhook(router, { issuer: env.get('AUTHKIT_ISSUER') }) // Ed25519 via discovery, no secret; + csrf.exceptRoutes
 ```
 
@@ -318,6 +371,8 @@ Source: `src/tenant_verifier.ts`, `src/webhook_receiver.ts`, `src/identity_bridg
 
 ```ts
 // Wrong — resolver reads an empty session; every request looks anonymous
+import router from '@adonisjs/core/services/router'
+
 router.use([
   () => import('@adonis-agora/authkit-client/authkit_context_middleware'),
   () => import('@adonisjs/session/session_middleware'),
@@ -326,6 +381,8 @@ router.use([
 
 ```ts
 // Correct — session, then initialize_auth, then the AuthKit context middleware
+import router from '@adonisjs/core/services/router'
+
 router.use([
   () => import('@adonisjs/session/session_middleware'),
   () => import('@adonisjs/auth/initialize_auth_middleware'),
@@ -342,17 +399,30 @@ Source: `packages/authkit-client/README.md` § Ordem de middleware (importante).
 
 ### HIGH — Putting app-role authorization in the client kit
 
-```ts
+```ts expect-error=TS2339
 // Wrong — expecting authkit to resolve app roles/permissions
-if (authkit.hasGlobalRole('ADMIN')) { /* app-role check? */ }
-const can = await authkit.checkPermission(user, 'posts.edit') // does not exist
+import type { HttpContext } from '@adonisjs/core/http'
+
+export default class PostsController {
+  async edit({ auth, authkit }: HttpContext) {
+    const user = auth.getUserOrFail()
+    if (authkit.hasGlobalRole('ADMIN')) { /* app-role check? */ }
+    const can = await authkit.checkPermission(user, 'posts.edit') // does not exist
+  }
+}
 ```
 
 ```ts
 // Correct — AuthKit authenticates + exposes token globalRoles; authz decides access
-if (authkit.hasGlobalRole('ADMIN')) { /* global role from the token claims */ }
-// App roles/permissions: configure resolveRoles in @adonis-agora/authz
-// and enforce with authz/Bouncer route guards, not middleware.auth().
+import type { HttpContext } from '@adonisjs/core/http'
+
+export default class PostsController {
+  async edit({ authkit }: HttpContext) {
+    if (authkit.hasGlobalRole('ADMIN')) { /* global role from the token claims */ }
+    // App roles/permissions: configure resolveRoles in @adonis-agora/authz
+    // and enforce with authz/Bouncer route guards, not middleware.auth().
+  }
+}
 ```
 
 AuthKit only authenticates and knows the `globalRoles` claim; app roles (domain
@@ -365,13 +435,17 @@ do AuthKit"), `stubs/config/authkit_client.stub` comment.
 ### MEDIUM — `resolvers.opaque` without a confidential client
 
 ```ts
-// Wrong — public client: throws at resolver creation
-resolver: resolvers.opaque({ introspectionUrl: '...' })
+// Wrong — public client (no clientSecret in the config): throws at resolver creation
+import { resolvers } from '@adonis-agora/authkit-client'
+
+const resolver = resolvers.opaque({ introspectionUrl: '...' })
 ```
 
 ```ts
-// Correct — opaque introspection requires the client secret
-resolver: resolvers.opaque({
+// Correct — opaque introspection requires the client secret (clientSecret in the config)
+import { resolvers } from '@adonis-agora/authkit-client'
+
+const resolver = resolvers.opaque({
   tokenSource: 'bearer',
   cacheTtlMs: 30_000, // trade immediacy for fewer round-trips
 })
@@ -390,15 +464,23 @@ Source: `src/resolvers/factory.ts` (`resolvers.opaque` throw), README.
 
 ```ts
 // Wrong — the web guard reads the OIDC session; a Bearer header is ignored
+import router from '@adonisjs/core/services/router'
+import { middleware } from '#start/kernel'
+
 router.group(() => { /* … */ }).prefix('/api').use(middleware.auth())
 ```
 
 ```ts
-// Correct — an API guard with its own resolver
-api: authkitClientGuard({
+// Correct — an API guard with its own resolver (in config/auth.ts guards), and routes on it
+import router from '@adonisjs/core/services/router'
+import { middleware } from '#start/kernel'
+import { resolvers } from '@adonis-agora/authkit-client'
+import { authkitClientGuard, authkitIdentityProvider } from '@adonis-agora/authkit-client/auth'
+
+const api = authkitClientGuard({
   provider: authkitIdentityProvider(),
   resolver: resolvers.jwt({ tokenSource: 'bearer' }),
-}),
+})
 router.group(() => { /* … */ }).prefix('/api').use(middleware.auth({ guards: ['api'] }))
 ```
 
