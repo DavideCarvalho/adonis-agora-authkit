@@ -84,6 +84,24 @@ itself. See [Client](/docs/client).
   the same `issuer` URL, and the relying parties don't need to change.
 </Callout>
 
+## How the Agora libs run around AuthKit
+
+The sections above place AuthKit itself. The Agora libs (durable, flags, config, crypto, telescope,
+media, payments) each run in one of three ways, and AuthKit plays a different part in each:
+
+- **Standalone** (the default): the lib and its console live inside the app, with the app's own
+  data. AuthKit is only the login in front of the console (`authkitDashboardAuthorize()`, see
+  [Apps and consoles](#apps-and-consoles-relying-parties)).
+- **Federated console**: one console reaches each app over authenticated commands, and the data
+  stays in each app. The console calls the apps with app-call tokens and reads the key each app
+  publishes under `console:<lib>`, both from authkit-client (see
+  [Calls between apps](/docs/calls-between-apps)). Each lib's docs have a federated-console page.
+- **Hub**: a control plane per lib (`topology: 'control-plane'`) and the apps as its tenants
+  (`topology: 'tenant'`). With authkit-client's `service` configured, `topology: 'tenant'` is the
+  whole tenant config (see [Control planes and tenants](#control-planes-and-tenants) and
+  [Service tenants](/docs/service-tenants)). The
+  [Agora Hub guide](https://davidecarvalho.github.io/agora/docs/agora-hub) walks through it.
+
 ## Separate servers
 
 In a larger deployment every piece runs on its own server: authkit-server alone, one server per
