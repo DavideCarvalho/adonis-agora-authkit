@@ -55,6 +55,7 @@ import { contextTenancyEnabled } from '../src/observability/context_bridge.js';
 import { exchangeToken, refreshTokens } from '../src/oidc_login.js';
 import { authkitOrgLabels, installOrgLabeler } from '../src/org_labels.js';
 import type { ResolverFactory } from '../src/resolvers/factory.js';
+import { type AuthkitTenant, createTenantOf } from '../src/tenant_of.js';
 import type { TokenSet } from '../src/types.js';
 
 interface SessionLike {
@@ -790,6 +791,42 @@ export class AuthkitClientManager {
   appCallTokens() {
     return this.#installedAppCalls?.tokens;
   }
+
+  /**
+   * This app as a tenant of the control plane for `resource` (e.g. `'urn:agora:telescope'`),
+   * from `service` in `config/authkit_client.ts`: what an Agora library in
+   * `topology: 'tenant'` needs, so its config can leave `tenant` out.
+   *
+   * - `url`: the control plane's URL, discovered from the issuer (`controlPlaneUrl`).
+   * - `token`: a service token for `resource` (client credentials of `service`), cached
+   *   until near expiry; `token.reset()` drops it.
+   * - `partition`: `service.partition`, else `service.name`.
+   *
+   * The same object is returned for the same resource (one token cache per resource).
+   * Throws when `service` (with `clientId`/`clientSecret`) is not configured.
+   */
+  tenantOf(resource: string): AuthkitTenant {
+    const existing = this.#tenants.get(resource);
+    if (existing) return existing;
+    const { discovery, endpoints: overrides, issuer } = this.config;
+    const tokenEndpoint =
+      overrides?.tokenEndpoint ??
+      (discovery === false ? conventionEndpoints(issuer).tokenEndpoint : undefined);
+    const tenant = createTenantOf(resource, {
+      issuer,
+      calls: this.config.appCalls,
+      ...(tokenEndpoint ? { tokenEndpoint } : {}),
+      ...(this.deps.fetchImpl ? { fetch: this.deps.fetchImpl } : {}),
+      ...(discovery !== false && discovery.cacheTtlMs !== undefined
+        ? { cacheTtlMs: discovery.cacheTtlMs }
+        : {}),
+      ...(this.config.resilience ? { resilience: this.config.resilience } : {}),
+    });
+    this.#tenants.set(resource, tenant);
+    return tenant;
+  }
+
+  #tenants = new Map<string, AuthkitTenant>();
 
   #installedAppCalls: InstalledAppCalls | undefined;
 
