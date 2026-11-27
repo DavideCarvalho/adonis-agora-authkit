@@ -84,6 +84,12 @@ service discovery are fetched in the background as soon as they appear. A reques
 not ready yet (right after boot, AuthKit unreachable, app not granted) fails with an error
 whose `code` is `E_AGORA_APP_TOKEN_UNAVAILABLE`; it is never sent without the token.
 
+The same `service` block also makes this app a tenant of the Agora control planes: a lib in
+`topology: 'tenant'` reads its URL, token and partition from `tenantOf(resource)` on the
+`authkit.client` binding, so `defineConfig({ topology: 'tenant' })` is enough. The partition is
+`service.partition`, else `service.name`. See
+[Service tenants](/docs/service-tenants#with-service-configured-nothing-to-write).
+
 ## 3. The callee: `billing`
 
 ```ts title="config/authkit_client.ts"

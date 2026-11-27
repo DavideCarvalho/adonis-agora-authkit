@@ -153,6 +153,7 @@ export {
   DEFAULT_REVOCATION_TABLE,
   lucidRevocationStore,
 } from './src/revocation/revocation_store.js';
+export { type AuthkitTenant, TenantOfConfigError } from './src/tenant_of.js';
 export {
   AuthkitTenantToken,
   type AuthkitTenantTokenFn,

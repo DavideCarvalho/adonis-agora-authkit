@@ -183,7 +183,15 @@ export default defineConfig({
 })
 ```
 
-A tenant app sends a token for that resource:
+A tenant app sends a token for that resource. With `service` in its
+`config/authkit_client.ts`, the lib gets the URL, the token and the partition from
+authkit-client (`tenantOf`, see [Service tenants](/docs/service-tenants#with-service-configured-nothing-to-write)):
+
+```ts title="config/durable.ts (shop.acme.com)"
+export default defineConfig({ topology: 'tenant' })
+```
+
+The explicit form, which wins field by field:
 
 ```ts title="config/durable.ts (shop.acme.com)"
 import { authkitTenantToken } from '@adonis-agora/authkit-client'

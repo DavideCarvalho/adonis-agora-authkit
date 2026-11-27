@@ -35,6 +35,12 @@ export interface ServiceInput {
    */
   name: string;
   /**
+   * This app's partition as a tenant of the Agora control planes (the `partition` of its
+   * service-tenant client), used by `tenantOf()` (`topology: 'tenant'` in the libs).
+   * Default: `name`.
+   */
+  partition?: string;
+  /**
    * Client id of this app's service-tenant client. With `clientSecret`, calls to other
    * apps (found by discovery or in `apps`) are authenticated.
    */
@@ -76,6 +82,8 @@ export interface ServiceInput {
 /** Resolved `service` + `apps`. */
 export interface ResolvedAppCalls {
   name: string;
+  /** See {@link ServiceInput.partition}. Defaults to `name`. */
+  partition: string;
   clientId?: string;
   clientSecret?: string;
   environment?: string;
@@ -119,6 +127,12 @@ export function resolveAppCalls(
     throw new AppCallsConfigError(
       'authkit_client: service.prewarmTimeoutMs must be a number of ms >= 0.',
     );
+  }
+  if (
+    service.partition !== undefined &&
+    (typeof service.partition !== 'string' || !service.partition.trim())
+  ) {
+    throw new AppCallsConfigError('authkit_client: service.partition must be a non-empty string.');
   }
   const catalog = service.catalog;
   if (
@@ -167,6 +181,7 @@ export function resolveAppCalls(
   }
   return {
     name: service.name,
+    partition: service.partition ?? service.name,
     ...(service.clientId ? { clientId: service.clientId } : {}),
     ...(service.clientSecret ? { clientSecret: service.clientSecret } : {}),
     ...(service.environment ? { environment: service.environment } : {}),

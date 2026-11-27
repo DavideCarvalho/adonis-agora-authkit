@@ -305,7 +305,48 @@ discovery document as `agora_control_planes`:
 }
 ```
 
-In the app, `controlPlaneUrl` from `@adonis-agora/authkit-client` gives a lazy URL for a config
+### With `service` configured: nothing to write
+
+When the app has `service` in `config/authkit_client.ts` (the same block as
+[calls between apps](/docs/calls-between-apps)), an Agora lib in the tenant topology needs no
+`tenant` block:
+
+```ts title="config/authkit_client.ts"
+service: {
+  name: 'acme',                       // the partition, unless `partition` says otherwise
+  clientId: env.get('AUTHKIT_SERVICE_CLIENT_ID'),
+  clientSecret: env.get('AUTHKIT_SERVICE_CLIENT_SECRET'),
+  // partition: 'acme-eu',            // when the client's partition is not the app name
+},
+```
+
+```ts title="config/telescope.ts"
+export default defineConfig({ topology: 'tenant' })
+```
+
+The lib asks the `authkit.client` binding for `tenantOf('urn:agora:telescope')`, which gives:
+
+| Field | Value |
+| --- | --- |
+| `url` | `controlPlaneUrl({ issuer, resource })`: the control plane's URL from the discovery document, with `url.refresh()`. |
+| `token` | `authkitTenantToken({ issuer, clientId, clientSecret, resource })` with the `service` credentials: a token whose audience is the resource, cached until near expiry; `token.reset()` drops it. |
+| `partition` | `service.partition`, else `service.name`. Keep it equal to the client's partition. |
+
+Anything you set in the lib's `tenant` block wins, field by field. `tenantOf()` throws
+`TenantOfConfigError` (`E_AUTHKIT_SERVICE_NOT_CONFIGURED`), naming the `service` line to add,
+when `service` or its `clientId`/`clientSecret` is missing; libs only call it when they need it,
+so an app that uses authkit-client for login only is not affected.
+
+You can call it yourself too:
+
+```ts
+const authkit = await app.container.make('authkit.client')
+const { url, token, partition } = authkit.tenantOf('urn:agora:telescope')
+```
+
+### The explicit form
+
+`controlPlaneUrl` from `@adonis-agora/authkit-client` gives a lazy URL for a config
 file. It fetches nothing until a lib calls it, then caches the discovery document (15 minutes):
 
 ```ts title="config/telescope.ts"
