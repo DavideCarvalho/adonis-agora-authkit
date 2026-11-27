@@ -64,7 +64,7 @@ await authkit.clients.create({ /* client input */ })
 await authkit.clients.regenerateSecret(clientId)
 
 // Organizations, members & invitations
-await authkit.organizations.create({ name: 'Acme' })
+await authkit.organizations.create({ name: 'Acme', slug: 'acme', ownerAccountId: user.id })
 await authkit.organizations.members.add(orgId, { accountId, role: 'admin' })
 
 // Audit log, stats, settings, signing keys

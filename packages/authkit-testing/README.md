@@ -37,7 +37,9 @@ const { token, jwks } = await mintTestIdToken({
 
 // Serve the JWKS in-process so resolvers.jwt({ jwksUri }) can validate it.
 const served = await serveJwks(jwks)
-const factory = resolvers.jwt({ jwksUri: served.jwksUri })
+// tokenSource: 'bearer' reads the `Authorization: Bearer <token>` header; the
+// default ('session') only reads the id token stored in the session.
+const factory = resolvers.jwt({ jwksUri: served.jwksUri, tokenSource: 'bearer' })
 const resolver = await factory.resolver({
   issuer: 'https://idp.test',
   clientId: 'my-app',
