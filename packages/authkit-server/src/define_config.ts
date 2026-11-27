@@ -1926,6 +1926,32 @@ export function jwksAutoFallbackWarning(storePath: string | null): string | null
   return `AuthKit: jwks 'auto' caiu no fallback de disco (${storePath}) — a chave privada de assinatura será persistida em arquivo. Para produção, defina AUTHKIT_JWKS (secret manager) ou configure jwks.store explicitamente.`;
 }
 
+/** `@adonisjs/lucid` está registrado no container (o default do keystore managed). */
+function hasLucidBinding(app: ApplicationService): boolean {
+  try {
+    return (app.container as any).hasBinding?.('lucid.db') === true;
+  } catch {
+    return false;
+  }
+}
+
+async function warnLogger(app: ApplicationService, message: string): Promise<void> {
+  await app.container
+    .make('logger')
+    .then((l: any) => l?.warn(message))
+    .catch(() => {});
+}
+
+/**
+ * Aviso de boot para `jwks` managed sem store (chave efêmera por processo). Em produção é alto:
+ * cada processo (web, `durable:work`, workers) assina com uma chave diferente e todo restart
+ * invalida os tokens emitidos. `null` fora de produção (dev/test usam chave efêmera de propósito).
+ */
+export function ephemeralSigningKeyWarning(app: { inProduction?: boolean }): string | null {
+  if (app.inProduction !== true) return null;
+  return "AuthKit: jwks is 'managed' with no shared `store`, so this process signs with its own ephemeral key: tokens it issues do not validate in the app's other processes (web, workers) and every restart invalidates them. Install/configure @adonisjs/lucid (the keystore then defaults to the database) or set `jwks.store` in config/authkit.ts (for example { driver: 'lucid' } or { driver: 'redis' }).";
+}
+
 export function defineConfig(config: AuthServerConfigInput) {
   assertNoLegacyMcpKey(config as unknown as Record<string, unknown>);
   const mcpClients = resolveMcpClients(config.mcpClients, config.dynamicRegistration !== undefined);
@@ -1975,9 +2001,22 @@ export function defineConfig(config: AuthServerConfigInput) {
                 store: 'tmp/authkit_jwks.json',
               }
           : config.jwks;
+      // `managed` sem `store` com Lucid no app: o keystore vai para a tabela `authkit_keystore`,
+      // compartilhada por todos os processos (web, workers) e que sobrevive a restarts. Sem isso
+      // cada processo gera a própria chave e os tokens de um não validam no outro.
+      const storeDefaulted =
+        jwksInput.source === 'managed' &&
+        jwksInput.store === undefined &&
+        jwksInput.readOnly !== true &&
+        hasLucidBinding(app);
+      const jwksBase: JwksConfig = storeDefaulted
+        ? { ...jwksInput, store: { driver: 'lucid' } }
+        : jwksInput.store === false
+          ? ({ ...jwksInput, store: undefined } as JwksConfig)
+          : jwksInput;
       // Keystore no Lucid sem conexão/schema próprios fica onde estão as tabelas do authkit.
-      const jwksStore = (jwksInput as { store?: any }).store;
-      const jwksConfig: JwksConfig =
+      const jwksStore = (jwksBase as { store?: any }).store;
+      let jwksConfig: JwksConfig =
         jwksStore?.driver === 'lucid' &&
         ((!jwksStore.connection && config.schema?.connection) ||
           (!jwksStore.schema && tablesSchema))
@@ -1989,7 +2028,7 @@ export function defineConfig(config: AuthServerConfigInput) {
                 schema: jwksStore.schema ?? tablesSchema,
               },
             } as JwksConfig)
-          : jwksInput;
+          : jwksBase;
 
       if (config.jwks === 'auto' && !process.env.AUTHKIT_JWKS) {
         const warning = jwksAutoFallbackWarning((jwksConfig as { store?: string }).store ?? null);
@@ -2046,19 +2085,35 @@ export function defineConfig(config: AuthServerConfigInput) {
             container: app.container,
           });
           const encrypt = jwksConfig.encrypt ?? defaultEncryptForStore(jwksConfig.store as any);
-          const manager = new KeystoreManager(
-            vault,
-            await keystoreCodec(encrypt, config.crypto),
-            alg,
-            { readOnly: jwksConfig.readOnly === true },
-          );
           // readOnly: só lê — ausente/ilegível derruba o boot (nunca gera chave nem cria tabela).
-          const store =
-            jwksConfig.readOnly === true ? await manager.readRequired() : await manager.ensure();
+          let store: Awaited<ReturnType<KeystoreManager['ensure']>> | null = null;
+          try {
+            const manager = new KeystoreManager(
+              vault,
+              await keystoreCodec(encrypt, config.crypto),
+              alg,
+              { readOnly: jwksConfig.readOnly === true },
+            );
+            store =
+              jwksConfig.readOnly === true ? await manager.readRequired() : await manager.ensure();
+          } catch (error) {
+            // O store que o authkit escolheu sozinho (Lucid) não está utilizável (sem banco,
+            // sem permissão): mantém o comportamento antigo (chave efêmera) e avisa.
+            if (!storeDefaulted) throw error;
+            await warnLogger(
+              app,
+              `AuthKit: could not use the database keystore (${error instanceof Error ? error.message : String(error)}); falling back to an ephemeral signing key for this process. Set \`jwks.store\` in config/authkit.ts.`,
+            );
+            jwksConfig = { ...jwksConfig, store: undefined } as JwksConfig;
+          }
           // Remove o metadado interno `iat` antes de entregar ao oidc-provider.
-          jwks = toProviderJwks(store);
+          jwks = store ? toProviderJwks(store) : await generateJwks(alg);
         } else {
           jwks = await generateJwks(alg);
+        }
+        if (!jwksConfig.store) {
+          const warning = ephemeralSigningKeyWarning(app);
+          if (warning) await warnLogger(app, warning);
         }
       } else {
         jwks = { keys: jwksConfig.keys ?? [] };
