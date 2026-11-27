@@ -25,7 +25,8 @@
     "tanstack-intent"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "tag": "v0"
   },
   "type": "module",
   "main": "./build/index.js",
