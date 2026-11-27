@@ -22,7 +22,7 @@ export interface ClaimsUser {
 
 /**
  * Converte uma `Identity` (claims OIDC validadas) num objeto de usuário simples.
- * Pode ser usada diretamente como `resolveUser: identityToUser`.
+ * Use em `resolveUser: async (identity) => identityToUser(identity)` (`resolveUser` devolve uma promise).
  */
 export function identityToUser(identity: Identity): ClaimsUser {
   return {
