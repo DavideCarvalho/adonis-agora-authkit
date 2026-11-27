@@ -19,24 +19,25 @@ pnpm add @adonis-agora/authkit-react
 
 A shared-prop tem o formato `AuthSharedProps`. Use `authkit.getUser()` /
 `authkit.identity` do `@adonis-agora/authkit-client` para preenchê-la — tipicamente
-num middleware ou no `config/inertia.ts` (`sharedData`):
+no método `share()` do middleware Inertia do app:
 
 ```ts
-// config/inertia.ts
-import { defineConfig } from '@adonisjs/inertia'
+// app/middleware/inertia_middleware.ts (trecho)
+import type { HttpContext } from '@adonisjs/core/http'
+import BaseInertiaMiddleware from '@adonisjs/inertia/inertia_middleware'
 
-export default defineConfig({
-  sharedData: {
-    authkit: async (ctx) => {
-      const authkit = ctx.authkit // sua instância do Authenticator
-      const user = await authkit.getUser() // mesmo shape de identityToUser/resolveUser
-      return {
-        user: user ?? null,
+export default class InertiaMiddleware extends BaseInertiaMiddleware {
+  async share(ctx: HttpContext) {
+    const authkit = ctx.authkit // sua instância do Authenticator
+    const user = await authkit.getUser() // mesmo shape de identityToUser/resolveUser
+    return {
+      authkit: {
+        user: user ? { ...user } : null, // um objeto simples: props do Inertia são JSON
         globalRoles: authkit.identity?.globalRoles ?? [],
-      }
-    },
-  },
-})
+      },
+    }
+  }
+}
 ```
 
 O objeto `user` deve corresponder ao tipo `AuthUser`:

@@ -507,10 +507,12 @@ If your UI uses `@adonis-agora/authkit-react`, its `useAuth()` reads a single In
 prop named `authkit`. `toSharedProps()` builds exactly that object — `{ user, globalRoles }`,
 or `null` when there is no session:
 
-```ts title="config/inertia.ts"
-sharedData: {
-  authkit: (ctx) => ctx.authkit.toSharedProps(),
-},
+```ts title="app/middleware/inertia_middleware.ts"
+async share(ctx: HttpContext) {
+  return {
+    authkit: await ctx.authkit.toSharedProps(),
+  };
+}
 ```
 
 [React](/docs/react) covers the frontend half.

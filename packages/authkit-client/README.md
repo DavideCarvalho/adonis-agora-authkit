@@ -124,7 +124,8 @@ Sem FK cross-schema possível. Como o IdP emite um **ID token "gordo"**
 ```ts
 import { identityToUser } from '@adonis-agora/authkit-client'
 
-resolveUser: identityToUser, // { id, email, name?, avatarUrl?, globalRoles }
+// resolveUser precisa devolver uma promise
+resolveUser: async (identity) => identityToUser(identity), // { id, email, name?, avatarUrl?, globalRoles }
 ```
 Pra dados além do que o token carrega, use o resolver de userinfo (busca no
 endpoint `${issuer}/me` com o access token; faz fallback pra claims sem token):

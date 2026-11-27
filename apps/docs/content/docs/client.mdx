@@ -200,7 +200,8 @@ skip the round-trip entirely:
 ```ts
 import { identityToUser } from "@adonis-agora/authkit-client";
 
-resolveUser: identityToUser;
+// resolveUser must return a promise
+resolveUser: async (identity) => identityToUser(identity),
 ```
 
 It returns a `ClaimsUser`: `{ id, email, name?, avatarUrl?, globalRoles }`.
@@ -635,16 +636,20 @@ Without the declaration, `ctx.authkit.getUser()` returns `unknown`.
 
 Frontends need the same three facts on every page — is anyone signed in, who, and what
 global roles do they carry. `toSharedProps()` assembles exactly the object
-`@adonis-agora/authkit-react` consumes, so the Inertia share is one line:
+`@adonis-agora/authkit-react` consumes, so the Inertia share is one line in the `share()`
+method of your app's Inertia middleware:
 
-```ts title="config/inertia.ts"
-import { defineConfig } from "@adonisjs/inertia";
+```ts title="app/middleware/inertia_middleware.ts"
+import type { HttpContext } from "@adonisjs/core/http";
+import BaseInertiaMiddleware from "@adonisjs/inertia/inertia_middleware";
 
-export default defineConfig({
-  sharedData: {
-    authkit: (ctx) => ctx.authkit.toSharedProps(),
-  },
-});
+export default class InertiaMiddleware extends BaseInertiaMiddleware {
+  async share(ctx: HttpContext) {
+    return {
+      authkit: await ctx.authkit.toSharedProps(),
+    };
+  }
+}
 ```
 
 It returns `null` when there is no session, and `{ user, globalRoles }` when there is —

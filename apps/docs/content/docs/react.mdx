@@ -34,17 +34,20 @@ flows.
 
 The React side reads a single shared-prop named `authkit`. You do not have to assemble it:
 the request `Authenticator` from `@adonis-agora/authkit-client` builds exactly the object
-the frontend expects.
+the frontend expects. Share it from the `share()` method of your app's Inertia middleware:
 
-```ts title="config/inertia.ts"
-import { defineConfig } from "@adonisjs/inertia";
+```ts title="app/middleware/inertia_middleware.ts"
+import type { HttpContext } from "@adonisjs/core/http";
+import BaseInertiaMiddleware from "@adonisjs/inertia/inertia_middleware";
 
-export default defineConfig({
-  sharedData: {
-    // ctx.authkit carries the AuthKit-only data next to ctx.auth
-    authkit: (ctx) => ctx.authkit.toSharedProps(),
-  },
-});
+export default class InertiaMiddleware extends BaseInertiaMiddleware {
+  async share(ctx: HttpContext) {
+    return {
+      // ctx.authkit carries the AuthKit-only data next to ctx.auth
+      authkit: await ctx.authkit.toSharedProps(),
+    };
+  }
+}
 ```
 
 `toSharedProps()` resolves the session and returns `{ user, globalRoles }` — where `user` is
@@ -58,11 +61,12 @@ one-liner above is safe as written. In development it does log a warning when th
 absent — if you would rather be explicit about the anonymous case (and keep the console
 quiet), collapse `null` into an empty state yourself:
 
-```ts title="config/inertia.ts"
-sharedData: {
-  authkit: async (ctx) =>
-    (await ctx.authkit.toSharedProps()) ?? { user: null, globalRoles: [] },
-},
+```ts title="app/middleware/inertia_middleware.ts"
+async share(ctx: HttpContext) {
+  return {
+    authkit: (await ctx.authkit.toSharedProps()) ?? { user: null, globalRoles: [] },
+  };
+}
 ```
 
 The shared `user` must be serialisable and match `AuthUser`:
