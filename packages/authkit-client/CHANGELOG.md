@@ -1,5 +1,11 @@
 # @adonis-agora/authkit-client
 
+## 1.1.0
+
+### Minor Changes
+
+- [#564](https://github.com/DavideCarvalho/adonis-agora-authkit/pull/564) [`e1cfc15`](https://github.com/DavideCarvalho/adonis-agora-authkit/commit/e1cfc1524bb649a948d7cdd4043312d13a7e2d34) Thanks [@DavideCarvalho](https://github.com/DavideCarvalho)! - Add `tenantOf(resource)` to the `authkit.client` binding: the control-plane URL (discovered from the issuer, like `controlPlaneUrl`), a cached service token for the resource (the `service` client credentials, like `authkitTenantToken`, with `reset()`) and the partition (`service.partition`, new and optional, else `service.name`). Agora libraries in `topology: 'tenant'` use it so `defineConfig({ topology: 'tenant' })` is enough when `service` is configured. Throws `TenantOfConfigError` (`E_AUTHKIT_SERVICE_NOT_CONFIGURED`) naming the config line when `service` or its credentials are missing.
+
 ## 1.0.0
 
 ### Major Changes
