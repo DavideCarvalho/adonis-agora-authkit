@@ -46,15 +46,16 @@ primary_packages:
       headless hooks (useSignIn/useSignOut), account query options, ready
       components (UserButton/UserProfile/AuthorizedApps).
 
-# Packages NOT given their own skills — summarized inside server/client skills
-# or listed in gaps (decision recorded in skill_spec.md).
+# Add-on packages with one small skill each (skills ship per package; see
+# skill_spec.md). authkit-core has no skill (coverage.ignored_packages).
 secondary_packages:
-  - "@adonis-agora/authkit-core" # shared contracts/types; no runtime; indirect dep
-  - "@adonis-agora/authkit-sdk" # backend Admin API SDK (remote/embedded drivers)
-  - "@adonis-agora/authkit-testing" # test helpers (mintTestIdToken, fakeAuthenticator...)
-  - "@adonis-agora/authkit-vault-aws"
-  - "@adonis-agora/authkit-vault-azure"
-  - "@adonis-agora/authkit-vault-gcp"
+  - "@adonis-agora/authkit-core" # shared contracts/types; no runtime; indirect dep — ignored
+  - "@adonis-agora/authkit-sdk" # skill authkit-sdk (Admin API SDK, remote/embedded drivers)
+  - "@adonis-agora/authkit-testing" # skill authkit-testing (mintTestIdToken, fakeAuthenticator...)
+  - "@adonis-agora/authkit-poppy" # skill authkit-poppy (Personal Agent Protocol extension)
+  - "@adonis-agora/authkit-vault-aws" # skill authkit-vault-aws (jwks.store aws-secrets-manager)
+  - "@adonis-agora/authkit-vault-azure" # skill authkit-vault-azure (jwks.store azure-key-vault)
+  - "@adonis-agora/authkit-vault-gcp" # skill authkit-vault-gcp (jwks.store gcp-secret-manager)
 
 domains:
   - id: idp-setup

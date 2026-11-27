@@ -20,7 +20,8 @@
     "poppy",
     "personal-agent-protocol",
     "oauth2",
-    "dpop"
+    "dpop",
+    "tanstack-intent"
   ],
   "publishConfig": {
     "access": "public"
@@ -30,6 +31,7 @@
   "types": "./build/index.d.ts",
   "files": [
     "build",
+    "skills",
     "CHANGELOG.md"
   ],
   "exports": {
@@ -63,6 +65,7 @@
     "@japa/assert": "catalog:",
     "@japa/runner": "catalog:",
     "@poppinss/ts-exec": "catalog:",
+    "@tanstack/intent": "0.5.6",
     "@types/ioredis-mock": "8.2.8",
     "@types/node": "catalog:adonis",
     "better-sqlite3": "13.0.3",

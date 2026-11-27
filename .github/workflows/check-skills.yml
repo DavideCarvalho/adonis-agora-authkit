@@ -1,111 +1,57 @@
-# check-skills.yml — Drop this into your library repo's .github/workflows/
+# check-skills.yml — copied by `intent maintainer setup` into .github/workflows/
 #
-# Validates intent skills on PRs. After a release or manual run, opens or
-# updates one review PR when existing skills, artifact coverage, or workspace
-# package coverage need review.
+# Validates intent skills and recorded source reviews on pull requests. After a
+# release or manual run, writes a read-only report when guidance needs review.
+# To enable the isolated PR publisher, set the repository Actions variable
+# INTENT_REVIEW_PULL_REQUESTS to true. No write job runs by default.
 #
-# Triggers: pull requests touching skills/artifacts, new release published, or
-# manual workflow_dispatch.
+# The steps live in TanStack/intent's reusable workflows, pinned below to the
+# commit of the Intent release that copied this file. Dependabot and Renovate
+# bump the pin like any other action reference; a `github-actions` entry in
+# .github/dependabot.yml is enough. Each job grants only the permissions its
+# workflow needs, and Intent runs from this repository's own lockfile-pinned
+# copy of @tanstack/intent.
 #
-# intent-workflow-version: 3
+# intent-workflow-version: 6
 #
 # Template variables (replaced by `intent setup`):
-#   @adonis-agora/authkit-server — e.g. @tanstack/query or my-workspace workspace
+#   adonis-authkit — e.g. @tanstack/query or my-workspace workspace
+#   b9f205d69ba2bec93954508ff76281ae2178062c # v0.5.6 — the immutable commit packaged with this Intent release
 
 name: Check Skills
 
 on:
-  pull_request:
-    paths:
-      - 'skills/**'
-      - '**/skills/**'
-      - '_artifacts/**'
-      - '**/_artifacts/**'
+  pull_request: {}
   release:
     types: [published]
   workflow_dispatch: {}
 
-permissions:
-  contents: write
-  pull-requests: write
+permissions: {}
 
 jobs:
   validate:
-    name: Validate intent skills
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7.0.1
-
-      - name: Setup Node
-        uses: actions/setup-node@v7.1.0
-        with:
-          node-version: 24.22.3
-
-      - name: Install intent
-        run: npm install -g @tanstack/intent
-
-      - name: Validate skills
-        run: intent validate --github-summary
+    permissions:
+      contents: read
+    uses: TanStack/intent/.github/workflows/check-skills.yml@b9f205d69ba2bec93954508ff76281ae2178062c # v0.5.6
+    with:
+      artifacts: ''
+      repair: true
+      node-version: '24.22.3'
 
   review:
-    name: Check intent skill coverage
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7.0.1
-        with:
-          fetch-depth: 0
+    permissions:
+      contents: read
+    uses: TanStack/intent/.github/workflows/review-skills.yml@b9f205d69ba2bec93954508ff76281ae2178062c # v0.5.6
+    with:
+      package-label: '@adonis-agora/authkit-server'
+      node-version: '24.22.3'
 
-      - name: Setup Node
-        uses: actions/setup-node@v7.1.0
-        with:
-          node-version: 24.22.3
-
-      - name: Install intent
-        run: npm install -g @tanstack/intent
-
-      - name: Check skills
-        id: stale
-        run: |
-          intent stale --github-review --package-label "@adonis-agora/authkit-server"
-
-      - name: Open or update review PR
-        if: steps.stale.outputs.has_review == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${{ github.event.release.tag_name || 'manual' }}"
-          BRANCH="skills/review-${VERSION}"
-          BASE_BRANCH="${{ github.event.repository.default_branch }}"
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git fetch origin "$BRANCH" || true
-          if git show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
-            git checkout -B "$BRANCH" "origin/$BRANCH"
-          else
-            # Branch off the base, not the checked-out commit. On a `release`
-            # event that commit is the tag, so any workflow file changed since
-            # then would ride along -- and GITHUB_TOKEN may not write under
-            # .github/workflows, which rejects the push. The commit is empty;
-            # the branch exists only to hang the PR on.
-            git fetch origin "$BASE_BRANCH"
-            git checkout -B "$BRANCH" "origin/$BASE_BRANCH"
-            git commit --allow-empty -m "chore: review intent skills for ${VERSION}"
-            git push origin "$BRANCH"
-          fi
-
-          PR_URL="$(gh pr list --head "$BRANCH" --json url --jq '.[0].url')"
-          if [ -n "$PR_URL" ]; then
-            gh pr edit "$PR_URL" --body-file pr-body.md
-          else
-            gh pr create \
-              --title "Review intent skills (${VERSION})" \
-              --body-file pr-body.md \
-              --head "$BRANCH" \
-              --base "$BASE_BRANCH"
-          fi
+  publish-review:
+    needs: review
+    if: vars.INTENT_REVIEW_PULL_REQUESTS == 'true' && needs.review.outputs.has-review == 'true'
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: TanStack/intent/.github/workflows/publish-skill-review.yml@b9f205d69ba2bec93954508ff76281ae2178062c # v0.5.6

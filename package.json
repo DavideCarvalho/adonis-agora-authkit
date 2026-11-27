@@ -29,6 +29,7 @@
     "@biomejs/biome": "2.6.8",
     "@changesets/changelog-github": "1.0.1",
     "@changesets/cli": "3.0.3",
+    "@tanstack/intent": "0.5.6",
     "publint": "0.3.25",
     "typescript": "7.0.2",
     "yaml": "2.9.1"

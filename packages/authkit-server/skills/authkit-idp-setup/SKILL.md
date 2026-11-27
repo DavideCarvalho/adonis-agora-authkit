@@ -6,8 +6,8 @@ description: >-
   defineConfig({ issuer, adapter, jwks, ttl, globalRolesClaim, accountStore }) with
   adapters.redis({ connection }) vs adapters.database({ connection?, schema? }),
   lucidAccountStore(AuthUser), JWKS management ({ source: 'managed' | 'jwks' } or
-  'auto', keystore store file/drive/lucid/redis/hashicorp vaults plus
-  @adonis-agora/authkit-vault-aws/azure/gcp createKeystoreVault add-ons),
+  'auto', keystore store file/drive/lucid/redis/hashicorp-vault drivers plus the
+  @adonis-agora/authkit-vault-aws/azure/gcp cloud driver add-ons),
   registerOidcRoutes(router, { mountPath?, metrics?, dashboard? }), mounting consoles
   via registerAuthHost(router, { admin, adminApi, account... }) or config.routes,
   and AUTHKIT_ISSUER / observability env. Use when booting an IdP app, wiring
@@ -119,10 +119,11 @@ blob lives); `{ source: 'jwks', keys }` supplies keys inline.
 
 The managed keystore's `store` accepts a path shortcut (`store: 'tmp/keystore.json'`)
 or `{ driver: ... }`: built-in vaults are `file`, `drive` (a `@adonisjs/drive` disk),
-`lucid` (table created on first write; `schema` overrides, default `schema.name`), `redis`, and `hashicorp`; for cloud secret
-managers install the add-ons `@adonis-agora/authkit-vault-aws` / `-azure` / `-gcp`
-and pass their `createKeystoreVault(...)` result as `store` (any object with a
-`read()` method is accepted). With no `store` and `@adonisjs/lucid` configured, the keystore
+`lucid` (table created on first write; `schema` overrides, default `schema.name`), `redis`, and `hashicorp-vault`; for cloud secret
+managers install the add-on (`@adonis-agora/authkit-vault-aws` / `-azure` / `-gcp`) plus its
+SDK peer and select it by driver (`aws-secrets-manager` / `azure-key-vault` /
+`gcp-secret-manager`) — the server lazy-imports the package on first keystore I/O (each
+add-on ships its own skill). With no `store` and `@adonisjs/lucid` configured, the keystore
 defaults to `{ driver: 'lucid' }` (shared by every process, kept across restarts); without
 Lucid, or with `store: false`, keys are ephemeral per process and per boot (the doctor flags it
 as an error in production).
@@ -212,17 +213,17 @@ Source: `src/define_config.ts` (`routes` JSDoc: "duplo registro ... derrubam o b
 
 ### HIGH — `jwks: 'auto'` in production without AUTHKIT_JWKS
 
-```ts
+```ts no-check
 // Wrong — prod deploy with no AUTHKIT_JWKS env: falls back to a file keystore in tmp/
 jwks: 'auto'
 ```
 
-```ts
+```ts no-check
 // Correct — explicit managed keystore persisted in a durable vault for prod
 jwks: {
   source: 'managed',
   algorithm: 'RS256',
-  store: { driver: 'lucid' }, // or redis/drive/hashicorp/vault add-on
+  store: { driver: 'lucid' }, // or redis/drive/hashicorp-vault/cloud vault add-on
 }
 ```
 

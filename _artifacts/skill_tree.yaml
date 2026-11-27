@@ -41,3 +41,65 @@ skills:
     summary: The `authkit` shared prop, useAuth() semantics and role helpers,
       Authenticated/Guest gating, AuthkitProvider config + idp:'external'
       degradation, host wiring via sharedData.
+
+  - name: authkit-sdk
+    type: core
+    package: "@adonis-agora/authkit-sdk"
+    path: packages/authkit-sdk/skills/authkit-sdk/SKILL.md
+    library_version: "1.0.0"
+    summary: createAuthkit remote/embedded and the direct factories, enabling the
+      server Admin API (adminApi.apiKeys 'env', prefix match), users/clients/orgs
+      provisioning, audit cursor paging, keys.status/rotate, tokens.verify, and
+      AuthkitApiError (remote) vs plain Error (embedded).
+
+  - name: authkit-testing
+    type: core
+    package: "@adonis-agora/authkit-testing"
+    path: packages/authkit-testing/skills/authkit-testing/SKILL.md
+    library_version: "1.0.1"
+    summary: createTestIdentity, fakeAuthenticator on ctx.authkit (anonymous via
+      identity:null, ctx.auth through authkitClientGuard), fakeAccountStore capability
+      flags plus overrides, mintTestIdToken + serveJwks + resolvers.jwt (tokenSource
+      'bearer', iss/aud/globalRolesClaim matching, close the served JWKS).
+
+  - name: authkit-poppy
+    type: core
+    package: "@adonis-agora/authkit-poppy"
+    path: packages/authkit-poppy/skills/authkit-poppy/SKILL.md
+    library_version: "1.0.0"
+    summary: poppy() as a personalAgents.extensions entry (organization/scopes/signIn
+      direct-device-mediated/poppyEmailCodeSignIn/replay/rateLimit), configure only
+      prints POPPY_CONFIG_SNIPPET, ensurePoppySchema, protecting routes with
+      poppyAuth/poppyOf/verifyPoppyRequest, replay-store and CSRF gotchas.
+
+  - name: authkit-vault-aws
+    type: core
+    package: "@adonis-agora/authkit-vault-aws"
+    path: packages/authkit-vault-aws/skills/authkit-vault-aws/SKILL.md
+    library_version: "1.0.0"
+    summary: jwks.store driver 'aws-secrets-manager' (secretId, region) lazy-loaded by
+      the server, SDK peer install, credential chain + IAM actions, auto-create on
+      first write, encrypt default OFF, backend seam for tests.
+
+  - name: authkit-vault-azure
+    type: core
+    package: "@adonis-agora/authkit-vault-azure"
+    path: packages/authkit-vault-azure/skills/authkit-vault-azure/SKILL.md
+    library_version: "1.0.0"
+    summary: jwks.store driver 'azure-key-vault' (vaultUrl, secretName) lazy-loaded by
+      the server, both SDK peers, DefaultAzureCredential + Get/Set (Secrets Officer),
+      auto-create on first write, encrypt default OFF, backend seam for tests.
+
+  - name: authkit-vault-gcp
+    type: core
+    package: "@adonis-agora/authkit-vault-gcp"
+    path: packages/authkit-vault-gcp/skills/authkit-vault-gcp/SKILL.md
+    library_version: "1.0.0"
+    summary: jwks.store driver 'gcp-secret-manager' (full secret resource name)
+      lazy-loaded by the server, SDK peer, ADC + secretVersionManager, secret must be
+      pre-created (versions only), encrypt default OFF, backend seam for tests.
+
+coverage:
+  ignored_packages:
+    - name: "@adonis-agora/authkit-core"
+      reason: "Shared types/contracts with no runtime, installed transitively by server and client; their skills cover its types."
