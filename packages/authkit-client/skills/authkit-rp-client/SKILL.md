@@ -17,7 +17,7 @@ license: MIT
 metadata:
   type: core
   library: "@adonis-agora/authkit-client"
-  library_version: "0.18.0"
+  library_version: "1.1.1"
   framework: adonisjs
 sources:
   - "DavideCarvalho/adonis-authkit:packages/authkit-client/README.md"

@@ -16,7 +16,7 @@ license: MIT
 metadata:
   type: core
   library: "@adonis-agora/authkit-react"
-  library_version: "0.20.0"
+  library_version: "1.0.1"
   framework: react
 sources:
   - "DavideCarvalho/adonis-authkit:packages/authkit-react/README.md"
