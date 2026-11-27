@@ -1,9 +1,9 @@
 # Skill spec — adonis-authkit (autonomous pass)
 
-ONE domain map (see `_artifacts/domain_map.yaml`) covers the whole monorepo. Skills
-are scoped to the 3 consumer-facing packages; `authkit-core`, `authkit-sdk`,
-`authkit-testing` and the `authkit-vault-*` add-ons are intentionally out of scope
-(see Scope decision and Remaining Gaps).
+ONE domain map (see `_artifacts/domain_map.yaml`) covers the whole monorepo. The 3
+consumer-facing packages carry the main skills; the add-on packages (`authkit-sdk`,
+`authkit-testing`, `authkit-poppy`, `authkit-vault-aws/-azure/-gcp`) each ship one small
+skill. `authkit-core` is listed in `coverage.ignored_packages` (types only).
 
 ## Scope decision
 
@@ -13,32 +13,33 @@ are scoped to the 3 consumer-facing packages; `authkit-core`, `authkit-sdk`,
 | `@adonis-agora/authkit-client` (0.18.0) | 1 | The relying-party side: one skill covers config, resolvers, middleware ordering and session consumption end-to-end. |
 | `@adonis-agora/authkit-react` (0.20.0) | 1 | Frontend ergonomics: `useAuth()` + gating + `AuthkitProvider` form one coherent surface. |
 
-Total: 4 SKILL.md files (right-sized within the ~5–7 budget; the server's two
-domains are the only ones with distinct developer moments worth splitting). Flat
+Main packages: 4 SKILL.md files (the server's two domains are the only ones with
+distinct developer moments worth splitting), plus one skill per add-on package below
+(10 total). Flat
 structure (`packages/<pkg>/skills/<skill>/SKILL.md`),
 all `metadata.type: core`, `router: false` (the `intent list` CLI is the discovery
 surface; <15 skills).
 
-### Vault providers & testing utilities — summarized, not split out (recorded decision)
+### Add-on packages — one skill each (revised decision)
 
-Per task constraints, the vault provider add-ons (`@adonis-agora/authkit-vault-aws`,
-`-azure`, `-gcp`, each exporting `createKeystoreVault` over a `SecretBackend`) and the
-testing package (`@adonis-agora/authkit-testing`: `createTestIdentity`,
-`mintTestIdToken`, `serveJwks`, `fakeAuthenticator`, `fakeAccountStore`) do NOT get
-their own skills. They are summarized inside the server skills:
+Skills ship inside the package that owns them, so an agent that installs only an add-on
+never sees guidance kept in `authkit-server`. Each add-on therefore gets one small skill:
 
-- The **keystore vault surface** (`jwks.store`: `file` / `drive` / `lucid` / `redis` /
-  `hashicorp` built-ins via `resolveKeystoreVault`, plus the three cloud add-ons and
-  the "pass any object with `read()`" SPI) is summarized in `authkit-idp-setup`
-  (it is a config-surface concern of `defineConfig`).
-- The **testing utilities** are summarized in `authkit-interactions`
-  (the skill where an agent most often needs to test the login flow end-to-end:
-  `mintTestIdToken` + `serveJwks` + `fakeAuthenticator` are the building blocks).
+| Package | Skill | Why |
+|---|---|---|
+| `@adonis-agora/authkit-sdk` | `authkit-sdk` | Two drivers, Admin API enablement/prefix match, driver-specific errors. |
+| `@adonis-agora/authkit-testing` | `authkit-testing` | Fakes on `ctx.authkit`, `tokenSource: 'bearer'` for minted tokens, JWKS server lifecycle. |
+| `@adonis-agora/authkit-poppy` | `authkit-poppy` | Extension wiring, `poppyAuth` routes, replay store and CSRF gotchas. |
+| `@adonis-agora/authkit-vault-aws` | `authkit-vault-aws` | Driver config, SDK peer, IAM. |
+| `@adonis-agora/authkit-vault-azure` | `authkit-vault-azure` | Driver config, two SDK peers, RBAC. |
+| `@adonis-agora/authkit-vault-gcp` | `authkit-vault-gcp` | Driver config, secret must pre-exist, IAM. |
+| `@adonis-agora/authkit-core` | — (ignored) | Shared types, no runtime, transitive dependency. |
 
-Rationale: each add-on's public surface is one function; a dedicated skill per
-add-on would be a single-pattern file and dilute routing. If the vaults grow
-config surfaces (per-provider auth, caching, key labels), revisit with one
-`authkit-vault-providers` skill.
+The three vault skills share a shape (driver selected in `jwks.store`, lazy import by
+the server, `backend` test seam, encrypt default OFF) but differ in peers, credentials
+and whether the secret is auto-created. `authkit-idp-setup` keeps a one-paragraph
+summary of every `store` driver and points at the add-on skills; `authkit-interactions`
+keeps a short testing pattern and points at `authkit-testing`.
 
 ## Skills
 
@@ -98,8 +99,6 @@ config surfaces (per-provider auth, caching, key labels), revisit with one
 - **`verifyCredentials` ↔ `accountStore` contract** — whether custom credentials
   sources must resolve the same identity the accountStore serves is inferred, not stated.
 - **`resolveUser` topology recommendation** for new client apps is not documented.
-- **authkit-sdk, authkit-testing, authkit-core, authkit-vault-\*** have no dedicated
-  skills (scope decision above); their workflows were only summarized.
 - **No GitHub issue mining** — real-world failure modes are inferred from code
   comments, READMEs and config JSDoc, not observed reports.
 - **Docs site is "coming soon"** — `apps/docs` exists in-repo but was not mined this

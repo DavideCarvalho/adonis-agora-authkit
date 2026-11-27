@@ -3,8 +3,10 @@
 # it can go out of date, so this checks them here rather than after the release.
 #
 # `intent stale` cannot cover this case: it compares the skill's library_version
-# against package.json, and the version only moves when `changeset version` runs
-# during the release. check-skills.yml still handles that drift.
+# against package.json, and package.json only moves when `changeset version` runs
+# during the release. Nothing bumps library_version automatically: a maintainer
+# sets it by hand after reviewing the skill. After each release, check-skills.yml
+# runs `intent stale` and opens a "Review intent skills" PR when the two drift.
 
 name: Skills follow the API
 
@@ -75,7 +77,9 @@ jobs:
           a stale one.
 
           Do not rewrite a skill wholesale, do not add new skills, do not edit
-          `library_version` (the release sets that), and do not touch files
+          `library_version` (a maintainer bumps it by hand once the skill is
+          reviewed against a release; check-skills.yml opens a "Review intent
+          skills" PR when it lags package.json), and do not touch files
           outside packages/*/skills/.
 
           If nothing in the skills contradicts these changesets, change nothing

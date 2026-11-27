@@ -79,7 +79,7 @@ Source: `packages/authkit-react/README.md` §§ 1–2.
 
 ### Pattern 1 — role gating with `Authenticated` / `Guest`
 
-```tsx
+```tsx no-check
 import { Authenticated, Guest } from '@adonis-agora/authkit-react'
 
 <Authenticated fallback={<LoginButton />}>
@@ -127,7 +127,6 @@ Account API, so they also need `QueryClientProvider` + `AuthkitClientProvider`.
 typed client's mutations:
 
 ```tsx
-import '@adonis-agora/authkit-react/styles.css'
 import { QueryClientProvider } from '@tanstack/react-query'
 import {
   AuthkitClientProvider,
@@ -140,16 +139,22 @@ import {
 
 const queryClient = createAuthkitQueryClient()
 
-<QueryClientProvider client={queryClient}>
-  <AuthkitClientProvider opts={{ csrfToken: page.props.csrfToken }}>
-    <AuthkitProvider config={{ csrfToken: page.props.csrfToken }}>
-      <UserButton />
-      <UserProfile />
-      <AuthorizedApps />
-    </AuthkitProvider>
-  </AuthkitClientProvider>
-</QueryClientProvider>
+export function Account({ csrfToken }: { csrfToken: string }) {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthkitClientProvider opts={{ csrfToken }}>
+        <AuthkitProvider config={{ csrfToken }}>
+          <UserButton />
+          <UserProfile />
+          <AuthorizedApps />
+        </AuthkitProvider>
+      </AuthkitClientProvider>
+    </QueryClientProvider>
+  )
+}
 ```
+
+Import the stylesheet once in the app entry: `import '@adonis-agora/authkit-react/styles.css'`.
 
 Admin screens also pass the admin base: `opts={{ baseUrl: '/admin/api', csrfToken }}`.
 Account-only screens work with the default `/account/api` base and need no `baseUrl`.
@@ -185,7 +190,7 @@ Source: `src/config.ts` (`AuthkitIdpMode` JSDoc).
 export default defineConfig({ sharedData: {} })
 ```
 
-```ts
+```ts no-check
 // Correct — share { user, globalRoles } under the `authkit` key
 sharedData: {
   authkit: async (ctx) => {
@@ -206,12 +211,12 @@ Source: `src/use_auth.ts` (fallback + warn), README § 1.
 
 ### MEDIUM — Feeding a user object that does not match `AuthUser`
 
-```ts
+```ts no-check
 // Wrong — raw token claims passed as the user
-sharedData: { authkit: async (ctx) => ({ user: await ctx.authkit.getIdentity() }) }
+sharedData: { authkit: async (ctx) => ({ user: ctx.authkit.identity }) }
 ```
 
-```ts
+```ts no-check
 // Correct — resolveUser/identityToUser output satisfies AuthUser
 const user = await ctx.authkit.getUser()
 return { user: user ?? null, globalRoles: ctx.authkit.identity?.globalRoles ?? [] }
@@ -226,7 +231,7 @@ tipo `AuthUser`").
 
 ### MEDIUM — Expecting `<Can>` / permission gating here
 
-```tsx
+```tsx expect-error=TS2305
 // Wrong — looking for app-permission gating in authkit-react
 import { Can } from '@adonis-agora/authkit-react' // not exported
 ```

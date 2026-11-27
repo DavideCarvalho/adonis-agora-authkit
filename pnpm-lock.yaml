@@ -308,6 +308,9 @@ importers:
       '@changesets/cli':
         specifier: 3.0.3
         version: 3.0.3
+      '@tanstack/intent':
+        specifier: 0.5.6
+        version: 0.5.6
       publint:
         specifier: 0.3.25
         version: 0.3.25
@@ -482,6 +485,9 @@ importers:
       '@poppinss/ts-exec':
         specifier: 'catalog:'
         version: 1.5.2(@swc/helpers@0.5.23)
+      '@tanstack/intent':
+        specifier: 0.5.6
+        version: 0.5.6
       '@types/ioredis-mock':
         specifier: 8.2.8
         version: 8.2.8(ioredis@5.11.1(supports-color@10.2.2))
@@ -577,6 +583,9 @@ importers:
       '@poppinss/ts-exec':
         specifier: 'catalog:'
         version: 1.5.2(@swc/helpers@0.5.23)
+      '@tanstack/intent':
+        specifier: 0.5.6
+        version: 0.5.6
       '@types/node':
         specifier: catalog:adonis
         version: 26.6.6
@@ -816,6 +825,9 @@ importers:
       '@poppinss/ts-exec':
         specifier: 'catalog:'
         version: 1.5.2(@swc/helpers@0.5.23)
+      '@tanstack/intent':
+        specifier: 0.5.6
+        version: 0.5.6
       '@types/node':
         specifier: catalog:adonis
         version: 26.6.6
@@ -841,6 +853,9 @@ importers:
       '@poppinss/ts-exec':
         specifier: 'catalog:'
         version: 1.5.2(@swc/helpers@0.5.23)
+      '@tanstack/intent':
+        specifier: 0.5.6
+        version: 0.5.6
       '@types/node':
         specifier: catalog:adonis
         version: 26.6.6
@@ -869,6 +884,9 @@ importers:
       '@poppinss/ts-exec':
         specifier: 'catalog:'
         version: 1.5.2(@swc/helpers@0.5.23)
+      '@tanstack/intent':
+        specifier: 0.5.6
+        version: 0.5.6
       '@types/node':
         specifier: catalog:adonis
         version: 26.6.6
@@ -894,6 +912,9 @@ importers:
       '@poppinss/ts-exec':
         specifier: 'catalog:'
         version: 1.5.2(@swc/helpers@0.5.23)
+      '@tanstack/intent':
+        specifier: 0.5.6
+        version: 0.5.6
       '@types/node':
         specifier: catalog:adonis
         version: 26.6.6

@@ -66,7 +66,7 @@ In all presets the ejected controller is a thin shell: the logic lives in
 It exposes `details(ctx)` (the prompt + params), `login(ctx, { email, password })`
 and `consent(ctx)`. You only edit the render/redirect parts:
 
-```ts
+```ts no-check
 // headless preset flavor — show() returns JSON, you build your own front
 async show({ request, response }) {
   const service = await this.ctx.containerResolver.make('authkit.server')
@@ -96,6 +96,7 @@ derives both):
 defineConfig({
   issuer: env.get('AUTHKIT_ISSUER'),
   adapter: adapters.redis({ connection: 'main' }),
+  jwks: 'auto',
   accountStore: {
     ...lucidAccountStore(AuthUser),
     verifyCredentials: async (email, password) => {
@@ -127,6 +128,7 @@ import { defineConfig, inertiaRenderer } from '@adonis-agora/authkit-server'
 defineConfig({
   issuer: env.get('AUTHKIT_ISSUER'),
   adapter: adapters.database(),
+  jwks: 'auto', // required by AuthServerConfigInput
   accountStore: lucidAccountStore(AuthUser),
   // `views` is required: only listed screens render as Inertia pages.
   // Any other screen falls back to the built-in Edge view.
@@ -181,7 +183,7 @@ const { token, jwks } = await mintTestIdToken({
 })
 
 const served = await serveJwks(jwks)
-const factory = resolvers.jwt({ jwksUri: served.jwksUri })
+const factory = resolvers.jwt({ jwksUri: served.jwksUri, tokenSource: 'bearer' })
 const resolver = await factory.resolver({
   issuer: 'https://idp.test',
   clientId: 'my-app',
@@ -190,14 +192,23 @@ const resolver = await factory.resolver({
   endpoints: async () => conventionEndpoints('https://idp.test'),
   logger: { warn: () => {} },
 })
-const ctx = { auth: fakeAuthenticator({ identity: null }) } // anonymous request fake
+const identity = await resolver.resolve({ request: { header: () => `Bearer ${token}` } } as any)
+
+// Controller tests: the fake stands in for the client Authenticator on ctx.authkit
+const ctx = { authkit: fakeAuthenticator({ identity: null }) } // anonymous request fake
 await served.close()
 ```
 
 Also available: `createTestIdentity(overrides?)` for valid `Identity` defaults,
 `fakeAccountStore({ withMfa: true, ... })` for capability-probed store fakes.
 
-Source: `packages/authkit-testing/README.md`.
+`resolvers.jwt` reads the session by default (`tokenSource: 'session'`); pass
+`tokenSource: 'bearer'` to resolve a minted token from the `Authorization` header.
+See `authkit-testing/SKILL.md` (shipped with `@adonis-agora/authkit-testing`) for the
+full testing surface.
+
+Source: `packages/authkit-testing/README.md`, `packages/authkit-testing/src/authenticator.ts`,
+`packages/authkit-client/src/resolvers/factory.ts` (`tokenSource ?? 'session'`).
 
 ## Common mistakes
 
@@ -225,14 +236,14 @@ o fluxo de autorização cai num 404 ao chegar na tela de login").
 
 ### HIGH — Writing login/consent logic inside the ejected controller shell
 
-```ts
+```ts no-check
 // Wrong — reimplementing prompt handling/grants in the ejected shell
 async consent(ctx) {
   // hand-rolling grant persistence against oidc-provider internals...
 }
 ```
 
-```ts
+```ts no-check
 // Correct — shell delegates; the service owns the flow
 async consent(ctx) {
   const service = await ctx.containerResolver.make('authkit.server')
