@@ -233,6 +233,13 @@ verifyTenant: authkitTenantVerifier({ issuer: env.get('AUTHKIT_ISSUER'), resourc
 registerAuthkitWebhook(router, { issuer: env.get('AUTHKIT_ISSUER') }) // Ed25519 via discovery, no secret; + csrf.exceptRoutes
 ```
 
+A lib in `topology: 'tenant'` (config, crypto, flags, telescope, durable, media, payments 1.1+)
+needs no `tenant` block when `service: { name, clientId, clientSecret, partition? }` is set in
+`config/authkit_client.ts`: it calls `tenantOf('urn:agora:<lib>')` on the `authkit.client` binding
+(`url` = `controlPlaneUrl`, `token` = `authkitTenantToken` with the service credentials,
+`partition` = `service.partition ?? service.name`). Explicit `tenant` fields win per field;
+`tenant: { auto: false }` disables it. Use the helpers above directly without `service`, or to override one field.
+
 `registerOidcClient` already announces `POST /auth/logout` as the consoles' sign-out (skipped
 when authkit-server runs in the app), the provider installs org labels (`orgLabels`), and
 `identity.actor` carries the impersonating admin (`act`). Resources are `urn:agora:<product>`;

@@ -226,9 +226,21 @@ verifyTenant: () => import('#tenants/verifier'),
 
 ### Tenant process
 
-The tenant process only needs `@adonis-agora/authkit-client`. `authkitTenantToken` fetches a
-token, caches it, refreshes it a minute before it expires, shares one request between
-concurrent callers, and backs off when AuthKit is unreachable:
+The tenant process only needs `@adonis-agora/authkit-client`. With `service` configured in
+`config/authkit_client.ts`, durable takes its token and partition from it and needs no `tenant`
+block (see [With `service` configured](#with-service-configured-nothing-to-write)):
+
+```ts title="config/durable.ts"
+export default defineConfig({
+  topology: 'tenant',
+  transport: 'redis',
+  // ...
+})
+```
+
+Without `service` (a tenant client of its own, or another IdP), pass the token yourself.
+`authkitTenantToken` fetches a token, caches it, refreshes it a minute before it expires, shares
+one request between concurrent callers, and backs off when AuthKit is unreachable:
 
 ```ts title="config/durable.ts"
 import env from '#start/env'
@@ -236,9 +248,10 @@ import { authkitTenantToken } from '@adonis-agora/authkit-client'
 
 export default defineConfig({
   topology: 'tenant',
-  partition: 'acme',
+  transport: 'redis',
   // ...
   tenant: {
+    partition: 'acme',
     token: authkitTenantToken({
       issuer: env.get('AUTHKIT_ISSUER'),
       clientId: env.get('DURABLE_TENANT_CLIENT_ID'),
@@ -276,8 +289,8 @@ export default class TenantCredentials extends AuthkitTenantToken {
 tenant: { token: () => import('#tenants/credentials') },
 ```
 
-Keep the partition in `config/durable.ts` the same as the client's: the control plane trusts the
-token, so a pod that claims another partition only gets its own.
+Keep the partition (`tenant.partition`, or `service.partition` / `service.name`) the same as the
+client's: the control plane trusts the token, so a pod that claims another partition only gets its own.
 
 ## Find the control planes
 
@@ -332,7 +345,10 @@ The lib asks the `authkit.client` binding for `tenantOf('urn:agora:telescope')`,
 | `token` | `authkitTenantToken({ issuer, clientId, clientSecret, resource })` with the `service` credentials: a token whose audience is the resource, cached until near expiry; `token.reset()` drops it. |
 | `partition` | `service.partition`, else `service.name`. Keep it equal to the client's partition. |
 
-Anything you set in the lib's `tenant` block wins, field by field. `tenantOf()` throws
+Anything you set in the lib's `tenant` block wins, field by field, and `tenant: { auto: false }`
+turns the detection off. A lib uses only the fields it has: durable takes `token` and
+`partition` (its tenants reach the control plane through their `transport`, not a URL), and
+payments fills `url` only when `tenant.transport` is not set. `tenantOf()` throws
 `TenantOfConfigError` (`E_AUTHKIT_SERVICE_NOT_CONFIGURED`), naming the `service` line to add,
 when `service` or its `clientId`/`clientSecret` is missing; libs only call it when they need it,
 so an app that uses authkit-client for login only is not affected.
@@ -346,7 +362,9 @@ const { url, token, partition } = authkit.tenantOf('urn:agora:telescope')
 
 ### The explicit form
 
-`controlPlaneUrl` from `@adonis-agora/authkit-client` gives a lazy URL for a config
+For a tenant client other than `service`, another IdP, or to override one field (a
+private-network `url`, say), set the `tenant` block yourself. `tenantOf` is built on two exports of
+`@adonis-agora/authkit-client` you can use directly. `controlPlaneUrl` gives a lazy URL for a config
 file. It fetches nothing until a lib calls it, then caches the discovery document (15 minutes):
 
 ```ts title="config/telescope.ts"
@@ -369,12 +387,6 @@ export default defineConfig({
   },
 })
 ```
-
-<Callout type="warn">
-A lib takes this lazy form only once it supports it in `tenant.url`. Until then, resolve the URL
-yourself with `await discoverControlPlane({ issuer, resource })`, for example in a provider's
-`boot()`.
-</Callout>
 
 | Call | Returns |
 | --- | --- |
