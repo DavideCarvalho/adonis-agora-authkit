@@ -112,7 +112,7 @@ catalogs:
     "@adonisjs/drive": "4.0.0"
     "@adonisjs/i18n": "3.0.1"
     "@adonisjs/inertia": "5.0.6"
-    "@adonisjs/limiter": "3.0.1"
+    "@adonisjs/limiter": "3.1.0"
     "@adonisjs/lock": "2.1.1"
     "@adonisjs/lucid": "22.4.2"
     "@adonisjs/lucid-slugify": "4.0.0"
