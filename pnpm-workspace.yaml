@@ -56,7 +56,7 @@ catalog:
   "hot-hook": "1.1.0"
   "i18next": "27.2.6"
   "i18next-icu": "2.7.1"
-  "ioredis": "6.0.0"
+  "ioredis": "6.1.0"
   "knex": "3.3.0"
   "luxon": "3.7.2"
   "mediabunny": "1.65.2"
