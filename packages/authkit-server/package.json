@@ -167,7 +167,7 @@
     "@types/react-dom": "catalog:frontend",
     "@vinejs/vine": "catalog:",
     "@vitejs/plugin-react": "catalog:",
-    "better-sqlite3": "13.0.3",
+    "better-sqlite3": "13.2.0",
     "class-variance-authority": "catalog:frontend",
     "clsx": "catalog:frontend",
     "cmdk": "catalog:frontend",
